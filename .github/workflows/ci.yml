@@ -20,3 +20,5 @@ jobs:
         run: ./sbt scalafmtCheckAll
       - name: Test
         run: ./sbt test
+      - name: Docs build
+        run: ./sbt docs/mdoc
