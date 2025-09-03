@@ -11,8 +11,17 @@ final class InMemoryBlobStore private (
 
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 
-  def read(key: BlockKey): IO[Throwable, Option[Bytes]] =
-    ref.get.map(_.get(key).map(ch => Bytes(ZStream.fromChunk(ch))))
+  def read(
+      key: BlockKey,
+      range: Option[ByteRange] = None
+  ): IO[Throwable, Option[Bytes]] =
+    ref.get.map(_.get(key).map { ch =>
+      val sliced = range match
+        case Some(ByteRange(start, end)) =>
+          ch.drop(start.toInt).take((end - start).toInt)
+        case None => ch
+      Bytes(ZStream.fromChunk(sliced))
+    })
 
   def write(key: BlockKey, data: Bytes): IO[Throwable, Unit] =
     data.runCollect.flatMap(ch => ref.update(_.updated(key, ch))).unit

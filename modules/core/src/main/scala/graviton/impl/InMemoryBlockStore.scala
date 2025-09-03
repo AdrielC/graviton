@@ -48,7 +48,10 @@ final class InMemoryBlockStore private (
         yield key
       }
 
-  def get(key: BlockKey): IO[Throwable, Option[Bytes]] =
+  def get(
+      key: BlockKey,
+      range: Option[ByteRange] = None
+  ): IO[Throwable, Option[Bytes]] =
     resolver.resolve(key).flatMap { sectors =>
       def loop(rem: Chunk[BlockSector]): IO[Throwable, Option[Bytes]] =
         rem.headOption match
@@ -57,7 +60,7 @@ final class InMemoryBlockStore private (
             stores.get(sec.blobStoreId) match
               case None => loop(rem.drop(1))
               case Some(store) =>
-                store.read(key).flatMap {
+                store.read(key, range).flatMap {
                   case None => loop(rem.drop(1))
                   case s    => ZIO.succeed(s)
                 }
