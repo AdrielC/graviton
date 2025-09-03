@@ -2,8 +2,9 @@ ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 
-lazy val zioV   = "2.1.20"
-lazy val ironV  = "3.2.0"
+lazy val zioV    = "2.1.20"
+lazy val ironV   = "3.2.0"
+lazy val zioAwsV = "7.32.31.2"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -40,7 +41,10 @@ lazy val s3 = project
   .dependsOn(core)
   .settings(
     name := "graviton-s3",
-    libraryDependencies += "software.amazon.awssdk" % "s3" % "2.25.59"
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-aws-s3"    % zioAwsV,
+      "dev.zio" %% "zio-aws-netty" % zioAwsV
+    )
   )
   .settings(commonSettings)
 
