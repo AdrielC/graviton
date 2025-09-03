@@ -11,6 +11,7 @@ Quasar and other applications.
 * **s3** – S3‑compatible blob store usable with AWS or MinIO.
 * **tika** – media type detection utilities backed by Apache Tika.
 * **metrics** – Prometheus instrumentation for core operations.
+* [Logging](logging.md) – structured logging with correlation IDs.
 * [Scan utilities](scan.md) – composable streaming transformers.
 
 See [architecture.md](architecture.md) for a high‑level overview of the storage
