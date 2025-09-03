@@ -3,6 +3,8 @@ package graviton
 import zio.*
 import zio.stream.*
 import zio.test.*
+import zio.test.TestClock
+import zio.durationInt
 import graviton.impl.*
 
 object BlockStoreSpec extends ZIOSpecDefault:
@@ -52,5 +54,28 @@ object BlockStoreSpec extends ZIOSpecDefault:
           .someOrFailException
           .flatMap(_.runCollect)
       yield assertTrue(new String(part.toArray) == "world")
+    },
+    test(
+      "gc removes unreferenced blocks after retention and preserves live data"
+    ) {
+      for
+        blob <- InMemoryBlobStore.make()
+        resolver <- InMemoryBlockResolver.make
+        store <- InMemoryBlockStore.make(blob, resolver)
+        key <- ZStream
+          .fromIterable("hello".getBytes.toIndexedSeq)
+          .run(store.put)
+        _ <- ZStream
+          .fromIterable("hello".getBytes.toIndexedSeq)
+          .run(store.put)
+        _ <- store.delete(key)
+        _ <- TestClock.adjust(1.second)
+        removed0 <- store.gc(GcConfig(1.second))
+        still <- store.has(key)
+        _ <- store.delete(key)
+        _ <- TestClock.adjust(1.second)
+        removed <- store.gc(GcConfig(1.second))
+        gone <- store.has(key)
+      yield assertTrue(removed0 == 0 && still && removed == 1 && !gone)
     }
   )
