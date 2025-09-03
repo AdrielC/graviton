@@ -28,8 +28,7 @@ aggregated by a `BlockResolver` which performs read‑time fan‑out and healing
 
 ### BlobStore
 A pluggable backend capable of reading and writing raw blocks.  Filesystem and
-MinIO implementations live in dedicated modules. Support for AWS S3 is planned
-but not yet available.
+S3 implementations live in dedicated modules.
 
 ### BlockStore
 A logical registry that hashes incoming streams, deduplicates blocks, and
@@ -65,13 +64,12 @@ They may be materialised into files or rendered on demand.
 ```
 modules/core    – base types and in‑memory stores
 modules/fs      – filesystem backed blob store
-modules/minio   – S3‑compatible blob store via zio‑aws
+modules/s3      – S3‑compatible blob store
 modules/tika    – media type detection utilities
 ```
 
-Each module provides a `ZLayer` for easy wiring into ZIO applications. An AWS
-S3 module is planned; in the meantime, use the `minio` module with an
-S3‑compatible endpoint.
+Each module provides a `ZLayer` for easy wiring into ZIO applications. The `s3`
+module works with AWS S3 and other S3‑compatible endpoints such as MinIO.
 
 ## Migration Notes
 

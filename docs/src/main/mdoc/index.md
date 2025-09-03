@@ -8,7 +8,7 @@ Quasar and other applications.
 
 * **core** – base types and in‑memory stores used in tests and examples.
 * **fs** – filesystem backed blob store.
-* **minio** – S3‑compatible blob store using zio‑aws.
+* **s3** – S3‑compatible blob store usable with AWS or MinIO.
 * **tika** – media type detection utilities backed by Apache Tika.
 * **metrics** – Prometheus instrumentation for core operations.
 * [Scan utilities](scan.md) – composable streaming transformers.
