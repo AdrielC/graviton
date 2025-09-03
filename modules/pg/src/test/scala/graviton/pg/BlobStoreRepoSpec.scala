@@ -15,11 +15,11 @@ object BlobStoreRepoSpec extends ZIOSpecDefault:
   private val containerLayer: ZLayer[Any, Throwable, PostgreSQLContainer[?]] =
     ZLayer.scoped {
       ZIO.acquireRelease {
-        val c: PostgreSQLContainer[?] =
-          new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
-            .withInitScript("ddl.sql")
+        val c = new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
+        c.withInitScript("ddl.sql")
+        c.withNetworkMode("host")
         c.start()
-        ZIO.succeed(c)
+        ZIO.succeed(c: PostgreSQLContainer[?])
       }(c => ZIO.succeed(c.stop()))
     }
 
