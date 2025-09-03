@@ -1,6 +1,7 @@
 package graviton.impl
 
 import graviton.*
+import graviton.core.BinaryAttributes
 import zio.*
 
 /** Default implementation of [[CopyTool]].
@@ -23,7 +24,7 @@ final class DefaultCopyTool extends CopyTool:
         .get(id)
         .someOrFail(GravitonError.NotFound(s"binary $id not found"))
       _ <-
-        bytes.run(dest.put(BinaryAttributes(Map.empty), DefaultChunkSize)).unit
+        bytes.run(dest.put(BinaryAttributes.empty, DefaultChunkSize)).unit
     yield ()
 
     for
