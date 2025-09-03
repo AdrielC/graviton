@@ -17,3 +17,6 @@ stack.
 
 Additional details about the layered model and terminology live in
 [binary-store.md](binary-store.md).
+
+See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
+walkthroughs.
