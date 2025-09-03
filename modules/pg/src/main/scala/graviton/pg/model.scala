@@ -5,7 +5,6 @@ import zio.Chunk
 import zio.json.*
 import zio.json.ast.Json
 import com.augustnagro.magnum.*
-import com.augustnagro.magnum.pg.enums.PgEnumDbCodec.given
 import com.augustnagro.magnum.pg.json.JsonBDbCodec
 
 // ---- Refined byte types

@@ -80,27 +80,14 @@ lazy val metrics = project
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core)
-  .enablePlugins(dbcodegen.plugin.DbCodegenPlugin)
   .settings(
     name := "graviton-pg",
     libraryDependencies ++= Seq(
       "com.augustnagro" %% "magnum" % magnumV,
       "com.augustnagro" %% "magnumzio" % magnumV,
-      "org.postgresql" % "postgresql" % postgresV
-    ),
-    dbcodegenTemplateFiles := Seq(baseDirectory.value / "codegen" / "magnum.ssp"),
-    dbcodegenJdbcUrl       := "jdbc:postgresql://localhost:5432/graviton",
-    dbcodegenUsername      := Some("graviton"),
-    dbcodegenPassword      := Some("graviton"),
-    dbcodegenTypeMapping   := { (sqlType: java.sql.SQLType, scalaType: Option[String]) =>
-      val base = scalaType.orElse {
-        if (sqlType.getVendorTypeNumber == java.sql.Types.DISTINCT) Some("zio.Chunk[Byte]") else None
-      }
-      base.map {
-        case "Array[Byte]" => "zio.Chunk[Byte]"
-        case other         => other
-      }
-    }
+      "org.postgresql" % "postgresql" % postgresV,
+      "org.testcontainers" % "postgresql" % testContainersV % Test
+    )
   )
   .settings(commonSettings)
 
