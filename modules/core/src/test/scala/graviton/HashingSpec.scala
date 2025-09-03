@@ -42,5 +42,13 @@ object HashingSpec extends ZIOSpecDefault:
       yield assertTrue(
         hashes.map(_.bytes) == Chunk(expectedFirst, expectedSecond)
       )
+    },
+    test("sink computes digest without buffering entire stream") {
+      val data = Chunk.fromArray("hello world".getBytes)
+      for
+        dig <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
+        expected <- Hashing
+          .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
+      yield assertTrue(dig == expected)
     }
   )

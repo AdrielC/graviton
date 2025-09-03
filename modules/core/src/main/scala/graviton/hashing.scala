@@ -32,9 +32,13 @@ object Hashing:
   def sink(
       algo: HashAlgorithm
   ): ZSink[Any, Throwable, Byte, Nothing, Chunk[Byte]] =
-    ZSink
-      .collectAll[Byte]
-      .mapZIO(bs => compute(Bytes(ZStream.fromChunk(bs)), algo))
+    ZSink.unwrap {
+      hasher(algo).map { h =>
+        ZSink
+          .foreachChunk[Any, Nothing, Byte](h.update)
+          .mapZIO(_ => h.digest)
+      }
+    }
 
   /** Produce a stream of rolling digests for the incoming byte stream. Each
     * emitted [[Hash]] represents the digest of all bytes seen so far. This is a
