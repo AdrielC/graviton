@@ -55,7 +55,10 @@ lazy val s3 = project
   .dependsOn(core)
   .settings(
     name := "graviton-s3",
-    libraryDependencies += "io.minio" % "minio" % "8.5.9"
+    libraryDependencies ++= Seq(
+      "io.minio" % "minio" % "8.5.9",
+      "org.testcontainers" % "minio" % testContainersV % Test
+    )
   )
   .settings(commonSettings)
 
