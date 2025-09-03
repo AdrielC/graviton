@@ -9,3 +9,4 @@ project/project/
 modules/*/target/
 
 cs
+sbt

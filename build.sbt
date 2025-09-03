@@ -1,5 +1,6 @@
 ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
+ThisBuild / versionScheme := Some("semver-spec")
 
 lazy val zioV   = "2.1.20"
 lazy val ironV  = "3.2.0"
