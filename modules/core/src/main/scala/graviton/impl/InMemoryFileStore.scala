@@ -80,6 +80,19 @@ final class InMemoryFileStore private (
       ZStream.fromIterable(m.values)
     }
 
+  def delete(key: FileKey): IO[Throwable, Boolean] =
+    manifests
+      .modify { m =>
+        m.get(key) match
+          case None     => (None, m)
+          case Some(fd) => (Some(fd), m - key)
+      }
+      .flatMap {
+        case None => ZIO.succeed(false)
+        case Some(fd) =>
+          ZIO.foreachDiscard(fd.blocks)(blockStore.delete) *> ZIO.succeed(true)
+      }
+
 object InMemoryFileStore:
   def make(
       blockStore: BlockStore,
