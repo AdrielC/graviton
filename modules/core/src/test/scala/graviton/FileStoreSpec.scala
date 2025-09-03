@@ -13,7 +13,8 @@ object FileStoreSpec extends ZIOSpecDefault:
         def detect(bytes: Bytes) = ZIO.succeed(Some("text/plain"))
       for
         blob <- InMemoryBlobStore.make()
-        blocks <- InMemoryBlockStore.make(blob)
+        resolver <- InMemoryBlockResolver.make
+        blocks <- InMemoryBlockStore.make(blob, resolver)
         files <- InMemoryFileStore.make(blocks, detect)
         fk <- ZStream
           .fromIterable("abc" * 1000)
@@ -30,7 +31,8 @@ object FileStoreSpec extends ZIOSpecDefault:
         def detect(bytes: Bytes) = ZIO.succeed(Some("text/plain"))
       val attempt = for
         blob <- InMemoryBlobStore.make()
-        blocks <- InMemoryBlockStore.make(blob)
+        resolver <- InMemoryBlockResolver.make
+        blocks <- InMemoryBlockStore.make(blob, resolver)
         files <- InMemoryFileStore.make(blocks, detect)
         _ <- ZStream
           .fromIterable("data".getBytes.toIndexedSeq)

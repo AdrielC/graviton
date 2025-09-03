@@ -4,12 +4,14 @@ Graviton organizes immutable binary data into a layered model inspired by the
 Binny `BinaryStore`:
 
 1. **Block** – a deduplicated chunk of bytes identified by a cryptographic
-   `BlockKey`. Blocks are immutable and can be stored in multiple locations.
+   `BlockKey`. Blocks are immutable and can be stored in multiple locations,
+   with each physical copy represented as a `BlockSector`.
 2. **BlobStore** – a pluggable backend that persists blocks on a filesystem,
    object store, or other medium. Each store reports its health and lifecycle
    status.
 3. **BlockStore** – a logical registry that hashes incoming streams, writes the
-   resulting blocks to one or more `BlobStore`s, and looks them up by key.
+   resulting blocks to one or more `BlobStore`s, and records sectors through a
+   `BlockResolver` which is consulted on reads.
 4. **File** – an ordered sequence of block keys. A file's identity (`FileKey`)
    is derived from the canonical content hash and is independent of chunking.
 5. **FileStore** – assembles files from blocks, records manifests, and provides

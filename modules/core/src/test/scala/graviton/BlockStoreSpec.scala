@@ -11,7 +11,8 @@ object BlockStoreSpec extends ZIOSpecDefault:
     test("put/get/has/delete") {
       for
         blob <- InMemoryBlobStore.make()
-        store <- InMemoryBlockStore.make(blob)
+        resolver <- InMemoryBlockResolver.make
+        store <- InMemoryBlockStore.make(blob, resolver)
         key <- ZStream
           .fromIterable("hello world".getBytes.toIndexedSeq)
           .run(store.put)
@@ -19,5 +20,23 @@ object BlockStoreSpec extends ZIOSpecDefault:
         data <- store.get(key).someOrFailException.flatMap(_.runCollect)
         del <- store.delete(key)
       yield assertTrue(has && new String(data.toArray) == "hello world" && del)
+    },
+    test("consult resolver across stores") {
+      for
+        primary <- InMemoryBlobStore.make()
+        secondary <- InMemoryBlobStore.make()
+        resolver <- InMemoryBlockResolver.make
+        store <- InMemoryBlockStore.make(primary, resolver, Seq(secondary))
+        key <- ZStream
+          .fromIterable("hello".getBytes.toIndexedSeq)
+          .run(store.put)
+        _ <- secondary.write(key, Bytes(ZStream.fromIterable("hello".getBytes)))
+        _ <- resolver.record(
+          key,
+          BlockSector(secondary.id, BlobStoreStatus.Operational)
+        )
+        _ <- primary.delete(key)
+        data <- store.get(key).someOrFailException.flatMap(_.runCollect)
+      yield assertTrue(new String(data.toArray) == "hello")
     }
   )

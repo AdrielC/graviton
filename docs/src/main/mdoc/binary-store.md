@@ -32,8 +32,10 @@ and MinIO implementations live in dedicated modules.
 
 ### BlockStore
 A logical registry that hashes incoming streams, deduplicates blocks, and
-forwards them to `BlobStore`s.  It exposes sinks for streaming writes and
-streams for listings.
+forwards them to `BlobStore`s.  Each write records a `BlockSector` so that the
+`BlockResolver` can track every physical copy.  Reads consult the resolver and
+fan‑out across sectors, allowing blocks to exist in multiple locations.  The
+store exposes sinks for streaming writes and streams for listings.
 
 ### File
 A file is an ordered list of `BlockKey`s.  Its identity, the `FileKey`, is based
