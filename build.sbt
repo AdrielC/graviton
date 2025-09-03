@@ -23,7 +23,7 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 )
 
-lazy val root = (project in file(".")).aggregate(core, fs, minio, tika)
+lazy val root = (project in file(".")).aggregate(core, fs, minio, tika, docs)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -58,3 +58,14 @@ lazy val tika = project
     libraryDependencies += "org.apache.tika" % "tika-core" % "2.9.1"
   )
   .settings(commonSettings)
+
+lazy val docs = project
+  .in(file("docs"))
+  .dependsOn(core, fs, minio, tika)
+  .settings(
+    publish / skip := true,
+    mdocIn := baseDirectory.value / "src/main/mdoc",
+    mdocOut := baseDirectory.value / "target/mdoc",
+    mdocVariables := Map("VERSION" -> version.value)
+  )
+  .enablePlugins(MdocPlugin)

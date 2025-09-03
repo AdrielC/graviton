@@ -7,5 +7,6 @@ target/
 project/target/
 project/project/
 modules/*/target/
+docs/target/
 
 cs
