@@ -76,5 +76,7 @@ module works with AWS S3 and other S3‑compatible endpoints such as MinIO.
 The attribute system has been consolidated around `graviton.core.BinaryAttributes`.
 The previous `AttributeName`/`BinaryAttributes` pair has been removed in favour of
 typed `BinaryAttributeKey`s, so downstream code should construct and query
-attributes using the new API.
+attributes using the new API. Binary attributes are now separated into
+`advertised` and `confirmed` sets, each recording the origin of the value via a
+`source` field.
 
