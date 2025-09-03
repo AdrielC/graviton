@@ -4,7 +4,9 @@ import zio.*
 import zio.stream.*
 
 // Stream alias used across the API
-type Bytes = ZStream[Any, Throwable, Byte]
+opaque type Bytes <: ZStream[Any, Throwable, Byte] = ZStream[Any, Throwable, Byte]
+
+opaque type Chunks <: ZStream[Any, Throwable, Chunk[Byte]] = ZStream[Any, Throwable, Chunk[Byte]]
 
 enum HashAlgorithm:
   case SHA256, SHA512, Blake3
@@ -23,7 +25,11 @@ final case class FileKey(
     mediaType: String
 )
 
-final case class BlobStoreId(value: String) extends AnyVal
+opaque type BlobStoreId <: String = String
+object BlobStoreId:
+  def apply(string: String): BlobStoreId = string.toLowerCase.trim
+  def unapply(blobStoreId: BlobStoreId): Option[String] = Some(blobStoreId)
+
 
 enum BlobStoreStatus:
   case Operational, ReadOnly, Retired
@@ -38,20 +44,6 @@ final case class FileDescriptor(
 )
 final case class FileMetadata(
     filename: Option[String],
-    advertisedMediaType: Option[String]
+    advertisedMediaType: Option[String],
+    advertisedLength: Option[Long]
 )
-
-sealed trait GravitonError extends Throwable
-object GravitonError:
-  final case class NotFound(msg: String)
-      extends Exception(msg)
-      with GravitonError
-  final case class BackendUnavailable(msg: String)
-      extends Exception(msg)
-      with GravitonError
-  final case class CorruptData(msg: String)
-      extends Exception(msg)
-      with GravitonError
-  final case class PolicyViolation(msg: String)
-      extends Exception(msg)
-      with GravitonError
