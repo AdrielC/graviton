@@ -21,3 +21,20 @@ Additional details about the layered model and terminology live in
 
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
+
+## Logging
+
+Graviton relies on [ZIO Logging](https://github.com/zio/zio-logging) for
+structured logs. Every high‑level operation logs its start, completion, and
+failures. A correlation ID is attached to each request and propagated across
+layers so log lines from a single request can be grouped together.
+
+By default logs are written to the console at the `INFO` level. The level or
+backend can be customized by supplying a different logging layer:
+
+```scala
+import graviton.Logging
+import zio.logging.LogLevel
+
+val logging = Logging.layer(LogLevel.Debug)
+```

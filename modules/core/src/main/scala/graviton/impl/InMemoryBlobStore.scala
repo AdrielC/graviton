@@ -3,6 +3,7 @@ package graviton.impl
 import graviton.*
 import zio.*
 import zio.stream.*
+import graviton.Logging
 
 final class InMemoryBlobStore private (
     ref: Ref[Map[BlockKey, Chunk[Byte]]],
@@ -15,20 +16,26 @@ final class InMemoryBlobStore private (
       key: BlockKey,
       range: Option[ByteRange] = None
   ): IO[Throwable, Option[Bytes]] =
-    ref.get.map(_.get(key).map { ch =>
-      val sliced = range match
-        case Some(ByteRange(start, end)) =>
-          ch.drop(start.toInt).take((end - start).toInt)
-        case None => ch
-      Bytes(ZStream.fromChunk(sliced))
-    })
+    Logging.withCorrelation("BlobStore.read") {
+      ref.get.map(_.get(key).map { ch =>
+        val sliced = range match
+          case Some(ByteRange(start, end)) =>
+            ch.drop(start.toInt).take((end - start).toInt)
+          case None => ch
+        Bytes(ZStream.fromChunk(sliced))
+      })
+    }
 
   def write(key: BlockKey, data: Bytes): IO[Throwable, Unit] =
-    data.runCollect.flatMap(ch => ref.update(_.updated(key, ch))).unit
+    Logging.withCorrelation("BlobStore.write") {
+      data.runCollect.flatMap(ch => ref.update(_.updated(key, ch))).unit
+    }
 
   def delete(key: BlockKey): IO[Throwable, Boolean] =
-    ref.modify { m =>
-      if m.contains(key) then (true, m - key) else (false, m)
+    Logging.withCorrelation("BlobStore.delete") {
+      ref.modify { m =>
+        if m.contains(key) then (true, m - key) else (false, m)
+      }
     }
 
 object InMemoryBlobStore:

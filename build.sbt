@@ -7,6 +7,7 @@ lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
 lazy val zioSchemaV  = "1.7.4"
 lazy val zioMetricsV = "2.4.3"
+lazy val zioLoggingV = "2.2.4"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -17,6 +18,7 @@ lazy val commonSettings = Seq(
     "dev.zio" %% "zio-schema-derivation" % zioSchemaV,
     "io.github.iltotore" %% "iron" % ironV,
     "io.github.rctcwyvrn" % "blake3" % "1.3",
+    "dev.zio" %% "zio-logging" % zioLoggingV,
     "dev.zio" %% "zio-test"          % zioV % Test,
     "dev.zio" %% "zio-test-sbt"      % zioV % Test,
     "dev.zio" %% "zio-test-magnolia" % zioV % Test

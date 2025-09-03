@@ -57,3 +57,19 @@ curl http://localhost:8080/files/<fileKey> -o README.copy.md
 
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
 is published as part of the project site.
+
+## Logging
+
+Graviton uses [ZIO Logging](https://github.com/zio/zio-logging) to emit structured
+logs for all major operations. Each request is tagged with a correlation ID so
+logs can be traced across stores.
+
+Logs default to the `INFO` level on the console. You can adjust the level or
+swap out the backend by providing a different logging layer:
+
+```scala
+import graviton.Logging
+import zio.logging.LogLevel
+
+val logging = Logging.layer(LogLevel.Debug)
+```
