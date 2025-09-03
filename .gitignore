@@ -13,3 +13,5 @@ sbt
 .vscode/settings.json
 .cursor
 .metals
+**/.bloop
+.bsp
