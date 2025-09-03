@@ -1,11 +1,10 @@
 package graviton
 
-import zio.prelude.*
 import zio.Chunk
 
-/** A free, invertible and introspectable arrow. It records primitive operations
-  * along with their arguments and can be reversed to obtain the inverse
-  * transformation.
+/** A purely data-based, invertible arrow. It captures primitive steps and their
+  * arguments without embedding executable functions, allowing the structure to
+  * be inspected, serialised and reversed.
   */
 sealed trait InvertibleArrow[A, B]:
   self =>
@@ -16,28 +15,13 @@ sealed trait InvertibleArrow[A, B]:
   ): InvertibleArrow[A, C] =
     Compose(self, that)
 
-  /** Execute this arrow on the given input. */
-  def run(a: A): B =
-    this match
-      case Id() => a
-      case p: Primitive[a1, b1] =>
-        val pf = p.forward.asInstanceOf[a1 => b1]
-        pf(a.asInstanceOf[a1]).asInstanceOf[B]
-      case Compose(f, g) =>
-        g.run(f.run(a))
-
   /** Reverse this arrow. */
   def invert: InvertibleArrow[B, A] =
     this match
       case Id() => Id().asInstanceOf[InvertibleArrow[B, A]]
       case p: Primitive[?, ?] =>
-        Primitive[B, A](
-          p.label,
-          p.backward.asInstanceOf[B => A],
-          p.forward.asInstanceOf[A => B],
-          p.args,
-          !p.inverted
-        )
+        Primitive[B, A](p.inverseLabel, p.args, p.label)
+          .asInstanceOf[InvertibleArrow[B, A]]
       case Compose(f, g) =>
         (g.invert >>> f.invert).asInstanceOf[InvertibleArrow[B, A]]
 
@@ -53,13 +37,11 @@ object InvertibleArrow:
   /** Identity arrow. */
   final case class Id[A]() extends InvertibleArrow[A, A]
 
-  /** A primitive arrow that can run forward and backward. */
+  /** A primitive step identified purely by metadata. */
   final case class Primitive[A, B](
       label: String,
-      forward: A => B,
-      backward: B => A,
       args: Chunk[(String, Any)] = Chunk.empty,
-      inverted: Boolean = false
+      inverseLabel: String
   ) extends InvertibleArrow[A, B]
 
   /** Composition of two arrows. */
@@ -68,11 +50,10 @@ object InvertibleArrow:
       second: InvertibleArrow[B, C]
   ) extends InvertibleArrow[A, C]
 
-  /** Lift a pair of inverse functions into an arrow. */
+  /** Lift a primitive step by providing its label and inverse label. */
   def lift[A, B](
       label: String,
-      forward: A => B,
-      backward: B => A,
+      inverse: String,
       args: (String, Any)*
   ): InvertibleArrow[A, B] =
-    Primitive(label, forward, backward, Chunk.fromIterable(args))
+    Primitive(label, Chunk.fromIterable(args), inverse)
