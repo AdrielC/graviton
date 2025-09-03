@@ -1,21 +1,21 @@
 package graviton
 
-import scala.annotation.tailrec
+import scala.annotation.{tailrec, publicInBinary}
 import scala.compiletime.constValue
 
 /** A runtime register for a tuple of state values stored in an Array[Any].
-  *\n  *  It provides constant-time indexed access without constructing new tuples,
-  *  enabling stateful stream transformations without allocation overhead.
+  *
+  * It provides constant-time indexed access without constructing new tuples,
+  * enabling stateful stream transformations without allocation overhead.
   */
-final class TypeRegister[S <: Tuple] private (private val arr: Array[Any], private val offset: Int):
+final class TypeRegister[S <: Tuple] @publicInBinary private[graviton] (private val arr: Array[Any], private val offset: Int):
   inline def getAt[N <: Int, A]: A =
     arr(offset + constValue[N]).asInstanceOf[A]
 
   inline def setAt[N <: Int, A](a: A): Unit =
     arr(offset + constValue[N]) = a.asInstanceOf[Any]
 
-  inline def split[A <: Tuple, B <: Tuple](using ev: S =:= Tuple.Concat[A, B]): (TypeRegister[A], TypeRegister[B]) =
-    val sizeA = constValue[Tuple.Size[A]]
+  inline def splitAt[A <: Tuple, B <: Tuple](sizeA: Int)(using ev: S =:= Tuple.Concat[A, B]): (TypeRegister[A], TypeRegister[B]) =
     (new TypeRegister[A](arr, offset), new TypeRegister[B](arr, offset + sizeA))
 
 object TypeRegister:

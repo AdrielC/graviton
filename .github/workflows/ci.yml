@@ -15,13 +15,8 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.sbt
-            ~/.ivy2/cache
-            ~/.cache/coursier
-            ~/.cache/sbt
-          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
-          restore-keys: ${{ runner.os }}-sbt
-      - run: sbt compile test
+          cache: sbt
+      - name: Format check
+        run: ./sbt scalafmtCheckAll
+      - name: Test
+        run: ./sbt test

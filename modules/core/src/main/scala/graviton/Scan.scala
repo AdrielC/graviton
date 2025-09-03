@@ -41,14 +41,15 @@ final class Scan[S <: Tuple, -I, +O](
 
   def andThen[S2 <: Tuple, O2](that: Scan[S2, O, O2]): Scan[Tuple.Concat[S, S2], I, O2] =
     val init = initial ++ that.initial
+    val sizeS = initial.productArity
     Scan[Tuple.Concat[S, S2], I, O2](init)({ (reg, i) =>
-      val (r1, r2) = reg.split[S, S2]
+      val (r1, r2) = reg.splitAt[S, S2](sizeS)
       val out1 = step(r1, i)
       val builder = ChunkBuilder.make[O2]()
       out1.foreach(o => builder ++= that.step(r2, o))
       builder.result()
     }, { reg =>
-      val (r1, r2) = reg.split[S, S2]
+      val (r1, r2) = reg.splitAt[S, S2](sizeS)
       val interim = onComplete(r1)
       val builder = ChunkBuilder.make[O2]()
       interim.foreach(o => builder ++= that.step(r2, o))
