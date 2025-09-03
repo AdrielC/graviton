@@ -7,10 +7,10 @@ import zio.test.*
 object ScanSpec extends ZIOSpecDefault:
   def spec = suite("ScanSpec")(
     test("running sum emits totals and final state") {
-      val scan = Scan.stateful(Tuple1(0))({ (s: Tuple1[Int], i: Int) =>
-        val sum = s._1 + i
-        (Tuple1(sum), Chunk.single(sum))
-      })(s => Chunk.single(s._1))
+      val scan = Scan.stateful(0) { (s: Int, i: Int) =>
+        val sum = s + i
+        (sum, Chunk.single(sum))
+      }(s => Chunk.single(s))
       for out <- ZStream(1, 2, 3).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(1, 3, 6, 6))
     },
@@ -28,10 +28,10 @@ object ScanSpec extends ZIOSpecDefault:
     },
     test("map transforms output values") {
       val scan = Scan
-        .stateful(Tuple1(0))({ (s: Tuple1[Int], i: Int) =>
-          val sum = s._1 + i
-          (Tuple1(sum), Chunk.single(sum))
-        })(s => Chunk.single(s._1))
+        .stateful(0)({ (s: Int, i: Int) =>
+          val sum = s + i
+          (sum, Chunk.single(sum))
+        })(s => Chunk.single(s))
         .map(_ * 2)
       for out <- ZStream(1, 2, 3).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(2, 6, 12, 12))
@@ -50,9 +50,9 @@ object ScanSpec extends ZIOSpecDefault:
     },
     test("stateful composed after stateless keeps only stateful state") {
       val stateless = Scan.stateless((i: Int) => i + 1)
-      val stateful = Scan.stateful(Tuple1(0))({ (s: Tuple1[Int], i: Int) =>
-        val sum = s._1 + i
-        (Tuple1(sum), Chunk.single(sum))
+      val stateful = Scan.stateful(0)({ (s: Int, i: Int) =>
+        val sum = s + i
+        (sum, Chunk.single(sum))
       })(_ => Chunk.empty)
       val composed = stateless.andThen(stateful)
       for out <- ZStream(1, 2).via(composed.toPipeline).runCollect
@@ -60,17 +60,29 @@ object ScanSpec extends ZIOSpecDefault:
         assertTrue(out == Chunk(2, 5))
     },
     test("stateful composition appends state tuples") {
-      val s1 = Scan.stateful(Tuple1(0))({ (s: Tuple1[Int], i: Int) =>
-        (Tuple1(s._1 + i), Chunk.single(i))
+      val s1 = Scan.stateful(0)({ (s: Int, i: Int) =>
+        (s + i, Chunk.single(i))
       })(_ => Chunk.empty)
-      val s2 = Scan.stateful(Tuple1(0))({ (s: Tuple1[Int], i: Int) =>
-        (Tuple1(s._1 + i), Chunk.single(s._1 + i))
-      })(s => Chunk.single(s._1))
+      val s2 = Scan.stateful(0)({ (s: Int, i: Int) =>
+        (s + i, Chunk.single(s + i))
+      })(s => Chunk.single(s))
       val composed = s1.andThen(s2)
       for
         out <- ZStream(1, 2).via(composed.toPipeline).runCollect
         init = composed.initial.asInstanceOf[(Int, Int)]
       yield assertTrue(init == (0, 0)) &&
         assertTrue(out == Chunk(1, 3, 3))
+    }
+    ,
+    test("many stateless functions fuse without blowing the stack") {
+      val scans = List.fill(1000)(Scan.stateless((i: Int) => i + 1))
+      val composed: Scan[Int, Int] = scans.reduce[Scan[Int, Int]](_.andThen(_))
+      for out <- ZStream(0).via(composed.toPipeline).runCollect
+      yield assertTrue(out == Chunk(1000))
+    },
+    test("statelessChunk emits multiple outputs") {
+      val scan = Scan.statelessChunk((i: Int) => Chunk(i, i + 1))
+      for out <- ZStream(1, 2).via(scan.toPipeline).runCollect
+      yield assertTrue(out == Chunk(1, 2, 2, 3))
     }
   )
