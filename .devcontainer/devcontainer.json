@@ -1,0 +1,41 @@
+{
+  "name": "Scala (JDK 21, sbt, Metals)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "scalameta.metals",
+        "scala-lang.scala",
+        "ms-vscode.sbt",
+        "mhutchie.git-graph",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "files.watcherExclude": {
+          "**/.bloop": true,
+          "**/.metals": true,
+          "**/.ammonite": true,
+          "**/.ivy2": true,
+          "**/.sbt": true,
+          "**/.cache": true
+        }
+      }
+    }
+  },
+  "containerEnv": {
+    "COURSIER_CACHE": "/home/vscode/.cache/coursier",
+    "SBT_OPTS": "-Xms512M -Xmx2G -Xss2M -XX:MaxMetaspaceSize=512M -Duser.timezone=UTC"
+  },
+  "mounts": [
+    "type=cache,target=/home/vscode/.ivy2",
+    "type=cache,target=/home/vscode/.sbt",
+    "type=cache,target=/home/vscode/.cache/coursier"
+  ],
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh"
+}
