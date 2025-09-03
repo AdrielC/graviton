@@ -12,3 +12,4 @@ trait BlockStore:
   def has(key: BlockKey): IO[Throwable, Boolean]
   def delete(key: BlockKey): IO[Throwable, Boolean]
   def list(selector: BlockKeySelector): ZStream[Any, Throwable, BlockKey]
+  def gc(config: GcConfig): UIO[Int]

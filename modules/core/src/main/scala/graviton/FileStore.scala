@@ -11,3 +11,4 @@ trait FileStore:
   def get(key: FileKey): IO[Throwable, Option[Bytes]]
   def describe(key: FileKey): IO[Throwable, Option[FileDescriptor]]
   def list(selector: FileKeySelector): ZStream[Any, Throwable, FileDescriptor]
+  def delete(key: FileKey): IO[Throwable, Boolean]
