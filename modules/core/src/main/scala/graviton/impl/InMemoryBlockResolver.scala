@@ -19,4 +19,6 @@ final class InMemoryBlockResolver private (
 
 object InMemoryBlockResolver:
   def make: UIO[InMemoryBlockResolver] =
-    Ref.make(Map.empty[BlockKey, Set[BlockSector]]).map(new InMemoryBlockResolver(_))
+    Ref
+      .make(Map.empty[BlockKey, Set[BlockSector]])
+      .map(new InMemoryBlockResolver(_))

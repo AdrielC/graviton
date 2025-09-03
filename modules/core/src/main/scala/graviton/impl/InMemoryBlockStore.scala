@@ -39,12 +39,13 @@ final class InMemoryBlockStore private (
           _ <-
             if exists then ZIO.unit
             else
-              for
+              (for
                 _ <- primary.write(key, Bytes(ZStream.fromChunk(chunk)))
                 status <- primary.status
                 _ <- resolver.record(key, BlockSector(primary.id, status))
               yield ()
-      yield key
+            )
+        yield key
       }
 
   def get(key: BlockKey): IO[Throwable, Option[Bytes]] =
