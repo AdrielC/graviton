@@ -28,7 +28,7 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 )
 
-lazy val root = (project in file(".")).aggregate(core, fs, minio, tika, metrics, docs)
+lazy val root = (project in file(".")).aggregate(core, fs, s3, tika, metrics, docs)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -50,11 +50,11 @@ lazy val fs = project
   )
   .settings(commonSettings)
 
-lazy val minio = project
-  .in(file("modules/minio"))
+lazy val s3 = project
+  .in(file("modules/s3"))
   .dependsOn(core)
   .settings(
-    name := "graviton-minio",
+    name := "graviton-s3",
     libraryDependencies += "io.minio" % "minio" % "8.5.9"
   )
   .settings(commonSettings)
@@ -79,7 +79,7 @@ lazy val tika = project
 
 lazy val docs = project
   .in(file("docs"))
-  .dependsOn(core, fs, minio, tika)
+  .dependsOn(core, fs, s3, tika)
   .settings(
     publish / skip := true,
     mdocIn := baseDirectory.value / "src/main/mdoc",
