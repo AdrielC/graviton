@@ -1,0 +1,63 @@
+package graviton.minio
+
+import graviton.*
+import zio.*
+import zio.stream.*
+import io.minio.MinioClient
+import io.minio.{GetObjectArgs, PutObjectArgs, RemoveObjectArgs}
+import java.io.ByteArrayInputStream
+
+final class MinioBlobStore(
+    client: MinioClient,
+    bucket: String,
+    val id: BlobStoreId
+) extends BlobStore:
+  private def keyPath(key: BlockKey): String = key.hash.hex
+
+  def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
+
+  def read(key: BlockKey): IO[Throwable, Option[Bytes]] =
+    ZIO
+      .attemptBlocking(
+        client.getObject(
+          GetObjectArgs.builder.bucket(bucket).`object`(keyPath(key)).build()
+        )
+      )
+      .map(is => Some(ZStream.fromInputStream(is)))
+      .catchSome {
+        case e: io.minio.errors.ErrorResponseException
+            if e.errorResponse().code() == "NoSuchKey" =>
+          ZIO.succeed(None)
+      }
+
+  def write(key: BlockKey, data: Bytes): IO[Throwable, Unit] =
+    for
+      arr <- data.runCollect.map(_.toArray)
+      _ <- ZIO.attemptBlocking(
+        client.putObject(
+          PutObjectArgs.builder
+            .bucket(bucket)
+            .`object`(keyPath(key))
+            .stream(new ByteArrayInputStream(arr), arr.length, -1)
+            .build()
+        )
+      )
+    yield ()
+
+  def delete(key: BlockKey): IO[Throwable, Boolean] =
+    ZIO.attemptBlocking {
+      client.removeObject(
+        RemoveObjectArgs.builder.bucket(bucket).`object`(keyPath(key)).build()
+      )
+      true
+    }
+
+object MinioBlobStore:
+  def layer(
+      client: MinioClient,
+      bucket: String,
+      id: String = "minio"
+  ): ZLayer[Any, Nothing, BlobStore] =
+    ZLayer.succeed(
+      new MinioBlobStore(client, bucket, BlobStoreId(id)): BlobStore
+    )

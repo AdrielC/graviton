@@ -5,7 +5,6 @@ ThisBuild / versionScheme := Some("semver-spec")
 lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
-lazy val zioAwsV     = "7.32.31.2"
 lazy val zioSchemaV  = "1.7.4"
 
 lazy val commonSettings = Seq(
@@ -24,7 +23,7 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 )
 
-lazy val root = (project in file(".")).aggregate(core, filesystem, s3, tika)
+lazy val root = (project in file(".")).aggregate(core, fs, minio, tika)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -34,23 +33,20 @@ lazy val core = project
   )
   .settings(commonSettings)
 
-lazy val filesystem = project
-  .in(file("modules/filesystem"))
+lazy val fs = project
+  .in(file("modules/fs"))
   .dependsOn(core)
   .settings(
-    name := "graviton-filesystem"
+    name := "graviton-fs"
   )
   .settings(commonSettings)
 
-lazy val s3 = project
-  .in(file("modules/s3"))
+lazy val minio = project
+  .in(file("modules/minio"))
   .dependsOn(core)
   .settings(
-    name := "graviton-s3",
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-aws-s3"    % zioAwsV,
-      "dev.zio" %% "zio-aws-netty" % zioAwsV
-    )
+    name := "graviton-minio",
+    libraryDependencies += "io.minio" % "minio" % "8.5.9"
   )
   .settings(commonSettings)
 

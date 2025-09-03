@@ -99,6 +99,22 @@ object Scan:
     ): Scan.Aux[I, O2, Tuple.Concat[S, S2]] =
       andThen(that)
 
+    transparent inline def zip[O2, S2 <: Tuple](
+        inline that: Scan.Aux[I, O2, S2]
+    ): Scan.Aux[I, (O, O2), Tuple.Concat[S, S2]] =
+      val sizeA = self.initial.productArity
+      statefulTuple(self.initial ++ that.initial)((st: Tuple, i: I) =>
+        val s1 = st.take(sizeA).asInstanceOf[S]
+        val s2 = st.drop(sizeA).asInstanceOf[S2]
+        val (s1b, o1) = self.step(s1, i)
+        val (s2b, o2) = that.step(s2, i)
+        ((s1b ++ s2b).asInstanceOf[Tuple.Concat[S, S2]], o1.zip(o2))
+      ) { (st: Tuple) =>
+        val s1 = st.take(sizeA).asInstanceOf[S]
+        val s2 = st.drop(sizeA).asInstanceOf[S2]
+        self.done(s1).zip(that.done(s2))
+      }
+
   // ---------------------- Stateless implementations ----------------------
 
   sealed trait Stateless[-I, +O] extends Scan[I, O]:
@@ -170,4 +186,58 @@ object Scan:
 
   transparent inline def lift[I, O](inline f: I => O): Aux[I, O, EmptyTuple] =
     stateless(f)
+
+  // ---------------------- Built-in scans ----------------------
+
+  /** Counts the number of elements in the incoming stream. */
+  val count: Aux[Any, Long, Long *: EmptyTuple] =
+    stateful[Any, Long, Long](0L)((s, _) => (s + 1L, Chunk.empty))(s =>
+      Chunk.single(s)
+    )
+
+  /** Computes a hash of all bytes using the provided algorithm. */
+  def hash(algo: HashAlgorithm): Aux[Byte, Hash, AnyRef *: EmptyTuple] =
+    algo match
+      case HashAlgorithm.SHA256 | HashAlgorithm.SHA512 =>
+        val md = java.security.MessageDigest.getInstance(algo match
+          case HashAlgorithm.SHA256 => "SHA-256"
+          case HashAlgorithm.SHA512 => "SHA-512"
+          case _                    => "SHA-256"
+        )
+        stateful[Byte, Hash, java.security.MessageDigest](md)((m, b) => {
+          m.update(b); (m, Chunk.empty)
+        })(m => Chunk.single(Hash(Chunk.fromArray(m.digest()), algo)))
+          .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
+      case HashAlgorithm.Blake3 =>
+        val bl = io.github.rctcwyvrn.blake3.Blake3.newInstance()
+        stateful[Byte, Hash, io.github.rctcwyvrn.blake3.Blake3](bl)((h, b) => {
+          h.update(Array(b)); (h, Chunk.empty)
+        })(h => Chunk.single(Hash(Chunk.fromArray(h.digest()), algo)))
+          .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
+
+  /** Convenience scan that produces both hash and count in one pass. */
+  def hashAndCount(
+      algo: HashAlgorithm
+  ): Aux[Byte, (Hash, Long), (AnyRef, Long)] =
+    val initHasher: AnyRef = algo match
+      case HashAlgorithm.SHA256 =>
+        java.security.MessageDigest.getInstance("SHA-256")
+      case HashAlgorithm.SHA512 =>
+        java.security.MessageDigest.getInstance("SHA-512")
+      case HashAlgorithm.Blake3 =>
+        io.github.rctcwyvrn.blake3.Blake3.newInstance()
+    statefulTuple((initHasher, 0L)) { (state, b: Byte) =>
+      val (h, c) = state
+      h match
+        case md: java.security.MessageDigest       => md.update(b)
+        case bl: io.github.rctcwyvrn.blake3.Blake3 => bl.update(Array(b))
+      ((h, c + 1L), Chunk.empty)
+    } { (state) =>
+      val (h, c) = state
+      val dig = h match
+        case md: java.security.MessageDigest => Chunk.fromArray(md.digest())
+        case bl: io.github.rctcwyvrn.blake3.Blake3 =>
+          Chunk.fromArray(bl.digest())
+      Chunk.single((Hash(dig, algo), c))
+    }
 end Scan
