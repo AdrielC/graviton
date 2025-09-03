@@ -57,3 +57,14 @@ curl http://localhost:8080/files/<fileKey> -o README.copy.md
 
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
 is published as part of the project site.
+
+## Development
+
+Integration tests that rely on Docker are gated behind the `TESTCONTAINERS`
+environment variable:
+
+```bash
+TESTCONTAINERS=1 ./sbt test
+```
+
+This flag is enabled automatically in CI.
