@@ -8,14 +8,19 @@ import scala.compiletime.constValue
   * It provides constant-time indexed access without constructing new tuples,
   * enabling stateful stream transformations without allocation overhead.
   */
-final class TypeRegister[S <: Tuple] @publicInBinary private[graviton] (private val arr: Array[Any], private val offset: Int):
+final class TypeRegister[S <: Tuple] @publicInBinary private[graviton] (
+    private val arr: Array[Any],
+    private val offset: Int
+):
   inline def getAt[N <: Int, A]: A =
     arr(offset + constValue[N]).asInstanceOf[A]
 
   inline def setAt[N <: Int, A](a: A): Unit =
     arr(offset + constValue[N]) = a.asInstanceOf[Any]
 
-  inline def splitAt[A <: Tuple, B <: Tuple](sizeA: Int)(using ev: S =:= Tuple.Concat[A, B]): (TypeRegister[A], TypeRegister[B]) =
+  inline def splitAt[A <: Tuple, B <: Tuple](sizeA: Int)(using
+      ev: S =:= Tuple.Concat[A, B]
+  ): (TypeRegister[A], TypeRegister[B]) =
     (new TypeRegister[A](arr, offset), new TypeRegister[B](arr, offset + sizeA))
 
 object TypeRegister:
@@ -31,5 +36,5 @@ object TypeRegister:
       fill(tail, arr, i + 1)
 
   @tailrec private def size(t: Tuple, acc: Int = 0): Int = t match
-    case EmptyTuple   => acc
-    case _ *: tail => size(tail, acc + 1)
+    case EmptyTuple => acc
+    case _ *: tail  => size(tail, acc + 1)

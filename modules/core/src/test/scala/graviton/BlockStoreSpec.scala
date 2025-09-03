@@ -12,7 +12,9 @@ object BlockStoreSpec extends ZIOSpecDefault:
       for
         blob <- InMemoryBlobStore.make()
         store <- InMemoryBlockStore.make(blob)
-        key <- ZStream.fromIterable("hello world".getBytes.toIndexedSeq).run(store.put)
+        key <- ZStream
+          .fromIterable("hello world".getBytes.toIndexedSeq)
+          .run(store.put)
         has <- store.has(key)
         data <- store.get(key).someOrFailException.flatMap(_.runCollect)
         del <- store.delete(key)

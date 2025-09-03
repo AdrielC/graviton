@@ -5,7 +5,8 @@ import zio.*
 import zio.stream.*
 import zio.aws.s3.S3
 
-final class S3BlobStore(client: S3, bucket: String, val id: BlobStoreId) extends BlobStore:
+final class S3BlobStore(client: S3, bucket: String, val id: BlobStoreId)
+    extends BlobStore:
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 
   def read(key: BlockKey): IO[Throwable, Option[Bytes]] =
@@ -19,4 +20,6 @@ final class S3BlobStore(client: S3, bucket: String, val id: BlobStoreId) extends
 
 object S3BlobStore:
   def layer(bucket: String, id: String = "s3"): ZLayer[S3, Nothing, BlobStore] =
-    ZLayer.fromFunction { (client: S3) => new S3BlobStore(client, bucket, BlobStoreId(id)): BlobStore }
+    ZLayer.fromFunction { (client: S3) =>
+      new S3BlobStore(client, bucket, BlobStoreId(id)): BlobStore
+    }

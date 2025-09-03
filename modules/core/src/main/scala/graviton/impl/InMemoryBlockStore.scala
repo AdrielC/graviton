@@ -5,18 +5,19 @@ import zio.*
 import zio.stream.*
 
 final class InMemoryBlockStore private (
-  index: Ref[Set[BlockKey]],
-  primary: BlobStore
+    index: Ref[Set[BlockKey]],
+    primary: BlobStore
 ) extends BlockStore:
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey] =
     ZSink.collectAll[Byte].mapZIO { data =>
       val chunk = Chunk.fromIterable(data)
       for
-        hashBytes <- Hashing.compute(ZStream.fromChunk(chunk), HashAlgorithm.SHA256)
+        hashBytes <- Hashing
+          .compute(ZStream.fromChunk(chunk), HashAlgorithm.SHA256)
         key = BlockKey(Hash(hashBytes, HashAlgorithm.SHA256), chunk.length)
-        _   <- index.update(_ + key)
-        _   <- primary.write(key, ZStream.fromChunk(chunk))
+        _ <- index.update(_ + key)
+        _ <- primary.write(key, ZStream.fromChunk(chunk))
       yield key
     }
 
@@ -29,7 +30,7 @@ final class InMemoryBlockStore private (
   def delete(key: BlockKey): IO[Throwable, Boolean] =
     for
       existed <- index.modify(s => (s.contains(key), s - key))
-      _       <- if existed then primary.delete(key).unit else ZIO.unit
+      _ <- if existed then primary.delete(key).unit else ZIO.unit
     yield existed
 
   def list(selector: BlockKeySelector): ZStream[Any, Throwable, BlockKey] =
@@ -38,7 +39,9 @@ final class InMemoryBlockStore private (
       selector.prefix match
         case None => ZStream.fromIterable(all)
         case Some(p) =>
-          ZStream.fromIterable(all.filter(_.hash.bytes.take(p.length) == Chunk.fromArray(p)))
+          ZStream.fromIterable(
+            all.filter(_.hash.bytes.take(p.length) == Chunk.fromArray(p))
+          )
     }
 
 object InMemoryBlockStore:
