@@ -1,13 +1,15 @@
 package graviton
 
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
+import zio.schema.{DeriveSchema, Schema}
 
 final case class FileKey(
     hash: Hash,
     algo: HashAlgorithm,
-    size: Long :| GreaterEqual[0],
+    size: Long,
     mediaType: String
 )
 
 final case class FileKeySelector(prefix: Option[Array[Byte]] = None)
+
+object FileKey:
+  given Schema[FileKey] = DeriveSchema.gen[FileKey]

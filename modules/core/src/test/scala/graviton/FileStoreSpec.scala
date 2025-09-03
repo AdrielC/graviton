@@ -4,6 +4,7 @@ import zio.*
 import zio.stream.*
 import zio.test.*
 import graviton.impl.*
+import graviton.core.{BinaryAttributeKey, BinaryAttributes}
 
 object FileStoreSpec extends ZIOSpecDefault:
 
@@ -16,13 +17,18 @@ object FileStoreSpec extends ZIOSpecDefault:
         resolver <- InMemoryBlockResolver.make
         blocks <- InMemoryBlockStore.make(blob, resolver)
         files <- InMemoryFileStore.make(blocks, detect)
+        attrs =
+          BinaryAttributes
+            .advertised(BinaryAttributeKey.filename, "t.txt", "client") ++
+            BinaryAttributes.advertised(
+              BinaryAttributeKey.contentType,
+              "text/plain",
+              "client"
+            )
         fk <- ZStream
           .fromIterable("abc" * 1000)
           .map(_.toByte)
-          .run(
-            files
-              .put(FileMetadata(Some("t.txt"), Some("text/plain")), 64 * 1024)
-          )
+          .run(files.put(attrs, 64 * 1024))
         out <- files.get(fk).someOrFailException.flatMap(_.runCollect)
       yield assertTrue(out.length == 3000)
     },
@@ -34,11 +40,17 @@ object FileStoreSpec extends ZIOSpecDefault:
         resolver <- InMemoryBlockResolver.make
         blocks <- InMemoryBlockStore.make(blob, resolver)
         files <- InMemoryFileStore.make(blocks, detect)
+        attrs =
+          BinaryAttributes
+            .advertised(BinaryAttributeKey.filename, "d.png", "client") ++
+            BinaryAttributes.advertised(
+              BinaryAttributeKey.contentType,
+              "image/png",
+              "client"
+            )
         _ <- ZStream
           .fromIterable("data".getBytes.toIndexedSeq)
-          .run(
-            files.put(FileMetadata(Some("d.png"), Some("image/png")), 64 * 1024)
-          )
+          .run(files.put(attrs, 64 * 1024))
       yield ()
       attempt.exit.map { exit => assertTrue(exit.isFailure) }
     }

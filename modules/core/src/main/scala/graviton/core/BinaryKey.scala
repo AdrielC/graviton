@@ -1,29 +1,57 @@
 package graviton.core
 
-import zio.*
-import zio.schema.*
-import java.util.UUID
+import java.nio.charset.StandardCharsets
+import java.util.{Base64, UUID}
+
 import scala.collection.immutable.ListMap
 
-sealed trait BinaryKey
+import zio.*
+import zio.Chunk
+import zio.schema.{DeriveSchema, Schema}
+
+import graviton.Hash
+
+/** Identifier for binary content. Keys can either be content addressed
+  * (`CasKey`) or writable user supplied keys such as randomly generated UUIDs
+  * or static strings.
+  */
+sealed trait BinaryKey:
+  import BinaryKey.*
+
+  /** Render this key as a URI-like string. */
+  def renderKey: String = this match
+    case CasKey(hash)        => s"hash://${hash.algo.canonicalName}/${hash.hex}"
+    case WritableKey.Rnd(id) => s"uuid://${id.toString}"
+    case WritableKey.Static(name) => s"user://$name"
+    case WritableKey.Scoped(scope, key) =>
+      val encoded =
+        val joined = scope
+          .map { case (k, v) => k + "__" + v.mkString("__") }
+          .mkString("::")
+        Base64.getEncoder.encodeToString(
+          joined.getBytes(StandardCharsets.UTF_8)
+        )
+      s"scoped://$encoded/$key"
 
 object BinaryKey:
+  given [K: Schema, A: Schema]: Schema[ListMap[K, A]] =
+    Schema[Chunk[(K, A)]].transform(ListMap.from, Chunk.fromIterable)
 
-  enum Alg:
-    case Blake3, Sha256
-  final case class CasKey(alg: Alg, hash: Chunk[Byte]) extends BinaryKey
+  /** Content addressed key – represents the digest of some content. */
+  final case class CasKey(hash: Hash) extends BinaryKey
 
+  /** Keys that can be written to by clients. */
   sealed trait WritableKey extends BinaryKey
+
   object WritableKey:
-    private final case class Rnd(id: UUID) extends WritableKey
-    private final case class Static(key: String) extends WritableKey
-    private final case class Scoped(
+    final case class Rnd(id: UUID) extends WritableKey
+    final case class Static(key: String) extends WritableKey
+    final case class Scoped(
         scope: ListMap[String, NonEmptyChunk[String]],
         key: String
     ) extends WritableKey
 
-    def random(id: UUID): WritableKey =
-      Rnd(id)
+    def random(id: UUID): WritableKey = Rnd(id)
 
     def randomF(using zio.Random): UIO[WritableKey] =
       zio.Random.nextUUID.map(Rnd.apply)
@@ -44,3 +72,9 @@ object BinaryKey:
       else if scope.exists { case (k, v) => k.trim.isEmpty || v.isEmpty } then
         Left("WritableKey.scoped: scope keys and value lists must be non-empty")
       else Right(Scoped(scope.map((k, v) => (k.trim, v)), key.trim))
+
+  export WritableKey.{Rnd, Scoped, Static}
+
+  given Schema[BinaryKey] = DeriveSchema.gen[BinaryKey]
+  object WritableKeySchemas:
+    given Schema[WritableKey] = DeriveSchema.gen[WritableKey]

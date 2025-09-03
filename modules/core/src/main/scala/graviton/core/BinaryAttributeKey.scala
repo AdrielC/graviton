@@ -10,6 +10,8 @@ final case class BinaryAttributeKey[+A](id: String)(using
 object BinaryAttributeKey:
   val size: BinaryAttributeKey[Long] =
     BinaryAttributeKey[Long]("attr:size")(using Schema[Long])
+  val filename: BinaryAttributeKey[String] =
+    BinaryAttributeKey[String]("attr:filename")(using Schema[String])
   val contentType: BinaryAttributeKey[String] =
     BinaryAttributeKey[String]("attr:contentType")(using Schema[String])
   val createdAt: BinaryAttributeKey[Instant] =

@@ -1,11 +1,12 @@
 package graviton
 
+import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 
 trait FileStore:
   def put(
-      meta: FileMetadata,
+      attrs: BinaryAttributes,
       blockSize: Int
   ): ZSink[Any, Throwable, Byte, Nothing, FileKey]
   def get(key: FileKey): IO[Throwable, Option[Bytes]]

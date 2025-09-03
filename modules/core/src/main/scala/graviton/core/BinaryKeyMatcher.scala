@@ -4,10 +4,12 @@ import zio.*
 import zio.schema.*
 import scala.collection.immutable.ListMap
 
+import graviton.HashAlgorithm
+
 sealed trait BinaryKeyMatcher
 object BinaryKeyMatcher:
   case object AnyKey extends BinaryKeyMatcher
-  final case class ByAlg(alg: BinaryKey.Alg) extends BinaryKeyMatcher
+  final case class ByAlg(alg: HashAlgorithm) extends BinaryKeyMatcher
   final case class ByCasPrefix(prefix: Chunk[Byte]) extends BinaryKeyMatcher
   final case class ByScope(prefix: ListMap[String, Option[String]])
       extends BinaryKeyMatcher

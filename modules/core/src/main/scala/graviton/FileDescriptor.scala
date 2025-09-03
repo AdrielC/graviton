@@ -1,6 +1,7 @@
 package graviton
 
 import zio.Chunk
+import zio.schema.{DeriveSchema, Schema}
 
 final case class FileDescriptor(
     key: FileKey,
@@ -8,7 +9,6 @@ final case class FileDescriptor(
     blockSize: Int
 )
 
-final case class FileMetadata(
-    filename: Option[String],
-    advertisedMediaType: Option[String]
-)
+object FileDescriptor:
+  val SchemaVersion = 1
+  given Schema[FileDescriptor] = DeriveSchema.gen[FileDescriptor]
