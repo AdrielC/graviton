@@ -11,6 +11,7 @@ lazy val commonSettings = Seq(
     "dev.zio" %% "zio" % zioV,
     "dev.zio" %% "zio-streams" % zioV,
     "io.github.iltotore" %% "iron" % ironV,
+    "io.github.rctcwyvrn" % "blake3" % "1.3",
     "dev.zio" %% "zio-test" % zioV % Test,
     "dev.zio" %% "zio-test-sbt" % zioV % Test,
     "dev.zio" %% "zio-test-magnolia" % zioV % Test

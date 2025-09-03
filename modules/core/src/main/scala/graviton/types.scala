@@ -7,7 +7,7 @@ import zio.stream.*
 type Bytes = ZStream[Any, Throwable, Byte]
 
 enum HashAlgorithm:
-  case SHA256, Blake3
+  case SHA256, SHA512, Blake3
 
 final case class Hash(bytes: Chunk[Byte], algo: HashAlgorithm):
   def hex: String = bytes.foldLeft(new StringBuilder) { (sb, b) => sb.append(f"$b%02x") }.toString

@@ -15,7 +15,7 @@ final class InMemoryFileStore private (
       val blocks = Chunk.fromIterable(full.grouped(blockSize).map(Chunk.fromIterable).toList)
       for
         keys <- ZIO.foreach(blocks)(b => ZStream.fromChunk(b).run(blockStore.put))
-        hash <- Hashing.computeSHA256(ZStream.fromChunk(full))
+        hash <- Hashing.compute(ZStream.fromChunk(full), HashAlgorithm.SHA256)
         algo = HashAlgorithm.SHA256
         size = full.length.toLong
         mediaType = meta.advertisedMediaType.getOrElse("application/octet-stream")

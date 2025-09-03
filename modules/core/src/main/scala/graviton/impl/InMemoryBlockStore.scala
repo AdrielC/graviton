@@ -13,8 +13,8 @@ final class InMemoryBlockStore private (
     ZSink.collectAll[Byte].mapZIO { data =>
       val chunk = Chunk.fromIterable(data)
       for
-        hash <- Hashing.computeSHA256(ZStream.fromChunk(chunk))
-        key = BlockKey(Hash(hash, HashAlgorithm.SHA256), chunk.length)
+        hashBytes <- Hashing.compute(ZStream.fromChunk(chunk), HashAlgorithm.SHA256)
+        key = BlockKey(Hash(hashBytes, HashAlgorithm.SHA256), chunk.length)
         _   <- index.update(_ + key)
         _   <- primary.write(key, ZStream.fromChunk(chunk))
       yield key
