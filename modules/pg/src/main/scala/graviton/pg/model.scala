@@ -2,7 +2,11 @@ package graviton.pg
 
 import zio.*
 import zio.Chunk
-import com.augustnagro.magnum.DbCodec
+import zio.json.*
+import zio.json.ast.Json
+import com.augustnagro.magnum.*
+import com.augustnagro.magnum.pg.enums.PgEnumDbCodec.given
+import com.augustnagro.magnum.pg.json.JsonBDbCodec
 
 // ---- Refined byte types
 
@@ -16,6 +20,26 @@ type NonNegLong = Long
 object Algo:
   enum Id derives CanEqual, DbCodec:
     case Blake3, Sha256, Sha1, Md5
+
+enum StoreStatus derives DbCodec:
+  @SqlName("active")
+  case Active
+  @SqlName("paused")
+  case Paused
+  @SqlName("retired")
+  case Retired
+
+enum LocationStatus derives DbCodec:
+  @SqlName("active")
+  case Active
+  @SqlName("stale")
+  case Stale
+  @SqlName("missing")
+  case Missing
+  @SqlName("deprecated")
+  case Deprecated
+  @SqlName("error")
+  case Error
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 
@@ -32,8 +56,8 @@ final case class BlobStoreRow(
     buildFp: Chunk[Byte],
     dvSchemaUrn: String,
     dvCanonical: Chunk[Byte],
-    dvJsonPreview: Option[String],
-    status: String,
+    dvJsonPreview: Option[Json],
+    status: StoreStatus,
     version: Long
 ) derives DbCodec
 
@@ -44,3 +68,8 @@ given DbCodec[Chunk[Byte]] =
 
 given DbCodec[java.util.UUID] =
   DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
+
+given JsonBDbCodec[Json] with
+  def encode(a: Json): String = a.toJson
+  def decode(json: String): Json =
+    json.fromJson[Json].fold(err => throw IllegalArgumentException(err), identity)

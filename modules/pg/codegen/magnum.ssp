@@ -4,16 +4,17 @@ package graviton.pg.generated
 
 import zio.Chunk
 import com.augustnagro.magnum.*
+import com.augustnagro.magnum.pg.enums.PgEnumDbCodec.given
+import com.augustnagro.magnum.pg.enums.PgEnumToScalaEnumSqlArrayCodec.given
 import graviton.pg.given
 
 #for (enum <- schema.enums)
 
-enum ${enum.scalaName}(val sqlValue: String) derives DbCodec:
+enum ${enum.scalaName} derives DbCodec:
 #for (enumValue <- enum.values)
-  case ${enumValue.scalaName} extends ${enum.scalaName}("${enumValue.name}")
+  @SqlName("${enumValue.name}")
+  case ${enumValue.scalaName}
 #end
-object ${enum.scalaName}:
-  def bySqlValue(v: String): Option[${enum.scalaName}] = values.find(_.sqlValue == v)
 
 #end
 

@@ -6,6 +6,7 @@ lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
 lazy val zioSchemaV  = "1.7.4"
+lazy val zioJsonV    = "0.6.2"
 lazy val zioMetricsV = "2.4.3"
 lazy val zioCacheV       = "0.2.4"
 lazy val zioRocksdbV     = "0.4.4"
@@ -22,6 +23,7 @@ lazy val commonSettings = Seq(
     "dev.zio" %% "zio-prelude" % zioPreludeV,
     "dev.zio" %% "zio-schema"        % zioSchemaV,
     "dev.zio" %% "zio-schema-derivation" % zioSchemaV,
+    "dev.zio" %% "zio-json"          % zioJsonV,
     "io.github.iltotore" %% "iron" % ironV,
     "io.github.rctcwyvrn" % "blake3" % "1.3",
     "dev.zio" %% "zio-logging" % zioLoggingV,
