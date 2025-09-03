@@ -28,6 +28,7 @@ jobs:
         run: |
           ./sbt doc
           mkdir -p site
+          cp -r docs/* site/
           for d in modules/*/target/scala-*; do
             name=$(basename $(dirname $d))
             cp -r "$d/api" "site/$name"
