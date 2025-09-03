@@ -2,6 +2,7 @@ package graviton.stacked
 
 import graviton.*
 import graviton.GravitonError.BackendUnavailable
+import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 

@@ -73,3 +73,10 @@ Each module provides a `ZLayer` for easy wiring into ZIO applications. An AWS
 S3 module is planned; in the meantime, use the `minio` module with an
 S3‑compatible endpoint.
 
+## Migration Notes
+
+The attribute system has been consolidated around `graviton.core.BinaryAttributes`.
+The previous `AttributeName`/`BinaryAttributes` pair has been removed in favour of
+typed `BinaryAttributeKey`s, so downstream code should construct and query
+attributes using the new API.
+
