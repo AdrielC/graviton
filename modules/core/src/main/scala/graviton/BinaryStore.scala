@@ -1,5 +1,6 @@
 package graviton
 
+import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 
