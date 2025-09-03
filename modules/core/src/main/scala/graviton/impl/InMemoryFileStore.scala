@@ -1,6 +1,7 @@
 package graviton.impl
 
 import graviton.*
+import graviton.chunking.FixedChunker
 import zio.*
 import zio.stream.*
 import io.github.iltotore.iron.*
@@ -16,20 +17,36 @@ final class InMemoryFileStore private (
       meta: FileMetadata,
       blockSize: Int
   ): ZSink[Any, Throwable, Byte, Nothing, FileKey] =
-    ZSink.collectAll[Byte].mapZIO { data =>
-      val full = Chunk.fromIterable(data)
-      val blocks = Chunk
-        .fromIterable(full.grouped(blockSize).map(Chunk.fromIterable).toList)
+    val algo = HashAlgorithm.SHA256
+    val hashing = Hashing.sink(algo)
+
+    val blockCollect: ZSink[Any, Throwable, Chunk[
+      Byte
+    ], Nothing, (Vector[BlockKey], Long)] =
+      ZSink.foldLeftZIO((Vector.empty[BlockKey], 0L)) {
+        case ((acc, sz), chunk) =>
+          ZStream.fromChunk(chunk).run(blockStore.put).map { key =>
+            (acc :+ key, sz + key.size.toLong)
+          }
+      }
+
+    val chunked
+        : ZSink[Any, Throwable, Byte, Nothing, (Vector[BlockKey], Long)] =
+      FixedChunker(blockSize).pipeline >>> blockCollect
+
+    hashing.zipPar(chunked).mapZIO { case (hash, (keys, size)) =>
+      val digest = hash.assume[MinLength[16] & MaxLength[64]]
+      val sizeR = size.assume[GreaterEqual[0]]
+      val fileBytes = Bytes(
+        ZStream
+          .fromIterable(keys)
+          .mapZIO(b =>
+            blockStore.get(b).someOrFail(GravitonError.NotFound(b.hash.hex))
+          )
+          .flatMap(identity)
+      )
       for
-        keys <- ZIO.foreach(blocks)(b =>
-          ZStream.fromChunk(b).run(blockStore.put)
-        )
-        hash <- Hashing
-          .compute(Bytes(ZStream.fromChunk(full)), HashAlgorithm.SHA256)
-        digest = hash.assume[MinLength[16] & MaxLength[64]]
-        sizeR = full.length.toLong.assume[GreaterEqual[0]]
-        algo = HashAlgorithm.SHA256
-        detected <- detect.detect(Bytes(ZStream.fromChunk(full)))
+        detected <- detect.detect(fileBytes)
         _ <- meta.advertisedMediaType match
           case Some(mt) if detected.exists(_ != mt) =>
             ZIO.fail(GravitonError.PolicyViolation("media type mismatch"))
