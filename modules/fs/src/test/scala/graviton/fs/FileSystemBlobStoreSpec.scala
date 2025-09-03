@@ -28,5 +28,24 @@ object FileSystemBlobStoreSpec extends ZIOSpecDefault:
         deleted <- store.delete(key)
         _ <- assertTrue(deleted)
       yield assertCompletes
+    },
+    test("partial read") {
+      for
+        tmp <- ZIO.attempt(Files.createTempDirectory("fs-store"))
+        store <- FileSystemBlobStore.make(tmp)
+        data = Chunk.fromArray("hello".getBytes)
+        hash <- Hashing.compute(
+          Bytes(ZStream.fromChunk(data)),
+          HashAlgorithm.SHA256
+        )
+        digest = hash.assume[MinLength[16] & MaxLength[64]]
+        sizeR = data.length.assume[Positive]
+        key = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
+        _ <- store.write(key, Bytes(ZStream.fromChunk(data)))
+        read <- store
+          .read(key, Some(ByteRange(1, 4)))
+          .someOrFailException
+          .flatMap(_.runCollect)
+      yield assertTrue(new String(read.toArray) == "ell")
     }
   )
