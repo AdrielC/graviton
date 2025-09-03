@@ -10,7 +10,7 @@ import zio.*
   * provided [[Hint]].
   */
 final class DefaultCopyTool extends CopyTool:
-  private val DefaultChunk: Int = 64 * 1024
+  private val DefaultChunkSize: Int = 64 * 1024
 
   def copy(
       src: BinaryStore,
@@ -19,8 +19,11 @@ final class DefaultCopyTool extends CopyTool:
       hint: Option[Hint] = None
   ): IO[Throwable, Unit] =
     val transfer = for
-      bytes <- src.get(id).someOrFail(GravitonError.NotFound(s"binary $id not found"))
-      _ <- bytes.run(dest.put(BinaryAttributes(Map.empty), DefaultChunk)).unit
+      bytes <- src
+        .get(id)
+        .someOrFail(GravitonError.NotFound(s"binary $id not found"))
+      _ <-
+        bytes.run(dest.put(BinaryAttributes(Map.empty), DefaultChunkSize)).unit
     yield ()
 
     for
@@ -31,7 +34,9 @@ final class DefaultCopyTool extends CopyTool:
             case Some(Hint.Skip)      => ZIO.unit
             case Some(Hint.Overwrite) => transfer
             case _ =>
-              ZIO.fail(GravitonError.PolicyViolation(s"binary $id already exists"))
+              ZIO.fail(
+                GravitonError.PolicyViolation(s"binary $id already exists")
+              )
         else transfer
     yield ()
 
