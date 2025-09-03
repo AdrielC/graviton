@@ -7,11 +7,15 @@ lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
 lazy val zioSchemaV  = "1.7.4"
 lazy val zioMetricsV = "2.4.3"
+lazy val zioCacheV       = "0.2.4"
+lazy val zioRocksdbV     = "0.4.4"
+lazy val testContainersV = "1.19.7"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
     "dev.zio" %% "zio"         % zioV,
     "dev.zio" %% "zio-streams" % zioV,
+    "dev.zio" %% "zio-cache"   % zioCacheV,
     "dev.zio" %% "zio-prelude" % zioPreludeV,
     "dev.zio" %% "zio-schema"        % zioSchemaV,
     "dev.zio" %% "zio-schema-derivation" % zioSchemaV,
@@ -38,7 +42,11 @@ lazy val fs = project
   .in(file("modules/fs"))
   .dependsOn(core)
   .settings(
-    name := "graviton-fs"
+    name := "graviton-fs",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-rocksdb"   % zioRocksdbV,
+      "org.testcontainers" % "testcontainers" % testContainersV % Test
+    )
   )
   .settings(commonSettings)
 
