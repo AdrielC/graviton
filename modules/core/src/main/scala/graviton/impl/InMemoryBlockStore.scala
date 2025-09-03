@@ -9,7 +9,9 @@ import io.github.iltotore.iron.constraint.all.*
 
 final class InMemoryBlockStore private (
     index: Ref[Set[BlockKey]],
-    primary: BlobStore
+    stores: Map[BlobStoreId, BlobStore],
+    primary: BlobStore,
+    resolver: BlockResolver
 ) extends BlockStore:
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey] =
@@ -36,12 +38,30 @@ final class InMemoryBlockStore private (
           }
           _ <-
             if exists then ZIO.unit
-            else primary.write(key, Bytes(ZStream.fromChunk(chunk)))
-        yield key
+            else
+              for
+                _ <- primary.write(key, Bytes(ZStream.fromChunk(chunk)))
+                status <- primary.status
+                _ <- resolver.record(key, BlockSector(primary.id, status))
+              yield ()
+      yield key
       }
 
   def get(key: BlockKey): IO[Throwable, Option[Bytes]] =
-    primary.read(key)
+    resolver.resolve(key).flatMap { sectors =>
+      def loop(rem: Chunk[BlockSector]): IO[Throwable, Option[Bytes]] =
+        rem.headOption match
+          case None => ZIO.succeed(None)
+          case Some(sec) =>
+            stores.get(sec.blobStoreId) match
+              case None => loop(rem.drop(1))
+              case Some(store) =>
+                store.read(key).flatMap {
+                  case None => loop(rem.drop(1))
+                  case s    => ZIO.succeed(s)
+                }
+      loop(sectors)
+    }
 
   def has(key: BlockKey): IO[Throwable, Boolean] =
     index.get.map(_.contains(key))
@@ -64,5 +84,12 @@ final class InMemoryBlockStore private (
     }
 
 object InMemoryBlockStore:
-  def make(primary: BlobStore): UIO[InMemoryBlockStore] =
-    Ref.make(Set.empty[BlockKey]).map(new InMemoryBlockStore(_, primary))
+  def make(
+      primary: BlobStore,
+      resolver: BlockResolver,
+      others: Seq[BlobStore] = Seq.empty
+  ): UIO[InMemoryBlockStore] =
+    Ref.make(Set.empty[BlockKey]).map { ref =>
+      val all = (primary +: others).map(bs => bs.id -> bs).toMap
+      new InMemoryBlockStore(ref, all, primary, resolver)
+    }
