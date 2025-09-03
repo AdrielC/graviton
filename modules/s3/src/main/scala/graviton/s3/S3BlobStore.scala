@@ -1,4 +1,4 @@
-package graviton.minio
+package graviton.s3
 
 import graviton.*
 import zio.*
@@ -7,7 +7,7 @@ import io.minio.MinioClient
 import io.minio.{GetObjectArgs, PutObjectArgs, RemoveObjectArgs}
 import java.io.ByteArrayInputStream
 
-final class MinioBlobStore(
+final class S3BlobStore(
     client: MinioClient,
     bucket: String,
     val id: BlobStoreId
@@ -57,12 +57,12 @@ final class MinioBlobStore(
       true
     }
 
-object MinioBlobStore:
+object S3BlobStore:
   def layer(
       client: MinioClient,
       bucket: String,
-      id: String = "minio"
+      id: String = "s3"
   ): ZLayer[Any, Nothing, BlobStore] =
     ZLayer.succeed(
-      new MinioBlobStore(client, bucket, BlobStoreId(id)): BlobStore
+      new S3BlobStore(client, bucket, BlobStoreId(id)): BlobStore
     )
