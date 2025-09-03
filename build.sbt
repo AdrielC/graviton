@@ -6,6 +6,7 @@ lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
 lazy val zioSchemaV  = "1.7.4"
+lazy val zioMetricsV = "2.4.3"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -23,7 +24,7 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 )
 
-lazy val root = (project in file(".")).aggregate(core, fs, minio, tika, docs)
+lazy val root = (project in file(".")).aggregate(core, fs, minio, tika, metrics, docs)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -47,6 +48,15 @@ lazy val minio = project
   .settings(
     name := "graviton-minio",
     libraryDependencies += "io.minio" % "minio" % "8.5.9"
+  )
+  .settings(commonSettings)
+
+lazy val metrics = project
+  .in(file("modules/metrics"))
+  .dependsOn(core)
+  .settings(
+    name := "graviton-metrics",
+    libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV
   )
   .settings(commonSettings)
 
