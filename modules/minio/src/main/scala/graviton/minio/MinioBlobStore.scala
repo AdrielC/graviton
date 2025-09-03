@@ -16,13 +16,16 @@ final class MinioBlobStore(
 
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 
-  def read(key: BlockKey): IO[Throwable, Option[Bytes]] =
+  def read(
+      key: BlockKey,
+      range: Option[ByteRange] = None
+  ): IO[Throwable, Option[Bytes]] =
+    val builder = GetObjectArgs.builder.bucket(bucket).`object`(keyPath(key))
+    range.foreach { case ByteRange(start, end) =>
+      builder.offset(start).length(end - start)
+    }
     ZIO
-      .attemptBlocking(
-        client.getObject(
-          GetObjectArgs.builder.bucket(bucket).`object`(keyPath(key)).build()
-        )
-      )
+      .attemptBlocking(client.getObject(builder.build()))
       .map(is =>
         Some(Bytes(ZStream.fromInputStream(is).mapError(e => e: Throwable)))
       )

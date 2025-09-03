@@ -38,5 +38,19 @@ object BlockStoreSpec extends ZIOSpecDefault:
         _ <- primary.delete(key)
         data <- store.get(key).someOrFailException.flatMap(_.runCollect)
       yield assertTrue(new String(data.toArray) == "hello")
+    },
+    test("partial reads") {
+      for
+        blob <- InMemoryBlobStore.make()
+        resolver <- InMemoryBlockResolver.make
+        store <- InMemoryBlockStore.make(blob, resolver)
+        key <- ZStream
+          .fromIterable("hello world".getBytes.toIndexedSeq)
+          .run(store.put)
+        part <- store
+          .get(key, Some(ByteRange(6, 11)))
+          .someOrFailException
+          .flatMap(_.runCollect)
+      yield assertTrue(new String(part.toArray) == "world")
     }
   )
