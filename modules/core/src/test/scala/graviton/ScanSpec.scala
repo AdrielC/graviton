@@ -114,5 +114,15 @@ object ScanSpec extends ZIOSpecDefault:
       )
       for out <- ZStream(1, 2, 3).via(pipeline).runCollect
       yield assertTrue(out == Chunk(3L))
+    },
+    test("runAll processes iterable without ZIO") {
+      val (st, out) = Scan.count.runAll(List(1, 2, 3))
+      assertTrue(st.head == 3L) && assertTrue(out == Chunk(3L))
+    },
+    test("chunkBy splits input into fixed-size chunks") {
+      val scan = Scan.fixedSize[Byte](2)
+      val bytes = List[Byte](1, 2, 3, 4, 5)
+      val (_, out) = scan.runAll(bytes)
+      assertTrue(out == Chunk(Chunk(1, 2), Chunk(3, 4), Chunk(5)))
     }
   )

@@ -4,6 +4,7 @@ import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
 import zio.stream.Take
+import zio.prelude.fx.ZPure
 import scala.compiletime.{erasedValue, summonFrom}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
@@ -132,6 +133,34 @@ object Scan:
         val s1 = st.take(sizeA).asInstanceOf[S]
         val s2 = st.drop(sizeA).asInstanceOf[S2]
         self.done(s1).zip(that.done(s2))
+      }
+
+    transparent inline def runAll(
+        inputs: Iterable[I]
+    ): (S, Chunk[O]) =
+      var state = self.initial
+      val builder = ChunkBuilder.make[O]()
+      val it = inputs.iterator
+      while it.hasNext do
+        val (s, out) = self.step(state, it.next())
+        state = s
+        builder ++= out
+      builder ++= self.done(state)
+      (state, builder.result())
+
+    transparent inline def runZPure(
+        inputs: Iterable[I]
+    ): ZPure[Nothing, S, S, Any, Nothing, Chunk[O]] =
+      ZPure.modify { (st: S) =>
+        var state = st
+        val builder = ChunkBuilder.make[O]()
+        val it = inputs.iterator
+        while it.hasNext do
+          val (s, out) = self.step(state, it.next())
+          state = s
+          builder ++= out
+        builder ++= self.done(state)
+        (builder.result(), state)
       }
 
   // ---------------------- Stateless implementations ----------------------
@@ -274,4 +303,25 @@ object Scan:
       val digRef = dig.assume[MinLength[16] & MaxLength[64]]
       Chunk.single((Hash(digRef, algo), c))
     }
+
+  // --------- chunking ---------
+
+  final case class ChunkState[I](buffer: Chunk[I], cost: Int)
+
+  def chunkBy[I](
+      costFn: I => Int,
+      threshold: Int
+  ): Aux[I, Chunk[I], ChunkState[I] *: EmptyTuple] =
+    stateful(ChunkState(Chunk.empty[I], 0)) { (st: ChunkState[I], i: I) =>
+      val buf1 = st.buffer :+ i
+      val cost1 = st.cost + costFn(i)
+      if cost1 >= threshold then
+        (ChunkState(Chunk.empty, 0), Chunk.single(buf1))
+      else (ChunkState(buf1, cost1), Chunk.empty)
+    } { st =>
+      if st.buffer.isEmpty then Chunk.empty else Chunk.single(st.buffer)
+    }
+
+  def fixedSize[I](size: Int): Aux[I, Chunk[I], ChunkState[I] *: EmptyTuple] =
+    chunkBy(_ => 1, size)
 end Scan
