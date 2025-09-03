@@ -13,3 +13,6 @@ Quasar and other applications.
 
 See [architecture.md](architecture.md) for a high‑level overview of the storage
 stack.
+
+Additional details about the layered model and terminology live in
+[binary-store.md](binary-store.md).
