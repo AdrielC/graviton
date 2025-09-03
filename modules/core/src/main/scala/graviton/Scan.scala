@@ -181,17 +181,13 @@ object Scan:
     def done(state: EmptyTuple) = Chunk.empty
   end StatelessChain
 
-  sealed trait StatelessChunk[-I, +O] extends Scan[I, O]:
-    final type State = EmptyTuple
-    final val initial: EmptyTuple = EmptyTuple
-
-  transparent inline def stateless[I, O](inline f: I => O): Stateless[I, O] =
+  transparent inline def stateless1[I, O](inline f: I => O): Stateless[I, O] =
     new StatelessChain[I, O](Chunk.single(f.asInstanceOf[Any => Any]))
 
-  transparent inline def statelessChunk[I, O](
+  transparent inline def stateless[I, O](
       inline f: I => Chunk[O]
-  ): StatelessChunk[I, O] =
-    new StatelessChunk[I, O]:
+  ): Stateless[I, O] =
+    new Stateless[I, O]:
       def step(state: EmptyTuple, in: I) = (state, f(in))
       def done(state: EmptyTuple) = Chunk.empty
 
@@ -233,7 +229,7 @@ object Scan:
     Identity.asInstanceOf[Aux[I, I, EmptyTuple]]
 
   transparent inline def lift[I, O](inline f: I => O): Aux[I, O, EmptyTuple] =
-    stateless(f)
+    stateless1(f)
 
   // ---------------------- Built-in scans ----------------------
 
