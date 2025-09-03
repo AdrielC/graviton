@@ -4,6 +4,8 @@ import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
 import scala.compiletime.{erasedValue, summonFrom}
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 
 /** A stateful stream transformer whose state is represented as a Tuple.
   * Stateless scans use `EmptyTuple` and therefore do not alter the state type
@@ -206,13 +208,27 @@ object Scan:
         )
         stateful[Byte, Hash, java.security.MessageDigest](md)((m, b) => {
           m.update(b); (m, Chunk.empty)
-        })(m => Chunk.single(Hash(Chunk.fromArray(m.digest()), algo)))
+        })(m =>
+          Chunk.single(
+            Hash(
+              Chunk.fromArray(m.digest()).assume[MinLength[16] & MaxLength[64]],
+              algo
+            )
+          )
+        )
           .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
       case HashAlgorithm.Blake3 =>
         val bl = io.github.rctcwyvrn.blake3.Blake3.newInstance()
         stateful[Byte, Hash, io.github.rctcwyvrn.blake3.Blake3](bl)((h, b) => {
           h.update(Array(b)); (h, Chunk.empty)
-        })(h => Chunk.single(Hash(Chunk.fromArray(h.digest()), algo)))
+        })(h =>
+          Chunk.single(
+            Hash(
+              Chunk.fromArray(h.digest()).assume[MinLength[16] & MaxLength[64]],
+              algo
+            )
+          )
+        )
           .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
 
   /** Convenience scan that produces both hash and count in one pass. */
@@ -238,6 +254,7 @@ object Scan:
         case md: java.security.MessageDigest => Chunk.fromArray(md.digest())
         case bl: io.github.rctcwyvrn.blake3.Blake3 =>
           Chunk.fromArray(bl.digest())
-      Chunk.single((Hash(dig, algo), c))
+      val digRef = dig.assume[MinLength[16] & MaxLength[64]]
+      Chunk.single((Hash(digRef, algo), c))
     }
 end Scan

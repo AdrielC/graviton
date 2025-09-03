@@ -1,6 +1,9 @@
 package graviton
 
-import zio.*
 import zio.stream.*
 
-type Bytes = ZStream[Any, Throwable, Byte]
+opaque type Bytes <: ZStream[Any, Throwable, Byte] =
+  ZStream[Any, Throwable, Byte]
+
+object Bytes:
+  inline def apply(stream: ZStream[Any, Throwable, Byte]): Bytes = stream

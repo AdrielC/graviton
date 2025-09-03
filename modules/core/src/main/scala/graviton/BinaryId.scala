@@ -1,3 +1,6 @@
 package graviton
 
-final case class BinaryId(value: String) extends AnyVal
+opaque type BinaryId = String
+
+object BinaryId:
+  inline def apply(value: String): BinaryId = value

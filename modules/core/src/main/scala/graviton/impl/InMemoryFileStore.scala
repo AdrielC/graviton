@@ -3,23 +3,41 @@ package graviton.impl
 import graviton.*
 import zio.*
 import zio.stream.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 
 final class InMemoryFileStore private (
-  blockStore: BlockStore,
-  manifests: Ref[Map[FileKey, FileDescriptor]]
+    blockStore: BlockStore,
+    manifests: Ref[Map[FileKey, FileDescriptor]],
+    detect: ContentTypeDetect
 ) extends FileStore:
 
-  def put(meta: FileMetadata, blockSize: Int): ZSink[Any, Throwable, Byte, Nothing, FileKey] =
+  def put(
+      meta: FileMetadata,
+      blockSize: Int
+  ): ZSink[Any, Throwable, Byte, Nothing, FileKey] =
     ZSink.collectAll[Byte].mapZIO { data =>
       val full = Chunk.fromIterable(data)
-      val blocks = Chunk.fromIterable(full.grouped(blockSize).map(Chunk.fromIterable).toList)
+      val blocks = Chunk
+        .fromIterable(full.grouped(blockSize).map(Chunk.fromIterable).toList)
       for
-        keys <- ZIO.foreach(blocks)(b => ZStream.fromChunk(b).run(blockStore.put))
-        hash <- Hashing.compute(ZStream.fromChunk(full), HashAlgorithm.SHA256)
+        keys <- ZIO.foreach(blocks)(b =>
+          ZStream.fromChunk(b).run(blockStore.put)
+        )
+        hash <- Hashing
+          .compute(Bytes(ZStream.fromChunk(full)), HashAlgorithm.SHA256)
+        digest = hash.assume[MinLength[16] & MaxLength[64]]
+        sizeR = full.length.toLong.assume[GreaterEqual[0]]
         algo = HashAlgorithm.SHA256
-        size = full.length.toLong
-        mediaType = meta.advertisedMediaType.getOrElse("application/octet-stream")
-        fk = FileKey(Hash(hash, algo), algo, size, mediaType)
+        detected <- detect.detect(Bytes(ZStream.fromChunk(full)))
+        _ <- meta.advertisedMediaType match
+          case Some(mt) if detected.exists(_ != mt) =>
+            ZIO.fail(GravitonError.PolicyViolation("media type mismatch"))
+          case _ => ZIO.unit
+        mediaType = meta.advertisedMediaType
+          .orElse(detected)
+          .getOrElse("application/octet-stream")
+        fk = FileKey(Hash(digest, algo), algo, sizeR, mediaType)
         desc = FileDescriptor(fk, Chunk.fromIterable(keys), blockSize)
         _ <- manifests.update(_ + (fk -> desc))
       yield fk
@@ -29,8 +47,12 @@ final class InMemoryFileStore private (
     describe(key).flatMap {
       case None => ZIO.succeed(None)
       case Some(fd) =>
-        val streams = fd.blocks.map(b => blockStore.get(b).someOrFail(GravitonError.NotFound(b.hash.hex)))
-        ZIO.foreach(streams)(identity).map(parts => Some(parts.reduceLeft(_ ++ _)))
+        val streams = fd.blocks.map(b =>
+          blockStore.get(b).someOrFail(GravitonError.NotFound(b.hash.hex))
+        )
+        ZIO
+          .foreach(streams)(identity)
+          .map(parts => Some(Bytes(parts.reduceLeft(_ ++ _))))
     }
 
   def describe(key: FileKey): IO[Throwable, Option[FileDescriptor]] =
@@ -42,5 +64,10 @@ final class InMemoryFileStore private (
     }
 
 object InMemoryFileStore:
-  def make(blockStore: BlockStore): UIO[InMemoryFileStore] =
-    Ref.make(Map.empty[FileKey, FileDescriptor]).map(new InMemoryFileStore(blockStore, _))
+  def make(
+      blockStore: BlockStore,
+      detect: ContentTypeDetect
+  ): UIO[InMemoryFileStore] =
+    Ref
+      .make(Map.empty[FileKey, FileDescriptor])
+      .map(new InMemoryFileStore(blockStore, _, detect))

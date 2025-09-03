@@ -23,7 +23,9 @@ final class MinioBlobStore(
           GetObjectArgs.builder.bucket(bucket).`object`(keyPath(key)).build()
         )
       )
-      .map(is => Some(ZStream.fromInputStream(is)))
+      .map(is =>
+        Some(Bytes(ZStream.fromInputStream(is).mapError(e => e: Throwable)))
+      )
       .catchSome {
         case e: io.minio.errors.ErrorResponseException
             if e.errorResponse().code() == "NoSuchKey" =>

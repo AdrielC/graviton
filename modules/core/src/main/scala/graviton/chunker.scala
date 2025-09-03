@@ -16,15 +16,17 @@ object Chunker:
       val name = s"fixed($size)"
       val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
         ZPipeline.fromChannel:
-          def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Chunk[Byte]], Any] =
+          def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
+            Byte
+          ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
             ZChannel.readWith(
               (in: Chunk[Byte]) =>
                 val acc = buf ++ in
                 if acc.length >= size then
                   val (full, rest) = acc.splitAt(size)
                   ZChannel.write(Chunk(full)) *> loop(rest)
-                else
-                  loop(acc),
+                else loop(acc)
+              ,
               (err: Throwable) => ZChannel.fail(err),
               (_: Any) =>
                 if buf.isEmpty then ZChannel.unit

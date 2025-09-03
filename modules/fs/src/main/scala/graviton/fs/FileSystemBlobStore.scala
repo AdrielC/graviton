@@ -18,7 +18,7 @@ final class FileSystemBlobStore private (root: Path, val id: BlobStoreId)
   def read(key: BlockKey): IO[Throwable, Option[Bytes]] =
     ZIO.attempt(Files.exists(pathFor(key))).flatMap { exists =>
       if !exists then ZIO.succeed(None)
-      else ZIO.succeed(Some(ZStream.fromPath(pathFor(key))))
+      else ZIO.succeed(Some(Bytes(ZStream.fromPath(pathFor(key)))))
     }
 
   def write(key: BlockKey, data: Bytes): IO[Throwable, Unit] =

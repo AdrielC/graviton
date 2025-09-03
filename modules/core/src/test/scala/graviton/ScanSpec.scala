@@ -3,6 +3,8 @@ package graviton
 import zio.*
 import zio.stream.*
 import zio.test.*
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 
 object ScanSpec extends ZIOSpecDefault:
   def spec = suite("ScanSpec")(
@@ -97,9 +99,10 @@ object ScanSpec extends ZIOSpecDefault:
       for
         out <- ZStream.fromChunk(bytes).via(scan.toPipeline).runCollect
         digest <- Hashing
-          .compute(ZStream.fromChunk(bytes), HashAlgorithm.SHA256)
+          .compute(Bytes(ZStream.fromChunk(bytes)), HashAlgorithm.SHA256)
+        digRef = digest.assume[MinLength[16] & MaxLength[64]]
       yield assertTrue(
-        out == Chunk((Hash(digest, HashAlgorithm.SHA256), bytes.length.toLong))
+        out == Chunk((Hash(digRef, HashAlgorithm.SHA256), bytes.length.toLong))
       )
     }
   )

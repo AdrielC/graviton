@@ -4,12 +4,13 @@ import zio.*
 import zio.stream.*
 import java.security.MessageDigest
 import io.github.rctcwyvrn.blake3.Blake3
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 
-/**
- * Helpers for computing hashes over byte streams. Supports both SHA variants
- * (for FIPS deployments) and Blake3.  Hashes are exposed via [[Hash]] which
- * captures the algorithm alongside the digest bytes.
- */
+/** Helpers for computing hashes over byte streams. Supports both SHA variants
+  * (for FIPS deployments) and Blake3. Hashes are exposed via [[Hash]] which
+  * captures the algorithm alongside the digest bytes.
+  */
 object Hashing:
 
   /** Create an incremental hasher for the chosen algorithm. */
@@ -28,22 +29,29 @@ object Hashing:
     yield d
 
   /** A sink that consumes a byte stream and yields its digest. */
-  def sink(algo: HashAlgorithm): ZSink[Any, Throwable, Byte, Nothing, Chunk[Byte]] =
-    ZSink.collectAll[Byte].mapZIO(bs => compute(ZStream.fromChunk(bs), algo))
+  def sink(
+      algo: HashAlgorithm
+  ): ZSink[Any, Throwable, Byte, Nothing, Chunk[Byte]] =
+    ZSink
+      .collectAll[Byte]
+      .mapZIO(bs => compute(Bytes(ZStream.fromChunk(bs)), algo))
 
-  /**
-   * Produce a stream of rolling digests for the incoming byte stream. Each
-   * emitted [[Hash]] represents the digest of all bytes seen so far. This is a
-   * ZIO-port of fs2's `Scan` utility.
-   */
-  def rolling(stream: Bytes, algo: HashAlgorithm): ZStream[Any, Throwable, Hash] =
+  /** Produce a stream of rolling digests for the incoming byte stream. Each
+    * emitted [[Hash]] represents the digest of all bytes seen so far. This is a
+    * ZIO-port of fs2's `Scan` utility.
+    */
+  def rolling(
+      stream: Bytes,
+      algo: HashAlgorithm
+  ): ZStream[Any, Throwable, Hash] =
     ZStream.unwrap {
       hasher(algo).map { h =>
         stream.mapChunksZIO { chunk =>
           for
-            _   <- h.update(chunk)
+            _ <- h.update(chunk)
             dig <- h.snapshot
-          yield Chunk.single(Hash(dig, algo))
+            refined = dig.assume[MinLength[16] & MaxLength[64]]
+          yield Chunk.single(Hash(refined, algo))
         }
       }
     }
@@ -63,7 +71,11 @@ object Hasher:
       def update(chunk: Chunk[Byte]): UIO[Unit] =
         ZIO.attempt(md.update(chunk.toArray)).orDie
       def snapshot: UIO[Chunk[Byte]] =
-        ZIO.attempt(Chunk.fromArray(md.clone().asInstanceOf[MessageDigest].digest())).orDie
+        ZIO
+          .attempt(
+            Chunk.fromArray(md.clone().asInstanceOf[MessageDigest].digest())
+          )
+          .orDie
       def digest: UIO[Chunk[Byte]] =
         ZIO.attempt(Chunk.fromArray(md.digest())).orDie
 
@@ -79,4 +91,3 @@ object Hasher:
         def snapshot: UIO[Chunk[Byte]] = ref.get.map(compute)
         def digest: UIO[Chunk[Byte]] = ref.getAndSet(Vector.empty).map(compute)
     }
-
