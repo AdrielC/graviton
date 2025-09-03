@@ -124,5 +124,18 @@ object ScanSpec extends ZIOSpecDefault:
       val bytes = List[Byte](1, 2, 3, 4, 5)
       val (_, out) = scan.runAll(bytes)
       assertTrue(out == Chunk(Chunk(1, 2), Chunk(3, 4), Chunk(5)))
+    },
+    test("toSink collects all outputs") {
+      val scan = Scan.stateless((i: Int) => i * 2)
+      for out <- ZStream(1, 2, 3).run(scan.toSink)
+      yield assertTrue(out == Chunk(2, 4, 6))
+    },
+    test("runZPure yields final state and outputs") {
+      val scan = Scan.stateful(0) { (s: Int, i: Int) =>
+        val sum = s + i
+        (sum, Chunk.single(sum))
+      }(s => Chunk.single(s))
+      val (st, out) = scan.runZPure(List(1, 2, 3)).run(scan.initial)
+      assertTrue(out == Chunk(1, 3, 6, 6)) && assertTrue(st.head == 6)
     }
   )

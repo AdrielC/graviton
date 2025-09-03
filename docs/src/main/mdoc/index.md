@@ -10,6 +10,7 @@ Quasar and other applications.
 * **fs** – filesystem backed blob store.
 * **minio** – S3‑compatible blob store using zio‑aws.
 * **tika** – media type detection utilities backed by Apache Tika.
+* [Scan utilities](scan.md) – composable streaming transformers.
 
 See [architecture.md](architecture.md) for a high‑level overview of the storage
 stack.
