@@ -1,13 +1,13 @@
 package graviton
 
 import zio.Chunk
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
+import zio.schema.{DeriveSchema, Schema}
 
-type Digest = Chunk[Byte] :| (MinLength[16] & MaxLength[64])
-
-final case class Hash(bytes: Digest, algo: HashAlgorithm):
+final case class Hash(bytes: Chunk[Byte], algo: HashAlgorithm):
   def hex: String =
     bytes
       .foldLeft(new StringBuilder) { (sb, b) => sb.append(f"$b%02x") }
       .toString
+
+object Hash:
+  given Schema[Hash] = DeriveSchema.gen[Hash]
