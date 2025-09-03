@@ -21,7 +21,9 @@ final class InMemoryBlockStore private (
         }
         .map(_.result())
     collect
-      .zipWithPar(Hashing.sink(HashAlgorithm.SHA256))((chunk, dig) => (chunk, dig))
+      .zipWithPar(Hashing.sink(HashAlgorithm.SHA256))((chunk, dig) =>
+        (chunk, dig)
+      )
       .mapZIO { (chunk, hashBytes) =>
         val digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
         val sizeRef = chunk.length.assume[Positive]
