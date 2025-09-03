@@ -20,14 +20,18 @@ final class InMemoryFileStore private (
     val algo = HashAlgorithm.SHA256
     val hashing = Hashing.sink(algo)
 
-    val blockCollect: ZSink[Any, Throwable, Chunk[Byte], Nothing, (Chunk[BlockKey], Long)] =
-      ZSink.foldLeftZIO((Chunk.empty[BlockKey], 0L)) { case ((acc, sz), chunk) =>
-        ZStream.fromChunk(chunk).run(blockStore.put).map { key =>
-          (acc :+ key, sz + key.size.toLong)
-        }
+    val blockCollect: ZSink[Any, Throwable, Chunk[
+      Byte
+    ], Nothing, (Vector[BlockKey], Long)] =
+      ZSink.foldLeftZIO((Vector.empty[BlockKey], 0L)) {
+        case ((acc, sz), chunk) =>
+          ZStream.fromChunk(chunk).run(blockStore.put).map { key =>
+            (acc :+ key, sz + key.size.toLong)
+          }
       }
 
-    val chunked: ZSink[Any, Throwable, Byte, Nothing, (Chunk[BlockKey], Long)] =
+    val chunked
+        : ZSink[Any, Throwable, Byte, Nothing, (Vector[BlockKey], Long)] =
       FixedChunker(blockSize).pipeline >>> blockCollect
 
     hashing.zipPar(chunked).mapZIO { case (hash, (keys, size)) =>
@@ -51,7 +55,7 @@ final class InMemoryFileStore private (
           .orElse(detected)
           .getOrElse("application/octet-stream")
         fk = FileKey(Hash(digest, algo), algo, sizeR, mediaType)
-        desc = FileDescriptor(fk, keys, blockSize)
+        desc = FileDescriptor(fk, Chunk.fromIterable(keys), blockSize)
         _ <- manifests.update(_ + (fk -> desc))
       yield fk
     }
