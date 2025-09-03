@@ -1,31 +1,31 @@
-package graviton
+package graviton.chunking
 
 import zio.*
 import zio.stream.*
 
-/** Splits a byte stream into logical chunks. */
-trait Chunker:
-  def name: String
-  def pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]]
-
-object Chunker:
-
-  /** Fixed-size chunking. Last chunk may be smaller. */
-  def fixed(size: Int): Chunker =
+/** Simple fixed-size chunker. */
+object FixedChunker:
+  def apply(size: Int): Chunker =
     new Chunker:
       val name = s"fixed($size)"
       val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
         ZPipeline.fromChannel:
+          def splitAll(acc: Chunk[Byte]): (Chunk[Chunk[Byte]], Chunk[Byte]) =
+            var rest = acc
+            val outs = scala.collection.mutable.ListBuffer.empty[Chunk[Byte]]
+            while rest.length >= size do
+              val (full, r) = rest.splitAt(size)
+              outs += full
+              rest = r
+            (Chunk.fromIterable(outs.toList), rest)
+
           def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
             Byte
           ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
             ZChannel.readWith(
               (in: Chunk[Byte]) =>
-                val acc = buf ++ in
-                if acc.length >= size then
-                  val (full, rest) = acc.splitAt(size)
-                  ZChannel.write(Chunk(full)) *> loop(rest)
-                else loop(acc)
+                val (emitted, leftover) = splitAll(buf ++ in)
+                ZChannel.write(emitted) *> loop(leftover)
               ,
               (err: Throwable) => ZChannel.fail(err),
               (_: Any) =>
