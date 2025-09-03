@@ -104,5 +104,15 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(
         out == Chunk((Hash(digRef, HashAlgorithm.SHA256), bytes.length.toLong))
       )
+    },
+    test("toChannel yields Take-based channel") {
+      val scan = Scan.count
+      val pipeline = ZPipeline.fromChannel(
+        scan.toChannel.mapOut(
+          _.fold(Chunk.empty[Long], cause => throw cause.squash, chunk => chunk)
+        )
+      )
+      for out <- ZStream(1, 2, 3).via(pipeline).runCollect
+      yield assertTrue(out == Chunk(3L))
     }
   )

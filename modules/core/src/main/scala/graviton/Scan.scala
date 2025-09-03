@@ -3,6 +3,7 @@ package graviton
 import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
+import zio.stream.Take
 import scala.compiletime.{erasedValue, summonFrom}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
@@ -25,22 +26,38 @@ object Scan:
   // ---------------------- core operations ----------------------
 
   extension [I, O, S <: Tuple](self: Scan.Aux[I, O, S])
-    transparent inline def toPipeline: ZPipeline[Any, Nothing, I, O] =
+    transparent inline def toChannel: ZChannel[Any, Nothing, Chunk[
+      I
+    ], Any, Nothing, Take[Nothing, O], Any] =
       def loop(
           state: S
-      ): ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Any] =
+      ): ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Take[Nothing, O], Any] =
         ZChannel.readWith(
           in =>
             val (s, outs) = in.foldLeft((state, Chunk.empty[O])) { (acc, i) =>
               val (st, ch) = self.step(acc._1, i)
               (st, acc._2 ++ ch)
             }
-            ZChannel.write(outs) *> loop(s)
+            ZChannel.write(Take.chunk(outs)) *> loop(s)
           ,
           err => ZChannel.refailCause(err),
-          _ => ZChannel.write(self.done(state))
+          _ =>
+            ZChannel.write(Take.chunk(self.done(state))) *>
+              ZChannel.write(Take.end) *>
+              ZChannel.unit
         )
-      ZPipeline.fromChannel(loop(self.initial))
+      loop(self.initial)
+
+    transparent inline def toPipeline: ZPipeline[Any, Nothing, I, O] =
+      ZPipeline.fromChannel(
+        toChannel.mapOut(
+          _.fold(
+            Chunk.empty[O],
+            cause => throw cause.squash,
+            chunk => chunk
+          )
+        )
+      )
 
     transparent inline def toSink: ZSink[Any, Nothing, I, Nothing, Chunk[O]] =
       toPipeline >>> ZSink.collectAll[O]
