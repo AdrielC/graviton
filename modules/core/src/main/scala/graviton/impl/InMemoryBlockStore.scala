@@ -3,7 +3,6 @@ package graviton.impl
 import graviton.*
 import zio.*
 import zio.stream.*
-import zio.ChunkBuilder
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 
@@ -15,38 +14,39 @@ final class InMemoryBlockStore private (
 ) extends BlockStore:
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey] =
-    val collect =
-      ZSink
-        .foldLeftChunks[Byte, ChunkBuilder[Byte]](ChunkBuilder.make[Byte]()) {
-          (b, ch) =>
-            b ++= ch
-        }
-        .map(_.result())
-    collect
-      .zipWithPar(Hashing.sink(HashAlgorithm.SHA256))((chunk, dig) =>
-        (chunk, dig)
-      )
-      .mapZIO { (chunk, hashBytes) =>
-        val digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
-        val sizeRef = chunk.length.assume[Positive]
-        val key = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeRef)
-        for
-          exists <- index.modify { s =>
-            val exists = s.contains(key)
-            val updated = if exists then s else s + key
-            (exists, updated)
+    ZSink.unwrap {
+      for
+        chunks <- Ref.make(Vector.empty[Chunk[Byte]])
+        sizeRef <- Ref.make(0)
+      yield
+        val collect =
+          ZSink.foreachChunk[Any, Nothing, Byte] { ch =>
+            chunks.update(_ :+ ch) *> sizeRef.update(_ + ch.length)
           }
-          _ <-
-            if exists then ZIO.unit
-            else
-              (for
-                _ <- primary.write(key, Bytes(ZStream.fromChunk(chunk)))
-                status <- primary.status
-                _ <- resolver.record(key, BlockSector(primary.id, status))
-              yield ()
-            )
-        yield key
-      }
+        collect
+          .zipWithPar(Hashing.sink(HashAlgorithm.SHA256))((_, dig) => dig)
+          .mapZIO { hashBytes =>
+            val digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
+            for
+              size <- sizeRef.get
+              key = BlockKey(
+                Hash(digest, HashAlgorithm.SHA256),
+                size.assume[Positive]
+              )
+              exists <- index.get.map(_.contains(key))
+              _ <-
+                if exists then ZIO.unit
+                else
+                  (for
+                    data <- chunks.get.map(chs => Bytes(ZStream.fromChunks(chs*)))
+                    _ <- primary.write(key, data)
+                    status <- primary.status
+                    _ <- resolver.record(key, BlockSector(primary.id, status))
+                    _ <- index.update(_ + key)
+                  yield ())
+            yield key
+          }
+    }
 
   def get(
       key: BlockKey,
