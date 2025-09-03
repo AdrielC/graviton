@@ -15,12 +15,22 @@ object Encryption:
 
   private class AesGcm(master: Chunk[Byte]) extends Encryption:
 
-    private def deriveKey(hash: Hash): Array[Byte] =
+    // RFC 5869 HKDF inspired by zio-crypto's implementation
+    private def hkdf(
+        master: Array[Byte],
+        salt: Array[Byte],
+        length: Int
+    ): Array[Byte] =
       val mac = Mac.getInstance("HmacSHA256")
-      val keySpec = new SecretKeySpec(master.toArray, "HmacSHA256")
-      mac.init(keySpec)
-      val prk = mac.doFinal(hash.bytes.toArray)
-      java.util.Arrays.copyOf(prk, 32)
+      mac.init(new SecretKeySpec(salt, "HmacSHA256"))
+      val prk = mac.doFinal(master)
+      mac.init(new SecretKeySpec(prk, "HmacSHA256"))
+      val okm = mac.doFinal(Array[Byte](1))
+      java.util.Arrays.fill(prk, 0.toByte)
+      java.util.Arrays.copyOf(okm, length)
+
+    private def deriveKey(hash: Hash): Array[Byte] =
+      hkdf(master.toArray, hash.bytes.toArray, 32)
 
     private def nonce(hash: Hash): Array[Byte] =
       hash.bytes.take(12).toArray
