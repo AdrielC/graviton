@@ -3,9 +3,13 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 
-target/
-project/target/
-project/project/
+**/target/
+**/project/target/
+**/project/project/
 modules/*/target/
 
 cs
+sbt
+.vscode/settings.json
+.cursor
+.metals
