@@ -38,12 +38,14 @@ final class InMemoryBlockStore private (
                 if exists then ZIO.unit
                 else
                   (for
-                    data <- chunks.get.map(chs => Bytes(ZStream.fromChunks(chs*)))
+                    data <- chunks.get
+                      .map(chs => Bytes(ZStream.fromChunks(chs*)))
                     _ <- primary.write(key, data)
                     status <- primary.status
                     _ <- resolver.record(key, BlockSector(primary.id, status))
                     _ <- index.update(_ + key)
-                  yield ())
+                  yield ()
+                )
             yield key
           }
     }
