@@ -1,3 +1,5 @@
+import scala.sys.process._
+
 ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
@@ -96,6 +98,7 @@ lazy val metrics = project
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core)
+  .enablePlugins(dbcodegen.plugin.DbCodegenPlugin)
   .settings(
     name := "graviton-pg",
     libraryDependencies ++= Seq(
@@ -104,7 +107,16 @@ lazy val pg = project
       "org.postgresql" % "postgresql" % postgresV,
       "com.zaxxer" % "HikariCP" % "5.1.0",
       "org.testcontainers" % "postgresql" % testContainersV % Test
-    )
+    ),
+    dbcodegenTemplateFiles := Seq(file("codegen/magnum.ssp")),
+    dbcodegenJdbcUrl := "jdbc:postgresql://localhost:5432/postgres",
+    dbcodegenUsername := Some("postgres"),
+    dbcodegenPassword := Some("postgres"),
+    dbcodegenSetupTask := {
+      val root = (ThisBuild / baseDirectory).value
+      val script = new java.io.File(root, "scripts/pg-db-setup.sh").getAbsolutePath
+      _ => Process(script, root).!
+    }
   )
   .settings(commonSettings)
 
