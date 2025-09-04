@@ -2,12 +2,20 @@ ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 
+
 Test / fork := true
+
+Test / javaOptions ++= Seq(
+  "-DTESTCONTAINERS_RYUK_DISABLED=false",
+  "-DTESTCONTAINERS_CHECKS_DISABLE=false",
+  "-DTC_LOG_LEVEL=DEBUG",
+  "-Dcom.zaxxer.hikari.level=DEBUG"         // optional: Hikari debug
+)
 
 Test / envVars ++= Map(
   "TESTCONTAINERS_RYUK_DISABLED" -> "false",
   "TESTCONTAINERS_CHECKS_DISABLE" -> "false",
-  "TC_LOG_LEVEL" -> "DEBUG"
+  "TC_LOG_LEVEL"                  -> "DEBUG"
 )
 
 lazy val zioV        = "2.1.20"
