@@ -1,37 +1,34 @@
 package graviton.pg
 
 import zio.*
-import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.utility.DockerImageName
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
+import org.postgresql.ds.PGSimpleDataSource
+import javax.sql.DataSource
 import com.augustnagro.magnum.*
+import scala.io.Source
 
 object PgTestLayers:
-  private def startPostgresContainer: ZIO[Scope, Throwable, PostgreSQLContainer[?]] =
-    ZIO.acquireRelease {
-      ZIO.attempt {
-        val c = new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
-        c.withInitScript("ddl.sql")
-        c.start()
-        c: PostgreSQLContainer[?]
-      }
-    }(c => ZIO.succeed(c.stop()))
+  private def startEmbedded: ZIO[Scope, Throwable, EmbeddedPostgres] =
+    ZIO.acquireRelease(ZIO.attempt(EmbeddedPostgres.start()))(pg => ZIO.attempt(pg.close()).ignore)
 
-  private def createDataSource(jdbcUrl: String, user: String, pass: String): ZIO[Scope, Throwable, HikariDataSource] =
-    ZIO.acquireRelease {
-      ZIO.attempt {
-        val cfg = HikariConfig()
-        cfg.setJdbcUrl(jdbcUrl)
-        cfg.setUsername(user)
-        cfg.setPassword(pass)
-        HikariDataSource(cfg)
-      }
-    }(ds => ZIO.attempt(ds.close()).ignore)
+  private def runDdl(ds: DataSource): Task[Unit] =
+    ZIO.attemptBlocking {
+      val sql  = Source.fromResource("ddl.sql").mkString
+      val conn = ds.getConnection()
+      val stmt = conn.createStatement()
+      stmt.execute(sql)
+      // intentionally not closing to keep connection alive for tests
+    }
 
   val transactorLayer: ZLayer[Any, Throwable, Transactor] =
     ZLayer.scoped {
       for
-        c  <- startPostgresContainer
-        ds <- createDataSource(c.getJdbcUrl, c.getUsername, c.getPassword)
+        pg <- startEmbedded
+        ds  <- ZIO.attempt {
+                val d = PGSimpleDataSource()
+                d.setURL(pg.getJdbcUrl("postgres", "postgres"))
+                d
+              }
+        _  <- runDdl(ds)
       yield Transactor(ds)
     }
