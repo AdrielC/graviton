@@ -1,3 +1,5 @@
+import dbcodegen.plugin.DbCodegenPlugin.autoImport._
+
 ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
@@ -96,13 +98,22 @@ lazy val metrics = project
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core)
+  .enablePlugins(dbcodegen.plugin.DbCodegenPlugin)
   .settings(
     name := "graviton-pg",
+    // codegen settings (point at your template + local PG17)
+    dbcodegenTemplateFiles := Seq(baseDirectory.value / "codegen" / "magnum.ssp"),
+    dbcodegenJdbcUrl        := "jdbc:postgresql://localhost:5432/postgres",
+    dbcodegenUsername       := Some("postgres"),
+    dbcodegenPassword       := Some("postgres"),
+    // pick what to include; this example keeps it simple:
+    dbcodegenSchemaTableFilter := { (schema, _table) => schema == "public" },
+    // keep your existing deps:
     libraryDependencies ++= Seq(
-      "com.augustnagro" %% "magnum" % magnumV,
-      "com.augustnagro" %% "magnumzio" % magnumV,
-      "org.postgresql" % "postgresql" % postgresV,
-      "com.zaxxer" % "HikariCP" % "5.1.0",
+      "com.augustnagro" %% "magnum"       % magnumV,
+      "com.augustnagro" %% "magnumzio"    % magnumV,
+      "org.postgresql"   % "postgresql"   % postgresV,
+      "com.zaxxer"       % "HikariCP"     % "5.1.0",
       "org.testcontainers" % "postgresql" % testContainersV % Test
     )
   )
