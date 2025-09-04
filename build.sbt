@@ -103,7 +103,8 @@ lazy val pg = project
     name := "graviton-pg",
     // codegen settings (point at your template + local PG17)
     dbcodegenTemplateFiles := Seq(baseDirectory.value / "codegen" / "magnum.ssp"),
-    dbcodegenJdbcUrl        := "jdbc:postgresql://localhost:5432/postgres",
+    // use 127.0.0.1 instead of localhost for deterministic host resolution
+    dbcodegenJdbcUrl        := "jdbc:postgresql://127.0.0.1:5432/postgres",
     dbcodegenUsername       := Some("postgres"),
     dbcodegenPassword       := Some("postgres"),
     // pick what to include; this example keeps it simple:
