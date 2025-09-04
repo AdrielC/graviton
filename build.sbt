@@ -6,11 +6,14 @@ lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
 lazy val zioSchemaV  = "1.7.4"
+lazy val zioJsonV    = "0.6.2"
 lazy val zioMetricsV = "2.4.3"
 lazy val zioCacheV       = "0.2.4"
 lazy val zioRocksdbV     = "0.4.4"
 lazy val testContainersV = "1.19.7"
 lazy val zioLoggingV  = "2.2.4"
+lazy val magnumV      = "2.0.0-M2"
+lazy val postgresV    = "42.7.3"
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -20,6 +23,7 @@ lazy val commonSettings = Seq(
     "dev.zio" %% "zio-prelude" % zioPreludeV,
     "dev.zio" %% "zio-schema"        % zioSchemaV,
     "dev.zio" %% "zio-schema-derivation" % zioSchemaV,
+    "dev.zio" %% "zio-json"          % zioJsonV,
     "io.github.iltotore" %% "iron" % ironV,
     "io.github.rctcwyvrn" % "blake3" % "1.3",
     "dev.zio" %% "zio-logging" % zioLoggingV,
@@ -30,7 +34,7 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
 )
 
-lazy val root = (project in file(".")).aggregate(core, fs, s3, tika, metrics, docs)
+lazy val root = (project in file(".")).aggregate(core, fs, s3, tika, metrics, pg, docs)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -70,6 +74,21 @@ lazy val metrics = project
   .settings(
     name := "graviton-metrics",
     libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV
+  )
+  .settings(commonSettings)
+
+lazy val pg = project
+  .in(file("modules/pg"))
+  .dependsOn(core)
+  .settings(
+    name := "graviton-pg",
+    libraryDependencies ++= Seq(
+      "com.augustnagro" %% "magnum" % magnumV,
+      "com.augustnagro" %% "magnumzio" % magnumV,
+      "org.postgresql" % "postgresql" % postgresV,
+      "com.zaxxer" % "HikariCP" % "5.1.0",
+      "org.testcontainers" % "postgresql" % testContainersV % Test
+    )
   )
   .settings(commonSettings)
 
