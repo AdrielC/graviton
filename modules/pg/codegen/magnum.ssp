@@ -1,0 +1,51 @@
+<%@ val schema: dbcodegen.DataSchema %>
+
+package graviton.pg.generated
+
+import zio.Chunk
+import com.augustnagro.magnum.*
+import com.augustnagro.magnum.pg.enums.PgEnumDbCodec.given
+import com.augustnagro.magnum.pg.enums.PgEnumToScalaEnumSqlArrayCodec.given
+import graviton.pg.given
+
+#for (enum <- schema.enums)
+
+enum ${enum.scalaName} derives DbCodec:
+#for (enumValue <- enum.values)
+  @SqlName("${enumValue.name}")
+  case ${enumValue.scalaName}
+#end
+
+#end
+
+#for (table <- schema.tables)
+
+@Table(PostgresDbType)
+case class ${table.scalaName}(
+#for (column <- table.columns)
+#if (column.db.isPartOfPrimaryKey)
+  @Id
+#end
+  @SqlName("${column.name}")
+  ${column.scalaName}: ${column.scalaType},
+#end
+) derives DbCodec
+object ${table.scalaName}:
+#{ val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)}#
+  type Id = ${if (primaryKeyColumns.isEmpty) "Null" else primaryKeyColumns.map(_.scalaType).mkString("(", ", ", ")")}
+
+#if (!table.isView)
+  case class Creator(
+#for (column <- table.columns if !column.db.isGenerated && !column.db.hasDefaultValue && !column.db.isAutoIncremented)
+    ${column.scalaName}: ${column.scalaType},
+#end
+  ) derives DbCodec
+#end
+
+#if (table.isView)
+val ${table.scalaName}Repo = ImmutableRepo[${table.scalaName}, ${table.scalaName}.Id]
+#else
+val ${table.scalaName}Repo = Repo[${table.scalaName}.Creator, ${table.scalaName}, ${table.scalaName}.Id]
+#end
+
+#end
