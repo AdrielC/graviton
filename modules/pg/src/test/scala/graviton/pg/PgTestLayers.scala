@@ -1,3 +1,4 @@
+// modules/pg/src/test/scala/graviton/pg/PgTestLayers.scala
 package graviton.pg
 
 import zio.*
@@ -6,25 +7,22 @@ import com.augustnagro.magnum.*
 import javax.sql.DataSource
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
-import scala.io.Source
 
 object PgTestLayers:
 
   private def mkContainer: ZIO[Scope, Throwable, PostgreSQLContainer[?]] =
     ZIO.acquireRelease(
       ZIO.attempt {
-        val image = DockerImageName.parse("postgres:16-alpine")
-        val c = new PostgreSQLContainer(image)
-        // be explicit; GHA can be flaky with reuse
-        c.withReuse(false)
-        c.start()
-        c
+        val img = DockerImageName.parse("postgres:17-alpine")   // latest stable PG line
+        new PostgreSQLContainer(img)
+          .withReuse(false)
+          .withInitScript("ddl.sql")        // <-- let TC run your schema
+          .withStartupAttempts(3)
+          .tap(_.start())
       }
     )(c => ZIO.attempt(c.stop()).ignore)
 
-  private def mkDataSource(
-      c: PostgreSQLContainer[?]
-  ): ZIO[Scope, Throwable, HikariDataSource] =
+  private def mkDataSource(c: PostgreSQLContainer[?]): ZIO[Scope, Throwable, HikariDataSource] =
     ZIO.acquireRelease(
       ZIO.attempt {
         val ds = new HikariDataSource()
@@ -34,40 +32,29 @@ object PgTestLayers:
         ds.setMaximumPoolSize(4)
         ds.setMinimumIdle(1)
         ds.setAutoCommit(true)
-        // CI-friendly: keep connections warm, avoid mysterious retires
-        ds.setKeepaliveTime(30_000) // 30s
-        ds.setIdleTimeout(120_000) // 2m
-        ds.setMaxLifetime(600_000) // 10m
+        ds.setKeepaliveTime(30_000)     // keep connections warm on CI
+        ds.setIdleTimeout(120_000)
+        ds.setMaxLifetime(600_000)
+        ds.setValidationTimeout(5_000)
+        ds.setConnectionTimeout(10_000)
+        ds.setPoolName("pg-tests")
+        // optional, can help on noisy runners:
+        ds.setConnectionTestQuery("SELECT 1")
+        // ds.setLeakDetectionThreshold(10_000) // turn on briefly if still flaky
         ds
       }
     )(ds => ZIO.attempt(ds.close()).ignore)
 
-  private def runDdl(ds: DataSource): Task[Unit] =
-    ZIO.attemptBlocking {
-      val src = Source.fromResource("ddl.sql")
-      try {
-        val sql = src.mkString
-        val conn = ds.getConnection
-        try {
-          conn.setAutoCommit(true)
-          val stmt = conn.createStatement()
-          try stmt.execute(sql)
-          finally stmt.close()
-        } finally conn.close()
-      } finally src.close()
-    }
-
   val transactorLayer: ZLayer[Any, Throwable, Transactor] =
     ZLayer.scoped {
-      for
+      for {
         container <- mkContainer
-        ds <- mkDataSource(container)
-        _ <- runDdl(ds)
-        // smoke check the pool after DDL
-        _ <- ZIO.attemptBlocking {
-          val c = ds.getConnection
-          try c.prepareStatement("select 1").execute()
-          finally c.close()
-        }
-      yield Transactor(ds)
+        ds        <- mkDataSource(container)
+        // sanity check after container init script has run
+        _         <- ZIO.attemptBlocking {
+                       val c = ds.getConnection
+                       try c.prepareStatement("select 1").execute()
+                       finally c.close()
+                     }
+      } yield Transactor(ds)
     }
