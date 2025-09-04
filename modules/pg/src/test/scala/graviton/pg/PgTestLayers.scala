@@ -31,7 +31,8 @@ object PgTestLayers:
         java.lang.System.setProperty("com.zaxxer.hikari.level", "DEBUG")
 
         val ds = new HikariDataSource()
-        ds.setJdbcUrl(c.getJdbcUrl)
+        // use 127.0.0.1 instead of localhost for deterministic host resolution
+        ds.setJdbcUrl(c.getJdbcUrl.replace("localhost", "127.0.0.1"))
         ds.setUsername(c.getUsername)
         ds.setPassword(c.getPassword)
         ds.setMaximumPoolSize(4)
