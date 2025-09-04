@@ -2,7 +2,7 @@ package graviton.pg
 
 import zio.*
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
-import org.postgresql.ds.PGSimpleDataSource
+import com.zaxxer.hikari.HikariDataSource
 import com.augustnagro.magnum.*
 import javax.sql.DataSource
 import scala.io.Source
@@ -13,14 +13,19 @@ object PgTestLayers:
       ZIO.attempt(pg.close()).ignore
     )
 
-  private def mkDataSource(pg: EmbeddedPostgres): Task[PGSimpleDataSource] =
-    ZIO.attempt {
-      val ds = PGSimpleDataSource()
-      ds.setURL(pg.getJdbcUrl("postgres", "postgres"))
-      ds.setUser("postgres")
-      ds.setPassword("postgres")
-      ds
-    }
+  private def mkDataSource(
+      pg: EmbeddedPostgres
+  ): ZIO[Scope, Throwable, HikariDataSource] =
+    ZIO.acquireRelease {
+      ZIO.attempt {
+        val ds = new HikariDataSource()
+        ds.setJdbcUrl(pg.getJdbcUrl("postgres", "postgres"))
+        ds.setUsername("postgres")
+        ds.setPassword("postgres")
+        ds.setMaximumPoolSize(4)
+        ds
+      }
+    }(ds => ZIO.attempt(ds.close()).ignore)
 
   private def runDdl(ds: DataSource): Task[Unit] =
     ZIO.attemptBlocking {
