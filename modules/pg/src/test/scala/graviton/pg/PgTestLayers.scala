@@ -14,9 +14,9 @@ object PgTestLayers:
       ZIO.attempt {
         val img = DockerImageName.parse("postgres:17-alpine") // PG 17
         val c = new PostgreSQLContainer(img)
-          .withReuse(false)
-          .withInitScript("ddl.sql")
-          .withStartupAttempts(3)
+        c.withReuse(false)
+        c.withInitScript("ddl.sql")
+        c.withStartupAttempts(3)
         c.start()
         c
       }
@@ -28,7 +28,7 @@ object PgTestLayers:
     ZIO.acquireRelease(
       ZIO.attempt {
         // enable debug before pool init
-        System.setProperty("com.zaxxer.hikari.level", "DEBUG")
+        java.lang.System.setProperty("com.zaxxer.hikari.level", "DEBUG")
 
         val ds = new HikariDataSource()
         ds.setJdbcUrl(c.getJdbcUrl)
