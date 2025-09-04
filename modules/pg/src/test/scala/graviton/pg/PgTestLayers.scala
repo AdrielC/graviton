@@ -1,4 +1,3 @@
-// modules/pg/src/test/scala/graviton/pg/PgTestLayers.scala
 package graviton.pg
 
 import zio.*
@@ -13,20 +12,22 @@ object PgTestLayers:
   private def mkContainer: ZIO[Scope, Throwable, PostgreSQLContainer[?]] =
     ZIO.acquireRelease(
       ZIO.attempt {
-        val img = DockerImageName.parse("postgres:17-alpine")   // latest stable PG line
-        new PostgreSQLContainer(img)
+        val img = DockerImageName.parse("postgres:17-alpine") // PG 17
+        val c   = new PostgreSQLContainer(img)
           .withReuse(false)
-          .withInitScript("ddl.sql")        // <-- let TC run your schema
+          .withInitScript("ddl.sql")
           .withStartupAttempts(3)
-          .tap(_.start())
+        c.start()
+        c
       }
     )(c => ZIO.attempt(c.stop()).ignore)
 
   private def mkDataSource(c: PostgreSQLContainer[?]): ZIO[Scope, Throwable, HikariDataSource] =
     ZIO.acquireRelease(
       ZIO.attempt {
-				ds.setLeakDetectionThreshold(10_000)
-				java.lang.System.setProperty("com.zaxxer.hikari.level", "DEBUG")
+        // enable debug before pool init
+        System.setProperty("com.zaxxer.hikari.level", "DEBUG")
+
         val ds = new HikariDataSource()
         ds.setJdbcUrl(c.getJdbcUrl)
         ds.setUsername(c.getUsername)
@@ -40,9 +41,8 @@ object PgTestLayers:
         ds.setValidationTimeout(5_000)
         ds.setConnectionTimeout(10_000)
         ds.setPoolName("pg-tests")
-        // optional, can help on noisy runners:
         ds.setConnectionTestQuery("SELECT 1")
-        // ds.setLeakDetectionThreshold(10_000) // turn on briefly if still flaky
+        ds.setLeakDetectionThreshold(10_000) // turn on temporarily if chasing leaks
         ds
       }
     )(ds => ZIO.attempt(ds.close()).ignore)
@@ -52,7 +52,6 @@ object PgTestLayers:
       for {
         container <- mkContainer
         ds        <- mkDataSource(container)
-        // sanity check after container init script has run
         _         <- ZIO.attemptBlocking {
                        val c = ds.getConnection
                        try c.prepareStatement("select 1").execute()
