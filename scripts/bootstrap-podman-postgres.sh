@@ -128,6 +128,20 @@ if ! has_cmd pasta; then
   fi
 fi
 
+# pasta works only in rootless mode; fall back if running as root
+if [[ "$NETWORK_BACKEND" == "pasta" && $(id -u) -eq 0 ]]; then
+  warn "pasta networking only supported for rootless Podman; falling back to slirp4netns."
+  NETWORK_BACKEND="slirp4netns"
+  if ! has_cmd slirp4netns; then
+    warn "slirp4netns not found — installing…"
+    case "$(detect_distro)" in
+      ubuntu|debian|fedora|arch|alpine)
+        install_pkg slirp4netns || true
+        ;;
+    esac
+  fi
+fi
+
 if [[ "$NETWORK_BACKEND" == "slirp4netns" ]]; then
   # slirp4netns often needs /dev/net/tun; if missing, warn now.
   if [[ ! -e /dev/net/tun ]]; then
@@ -209,7 +223,7 @@ until podman exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
     podman inspect "$PG_NAME" --format '{{json .State}}' || true
     die  "Container did not become healthy."
   fi
- done
+done
 
 # ---------- optional DDL ----------
 if [[ -n "$DDL_PATH" ]]; then

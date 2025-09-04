@@ -18,6 +18,7 @@ heck yeah — here’s the short, readable story of how your agent wrestled Podm
    - `cgroup_manager = "cgroupfs"` (works when systemd/cgroup sandbox is read-only)
 3. Use pasta instead of slirp4netns
    - `pasta` (from `passt`) doesn’t need `/dev/net/tun`, so rootless networking “just works” and `-p 5432:5432` actually binds.
+   - The helper script installs `passt` when needed and falls back to `slirp4netns` if run as root or if `pasta` isn’t available.
 4. Start the Podman API socket (handy for Docker-compat tools, optional for `podman run`):
    - Create `$XDG_RUNTIME_DIR/podman/…` and point `DOCKER_HOST` at it.
 5. Run Postgres 17 with the pasta network and the VFS storage.
