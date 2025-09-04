@@ -13,20 +13,22 @@ object PgTestLayers:
     ZIO.acquireRelease(
       ZIO.attempt {
         val img = DockerImageName.parse("postgres:17-alpine") // PG 17
-        val c   = new PostgreSQLContainer(img)
-          .withReuse(false)
-          .withInitScript("ddl.sql")
-          .withStartupAttempts(3)
+        val c = new PostgreSQLContainer(img)
+        c.withReuse(false)
+        c.withInitScript("ddl.sql")
+        c.withStartupAttempts(3)
         c.start()
         c
       }
     )(c => ZIO.attempt(c.stop()).ignore)
 
-  private def mkDataSource(c: PostgreSQLContainer[?]): ZIO[Scope, Throwable, HikariDataSource] =
+  private def mkDataSource(
+      c: PostgreSQLContainer[?]
+  ): ZIO[Scope, Throwable, HikariDataSource] =
     ZIO.acquireRelease(
       ZIO.attempt {
         // enable debug before pool init
-        System.setProperty("com.zaxxer.hikari.level", "DEBUG")
+        java.lang.System.setProperty("com.zaxxer.hikari.level", "DEBUG")
 
         val ds = new HikariDataSource()
         ds.setJdbcUrl(c.getJdbcUrl)
@@ -35,14 +37,16 @@ object PgTestLayers:
         ds.setMaximumPoolSize(4)
         ds.setMinimumIdle(1)
         ds.setAutoCommit(true)
-        ds.setKeepaliveTime(30_000)     // keep connections warm on CI
+        ds.setKeepaliveTime(30_000) // keep connections warm on CI
         ds.setIdleTimeout(120_000)
         ds.setMaxLifetime(600_000)
         ds.setValidationTimeout(5_000)
         ds.setConnectionTimeout(10_000)
         ds.setPoolName("pg-tests")
         ds.setConnectionTestQuery("SELECT 1")
-        ds.setLeakDetectionThreshold(10_000) // turn on temporarily if chasing leaks
+        ds.setLeakDetectionThreshold(
+          10_000
+        ) // turn on temporarily if chasing leaks
         ds
       }
     )(ds => ZIO.attempt(ds.close()).ignore)
@@ -51,11 +55,11 @@ object PgTestLayers:
     ZLayer.scoped {
       for {
         container <- mkContainer
-        ds        <- mkDataSource(container)
-        _         <- ZIO.attemptBlocking {
-                       val c = ds.getConnection
-                       try c.prepareStatement("select 1").execute()
-                       finally c.close()
-                     }
+        ds <- mkDataSource(container)
+        _ <- ZIO.attemptBlocking {
+          val c = ds.getConnection
+          try c.prepareStatement("select 1").execute()
+          finally c.close()
+        }
       } yield Transactor(ds)
     }
