@@ -37,4 +37,4 @@ object BlobStoreRepoSpec extends ZIOSpecDefault:
           got <- repo.get(row.key)
         yield assertTrue(got.exists(_.implId == "fs"))
       }
-    ).provideLayerShared(repoLayer)
+    ).provideLayerShared(repoLayer) @@ TestAspect.ifEnvSet("TESTCONTAINERS")
