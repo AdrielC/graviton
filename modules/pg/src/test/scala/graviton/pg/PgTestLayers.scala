@@ -25,6 +25,8 @@ object PgTestLayers:
   private def mkDataSource(c: PostgreSQLContainer[?]): ZIO[Scope, Throwable, HikariDataSource] =
     ZIO.acquireRelease(
       ZIO.attempt {
+				ds.setLeakDetectionThreshold(10_000)
+				java.lang.System.setProperty("com.zaxxer.hikari.level", "DEBUG")
         val ds = new HikariDataSource()
         ds.setJdbcUrl(c.getJdbcUrl)
         ds.setUsername(c.getUsername)
