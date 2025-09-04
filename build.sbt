@@ -2,6 +2,14 @@ ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 
+Test / fork := true
+
+Test / envVars ++= Map(
+  "TESTCONTAINERS_RYUK_DISABLED" -> "false",
+  "TESTCONTAINERS_CHECKS_DISABLE" -> "false",
+  "TC_LOG_LEVEL" -> "DEBUG"
+)
+
 lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
 lazy val ironV       = "3.2.0"
