@@ -4,7 +4,7 @@
 #
 # Usage:
 #   scripts/bootstrap-podman-postgres.sh [--pg 17] [--port 5432] [--name graviton-pg] \
-#       [--ddl modules/pg/ddl.sql] [--export-docker-host] [--no-ddl]
+#       [--ddl modules/pg/ddl.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
 #
 # Defaults: PG_VERSION=17, PORT=5432, NAME=graviton-pg, DDL=modules/pg/ddl.sql, EXPORT_DOCKER_HOST=on
 #
@@ -20,6 +20,19 @@ set -euo pipefail
 log()  { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[FAIL]\033[0m %s\n" "$*\n" >&2; exit 1; }
+
+# global
+FIX_ROOTLESS=0
+
+# parse args early
+for arg in "$@"; do
+  [[ "$arg" == "--fix-rootless" ]] && FIX_ROOTLESS=1
+done
+
+# target user (works when run via sudo)
+TARGET_UID=${SUDO_UID:-$(id -u)}
+TARGET_USER=${SUDO_USER:-$(id -un)}
+
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 detect_distro() {
@@ -76,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     --no-ddl) DO_DDL=0; shift ;;
     --export-docker-host) DO_EXPORT_DOCKER_HOST=1; shift ;;
     --no-export-docker-host) DO_EXPORT_DOCKER_HOST=0; shift ;;
+    --fix-rootless) shift ;; # already handled
     *) die "Unknown arg: $1" ;;
   esac
 done
@@ -106,6 +120,68 @@ if ! has_cmd slirp4netns; then
   case "$(detect_distro)" in
     ubuntu|debian|fedora|arch|alpine) install_pkg slirp4netns || true ;;
   esac
+fi
+
+# ---------- sanity checks for rootless Podman ----------
+if [[ $TARGET_UID -ne 0 ]]; then
+  log "Running as $TARGET_USER (uid=$TARGET_UID) → verifying userns support for rootless Podman…"
+
+  # check sysctl
+  if sysctl user.max_user_namespaces >/dev/null 2>&1; then
+    ns_max=$(sysctl -n user.max_user_namespaces 2>/dev/null || echo 0)
+    if [[ "$ns_max" -le 0 ]]; then
+      die "user namespaces are disabled (user.max_user_namespaces=$ns_max). Enable them to run rootless Podman."
+    fi
+  else
+    warn "sysctl user.max_user_namespaces not found — assuming namespaces may be restricted."
+  fi
+
+  # check subuid/subgid entries
+  user="$TARGET_USER"
+  if ! grep -q "^${user}:" /etc/subuid; then
+    if [[ $FIX_ROOTLESS -eq 1 ]]; then
+      if [[ $(id -u) -ne 0 ]]; then
+        die "--fix-rootless must be run as root to edit /etc/subuid"
+      fi
+      echo "${user}:100000:65536" >> /etc/subuid
+      log "Added /etc/subuid entry for $user → ${user}:100000:65536"
+    else
+      die "No /etc/subuid entry for $user — run with --fix-rootless or add manually."
+    fi
+  fi
+  if ! grep -q "^${user}:" /etc/subgid; then
+    if [[ $FIX_ROOTLESS -eq 1 ]]; then
+      if [[ $(id -u) -ne 0 ]]; then
+        die "--fix-rootless must be run as root to edit /etc/subgid"
+      fi
+      echo "${user}:100000:65536" >> /etc/subgid
+      log "Added /etc/subgid entry for $user → ${user}:100000:65536"
+    else
+      die "No /etc/subgid entry for $user — run with --fix-rootless or add manually."
+    fi
+  fi
+
+  # ensure setuid on newuidmap/newgidmap
+  for bin in /usr/bin/newuidmap /usr/bin/newgidmap; do
+    if [[ ! -e "$bin" ]]; then
+      die "$bin missing — install the 'uidmap' package."
+    fi
+    if [[ ! -u "$bin" ]]; then
+      if [[ $FIX_ROOTLESS -eq 1 ]]; then
+        if [[ $(id -u) -ne 0 ]]; then
+          die "--fix-rootless must be run as root to chmod $bin"
+        fi
+        chmod u+s "$bin"
+        log "Set setuid on $bin"
+      else
+        die "$bin not setuid — run with --fix-rootless or fix manually."
+      fi
+    fi
+  done
+
+  log "Rootless prerequisites OK: namespaces enabled, uid/gid maps present."
+else
+  warn "Running as root → rootless 'pasta' networking not available. Will fall back to slirp4netns (needs /dev/net/tun)."
 fi
 
 ############ choose network backend ############
