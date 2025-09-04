@@ -87,8 +87,7 @@ lazy val pg = project
       "com.augustnagro" %% "magnumzio" % magnumV,
       "org.postgresql" % "postgresql" % postgresV,
       "com.zaxxer" % "HikariCP" % "5.1.0",
-      "io.zonky.test.postgres" % "embedded-postgres-binaries-bom" % "16.2.0" pomOnly(),
-      "io.zonky.test" % "embedded-postgres" % "2.0.6" % Test
+      "org.testcontainers" % "postgresql" % testContainersV % Test
     )
   )
   .settings(commonSettings)
