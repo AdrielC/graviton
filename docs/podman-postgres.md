@@ -99,42 +99,12 @@ export TESTCONTAINERS_REUSE_ENABLE=true
 
 ## One-file rerun script (copy/paste)
 
+The above configuration has been scripted for convenience. Run:
+
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-mkdir -p "$XDG_RUNTIME_DIR/podman" ~/.config/containers
-
-cat > ~/.config/containers/containers.conf <<'CFG'
-[engine]
-events_logger = "file"
-cgroup_manager = "cgroupfs"
-network_backend = "pasta"
-helper_binaries_dir = ["/usr/bin","/usr/local/bin"]
-[network]
-cni_plugin_dirs = []
-CFG
-
-cat > ~/.config/containers/storage.conf <<'CFG'
-[storage]
-driver = "vfs"
-runroot = "/tmp/podman-runroot"
-graphroot = "/tmp/podman-root"
-CFG
-
-podman system service --time=0 "unix://$XDG_RUNTIME_DIR/podman/podman.sock" >/tmp/podapi.log 2>&1 &
-export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
-
-podman rm -f graviton-pg >/dev/null 2>&1 || true
-podman run --rm -d --name graviton-pg \
-  --network pasta \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
-  docker.io/library/postgres:17
-
-until podman exec graviton-pg pg_isready -U postgres >/dev/null 2>&1; do sleep 0.5; done
-echo "Postgres 17 is up on localhost:5432 (user=postgres password=postgres)"
+./scripts/bootstrap-podman-postgres.sh [--help]
 ```
+
+to start a PostgreSQL container using the compatible Podman settings. The script handles dependency installation, configuration, and optional schema loading.
 
 That’s the exact recipe that dodges `/dev/net/tun`, overlayfs, and cgroup write headaches in that sandbox — and keeps you on Podman without needing a privileged daemon.

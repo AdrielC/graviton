@@ -114,7 +114,7 @@ lazy val pg = project
     dbcodegenPassword := Some("postgres"),
     dbcodegenSetupTask := {
       val root = (ThisBuild / baseDirectory).value
-      val script = new java.io.File(root, "scripts/pg-db-setup.sh").getAbsolutePath
+      val script = new java.io.File(root, "scripts/bootstrap-podman-postgres.sh").getAbsolutePath
       _ => Process(script, root).!
     }
   )
