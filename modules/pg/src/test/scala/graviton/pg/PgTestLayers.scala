@@ -9,7 +9,9 @@ import scala.io.Source
 
 object PgTestLayers:
   private def startEmbedded: ZIO[Scope, Throwable, EmbeddedPostgres] =
-    ZIO.acquireRelease(ZIO.attempt(EmbeddedPostgres.start()))(pg => ZIO.attempt(pg.close()).ignore)
+    ZIO.acquireRelease(ZIO.attempt(EmbeddedPostgres.start()))(pg =>
+      ZIO.attempt(pg.close()).ignore
+    )
 
   private def mkDataSource(pg: EmbeddedPostgres): Task[PGSimpleDataSource] =
     ZIO.attempt {
@@ -24,11 +26,11 @@ object PgTestLayers:
     ZIO.attemptBlocking {
       val sql = Source.fromResource("ddl.sql").mkString
       val conn = ds.getConnection()
-      try
+      try {
         val stmt = conn.createStatement()
         try stmt.execute(sql)
         finally stmt.close()
-      finally conn.close()
+      } finally conn.close()
     }
 
   val transactorLayer: ZLayer[Any, Throwable, Transactor] =
@@ -36,6 +38,6 @@ object PgTestLayers:
       for
         pg <- startEmbedded
         ds <- mkDataSource(pg)
-        _  <- runDdl(ds)
+        _ <- runDdl(ds)
       yield Transactor(ds)
     }
