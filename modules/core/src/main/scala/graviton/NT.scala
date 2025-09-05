@@ -10,7 +10,7 @@ import zio.Chunk
 object NT:
   inline def splitAB[A <: Tuple, B <: Tuple](ab: Tuple.Concat[A, B]): (A, B) =
     inline val n: Int = constValue[Tuple.Size[A]]
-    val parts          = ab.splitAt(n)
+    val parts         = ab.splitAt(n)
     (parts._1.asInstanceOf[A], parts._2.asInstanceOf[B])
 
   type Carry[C] = (carry: Option[C])
@@ -34,4 +34,3 @@ object NT:
       case _: EmptyTuple => Chunk.empty
       case _: (h *: t)   =>
         labelsOfProduct[h] ++ labelsOfState[t]
-

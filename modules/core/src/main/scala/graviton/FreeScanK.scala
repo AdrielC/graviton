@@ -39,9 +39,9 @@ object FreeScanK:
     type State = S
     type Size  = Tuple.Size[S]
     type Types = Any
-    def compile(using i: Interpreter[F]): Scan.Aux[I, O, S] = i.toScan(fab)
-    def schema(using i: Interpreter[F]): Schema[S]          = i.stateSchema(fab)
-    def labels(using i: Interpreter[F]): Chunk[String]      = i.stateLabels(fab)
+    def compile(using i: Interpreter[F]): Scan.Aux[I, O, S]    = i.toScan(fab)
+    def schema(using i: Interpreter[F]): Schema[S]             = i.stateSchema(fab)
+    def labels(using i: Interpreter[F]): Chunk[String]         = i.stateLabels(fab)
     def labelsFromType(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
 
   final case class AndThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
@@ -62,7 +62,7 @@ object FreeScanK:
     type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State] = left.compile.zip(right.compile)
-    def labelsFromType(using Interpreter[F]): Chunk[String]          = left.labelsFromType ++ right.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]         = left.labelsFromType ++ right.labelsFromType
 
   final case class Product[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
     left: FreeScanK.Aux[F, I1, O1, S1],
@@ -87,7 +87,7 @@ object FreeScanK:
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         a.done(s1).zip(b.done(s2))
       }
-    def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]                = left.labelsFromType ++ right.labelsFromType
 
   final case class First[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
@@ -108,7 +108,7 @@ object FreeScanK:
           case Some(c) => a.done(sA).map(o => (o, c))
           case None    => Chunk.empty
       }
-    def labelsFromType(using Interpreter[F]): Chunk[String] = src.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]            = src.labelsFromType
 
   final case class Second[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
@@ -129,7 +129,7 @@ object FreeScanK:
           case Some(c) => a.done(sA).map(o => (c, o))
           case None    => Chunk.empty
       }
-    def labelsFromType(using Interpreter[F]): Chunk[String] = src.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]            = src.labelsFromType
 
   final case class LeftChoice[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
@@ -144,7 +144,7 @@ object FreeScanK:
             (s2, out.map(Left(_)))
           case Right(c) => (s, Chunk.single(Right(c)))
       }(s => a.done(s).map(Left(_)))
-    def labelsFromType(using Interpreter[F]): Chunk[String] = src.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]                    = src.labelsFromType
 
   final case class RightChoice[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
@@ -159,7 +159,7 @@ object FreeScanK:
             (s2, out.map(Right(_)))
           case Left(c)  => (s, Chunk.single(Left(c)))
       }(s => a.done(s).map(Right(_)))
-    def labelsFromType(using Interpreter[F]): Chunk[String] = src.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]                    = src.labelsFromType
 
   final case class PlusPlus[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
     left: FreeScanK.Aux[F, I1, O1, S1],
@@ -185,7 +185,7 @@ object FreeScanK:
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
       }
-    def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]                            = left.labelsFromType ++ right.labelsFromType
 
   final case class FanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
     left: FreeScanK.Aux[F, I1, O, S1],
@@ -211,7 +211,7 @@ object FreeScanK:
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         a.done(s1) ++ b.done(s2)
       }
-    def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+    def labelsFromType(using Interpreter[F]): Chunk[String]               = left.labelsFromType ++ right.labelsFromType
 
   // Syntax
   extension [F[_, _], I, O, S <: Tuple](self: FreeScanK.Aux[F, I, O, S])
