@@ -12,21 +12,30 @@ object ComplexFreeScanSpec extends ZIOSpecDefault:
       val avg3     = FreeScanK.op[TSOp, Double, Double, TSOp.MovAvgState[Double] *: EmptyTuple](TSOp.MovingAvg.make[Double](3))
       val delta    = FreeScanK.op[TSOp, Double, Double, TSOp.Prev[Double] *: EmptyTuple](TSOp.Delta.make[Double])
       val diffAves = avg3 >>> delta
+      // labels should append in order of composition
+      val labs     = diffAves.labelsFromType
       val scan     = diffAves.compileOptimized
       val in       = ZStream(1.0, 2.0, 3.0, 6.0)
       for out <- in.via(scan.toPipeline).runCollect
-      yield assertTrue(out == Chunk(1.0, 0.5, 0.5, 1.6666666666666665))
+      yield assertTrue(out == Chunk(1.0, 0.5, 0.5, 1.6666666666666665)) &&
+        assertTrue(labs == Chunk("buffer", "sum", "previous"))
     },
-    test("pair: moving averages and their difference computed in parallel") {
+    test("pair: moving averages and their difference computed in parallel (labels preserved)") {
       import graviton.timeseries.TSOp
       import graviton.FreeScanK
-      val avg2 = FreeScanK.op[TSOp, Double, Double, TSOp.MovAvgState[Double] *: EmptyTuple](TSOp.MovingAvg.make[Double](2))
-      val avg3 = FreeScanK.op[TSOp, Double, Double, TSOp.MovAvgState[Double] *: EmptyTuple](TSOp.MovingAvg.make[Double](3))
-      val both = (avg2 &&& avg3) >>> FreeScanK.op[TSOp, (Double, Double), Double, EmptyTuple](TSOp.PairSub.make[Double])
-      val scan = both.compileOptimized.toPipeline
-      val in   = ZStream(1.0, 2.0, 3.0, 4.0)
+      val avg2        = FreeScanK.op[TSOp, Double, Double, TSOp.MovAvgState[Double] *: EmptyTuple](TSOp.MovingAvg.make[Double](2))
+      val avg3        = FreeScanK.op[TSOp, Double, Double, TSOp.MovAvgState[Double] *: EmptyTuple](TSOp.MovingAvg.make[Double](3))
+      val both        = (avg2 &&& avg3) >>> FreeScanK.op[TSOp, (Double, Double), Double, EmptyTuple](TSOp.PairSub.make[Double])
+      val scan        = both.compileOptimized.toPipeline
+      val in          = ZStream(1.0, 2.0, 3.0, 4.0)
+      val labelsLeft  = avg2.labelsFromType
+      val labelsRight = avg3.labelsFromType
+      val labelsBoth  = (avg2 &&& avg3).labelsFromType
       for out <- in.via(scan).runCollect
-      yield assertTrue(out.length == 4)
+      yield assertTrue(out.length == 4) &&
+        assertTrue(labelsLeft == Chunk("buffer", "sum")) &&
+        assertTrue(labelsRight == Chunk("buffer", "sum")) &&
+        assertTrue(labelsBoth == Chunk("buffer", "sum", "buffer", "sum"))
     },
     test("rate of change of moving average over timestamped data") {
       import graviton.timeseries.TSOp
