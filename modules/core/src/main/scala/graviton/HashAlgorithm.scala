@@ -6,9 +6,10 @@ import java.security.MessageDigest
 import zio.schema.{DeriveSchema, Schema}
 import zio.schema.derived
 
-/** Supported hashing algorithms for content addressed storage. Each algorithm
-  * exposes metadata about its digest and can compute hashes directly.
-  */
+/**
+ * Supported hashing algorithms for content addressed storage. Each algorithm
+ * exposes metadata about its digest and can compute hashes directly.
+ */
 sealed trait HashAlgorithm derives Schema:
   /** Canonical lowercase name of the algorithm. */
   def canonicalName: String
@@ -19,13 +20,14 @@ sealed trait HashAlgorithm derives Schema:
   /** Obtain a new `MessageDigest` instance for this algorithm. */
   protected def newDigest(): MessageDigest
 
-  /** Compute the digest for the provided data and return a lowercase hex
-    * string.
-    */
+  /**
+   * Compute the digest for the provided data and return a lowercase hex
+   * string.
+   */
   final def hash(data: Array[Byte]): String =
-    val md = newDigest()
+    val md  = newDigest()
     val dig = md.digest(data)
-    val sb = new StringBuilder(dig.length * 2)
+    val sb  = new StringBuilder(dig.length * 2)
     dig.foreach(b => sb.append(f"$b%02x"))
     sb.toString
 
@@ -35,19 +37,19 @@ sealed trait HashAlgorithm derives Schema:
 object HashAlgorithm:
 
   case object Blake3 extends HashAlgorithm:
-    val canonicalName = "blake3"
-    val digestLength = 64
+    val canonicalName                        = "blake3"
+    val digestLength                         = 64
     protected def newDigest(): MessageDigest = Blake3MessageDigest()
 
   case object SHA256 extends HashAlgorithm:
-    val canonicalName = "sha256"
-    val digestLength = 64
+    val canonicalName                        = "sha256"
+    val digestLength                         = 64
     protected def newDigest(): MessageDigest =
       MessageDigest.getInstance("SHA-256")
 
   case object SHA512 extends HashAlgorithm:
-    val canonicalName = "sha512"
-    val digestLength = 128
+    val canonicalName                        = "sha512"
+    val digestLength                         = 128
     protected def newDigest(): MessageDigest =
       MessageDigest.getInstance("SHA-512")
 
@@ -55,22 +57,22 @@ object HashAlgorithm:
 
   private val aliases: Map[String, HashAlgorithm] =
     values
-      .flatMap(a =>
-        List(a.canonicalName -> a, a.canonicalName.toUpperCase -> a)
-      )
+      .flatMap(a => List(a.canonicalName -> a, a.canonicalName.toUpperCase -> a))
       .toMap
 
-  /** Parse a hash algorithm from a string, accepting canonical and uppercase
-    * names.
-    */
+  /**
+   * Parse a hash algorithm from a string, accepting canonical and uppercase
+   * names.
+   */
   def parse(input: String): Either[String, HashAlgorithm] =
     aliases.get(input).toRight(s"Unknown hash algorithm: $input")
 
   given Schema[HashAlgorithm] = DeriveSchema.gen[HashAlgorithm]
 
-/** MessageDigest wrapper providing a `MessageDigest`-compatible interface for
-  * the Blake3 implementation which uses its own API.
-  */
+/**
+ * MessageDigest wrapper providing a `MessageDigest`-compatible interface for
+ * the Blake3 implementation which uses its own API.
+ */
 private final class Blake3MessageDigest extends MessageDigest("BLAKE3"):
   import io.github.rctcwyvrn.blake3.Blake3
 

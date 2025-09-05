@@ -7,14 +7,14 @@ object RollingHashChunker:
   import Chunker.Bounds
 
   final case class Config(
-      bounds: Bounds,
-      window: Int = 48,
-      polynomial: Long = 0x3da3358b4dc173L
+    bounds: Bounds,
+    window: Int = 48,
+    polynomial: Long = 0x3da3358b4dc173L,
   )
 
   def apply(cfg: Config): Chunker =
     new Chunker:
-      val name =
+      val name                                                   =
         s"rolling(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
       val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
         ZPipeline.fromChannel:
@@ -24,21 +24,22 @@ object RollingHashChunker:
             ZChannel.readWith(
               (in: Chunk[Byte]) =>
                 val (next, out) = process(state, in, cfg)
-                ZChannel.write(out) *> loop(next),
+                ZChannel.write(out) *> loop(next)
+              ,
               (err: Throwable) => ZChannel.fail(err),
               (_: Any) =>
                 if state.buffer.isEmpty then ZChannel.unit
-                else ZChannel.write(Chunk.single(state.buffer))
+                else ZChannel.write(Chunk.single(state.buffer)),
             )
           loop(State.empty(cfg))
 
   private final case class State(
-      cfg: Config,
-      buffer: Chunk[Byte],
-      window: Array[Byte],
-      start: Int,
-      len: Int,
-      rolling: Long
+    cfg: Config,
+    buffer: Chunk[Byte],
+    window: Array[Byte],
+    start: Int,
+    len: Int,
+    rolling: Long,
   )
 
   private object State:
@@ -47,18 +48,18 @@ object RollingHashChunker:
 
   private def addByte(s: State, b: Byte): State =
     if s.len < s.cfg.window then
-      val win = s.window.clone()
+      val win     = s.window.clone()
       win((s.start + s.len) % s.cfg.window) = b
       val rolling = s.rolling * s.cfg.polynomial + (b & 0xff)
       s.copy(buffer = s.buffer :+ b, window = win, len = s.len + 1, rolling = rolling)
     else
-      val win = s.window.clone()
-      val ev = s.window(s.start)
+      val win      = s.window.clone()
+      val ev       = s.window(s.start)
       val newStart = (s.start + 1) % s.cfg.window
       win((s.start + s.len) % s.cfg.window) = b
-      val pow = fastPow(s.cfg.polynomial, s.len)
-      val without = s.rolling - (ev & 0xff) * pow
-      val rolling = without * s.cfg.polynomial + (b & 0xff)
+      val pow      = fastPow(s.cfg.polynomial, s.len)
+      val without  = s.rolling - (ev & 0xff) * pow
+      val rolling  = without * s.cfg.polynomial + (b & 0xff)
       s.copy(buffer = s.buffer :+ b, window = win, start = newStart, rolling = rolling)
 
   private def shouldCut(s: State): Boolean =
@@ -72,13 +73,13 @@ object RollingHashChunker:
     else false
 
   private def process(
-      init: State,
-      in: Chunk[Byte],
-      cfg: Config
+    init: State,
+    in: Chunk[Byte],
+    cfg: Config,
   ): (State, Chunk[Chunk[Byte]]) =
-    var s = init
+    var s   = init
     val out = scala.collection.mutable.ListBuffer.empty[Chunk[Byte]]
-    var i = 0
+    var i   = 0
     while i < in.length do
       s = addByte(s, in(i))
       if shouldCut(s) then
@@ -95,4 +96,3 @@ object RollingHashChunker:
         val res2 = if (e & 1) == 1 then res * b else res
         loop(res2, b * b, e >>> 1)
     loop(1L, base, exp)
-

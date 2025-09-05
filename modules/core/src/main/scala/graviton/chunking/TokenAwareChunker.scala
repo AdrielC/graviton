@@ -13,9 +13,10 @@ object TokenAwareChunker:
         ZChannel.readWith(
           (in: Chunk[Byte]) =>
             val (next, out) = process(state, in, tokens, maxChunkSize)
-            ZChannel.write(out) *> loop(next),
+            ZChannel.write(out) *> loop(next)
+          ,
           (err: Throwable) => ZChannel.fail(err),
-          (_: Any) => if state.buffer.isEmpty then ZChannel.unit else ZChannel.write(Chunk.single(state.buffer))
+          (_: Any) => if state.buffer.isEmpty then ZChannel.unit else ZChannel.write(Chunk.single(state.buffer)),
         )
       loop(State.empty)
 
@@ -24,18 +25,18 @@ object TokenAwareChunker:
     val empty: State = State(Chunk.empty, "")
 
   private def process(
-      init: State,
-      in: Chunk[Byte],
-      tokens: Set[String],
-      maxSize: Int
+    init: State,
+    in: Chunk[Byte],
+    tokens: Set[String],
+    maxSize: Int,
   ): (State, Chunk[Chunk[Byte]]) =
-    var s = init
+    var s   = init
     val out = scala.collection.mutable.ListBuffer.empty[Chunk[Byte]]
-    var i = 0
+    var i   = 0
     while i < in.length do
-      val b = in(i)
-      val buf = s.buffer :+ b
-      val rec = (s.recent + b.toChar).takeRight(32)
+      val b      = in(i)
+      val buf    = s.buffer :+ b
+      val rec    = (s.recent + b.toChar).takeRight(32)
       val should = buf.size >= maxSize || tokens.exists(t => rec.endsWith(t))
       if should then
         out += buf
@@ -43,4 +44,3 @@ object TokenAwareChunker:
       else s = State(buf, rec)
       i += 1
     (s, Chunk.fromIterable(out))
-

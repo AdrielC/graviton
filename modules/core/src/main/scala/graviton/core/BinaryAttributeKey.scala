@@ -4,9 +4,7 @@ import zio.schema.*
 import java.util.UUID
 import java.time.Instant
 
-final case class BinaryAttributeKey[+A](id: String)(using
-    val schema: Schema[? <: A]
-)
+final case class BinaryAttributeKey[+A](id: String)(using val schema: Schema[? <: A])
 object BinaryAttributeKey:
 
   val size: BinaryAttributeKey[Long] =
