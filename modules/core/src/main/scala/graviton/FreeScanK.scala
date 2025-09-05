@@ -2,7 +2,7 @@ package graviton
 
 import zio.*
 import zio.schema.Schema
-// import scala.compiletime.constValue
+import scala.compiletime.ops.int.*
 
 /**
  * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
@@ -29,13 +29,13 @@ object FreeScanK:
   // Constructors
   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
     type State = EmptyTuple
-    type Size  = Int
+    type Size  = 0
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple] = Scan.identity[A]
 
   final case class Op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }) extends FreeScanK[F, I, O]:
     type State = S
-    type Size  = Int
+    type Size  = Tuple.Size[S]
     type Types = Any
     def compile(using i: Interpreter[F]): Scan.Aux[I, O, S] = i.toScan(fab)
     def schema(using i: Interpreter[F]): Schema[S]          = i.stateSchema(fab)
@@ -46,7 +46,7 @@ object FreeScanK:
     right: FreeScanK.Aux[F, B, C, S2],
   ) extends FreeScanK[F, A, C]:
     type State = Tuple.Concat[S1, S2]
-    type Size  = Int
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[A, C, State] = left.compile.andThen(right.compile)
 
@@ -55,7 +55,7 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I, O2, S2],
   ) extends FreeScanK[F, I, (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
-    type Size  = Int
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State] = left.compile.zip(right.compile)
 
@@ -64,7 +64,7 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I2, O2, S2],
   ) extends FreeScanK[F, (I1, I2), (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
-    type Size  = Int
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), State] =
       val a     = left.compile
