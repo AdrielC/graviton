@@ -1,6 +1,6 @@
 package graviton
 
-import scala.compiletime.{constValue, constValueTuple, summonInline}
+import scala.compiletime.{constValue, constValueTuple, erasedValue, summonInline}
 import scala.deriving.Mirror
 import zio.Chunk
 
@@ -21,4 +21,17 @@ object NT:
     val iter  = t.asInstanceOf[Product].productIterator
     val array = iter.asInstanceOf[Iterator[String]].toArray
     Chunk.fromArray(array)
+
+  inline def labelsOfProduct[T]: Chunk[String] =
+    val m     = summonInline[Mirror.ProductOf[T]]
+    val t     = constValueTuple[m.MirroredElemLabels]
+    val iter  = t.asInstanceOf[Product].productIterator
+    val array = iter.asInstanceOf[Iterator[String]].toArray
+    Chunk.fromArray(array)
+
+  inline def labelsOfState[S <: Tuple]: Chunk[String] =
+    inline erasedValue[S] match
+      case _: EmptyTuple => Chunk.empty
+      case _: (h *: t)   =>
+        labelsOfProduct[h] ++ labelsOfState[t]
 
