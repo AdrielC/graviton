@@ -1,13 +1,13 @@
 package dbcodegen
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.sql.{Connection, PreparedStatement}
 import scala.collection.mutable
-import scala.util.Using
 
 /** Resolves Postgres specific type information such as domains,
   * enums, arrays and ranges by querying pg_catalog directly.
   */
 object PgTypeResolver {
+  
   final case class ColumnInfo(
       typtype: String,
       typcategory: String,

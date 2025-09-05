@@ -1,8 +1,6 @@
 package graviton.timeseries
 
 import graviton.Scan
-import zio.*
-import zio.stream.*
 import zio.Chunk
 
 /** Simple time-series oriented scans ported from fs2-timeseries.
@@ -20,15 +18,16 @@ object TimeSeries:
     }(_ => Chunk.empty)
 
   /** Moving average over a sliding window of size `n`. */
-  def movingAverage(n: Int)(using
-      num: Fractional[Double]
-  ): Scan.Aux[Double, Double, Tuple2[List[Double], Double]] =
+  def movingAverage[A](n: Int)(using
+      num: Fractional[A]
+  ): Scan.Aux[A, A, Tuple2[List[A], A]] =
+    import num.*
     require(n > 0, "window size must be positive")
-    Scan.statefulTuple((List.empty[Double], 0.0)) {
-      case ((buf, sum), d: Double) =>
+    Scan.statefulTuple[A, A, Tuple2[List[A], A]]((List.empty[A], num.zero)) {
+      case ((buf, sum), d) =>
         val buf1 = (d :: buf).take(n)
-        val sum1 = sum + d - (if buf.size >= n then buf.last else 0.0)
-        val avg = sum1 / buf1.size
+        val sum1 = (sum + d) - (if buf.size >= n then buf.last else num.zero)
+        val avg = sum1 / num.fromInt(buf1.size)
         ((buf1, sum1), Chunk.single(avg))
     }(_ => Chunk.empty)
 

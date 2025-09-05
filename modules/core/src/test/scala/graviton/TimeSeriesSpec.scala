@@ -13,7 +13,7 @@ object TimeSeriesSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(1, 3, 2))
     },
     test("movingAverage computes sliding averages") {
-      val scan = TimeSeries.movingAverage(2)
+      val scan = TimeSeries.movingAverage[Double](2)
       for out <- ZStream(1.0, 2.0, 3.0).via(scan.toPipeline).runCollect
       yield assertTrue(
         out.map(d => math.round(d * 10) / 10.0) == Chunk(1.0, 1.5, 2.5)

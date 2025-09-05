@@ -1,6 +1,5 @@
 package dbcodegen
 
-import schemacrawler.crawl.SchemaCrawlerExt
 import schemacrawler.schema._
 import schemacrawler.tools.utility.SchemaCrawlerUtility
 import us.fatehi.utility.datasource.DatabaseConnectionSource
@@ -26,11 +25,15 @@ object SchemaConverter {
         val pgColumnInfo = {
           val conn = connection.get()
           try PgTypeResolver.resolveColumns(schemaName, table.getName, conn)
-          finally connection.releaseConnection(conn)
+          finally { val _ = connection.releaseConnection(conn); () }
         }
 
         val (columns, columnEnums) = usableColumns.collect { case column =>
-          val pgInfo                 = pgColumnInfo.get(column.getName)
+          val colName               = column.getName
+          val pgInfo                 = pgColumnInfo
+            .get(colName)
+            .orElse(pgColumnInfo.get(colName.toLowerCase))
+            .orElse(pgColumnInfo.get(colName.toUpperCase))
           val (scalaType, dataEnum) = columnToScalaType(schema, connection, column, pgInfo, config)
           val dataColumn = DataColumn(
             column.getName,
@@ -78,6 +81,7 @@ object SchemaConverter {
     pgInfo: Option[PgTypeResolver.ColumnInfo],
     config: CodeGeneratorConfig,
   ): (String, Option[DataEnum]) = {
+    val _ = schema
     pgInfo match {
       case Some(info) =>
         info.enumLabels match {
@@ -94,7 +98,7 @@ object SchemaConverter {
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeString       =
-              config.typeMapping(targetType, scalaTypeStringGuess).getOrElse(throw new Exception(s"Cannot map sql type '$targetType'"))
+              config.typeMapping(targetType, scalaTypeStringGuess).orElse(scalaTypeStringGuess).getOrElse("String")
             val withRange = if (info.rangeSubType.isDefined) s"PgRange[$scalaTypeString]" else scalaTypeString
             val withArr   = if (info.typcategory == "A") s"Vector[$withRange]" else withRange
             val scalaT    = if (column.isNullable && !column.isPartOfPrimaryKey) s"Option[$withArr]" else withArr
@@ -105,11 +109,8 @@ object SchemaConverter {
         val (enumValues, arrayElementType) = (tpe.getJavaSqlType.getVendorTypeNumber.intValue(), tpe.getName) match {
           case (Types.ARRAY, elementTypeString) if elementTypeString.startsWith("_") =>
             val elementType            = elementTypeString.stripPrefix("_")
-            val columnDataType         = SchemaCrawlerExt.newColumnDataType(schema, elementType, DataTypeType.system)
-            val conn                   = connection.get()
             val schemaRetrievalOptions = SchemaCrawlerUtility.matchSchemaRetrievalOptions(connection)
-            val enumType               = schemaRetrievalOptions.getEnumDataTypeHelper.getEnumDataTypeInfo(column, columnDataType, conn)
-            connection.releaseConnection(conn)
+            val enumType               = schemaRetrievalOptions.getEnumDataTypeHelper.getEnumDataTypeInfo(column, tpe, connection.get())
             (enumType.getEnumValues, Some(elementType))
           case (_, _) =>
             (tpe.getEnumValues, None)
@@ -122,7 +123,7 @@ object SchemaConverter {
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeStringMapped = config.typeMapping(targetType, scalaTypeStringGuess)
-            val scalaTypeString       = scalaTypeStringMapped.getOrElse(throw new Exception(s"Cannot map sql type '${targetType}'"))
+            val scalaTypeString       = scalaTypeStringMapped.orElse(scalaTypeStringGuess).getOrElse("String")
             (scalaTypeString, None)
           case enumValues =>
             val targetTypeName = arrayElementType.getOrElse(tpe.getName)
@@ -138,6 +139,7 @@ object SchemaConverter {
 
   def sqlToScalaType(tpe: SQLType): Option[ClassTag[?]] = Some(tpe.getVendorTypeNumber.intValue()).collect {
     case Types.OTHER | Types.VARCHAR | Types.CHAR | Types.LONGVARCHAR | Types.NVARCHAR | Types.LONGNVARCHAR => classTag[String]
+    case Types.DISTINCT                                                                                     => classTag[String]
     case Types.BOOLEAN | Types.BIT                                                                          => classTag[Boolean]
     case Types.INTEGER                                                                                      => classTag[Int]
     case Types.TINYINT                                                                                      => classTag[Byte]
@@ -169,6 +171,22 @@ object SchemaConverter {
     case "FLOAT4"         => Some(JDBCType.FLOAT)
     case "FLOAT8"         => Some(JDBCType.DOUBLE)
     case "MONEY"          => Some(JDBCType.DECIMAL)
+    case "BPCHAR"         => Some(JDBCType.CHAR)
+    case "VARCHAR"        => Some(JDBCType.VARCHAR)
+    case "NAME"           => Some(JDBCType.VARCHAR)
+    case "OID"            => Some(JDBCType.BIGINT)
+    case "REGCLASS"       => Some(JDBCType.BIGINT)
+    case "BYTEA"          => Some(JDBCType.BINARY)
+    case "TIMESTAMPTZ"    => Some(JDBCType.TIMESTAMP_WITH_TIMEZONE)
+    case "TIMESTAMP" | "TIMESTAMPTZ" => Some(JDBCType.TIMESTAMP)
+    case "TIME"           => Some(JDBCType.TIME)
+    case "TIMETZ"         => Some(JDBCType.TIME_WITH_TIMEZONE)
+    case "DATE"           => Some(JDBCType.DATE)
+    case "BOOL" | "BOOLEAN" => Some(JDBCType.BOOLEAN)
+    case "NUMERIC"        => Some(JDBCType.NUMERIC)
+    case "DECIMAL"        => Some(JDBCType.DECIMAL)
+    case "SERIAL" | "BIGSERIAL" => Some(JDBCType.BIGINT)
+    case t if t.startsWith("_") => Some(JDBCType.ARRAY)
     case other            => Try(JDBCType.valueOf(other)).toOption
   }
 }

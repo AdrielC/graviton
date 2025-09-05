@@ -3,7 +3,6 @@ package graviton
 import zio.*
 import zio.test.*
 import zio.stream.*
-import io.github.iltotore.iron.*
 
 object HashingSpec extends ZIOSpecDefault:
   def spec = suite("HashingSpec")(

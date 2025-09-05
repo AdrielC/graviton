@@ -73,6 +73,7 @@ install_pkg() {
 
 ############ args ############
 PG_VERSION="${PG_VERSION:-17}"
+PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
 PG_NAME="${PG_NAME:-graviton-pg}"
 DDL_PATH_DEFAULT="modules/pg/ddl.sql"
@@ -83,6 +84,7 @@ DO_DDL=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --pg)   PG_VERSION="${2:?}"; shift 2 ;;
+    --host) PG_HOST="${2:?}"; shift 2 ;;
     --port) PG_PORT="${2:?}"; shift 2 ;;
     --name) PG_NAME="${2:?}"; shift 2 ;;
     --ddl)  DDL_PATH="${2:?}"; shift 2 ;;
@@ -233,12 +235,17 @@ if [[ "$DO_EXPORT_DOCKER_HOST" -eq 1 ]]; then
 fi
 
 ############ postgres container ############
-IMAGE="docker.io/library/postgres:${PG_VERSION}"
-PG_PASSWORD="postgres"
+REPOSITORY="docker.io/library"
+PG_IMAGE="postgres"
+IMAGE="${REPOSITORY}/${PG_IMAGE}:${PG_VERSION}"
+PG_USERNAME=${PG_USERNAME:-postgres}
+PG_PASSWORD=${PG_PASSWORD:-postgres}
+PG_HOST=${PG_HOST:-127.0.0.1}
+PG_DATABASE=${PG_DATABASE:-postgres}
 
 log "Removing old container (if any)…"
-podman rm -f "$PG_NAME" >/dev/null 2>&1 || true
-podman image exists "$IMAGE" || podman pull "$IMAGE" >/dev/null
+docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+docker image exists "$IMAGE" || docker pull "$IMAGE" >/dev/null
 
 NET_FLAG="--network=${NETWORK_BACKEND}"
 USERNS_FLAG=()
@@ -246,29 +253,31 @@ if [[ $(id -u) -ne 0 ]]; then
   USERNS_FLAG=(--userns=keep-id)
 fi
 
-log "Starting Postgres $PG_VERSION as '$PG_NAME' on 127.0.0.1:${PG_PORT}…"
+log "Starting Postgres $PG_VERSION as '$PG_NAME' on ${PG_HOST}:${PG_PORT}…"
 set -x
-podman run --rm -d --name "$PG_NAME" \
+docker run --rm -d --name "$PG_NAME" \
   ${NET_FLAG} \
   "${USERNS_FLAG[@]}" \
   --cgroups=disabled \
   --security-opt seccomp=unconfined \
   --tmpfs /var/lib/postgresql/data:rw,size=1024m \
   -e POSTGRES_PASSWORD="${PG_PASSWORD}" \
-  -p 127.0.0.1:${PG_PORT}:5432 \
+  -e POSTGRES_USER="${PG_USERNAME}" \
+  -e POSTGRES_DB="${PG_DATABASE}" \
+  -p ${PG_HOST}:${PG_PORT}:5432 \
   "$IMAGE"
 set +x
 
 ############ wait ready & init schema ############
 log "Waiting for Postgres to become ready…"
 tries=0
-until podman exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
+until docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
   sleep 0.5
   tries=$((tries+1))
   if (( tries > 180 )); then
     warn "Postgres failed to become ready."
-    podman logs "$PG_NAME" || true
-    podman inspect "$PG_NAME" --format '{{json .State}}' || true
+    docker logs "$PG_NAME" || true
+    docker inspect "$PG_NAME" --format '{{json .State}}' || true
     die "Container did not become healthy."
   fi
  done
@@ -276,14 +285,14 @@ until podman exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
 if [[ "$DO_DDL" -eq 1 ]]; then
   if [[ -f "$DDL_PATH" ]]; then
     log "Loading DDL from $DDL_PATH…"
-    podman cp "$DDL_PATH" "$PG_NAME:/ddl.sql"
-    podman exec -u postgres "$PG_NAME" psql -f /ddl.sql >/dev/null
+    docker cp "$DDL_PATH" "$PG_NAME:/ddl.sql"
+    docker exec -u postgres "$PG_NAME" psql -f /ddl.sql >/dev/null
   else
     warn "DDL file not found at $DDL_PATH — skipping."
   fi
 fi
 
-log "✅ Postgres ${PG_VERSION} is running at 127.0.0.1:${PG_PORT} (user=postgres password=${PG_PASSWORD})"
+log "✅ Postgres ${PG_VERSION} is running at ${PG_HOST}:${PG_PORT} (user=$PG_USERNAME password=${PG_PASSWORD})"
 if [[ "$DO_EXPORT_DOCKER_HOST" -eq 1 ]]; then
   log "Testcontainers can target Podman via DOCKER_HOST ($DOCKER_HOST)."
 fi

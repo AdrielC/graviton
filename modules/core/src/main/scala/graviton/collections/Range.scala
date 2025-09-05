@@ -1,6 +1,5 @@
 package graviton.collections
 
-import scala.annotation.tailrec
 import scala.math.Ordering
 
 /** Inclusive range [start, end] supporting discrete operations. */

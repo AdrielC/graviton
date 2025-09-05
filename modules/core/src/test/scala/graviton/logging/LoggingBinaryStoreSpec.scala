@@ -5,7 +5,6 @@ import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import zio.test.*
-import zio.test.Assertion.*
 import zio.test.ZIOSpecDefault
 import zio.test.ZTestLogger
 

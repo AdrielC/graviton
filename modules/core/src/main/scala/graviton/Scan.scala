@@ -5,7 +5,7 @@ import zio.stream.*
 import zio.ChunkBuilder
 import zio.stream.Take
 import zio.prelude.fx.ZPure
-import scala.compiletime.{erasedValue, summonFrom}
+// import scala.compiletime.{erasedValue, summonFrom}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 
@@ -169,23 +169,29 @@ object Scan:
     final type State = EmptyTuple
     final val initial: EmptyTuple = EmptyTuple
 
-  private[Scan] final class StatelessChain[I, O](val fs: Chunk[Any => Any])
-      extends Stateless[I, O]:
-    def step(state: EmptyTuple, in: I) =
+    def done(state: EmptyTuple): Chunk[O]
+
+  private[Scan] final class StatelessChain[I, O](val fs: Chunk[Any => Any]) extends Stateless[I, O]:
+
+    def stepSingle(state: EmptyTuple, in: I) =
       var res: Any = in
       var i = 0
       while i < fs.length do
         res = fs(i)(res)
         i += 1
-      (state, Chunk.single(res.asInstanceOf[O]))
+      (state, res.asInstanceOf[O])
+
+    def step(state: EmptyTuple, in: I) =
+      val (s, o) = stepSingle(state, in)
+      (s, Chunk.single(o))
+
     def done(state: EmptyTuple) = Chunk.empty
-  end StatelessChain
 
   transparent inline def stateless1[I, O](inline f: I => O): Stateless[I, O] =
     new StatelessChain[I, O](Chunk.single(f.asInstanceOf[Any => Any]))
 
-  transparent inline def stateless[I, O](
-      inline f: I => Chunk[O]
+  def stateless[I, O](
+      f: I => Chunk[O]
   ): Stateless[I, O] =
     new Stateless[I, O]:
       def step(state: EmptyTuple, in: I) = (state, f(in))
@@ -197,9 +203,9 @@ object Scan:
     final type State = S
     val initial: S
 
-  transparent inline def stateful[I, O, S](init: S)(
-      inline stepFn: (S, I) => (S, Chunk[O])
-  )(inline doneFn: S => Chunk[O]): Stateful[I, O, S *: EmptyTuple] =
+  def stateful[I, O, S](init: S)(
+      stepFn: (S, I) => (S, Chunk[O])
+  )(doneFn: S => Chunk[O]): Stateful[I, O, S *: EmptyTuple] =
     new Stateful[I, O, S *: EmptyTuple]:
       val initial = init *: EmptyTuple
       def step(state: S *: EmptyTuple, in: I) =
@@ -207,9 +213,9 @@ object Scan:
         (s *: EmptyTuple, o)
       def done(state: S *: EmptyTuple) = doneFn(state.head)
 
-  transparent inline def statefulTuple[I, O, S <: Tuple](init: S)(
-      inline stepFn: (S, I) => (S, Chunk[O])
-  )(inline doneFn: S => Chunk[O]): Stateful[I, O, S] =
+  def statefulTuple[I, O, S <: Tuple](init: S)(
+      stepFn: (S, I) => (S, Chunk[O])
+  )(doneFn: S => Chunk[O]): Stateful[I, O, S] =
     new Stateful[I, O, S]:
       val initial = init
       def step(state: S, in: I) = stepFn(state, in)
