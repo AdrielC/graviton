@@ -1,0 +1,3213 @@
+<!DOCTYPE html><html data-pathToRoot="" data-rawLocation="graviton" data-dynamicSideMenu="false"><head><meta charset="utf-8"></meta><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"></meta><title>graviton</title><link rel="shortcut icon" type="image/x-icon" href="favicon.ico"></link><script type="text/javascript" src="scripts/theme.js"></script><script type="text/javascript" src="scripts/searchData.js" defer="true"></script><script type="text/javascript" src="scripts/scastieConfiguration.js" defer="true"></script><link rel="stylesheet" href="styles/theme/bundle.css"></link><link rel="stylesheet" href="styles/theme/components/bundle.css"></link><link rel="stylesheet" href="styles/theme/components/button/bundle.css"></link><link rel="stylesheet" href="styles/theme/layout/bundle.css"></link><link rel="stylesheet" href="styles/nord-light.css"></link><link rel="stylesheet" href="styles/dotty-icons.css"></link><link rel="stylesheet" href="styles/filter-bar.css"></link><link rel="stylesheet" href="styles/code-snippets.css"></link><link rel="stylesheet" href="styles/searchbar.css"></link><link rel="stylesheet" href="styles/social-links.css"></link><link rel="stylesheet" href="styles/versions-dropdown.css"></link><link rel="stylesheet" href="styles/content-contributors.css"></link><link rel="stylesheet" href="styles/fontawesome.css"></link><script type="text/javascript" src="hljs/highlight.pack.js" defer="true"></script><script type="text/javascript" src="scripts/hljs-scala3.js" defer="true"></script><script type="text/javascript" src="scripts/ux.js" defer="true"></script><script type="text/javascript" src="scripts/common/component.js" defer="true"></script><script type="text/javascript" src="scripts/common/utils.js" defer="true"></script><script type="text/javascript" src="scripts/components/FilterBar.js" defer="true"></script><script type="text/javascript" src="scripts/components/DocumentableList.js" defer="true"></script><script type="text/javascript" src="scripts/components/Input.js" defer="true"></script><script type="text/javascript" src="scripts/components/FilterGroup.js" defer="true"></script><script type="text/javascript" src="scripts/components/Filter.js" defer="true"></script><script type="text/javascript" src="scripts/scaladoc-scalajs.js" defer="true"></script><script type="text/javascript" src="scripts/contributors.js" defer="true"></script><script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js" defer="true"></script><script type="text/javascript" src="https://d3js.org/d3.v6.min.js" defer="true"></script><script type="text/javascript" src="https://cdn.jsdelivr.net/npm/graphlib-dot@0.6.2/dist/graphlib-dot.min.js" defer="true"></script><script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dagre-d3/0.6.1/dagre-d3.min.js" defer="true"></script><script type="text/javascript" src="https://scastie.scala-lang.org/embedded.js" defer="true"></script><script type="text/javascript" src="scripts/data.js" defer="true"></script><link rel="stylesheet" href="styles/apistyles.css"></link><script>var pathToRoot = "";</script></head><body><div id=""><div id="header" class="body-small"><div class="header-container-left"><a href="" class="logo-container"><span class="project-name h300">graviton-core</span></a><span onclick="dropdownHandler(event)" class="text-button with-arrow" id="dropdown-trigger"><a></a></span><div id="version-dropdown" class="dropdown-menu"></div></div><div class="header-container-right"><button id="search-toggle" class="icon-button"></button><span id="theme-toggle" class="icon-button"></span><span id="mobile-menu-toggle" class="icon-button hamburger"></span></div></div><div id="mobile-menu"><div class="mobile-menu-header body-small"><span class="mobile-menu-logo"><span class="project-name h300">graviton-core</span></span><button id="mobile-menu-close" class="icon-button close"></button></div><div class="mobile-menu-container body-medium"><input id="mobile-scaladoc-searchbar-input" class="scaladoc-searchbar-input" type="search" placeholder="Find anything"></input><span id="mobile-theme-toggle" class="mobile-menu-item mode"></span></div></div><span id="mobile-sidebar-toggle" class="floating-button"></span><div id="leftColumn" class="body-small"><div class="switcher-container"><a id="api-nav-button" class="switcher h100 selected" href="index.html">API</a></div><nav id="api-nav" class="side-menu"><div class="ni n0 expanded"><span class="nh h100 selected"><button class="ar icon-button expanded"></button><a href="#"><span class="micon pa"></span><span>graviton</span></a></span><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/chunking.html"><span class="micon pa"></span><span>chunking</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/chunking/Chunker.html"><span class="micon tr"></span><span>Chunker</span></a></span></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/chunking/Chunker$.html"><span class="micon ob"></span><span>Chunker</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/chunking/Chunker$$Bounds.html"><span class="micon cl"></span><span>Bounds</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/chunking/Chunker$$SmartConfig.html"><span class="micon cl"></span><span>SmartConfig</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/chunking/Chunker$$SmartHints.html"><span class="micon tr"></span><span>SmartHints</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/chunking/Chunker$$SmartRule.html"><span class="micon cl"></span><span>SmartRule</span></a></span></div><div class="ni n3"><span class="nh "><button class="ar icon-button "></button><a href="graviton/chunking/Chunker$$Strategy.html"><span class="micon en"></span><span>Strategy</span></a></span><div class="ni n4 "><span class="nh "><a href="graviton/chunking/Chunker$$Strategy$$Fixed.html"><span class="micon cl"></span><span>Fixed</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/chunking/Chunker$$Strategy$$FastCDC.html"><span class="micon cl"></span><span>FastCDC</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/chunking/Chunker$$Strategy$$Rolling.html"><span class="micon cl"></span><span>Rolling</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/chunking/Chunker$$Strategy$$TokenAware.html"><span class="micon cl"></span><span>TokenAware</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/chunking/Chunker$$Strategy$$Smart.html"><span class="micon cl"></span><span>Smart</span></a></span></div></div></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/chunking/FastCDCChunker$.html"><span class="micon ob"></span><span>FastCDCChunker</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/chunking/FastCDCChunker$$Config.html"><span class="micon cl"></span><span>Config</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/chunking/FixedChunker$.html"><span class="micon ob"></span><span>FixedChunker</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/chunking/PdfChunker$.html"><span class="micon ob"></span><span>PdfChunker</span></a></span></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/chunking/RollingHashChunker$.html"><span class="micon ob"></span><span>RollingHashChunker</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/chunking/RollingHashChunker$$Config.html"><span class="micon cl"></span><span>Config</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/chunking/TokenAwareChunker$.html"><span class="micon ob"></span><span>TokenAwareChunker</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/collections.html"><span class="micon pa"></span><span>collections</span></a></span><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/collections/syntax.html"><span class="micon pa"></span><span>syntax</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/collections/syntax/RangeSyntax.html"><span class="micon tr"></span><span>RangeSyntax</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/collections/Discrete.html"><span class="micon tr"></span><span>Discrete</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/collections/Discrete$.html"><span class="micon ob"></span><span>Discrete</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/collections/Range.html"><span class="micon cl"></span><span>Range</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/core.html"><span class="micon pa"></span><span>core</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryAttribute.html"><span class="micon cl"></span><span>BinaryAttribute</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryAttributeKey.html"><span class="micon cl"></span><span>BinaryAttributeKey</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryAttributeKey$.html"><span class="micon ob"></span><span>BinaryAttributeKey</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryAttributes.html"><span class="micon cl"></span><span>BinaryAttributes</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryAttributes$.html"><span class="micon ob"></span><span>BinaryAttributes</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryKey.html"><span class="micon tr"></span><span>BinaryKey</span></a></span></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/core/BinaryKey$.html"><span class="micon ob"></span><span>BinaryKey</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKey$$CasKey.html"><span class="micon cl"></span><span>CasKey</span></a></span></div><div class="ni n3"><span class="nh "><button class="ar icon-button "></button><a href="graviton/core/BinaryKey$$WritableKey$.html"><span class="micon ob"></span><span>WritableKey</span></a></span><div class="ni n4 "><span class="nh "><a href="graviton/core/BinaryKey$$WritableKey$$Rnd.html"><span class="micon cl"></span><span>Rnd</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/core/BinaryKey$$WritableKey$$Scoped.html"><span class="micon cl"></span><span>Scoped</span></a></span></div><div class="ni n4 "><span class="nh "><a href="graviton/core/BinaryKey$$WritableKey$$Static.html"><span class="micon cl"></span><span>Static</span></a></span></div></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKey$$WritableKey.html"><span class="micon tr"></span><span>WritableKey</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKey$$WritableKeySchemas$.html"><span class="micon ob"></span><span>WritableKeySchemas</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher.html"><span class="micon tr"></span><span>BinaryKeyMatcher</span></a></span></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/core/BinaryKeyMatcher$.html"><span class="micon ob"></span><span>BinaryKeyMatcher</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$And.html"><span class="micon cl"></span><span>And</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$AnyKey$.html"><span class="micon ob"></span><span>AnyKey</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$ByAlg.html"><span class="micon cl"></span><span>ByAlg</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$ByCasPrefix.html"><span class="micon cl"></span><span>ByCasPrefix</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$ByScope.html"><span class="micon cl"></span><span>ByScope</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$Not.html"><span class="micon cl"></span><span>Not</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/core/BinaryKeyMatcher$$Or.html"><span class="micon cl"></span><span>Or</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BlobStore.html"><span class="micon tr"></span><span>BlobStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/BlockStore.html"><span class="micon tr"></span><span>BlockStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/CasStore.html"><span class="micon tr"></span><span>CasStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/core/KeyedStore.html"><span class="micon tr"></span><span>KeyedStore</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/impl.html"><span class="micon pa"></span><span>impl</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/impl/DefaultCopyTool.html"><span class="micon cl"></span><span>DefaultCopyTool</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/DefaultCopyTool$.html"><span class="micon ob"></span><span>DefaultCopyTool</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/EncryptedBlobStore.html"><span class="micon cl"></span><span>EncryptedBlobStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/EncryptedBlobStore$.html"><span class="micon ob"></span><span>EncryptedBlobStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBinaryStore.html"><span class="micon cl"></span><span>InMemoryBinaryStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBinaryStore$.html"><span class="micon ob"></span><span>InMemoryBinaryStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlobStore.html"><span class="micon cl"></span><span>InMemoryBlobStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlobStore$.html"><span class="micon ob"></span><span>InMemoryBlobStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlockResolver.html"><span class="micon cl"></span><span>InMemoryBlockResolver</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlockResolver$.html"><span class="micon ob"></span><span>InMemoryBlockResolver</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlockStore.html"><span class="micon cl"></span><span>InMemoryBlockStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryBlockStore$.html"><span class="micon ob"></span><span>InMemoryBlockStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryFileStore.html"><span class="micon cl"></span><span>InMemoryFileStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/impl/InMemoryFileStore$.html"><span class="micon ob"></span><span>InMemoryFileStore</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/kv.html"><span class="micon pa"></span><span>kv</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/kv/KeyValueStore.html"><span class="micon tr"></span><span>KeyValueStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/kv/KeyValueStore$.html"><span class="micon ob"></span><span>KeyValueStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/kv/Timestamp.html"><span class="micon cl"></span><span>Timestamp</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/logging.html"><span class="micon pa"></span><span>logging</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/logging/LoggingBinaryStore.html"><span class="micon cl"></span><span>LoggingBinaryStore</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/logging/LoggingBinaryStore$.html"><span class="micon ob"></span><span>LoggingBinaryStore</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/stacked.html"><span class="micon pa"></span><span>stacked</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/stacked/StackedBinaryStore.html"><span class="micon cl"></span><span>StackedBinaryStore</span></a></span></div></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/timeseries.html"><span class="micon pa"></span><span>timeseries</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/timeseries/TSOp.html"><span class="micon tr"></span><span>TSOp</span></a></span></div><div class="ni n2"><span class="nh "><button class="ar icon-button "></button><a href="graviton/timeseries/TSOp$.html"><span class="micon ob"></span><span>TSOp</span></a></span><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$Delta.html"><span class="micon cl"></span><span>Delta</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$Delta$.html"><span class="micon ob"></span><span>Delta</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$MovAvgState.html"><span class="micon cl"></span><span>MovAvgState</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$MovingAvg.html"><span class="micon cl"></span><span>MovingAvg</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$MovingAvg$.html"><span class="micon ob"></span><span>MovingAvg</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$PairSub.html"><span class="micon cl"></span><span>PairSub</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$PairSub$.html"><span class="micon ob"></span><span>PairSub</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$Prev.html"><span class="micon cl"></span><span>Prev</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$RateFromPair.html"><span class="micon cl"></span><span>RateFromPair</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$RateFromPair$.html"><span class="micon ob"></span><span>RateFromPair</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$Schemas$.html"><span class="micon ob"></span><span>Schemas</span></a></span></div><div class="ni n3 "><span class="nh "><a href="graviton/timeseries/TSOp$$given_Interpreter_TSOp$.html"><span class="micon ob"></span><span>given_Interpreter_TSOp</span></a></span></div></div><div class="ni n2 "><span class="nh "><a href="graviton/timeseries/TimeSeries$.html"><span class="micon ob"></span><span>TimeSeries</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/ArrowK.html"><span class="micon tr"></span><span>ArrowK</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BinaryId$.html"><span class="micon ob"></span><span>BinaryId</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BinaryStore.html"><span class="micon tr"></span><span>BinaryStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlobStore.html"><span class="micon tr"></span><span>BlobStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlobStoreId$.html"><span class="micon ob"></span><span>BlobStoreId</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlobStoreStatus.html"><span class="micon en"></span><span>BlobStoreStatus</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockKey.html"><span class="micon cl"></span><span>BlockKey</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockKey$.html"><span class="micon ob"></span><span>BlockKey</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockKeySelector.html"><span class="micon cl"></span><span>BlockKeySelector</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockResolver.html"><span class="micon tr"></span><span>BlockResolver</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockSector.html"><span class="micon cl"></span><span>BlockSector</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/BlockStore.html"><span class="micon tr"></span><span>BlockStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/ByteRange.html"><span class="micon cl"></span><span>ByteRange</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Bytes$.html"><span class="micon ob"></span><span>Bytes</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/CacheStore.html"><span class="micon tr"></span><span>CacheStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/ChunkDef.html"><span class="micon cl"></span><span>ChunkDef</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/ChunkedBinaryStore.html"><span class="micon tr"></span><span>ChunkedBinaryStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/ContentTypeDetect.html"><span class="micon tr"></span><span>ContentTypeDetect</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/ContentTypeDetect$.html"><span class="micon ob"></span><span>ContentTypeDetect</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/CopyTool.html"><span class="micon tr"></span><span>CopyTool</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Encryption.html"><span class="micon tr"></span><span>Encryption</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/Encryption$.html"><span class="micon ob"></span><span>Encryption</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/Encryption$$MasterKey.html"><span class="micon cl"></span><span>MasterKey</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/FileDescriptor.html"><span class="micon cl"></span><span>FileDescriptor</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FileDescriptor$.html"><span class="micon ob"></span><span>FileDescriptor</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FileKey.html"><span class="micon cl"></span><span>FileKey</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FileKey$.html"><span class="micon ob"></span><span>FileKey</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FileKeySelector.html"><span class="micon cl"></span><span>FileKeySelector</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FileStore.html"><span class="micon tr"></span><span>FileStore</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/FreeScan.html"><span class="micon tr"></span><span>FreeScan</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/FreeScan$.html"><span class="micon ob"></span><span>FreeScan</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Composed.html"><span class="micon cl"></span><span>Composed</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$ContraMapped.html"><span class="micon cl"></span><span>ContraMapped</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Dimapped.html"><span class="micon cl"></span><span>Dimapped</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$FanIn.html"><span class="micon cl"></span><span>FanIn</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$First.html"><span class="micon cl"></span><span>First</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Identity.html"><span class="micon cl"></span><span>Identity</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$LeftChoice.html"><span class="micon cl"></span><span>LeftChoice</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Mapped.html"><span class="micon cl"></span><span>Mapped</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$PlusPlus.html"><span class="micon cl"></span><span>PlusPlus</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Product.html"><span class="micon cl"></span><span>Product</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$RightChoice.html"><span class="micon cl"></span><span>RightChoice</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Second.html"><span class="micon cl"></span><span>Second</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Stateful.html"><span class="micon cl"></span><span>Stateful</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Stateless.html"><span class="micon cl"></span><span>Stateless</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Stateless1.html"><span class="micon cl"></span><span>Stateless1</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScan$$Zipped.html"><span class="micon cl"></span><span>Zipped</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/FreeScanK.html"><span class="micon tr"></span><span>FreeScanK</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/FreeScanK$.html"><span class="micon ob"></span><span>FreeScanK</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$AndThen.html"><span class="micon cl"></span><span>AndThen</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$ArrowInterpreter.html"><span class="micon tr"></span><span>ArrowInterpreter</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$FanIn.html"><span class="micon cl"></span><span>FanIn</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$First.html"><span class="micon cl"></span><span>First</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Id.html"><span class="micon cl"></span><span>Id</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Interpreter.html"><span class="micon tr"></span><span>Interpreter</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$LeftChoice.html"><span class="micon cl"></span><span>LeftChoice</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Op.html"><span class="micon cl"></span><span>Op</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$PlusPlus.html"><span class="micon cl"></span><span>PlusPlus</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Product.html"><span class="micon cl"></span><span>Product</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$RightChoice.html"><span class="micon cl"></span><span>RightChoice</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Second.html"><span class="micon cl"></span><span>Second</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/FreeScanK$$Zip.html"><span class="micon cl"></span><span>Zip</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/GcConfig.html"><span class="micon cl"></span><span>GcConfig</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/GravitonError.html"><span class="micon tr"></span><span>GravitonError</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/GravitonError$.html"><span class="micon ob"></span><span>GravitonError</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/GravitonError$$BackendUnavailable.html"><span class="micon cl"></span><span>BackendUnavailable</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/GravitonError$$CorruptData.html"><span class="micon cl"></span><span>CorruptData</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/GravitonError$$NotFound.html"><span class="micon cl"></span><span>NotFound</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/GravitonError$$PolicyViolation.html"><span class="micon cl"></span><span>PolicyViolation</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/Hash.html"><span class="micon cl"></span><span>Hash</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Hash$.html"><span class="micon ob"></span><span>Hash</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/HashAlgorithm.html"><span class="micon tr"></span><span>HashAlgorithm</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/HashAlgorithm$.html"><span class="micon ob"></span><span>HashAlgorithm</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/HashAlgorithm$$Blake3$.html"><span class="micon ob"></span><span>Blake3</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/HashAlgorithm$$SHA256$.html"><span class="micon ob"></span><span>SHA256</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/HashAlgorithm$$SHA512$.html"><span class="micon ob"></span><span>SHA512</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/Hasher.html"><span class="micon tr"></span><span>Hasher</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Hasher$.html"><span class="micon ob"></span><span>Hasher</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Hashing$.html"><span class="micon ob"></span><span>Hashing</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Hint.html"><span class="micon en"></span><span>Hint</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/InsertChunkResult.html"><span class="micon cl"></span><span>InsertChunkResult</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/InvertibleArrow.html"><span class="micon tr"></span><span>InvertibleArrow</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/InvertibleArrow$.html"><span class="micon ob"></span><span>InvertibleArrow</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/InvertibleArrow$$Compose.html"><span class="micon cl"></span><span>Compose</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/InvertibleArrow$$Id.html"><span class="micon cl"></span><span>Id</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/InvertibleArrow$$Primitive.html"><span class="micon cl"></span><span>Primitive</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/Merkle$.html"><span class="micon ob"></span><span>Merkle</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/NT$.html"><span class="micon ob"></span><span>NT</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/Scan.html"><span class="micon tr"></span><span>Scan</span></a></span></div><div class="ni n1"><span class="nh "><button class="ar icon-button "></button><a href="graviton/Scan$.html"><span class="micon ob"></span><span>Scan</span></a></span><div class="ni n2 "><span class="nh "><a href="graviton/Scan$$ChunkState.html"><span class="micon cl"></span><span>ChunkState</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/Scan$$Stateful.html"><span class="micon tr"></span><span>Stateful</span></a></span></div><div class="ni n2 "><span class="nh "><a href="graviton/Scan$$Stateless.html"><span class="micon tr"></span><span>Stateless</span></a></span></div></div><div class="ni n1 "><span class="nh "><a href="graviton/StateMeta.html"><span class="micon cl"></span><span>StateMeta</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/StateMeta$.html"><span class="micon ob"></span><span>StateMeta</span></a></span></div><div class="ni n1 "><span class="nh "><a href="graviton/scanArrowK$.html"><span class="micon ob"></span><span>scanArrowK</span></a></span></div></div></nav></div><div id="footer" class="body-small"><div class="left-container">Generated with</div><div class="right-container"><div class="text"></div></div><div class="text-mobile"></div></div><div id="scaladoc-searchBar"></div><div id="main"><div class="breadcrumbs container"><a href="index.html">graviton-core</a>/<a href="graviton.html">graviton</a></div><div id="content" class="body-medium"><div><div class="cover-header">
+ <span class="icon"><span class="micon pa"></span></span>
+ <h1 class="h600 single">graviton</h1>
+</div>
+<div class="fqname body-large">
+ <span></span>
+</div>
+<div class="main-signature mono-small-block">
+ <div class="signature">
+  <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton.html" t="n" class="documentableName ">graviton</a>
+ </div>
+</div>
+<section id="members-list">
+ <h2 class="h500">Members list</h2>
+ <div class="documentableFilter">
+  <div class="filtersContainer"></div><input class="filterableInput" placeholder="Filter by any phrase" data-test-id="filterBarInput" type="search"><button class="clearButton label-only-button" data-test-id="filterBarClearButton">Clear all</button>
+ </div>
+ <div class="membersList expand">
+  <div class="tabs">
+   <div class="contents">
+    <section id="Packages">
+     <div data-togglable="packages" class="tab expand">
+      <div class="documentableList expand">
+       <div class="documentableList-expander">
+        <button class="icon-button show-content expand"></button>
+        <h3 class="groupHeader h400">Packages</h3>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/chunking.html" t="n" class="documentableName ">graviton.chunking</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/collections.html" t="n" class="documentableName ">graviton.collections</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/core.html" t="n" class="documentableName ">graviton.core</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/impl.html" t="n" class="documentableName ">graviton.impl</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/kv.html" t="n" class="documentableName ">graviton.kv</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/logging.html" t="n" class="documentableName ">graviton.logging</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/stacked.html" t="n" class="documentableName ">graviton.stacked</a>
+          </div>
+         </div>
+        </div>
+       </div>
+       <div class="documentableElement">
+        <div class="documentableElement-expander">
+         <div class="header monospace mono-medium">
+          <div class="signature">
+           <span class="modifiers"></span><span class="kind"><span t="k">package </span></span><a href="graviton/timeseries.html" t="n" class="documentableName ">graviton.timeseries</a>
+          </div>
+         </div>
+        </div>
+       </div>
+      </div>
+     </div>
+    </section>
+    <section id="Type-members">
+     <div data-togglable="Type members" class="tab expand">
+      <div class="member-group-header">
+       <h3 data-togglable="Type members" class="h400">Type members</h3>
+      </div>
+      <section id="Classlikes">
+       <div class="documentableList expand">
+        <div class="documentableList-expander">
+         <button class="icon-button show-content expand"></button>
+         <h4 class="groupHeader h200">Classlikes</h4>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/ArrowK.html" t="n" class="documentableName ">ArrowK</a>[<span t="k"></span><span data-unresolved-link="" t="t">A</span>[<span t="t">_</span>, <span t="t">_</span>, <span t="t">_</span><span t="k"> &lt;: </span><a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/Tuple.html" t="t">Tuple</a>]]
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 object <a href="graviton/scanArrowK$.html" t="n">scanArrowK</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/BinaryId$.html" t="n" class="documentableName ">BinaryId</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/BinaryId$.html" t="n">BinaryId</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/BinaryStore.html" t="n" class="documentableName ">BinaryStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/InMemoryBinaryStore.html" t="n">InMemoryBinaryStore</a>
+                </div>
+                <div>
+                 class <a href="graviton/logging/LoggingBinaryStore.html" t="n">LoggingBinaryStore</a>
+                </div>
+                <div>
+                 class <a href="graviton/stacked/StackedBinaryStore.html" t="n">StackedBinaryStore</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/BlobStore.html" t="n" class="documentableName ">BlobStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/EncryptedBlobStore.html" t="n">EncryptedBlobStore</a>
+                </div>
+                <div>
+                 class <a href="graviton/impl/InMemoryBlobStore.html" t="n">InMemoryBlobStore</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/BlobStoreId$.html" t="n" class="documentableName ">BlobStoreId</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/BlobStoreId$.html" t="n">BlobStoreId</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">enum </span></span><a href="graviton/BlobStoreStatus.html" t="n" class="documentableName ">BlobStoreStatus</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/reflect/Enum.html" t="n">Enum</a>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/BlockKey.html" t="n" class="documentableName ">BlockKey</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">hash</span>: <a href="graviton/Hash.html" t="t">Hash</a>, <span t="k"></span><span data-unresolved-link="" t="n">size</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/BlockKey$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/BlockKey$.html" t="n" class="documentableName ">BlockKey</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/BlockKey.html">class</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/BlockKey$.html" t="n">BlockKey</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/BlockKeySelector.html" t="n" class="documentableName ">BlockKeySelector</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">prefix</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Option.html" t="t">Option</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Array.html" t="t">Array</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Byte.html" t="t">Byte</a>]])
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/BlockResolver.html" t="n" class="documentableName ">BlockResolver</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/InMemoryBlockResolver.html" t="n">InMemoryBlockResolver</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/BlockSector.html" t="n" class="documentableName ">BlockSector</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">blobStoreId</span>: <a href="graviton.html#BlobStoreId-0" t="t">BlobStoreId</a>, <span t="k"></span><span data-unresolved-link="" t="n">status</span>: <a href="graviton/BlobStoreStatus.html" t="t">BlobStoreStatus</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/BlockStore.html" t="n" class="documentableName ">BlockStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/InMemoryBlockStore.html" t="n">InMemoryBlockStore</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/ByteRange.html" t="n" class="documentableName ">ByteRange</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">start</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Long.html" t="t">Long</a>, <span t="k"></span><span data-unresolved-link="" t="n">endExclusive</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Long.html" t="t">Long</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Bytes$.html" t="n" class="documentableName ">Bytes</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Bytes$.html" t="n">Bytes</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/CacheStore.html" t="n" class="documentableName ">CacheStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Simple abstraction for caching binary content by <a href="graviton/Hash.html">Hash</a>. Implementations must verify that any cached data matches the requested hash before serving it and fall back to the provided download effect when the cache is absent or invalid.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Simple abstraction for caching binary content by <a href="graviton/Hash.html">Hash</a>. Implementations must verify that any cached data matches the requested hash before serving it and fall back to the provided download effect when the cache is absent or invalid.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/ChunkDef.html" t="n" class="documentableName ">ChunkDef</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">min</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>, <span t="k"></span><span data-unresolved-link="" t="n">avg</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>, <span t="k"></span><span data-unresolved-link="" t="n">max</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/ChunkedBinaryStore.html" t="n" class="documentableName ">ChunkedBinaryStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/ContentTypeDetect.html" t="n" class="documentableName ">ContentTypeDetect</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/ContentTypeDetect$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/ContentTypeDetect$.html" t="n" class="documentableName ">ContentTypeDetect</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/ContentTypeDetect.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/ContentTypeDetect$.html" t="n">ContentTypeDetect</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/CopyTool.html" t="n" class="documentableName ">CopyTool</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/DefaultCopyTool.html" t="n">DefaultCopyTool</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/Encryption.html" t="n" class="documentableName ">Encryption</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Encryption$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Encryption$.html" t="n" class="documentableName ">Encryption</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Encryption.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Encryption$.html" t="n">Encryption</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/FileDescriptor.html" t="n" class="documentableName ">FileDescriptor</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">key</span>: <a href="graviton/FileKey.html" t="t">FileKey</a>, <span t="k"></span><span data-unresolved-link="" t="n">blocks</span>: <a href="https://javadoc.io/page/dev.zio/zio_3/2.1.20/zio/Chunk.html" t="t">Chunk</a>[<a href="graviton/BlockKey.html" t="t">BlockKey</a>], <span t="k"></span><span data-unresolved-link="" t="n">blockSize</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FileDescriptor$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/FileDescriptor$.html" t="n" class="documentableName ">FileDescriptor</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FileDescriptor.html">class</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/FileDescriptor$.html" t="n">FileDescriptor</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/FileKey.html" t="n" class="documentableName ">FileKey</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">hash</span>: <a href="graviton/Hash.html" t="t">Hash</a>, <span t="k"></span><span data-unresolved-link="" t="n">algo</span>: <a href="graviton/HashAlgorithm.html" t="t">HashAlgorithm</a>, <span t="k"></span><span data-unresolved-link="" t="n">size</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Long.html" t="t">Long</a>, <span t="k"></span><span data-unresolved-link="" t="n">mediaType</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Predef$.html#String" t="t">String</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FileKey$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/FileKey$.html" t="n" class="documentableName ">FileKey</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FileKey.html">class</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/FileKey$.html" t="n">FileKey</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/FileKeySelector.html" t="n" class="documentableName ">FileKeySelector</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">prefix</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Option.html" t="t">Option</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Array.html" t="t">Array</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Byte.html" t="t">Byte</a>]])
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/FileStore.html" t="n" class="documentableName ">FileStore</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/impl/InMemoryFileStore.html" t="n">InMemoryFileStore</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/FreeScan.html" t="n" class="documentableName ">FreeScan</a>[<span t="k">-</span><span data-unresolved-link="" t="t">I</span>, <span t="k">+</span><span data-unresolved-link="" t="t">O</span>]
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>A free, compositional description of a Scan. It can be built up using pure combinators and later compiled into a concrete <code>Scan</code> whose <code>State</code> type is derived at compile time.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>A free, compositional description of a Scan. It can be built up using pure combinators and later compiled into a concrete <code>Scan</code> whose <code>State</code> type is derived at compile time.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FreeScan$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/FreeScan$$Composed.html" t="n">Composed</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$ContraMapped.html" t="n">ContraMapped</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">I2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Dimapped.html" t="n">Dimapped</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">I2</span>, <span t="t">O2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$FanIn.html" t="n">FanIn</a>[<span t="t">I1</span>, <span t="t">O</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$First.html" t="n">First</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">C</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Identity.html" t="n">Identity</a>[<span t="t">I</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$LeftChoice.html" t="n">LeftChoice</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">C</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Mapped.html" t="n">Mapped</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">O2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$PlusPlus.html" t="n">PlusPlus</a>[<span t="t">I1</span>, <span t="t">O1</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Product.html" t="n">Product</a>[<span t="t">I1</span>, <span t="t">O1</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$RightChoice.html" t="n">RightChoice</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">C</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Second.html" t="n">Second</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">C</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Stateful.html" t="n">Stateful</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Stateless.html" t="n">Stateless</a>[<span t="t">I</span>, <span t="t">O</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Stateless1.html" t="n">Stateless1</a>[<span t="t">I</span>, <span t="t">O</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScan$$Zipped.html" t="n">Zipped</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/FreeScan$.html" t="n" class="documentableName ">FreeScan</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FreeScan.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Sum.html" t="n">Sum</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/FreeScan$.html" t="n">FreeScan</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/FreeScanK.html" t="n" class="documentableName ">FreeScanK</a>[<span t="k"></span><span data-unresolved-link="" t="t">F</span>[<span t="t">_</span>, <span t="t">_</span>], <span t="k">-</span><span data-unresolved-link="" t="t">I</span>, <span t="k">+</span><span data-unresolved-link="" t="t">O</span>]
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>A pure-data Free Arrow for scans, parameterized by a domain DSL F. Leaves are F[A, B] values that must encode their State type via a type member. No lambdas or closures are stored in this structure; interpretation happens via Interpreter.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>A pure-data Free Arrow for scans, parameterized by a domain DSL F. Leaves are F[A, B] values that must encode their State type via a type member. No lambdas or closures are stored in this structure; interpretation happens via Interpreter.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FreeScanK$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/FreeScanK$$AndThen.html" t="n">AndThen</a>[<span t="t">F</span>, <span t="t">A</span>, <span t="t">B</span>, <span t="t">C</span>, <span t="t">S1</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$FanIn.html" t="n">FanIn</a>[<span t="t">F</span>, <span t="t">I1</span>, <span t="t">O</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$First.html" t="n">First</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O</span>, <span t="t">C</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$Id.html" t="n">Id</a>[<span t="t">F</span>, <span t="t">A</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$LeftChoice.html" t="n">LeftChoice</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O</span>, <span t="t">C</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$Op.html" t="n">Op</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$PlusPlus.html" t="n">PlusPlus</a>[<span t="t">F</span>, <span t="t">I1</span>, <span t="t">O1</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$Product.html" t="n">Product</a>[<span t="t">F</span>, <span t="t">I1</span>, <span t="t">O1</span>, <span t="t">S1</span>, <span t="t">I2</span>, <span t="t">O2</span>, <span t="t">S2</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$RightChoice.html" t="n">RightChoice</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O</span>, <span t="t">C</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$Second.html" t="n">Second</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O</span>, <span t="t">C</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 class <a href="graviton/FreeScanK$$Zip.html" t="n">Zip</a>[<span t="t">F</span>, <span t="t">I</span>, <span t="t">O1</span>, <span t="t">O2</span>, <span t="t">S1</span>, <span t="t">S2</span>]
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/FreeScanK$.html" t="n" class="documentableName ">FreeScanK</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/FreeScanK.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Sum.html" t="n">Sum</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/FreeScanK$.html" t="n">FreeScanK</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/GcConfig.html" t="n" class="documentableName ">GcConfig</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">retention</span>: <a href="https://javadoc.io/page/dev.zio/zio_3/2.1.20/zio/DurationModule.html#Duration" t="t">Duration</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="signature-short"><span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/GravitonError.html" t="n" class="documentableName ">GravitonError</a><span t="k"> extends </span><a href="https://www.scala-lang.org/api/2.13.16/scala.html#Throwable" t="t">Throwable</a></span><span class="signature-long"></span>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/GravitonError$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Throwable</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/GravitonError$$BackendUnavailable.html" t="n">BackendUnavailable</a>
+                </div>
+                <div>
+                 class <a href="graviton/GravitonError$$CorruptData.html" t="n">CorruptData</a>
+                </div>
+                <div>
+                 class <a href="graviton/GravitonError$$NotFound.html" t="n">NotFound</a>
+                </div>
+                <div>
+                 class <a href="graviton/GravitonError$$PolicyViolation.html" t="n">PolicyViolation</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/GravitonError$.html" t="n" class="documentableName ">GravitonError</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/GravitonError.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Sum.html" t="n">Sum</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/GravitonError$.html" t="n">GravitonError</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/Hash.html" t="n" class="documentableName ">Hash</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">bytes</span>: <a href="https://javadoc.io/page/dev.zio/zio_3/2.1.20/zio/Chunk.html" t="t">Chunk</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Byte.html" t="t">Byte</a>], <span t="k"></span><span data-unresolved-link="" t="n">algo</span>: <a href="graviton/HashAlgorithm.html" t="t">HashAlgorithm</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Hash$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Hash$.html" t="n" class="documentableName ">Hash</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Hash.html">class</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Hash$.html" t="n">Hash</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/HashAlgorithm.html" t="n" class="documentableName ">HashAlgorithm</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Supported hashing algorithms for content addressed storage. Each algorithm exposes metadata about its digest and can compute hashes directly.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Supported hashing algorithms for content addressed storage. Each algorithm exposes metadata about its digest and can compute hashes directly.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/HashAlgorithm$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 object <a href="graviton/HashAlgorithm$$Blake3$.html" t="n">Blake3</a>
+                </div>
+                <div>
+                 object <a href="graviton/HashAlgorithm$$SHA256$.html" t="n">SHA256</a>
+                </div>
+                <div>
+                 object <a href="graviton/HashAlgorithm$$SHA512$.html" t="n">SHA512</a>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/HashAlgorithm$.html" t="n" class="documentableName ">HashAlgorithm</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/HashAlgorithm.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Sum.html" t="n">Sum</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/HashAlgorithm$.html" t="n">HashAlgorithm</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">trait </span></span><a href="graviton/Hasher.html" t="n" class="documentableName ">Hasher</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Abstraction over incremental hashing implementations.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Abstraction over incremental hashing implementations.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Hasher$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Hasher$.html" t="n" class="documentableName ">Hasher</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Hasher.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Hasher$.html" t="n">Hasher</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Hashing$.html" t="n" class="documentableName ">Hashing</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Helpers for computing hashes over byte streams. Supports both SHA variants (for FIPS deployments) and Blake3. Hashes are exposed via <a href="graviton/Hash.html">Hash</a> which captures the algorithm alongside the digest bytes.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Helpers for computing hashes over byte streams. Supports both SHA variants (for FIPS deployments) and Blake3. Hashes are exposed via <a href="graviton/Hash.html">Hash</a> which captures the algorithm alongside the digest bytes.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Hashing$.html" t="n">Hashing</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">enum </span></span><a href="graviton/Hint.html" t="n" class="documentableName ">Hint</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/reflect/Enum.html" t="n">Enum</a>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/InsertChunkResult.html" t="n" class="documentableName ">InsertChunkResult</a>(<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">id</span>: <a href="graviton.html#BinaryId-0" t="t">BinaryId</a>, <span t="k"></span><span data-unresolved-link="" t="n">size</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Long.html" t="t">Long</a>, <span t="k"></span><span data-unresolved-link="" t="n">deduplicated</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Boolean.html" t="t">Boolean</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/InvertibleArrow.html" t="n" class="documentableName ">InvertibleArrow</a>[<span t="k"></span><span data-unresolved-link="" t="t">A</span>, <span t="k"></span><span data-unresolved-link="" t="t">B</span>]
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>A purely data-based, invertible arrow. It captures primitive steps and their arguments without embedding executable functions, allowing the structure to be inspected, serialised and reversed.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>A purely data-based, invertible arrow. It captures primitive steps and their arguments without embedding executable functions, allowing the structure to be inspected, serialised and reversed.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/InvertibleArrow$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 class <a href="graviton/InvertibleArrow$$Compose.html" t="n">Compose</a>[<span t="t">A</span>, <span t="t">B</span>, <span t="t">C</span>]
+                </div>
+                <div>
+                 class <a href="graviton/InvertibleArrow$$Id.html" t="n">Id</a>[<span t="t">A</span>]
+                </div>
+                <div>
+                 class <a href="graviton/InvertibleArrow$$Primitive.html" t="n">Primitive</a>[<span t="t">A</span>, <span t="t">B</span>]
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/InvertibleArrow.html" t="n">InvertibleArrow</a>[<span t="t">A</span>, <span t="t">B</span>]
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/InvertibleArrow$.html" t="n" class="documentableName ">InvertibleArrow</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/InvertibleArrow.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Sum.html" t="n">Sum</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/InvertibleArrow$.html" t="n">InvertibleArrow</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Merkle$.html" t="n" class="documentableName ">Merkle</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Simple Merkle tree builder. The stream is split into fixed-size chunks, each leaf hashed individually, then paired up until a single root hash remains. For odd numbers of leaves the last hash is duplicated.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Simple Merkle tree builder. The stream is split into fixed-size chunks, each leaf hashed individually, then paired up until a single root hash remains. For odd numbers of leaves the last hash is duplicated.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Merkle$.html" t="n">Merkle</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/NT$.html" t="n" class="documentableName ">NT</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Named Tuple utilities for typed splits, carry slots, and type-driven labels.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Named Tuple utilities for typed splits, carry slots, and type-driven labels.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/NT$.html" t="n">NT</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="sealed">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">sealed </span></span><span class="kind"><span t="k">trait </span></span><a href="graviton/Scan.html" t="n" class="documentableName ">Scan</a>[<span t="k">-</span><span data-unresolved-link="" t="t">I</span>, <span t="k">+</span><span data-unresolved-link="" t="t">O</span>]
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>A stateful stream transformer whose state is represented as a Tuple. Stateless scans use <code>EmptyTuple</code> and therefore do not alter the state type when composed. Composition operators are <code>transparent inline</code> to encourage compile-time optimisation and eliminate intermediate allocations.</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>A stateful stream transformer whose state is represented as a Tuple. Stateless scans use <code>EmptyTuple</code> and therefore do not alter the state type when composed. Composition operators are <code>transparent inline</code> to encourage compile-time optimisation and eliminate intermediate allocations.</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Scan$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Known subtypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block subtypes">
+                <div>
+                 trait <a href="graviton/Scan$$Stateful.html" t="n">Stateful</a>[<span t="t">I</span>, <span t="t">O</span>, <span t="t">S</span>]
+                </div>
+                <div>
+                 trait <a href="graviton/Scan$$Stateless.html" t="n">Stateless</a>[<span t="t">I</span>, <span t="t">O</span>]
+                </div><span></span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/Scan$.html" t="n" class="documentableName ">Scan</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/Scan.html">trait</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/Scan$.html" t="n">Scan</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" data-f-keywords="final,case">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">final case </span></span><span class="kind"><span t="k">class </span></span><a href="graviton/StateMeta.html" t="n" class="documentableName ">StateMeta</a>[<span t="k"></span><span data-unresolved-link="" t="t">S</span><span t="k"> &lt;: </span><a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/Tuple.html" t="t">Tuple</a>](<span t="k"></span><span t="k"></span><span data-unresolved-link="" t="n">labels</span>: <a href="https://javadoc.io/page/dev.zio/zio_3/2.1.20/zio/Chunk.html" t="t">Chunk</a>[<a href="https://www.scala-lang.org/api/2.13.16/scala/Predef$.html#String" t="t">String</a>], <span t="k"></span><span data-unresolved-link="" t="n">size</span>: <a href="https://www.scala-lang.org/api/2.13.16/scala/Int.html" t="t">Int</a>)
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="documentableBrief doc">
+             <p>Minimal state metadata for tuple states (labels only for now).</p>
+            </div>
+            <div class="cover">
+             <div class="doc">
+              <p>Minimal state metadata for tuple states (labels only for now).</p>
+             </div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/StateMeta$.html">object</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <span data-unresolved-link="" t="n">Serializable</span>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://www.scala-lang.org/api/2.13.16/scala/Equals.html" t="n">Equals</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span class="show-all-code show-content text-button h100">Show all</span>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/StateMeta$.html" t="n" class="documentableName ">StateMeta</a>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Companion
+              </dt>
+              <dd class="body-medium">
+               <a href="graviton/StateMeta.html">class</a>
+              </dd>
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror$$Product.html" t="n">Product</a>
+                </div>
+                <div>
+                 trait <a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/deriving/Mirror.html" t="n">Mirror</a>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/StateMeta$.html" t="n">StateMeta</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement">
+         <div class="documentableElement-expander">
+          <button class="icon-button ar show-content"></button>
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="signature-short"><span class="modifiers"></span><span class="kind"><span t="k">object </span></span><a href="graviton/scanArrowK$.html" t="n" class="documentableName ">scanArrowK</a><span t="k"> extends </span><a href="graviton/ArrowK.html" t="t">ArrowK</a>[<a href="graviton.html#ScanK-0" t="t">ScanK</a>]</span><span class="signature-long"></span>
+           </div>
+          </div>
+         </div>
+         <div class="docs">
+          <span class="modifiers"></span>
+          <div>
+           <div class="originInfo"></div>
+           <div class="memberDocumentation">
+            <div class="cover">
+             <div class="doc"></div>
+             <h2 class="h200">Attributes</h2>
+             <dl class="attributes attributes-small">
+              <dt class="body-small">
+               Supertypes
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <div>
+                 trait <a href="graviton/ArrowK.html" t="n">ArrowK</a>[<a href="graviton.html#ScanK-0" t="t">ScanK</a>]
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Object</span>
+                </div>
+                <div>
+                 trait <span data-unresolved-link="" t="n">Matchable</span>
+                </div>
+                <div>
+                 class <span data-unresolved-link="" t="n">Any</span>
+                </div><span></span>
+               </div>
+              </dd>
+              <dt class="body-small">
+               Self type
+              </dt>
+              <dd class="body-medium">
+               <div class="mono-small-block supertypes">
+                <span></span>
+                <div>
+                 <a href="graviton/scanArrowK$.html" t="n">scanArrowK</a>.<span t="k">type</span>
+                </div>
+               </div>
+              </dd>
+             </dl>
+            </div>
+           </div>
+          </div>
+         </div>
+        </div>
+       </div>
+      </section>
+      <section id="Types">
+       <div class="documentableList expand">
+        <div class="documentableList-expander">
+         <button class="icon-button show-content expand"></button>
+         <h4 class="groupHeader h200">Types</h4>
+        </div>
+        <div class="documentableElement" id="BinaryId-0" data-f-keywords="opaque">
+         <div class="documentableElement-expander">
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">opaque </span></span><span class="kind"><span t="k">type </span></span><a href="graviton.html#BinaryId-0" t="n" class="documentableName ">BinaryId</a>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" id="BlobStoreId-0" data-f-keywords="opaque">
+         <div class="documentableElement-expander">
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">opaque </span></span><span class="kind"><span t="k">type </span></span><a href="graviton.html#BlobStoreId-0" t="n" class="documentableName ">BlobStoreId</a>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" id="Bytes-0" data-f-keywords="opaque">
+         <div class="documentableElement-expander">
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"><span t="k">opaque </span></span><span class="kind"><span t="k">type </span></span><a href="graviton.html#Bytes-0" t="n" class="documentableName ">Bytes</a>
+           </div>
+          </div>
+         </div>
+        </div>
+        <div class="documentableElement" id="ScanK-0">
+         <div class="documentableElement-expander">
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">type </span></span><a href="graviton.html#ScanK-0" t="n" class="documentableName ">ScanK</a>[<span t="k"></span><span data-unresolved-link="" t="t">i</span>, <span t="k"></span><span data-unresolved-link="" t="t">o</span>, <span t="k"></span><span data-unresolved-link="" t="t">s</span><span t="k"> &lt;: </span><a href="https://javadoc.io/page/org.scala-lang/scala3-library_3/3.7.2/scala/Tuple.html" t="t">Tuple</a>] = <a href="graviton/Scan$.html#Aux-0" t="t">Aux</a>[<span data-unresolved-link="" t="t">i</span>, <span data-unresolved-link="" t="t">o</span>, <span data-unresolved-link="" t="t">s</span>]
+           </div>
+          </div>
+         </div>
+        </div>
+       </div>
+      </section>
+     </div>
+    </section>
+    <section id="Givens">
+     <div data-togglable="Givens" class="tab expand">
+      <div class="member-group-header">
+       <h3 data-togglable="Givens" class="h400">Givens</h3>
+      </div>
+      <section id="Givens">
+       <div class="documentableList expand">
+        <div class="documentableList-expander">
+         <button class="icon-button show-content expand"></button>
+         <h4 class="groupHeader h200">Givens</h4>
+        </div>
+        <div class="documentableElement" id="scanArrowK-0">
+         <div class="documentableElement-expander">
+          <div class="header monospace mono-medium">
+           <div class="signature">
+            <span class="modifiers"></span><span class="kind"><span t="k">given </span></span><a href="graviton.html#scanArrowK-0" t="n" class="documentableName ">scanArrowK</a>: <a href="graviton/scanArrowK$.html" t="t">scanArrowK</a>
+           </div>
+          </div>
+         </div>
+        </div>
+       </div>
+      </section>
+     </div>
+    </section>
+   </div>
+  </div>
+ </div>
+</section></div><div id="toc" class="body-small"><div id="toc-container"><span class="toc-title h200">In this article</span><nav class="toc-nav"><ul class="toc-list"><li><a href="#members-list">Members list</a><ul><li><a href="#Packages">Packages</a></li><li><a href="#Type-members">Type members</a><ul><li><a href="#Classlikes">Classlikes</a></li><li><a href="#Types">Types</a></li></ul></li><li><a href="#Givens">Givens</a><ul><li><a href="#Givens">Givens</a></li></ul></li></ul></li></ul></nav></div></div></div><div id="footer" class="body-small mobile-footer"><div class="left-container">Generated with</div><div class="right-container"><div class="text"></div></div><div class="text-mobile"></div></div></div></div></body></html>

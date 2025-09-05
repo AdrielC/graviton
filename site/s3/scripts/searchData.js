@@ -1,0 +1,10 @@
+pages = [{"l":"index.html#","e":false,"i":"","n":"graviton-s3","t":"graviton-s3","d":"","k":"static","x":""},
+{"l":"graviton/s3.html#","e":false,"i":"","n":"graviton.s3","t":"graviton.s3","d":"","k":"package","x":""},
+{"l":"graviton/s3/S3BlobStore.html#","e":false,"i":"","n":"S3BlobStore","t":"S3BlobStore(client: MinioClient, bucket: String, val id: BlobStoreId) extends BlobStore","d":"graviton.s3","k":"class","x":""},
+{"l":"graviton/s3/S3BlobStore.html#delete-fc","e":false,"i":"","n":"delete","t":"delete(key: BlockKey): IO[Throwable, Boolean]","d":"graviton.s3.S3BlobStore","k":"def","x":""},
+{"l":"graviton/s3/S3BlobStore.html#id-0","e":false,"i":"","n":"id","t":"id: BlobStoreId","d":"graviton.s3.S3BlobStore","k":"val","x":""},
+{"l":"graviton/s3/S3BlobStore.html#read-fffffd1f","e":false,"i":"","n":"read","t":"read(key: BlockKey, range: Option[ByteRange]): IO[Throwable, Option[Bytes]]","d":"graviton.s3.S3BlobStore","k":"def","x":""},
+{"l":"graviton/s3/S3BlobStore.html#status-0","e":false,"i":"","n":"status","t":"status: UIO[BlobStoreStatus]","d":"graviton.s3.S3BlobStore","k":"def","x":""},
+{"l":"graviton/s3/S3BlobStore.html#write-fffff4a2","e":false,"i":"","n":"write","t":"write(key: BlockKey, data: Bytes): IO[Throwable, Unit]","d":"graviton.s3.S3BlobStore","k":"def","x":""},
+{"l":"graviton/s3/S3BlobStore$.html#","e":false,"i":"","n":"S3BlobStore","t":"S3BlobStore","d":"graviton.s3","k":"object","x":""},
+{"l":"graviton/s3/S3BlobStore$.html#layer-fb4","e":false,"i":"","n":"layer","t":"layer(client: MinioClient, bucket: String, id: String): ZLayer[Any, Nothing, BlobStore]","d":"graviton.s3.S3BlobStore","k":"def","x":""}];
