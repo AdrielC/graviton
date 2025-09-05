@@ -21,6 +21,8 @@ object Chunker:
   enum Strategy:
     case Fixed(size: Int)
     case FastCDC(bounds: Bounds, normalization: Int = 2, window: Int = 64)
+    case Rolling(bounds: Bounds, window: Int = 48)
+    case TokenAware(tokens: Set[String], maxChunkSize: Int)
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])
 
@@ -59,6 +61,12 @@ object Chunker:
     case Strategy.Fixed(sz)                 => FixedChunker(sz)
     case Strategy.FastCDC(b, n, w)          =>
       FastCDCChunker(FastCDCChunker.Config(b, n, w))
+    case Strategy.Rolling(b, w)             =>
+      RollingHashChunker(RollingHashChunker.Config(b, w))
+    case Strategy.TokenAware(tokens, maxSz) =>
+      new Chunker:
+        val name     = s"token-aware(max=$maxSz)"
+        val pipeline = TokenAwareChunker.pipeline(tokens, maxSz)
     case Strategy.Pdf                       => PdfChunker
     case Strategy.Smart(default, overrides) =>
       // if Smart is provided directly, fall back to default without hints
