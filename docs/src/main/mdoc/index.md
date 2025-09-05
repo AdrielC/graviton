@@ -4,6 +4,11 @@ Graviton is a ZIO‑native port of the Binny binary storage layer. It provides
 content‑addressable storage, block deduplication, and streaming APIs for
 Quasar and other applications.
 
+## Getting Started
+
+- [Installation](getting-started/installation.md)
+- [Quick Start](getting-started/quick-start.md)
+
 ## Modules
 
 * **core** – base types and in‑memory stores used in tests and examples.
@@ -22,3 +27,11 @@ Additional details about the layered model and terminology live in
 
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
+
+Further background:
+
+* [Design goals](design-goals.md) – overview of implemented features and active
+  work.
+* [Use cases](use-cases.md) – real‑world scenarios Graviton is built to support.
+* [Chunking strategies](chunking.md) – guidance on tuning the rolling hash
+  chunker.
