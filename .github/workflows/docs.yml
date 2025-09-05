@@ -19,22 +19,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v3
+      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 21
-          cache: sbt
-      - name: Build docs
+          distribution: corretto
+          java-version: '17'
+      - uses: sbt/setup-sbt@v1
+      - uses: coursier/cache-action@v6
+      - name: Build website (zio-sbt)
         run: |
-          ./sbt docs/mdoc doc
+          sbt docs/clean
+          sbt docs/mdoc
+          sbt docs/buildWebsite
+      - name: Prepare Pages artifact
+        run: |
           mkdir -p site
-          cp -r docs/target/mdoc/* site/
-          for d in modules/*/target/scala-*; do
-            name=$(basename "$(dirname "$(dirname "$d")")")
-            if [ -d "$d/api" ]; then
-              cp -r "$d/api" "site/$name"
-            fi
-          done
+          cp -r docs/target/site/* site/ 2>/dev/null || true
+          touch site/.nojekyll
+          [ -f site/index.html ] || echo '<!doctype html><meta charset="utf-8"><title>Graviton Docs</title><h1>Graviton Documentation</h1><p><a href="./index.md">Open docs/index.md</a></p>' > site/index.html
+          cp site/index.html site/404.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
