@@ -4,8 +4,8 @@ package graviton.pg.generated
 
 import zio.Chunk
 import com.augustnagro.magnum.*
-import com.augustnagro.magnum.pg.enums.PgEnumDbCodec.given
-import com.augustnagro.magnum.pg.enums.PgEnumToScalaEnumSqlArrayCodec.given
+import com.augustnagro.magnum.pg.enums.PgEnumDbCodec
+import com.augustnagro.magnum.pg.enums.PgEnumToScalaEnumSqlArrayCodec
 import graviton.pg.given
 import graviton.pg.PgRange
 

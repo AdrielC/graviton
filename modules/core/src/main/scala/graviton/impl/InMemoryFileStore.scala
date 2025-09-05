@@ -5,8 +5,6 @@ import graviton.chunking.FixedChunker
 import graviton.core.{BinaryAttributeKey, BinaryAttributes}
 import zio.*
 import zio.stream.*
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
 
 final class InMemoryFileStore private (
     blockStore: BlockStore,

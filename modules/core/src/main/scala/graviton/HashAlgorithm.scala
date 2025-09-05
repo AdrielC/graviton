@@ -4,11 +4,12 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 import zio.schema.{DeriveSchema, Schema}
+import zio.schema.derived
 
 /** Supported hashing algorithms for content addressed storage. Each algorithm
   * exposes metadata about its digest and can compute hashes directly.
   */
-sealed trait HashAlgorithm:
+sealed trait HashAlgorithm derives Schema:
   /** Canonical lowercase name of the algorithm. */
   def canonicalName: String
 
@@ -32,6 +33,7 @@ sealed trait HashAlgorithm:
     hash(data.getBytes(StandardCharsets.UTF_8))
 
 object HashAlgorithm:
+
   case object Blake3 extends HashAlgorithm:
     val canonicalName = "blake3"
     val digestLength = 64

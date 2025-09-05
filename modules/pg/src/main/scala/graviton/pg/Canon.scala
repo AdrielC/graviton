@@ -2,11 +2,19 @@ package graviton.pg
 
 import zio.Chunk
 import zio.schema.DynamicValue
+import zio.schema.codec.JsonCodec.{ExplicitConfig}
+import zio.schema.codec.JsonCodec
 
 object Canon:
+  private val codec = JsonCodec.schemaBasedBinaryCodec[DynamicValue](
+    JsonCodec.Configuration(
+      explicitNulls = ExplicitConfig(encoding = false),
+      explicitEmptyCollections = ExplicitConfig(encoding = false),
+    )
+  )
+
   def canonicalize(dv: DynamicValue): Chunk[Byte] =
-    // Placeholder canonicalization
-    Chunk.empty
+    codec.encode(dv)
 
   def storeKey(
       implId: String,
@@ -18,4 +26,5 @@ object Canon:
     val material = Chunk.fromArray(
       implId.getBytes("UTF-8")
     ) ++ sep ++ dvCanon ++ sep ++ buildFp
-    H(material).asInstanceOf[StoreKey]
+    
+    StoreKey.applyUnsafe(H(material))

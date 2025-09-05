@@ -1,5 +1,5 @@
 -- ================================================================
--- 🔥 Graviton "Sicko" Schema (PostgreSQL 17)
+-- Graviton Schema (PostgreSQL 17)
 -- ================================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;         -- digest(...), gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;          -- trigram search on text

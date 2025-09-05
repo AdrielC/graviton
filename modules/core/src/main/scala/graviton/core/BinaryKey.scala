@@ -7,22 +7,23 @@ import scala.collection.immutable.ListMap
 
 import zio.*
 import zio.Chunk
-import zio.schema.{DeriveSchema, Schema}
+import zio.schema.{DeriveSchema, Schema, derived}
 
 import graviton.Hash
+import zio.schema.validation.Validation
 
 /** Identifier for binary content. Keys can either be content addressed
   * (`CasKey`) or writable user supplied keys such as randomly generated UUIDs
   * or static strings.
   */
-sealed trait BinaryKey:
+sealed trait BinaryKey derives Schema:
   import BinaryKey.*
 
   /** Render this key as a URI-like string. */
   def renderKey: String = this match
-    case CasKey(hash)        => s"hash://${hash.algo.canonicalName}/${hash.hex}"
-    case WritableKey.Rnd(id) => s"uuid://${id.toString}"
-    case WritableKey.Static(name) => s"user://$name"
+    case CasKey(hash)        => s"cas:${hash.algo.canonicalName}/${hash.hex}"
+    case WritableKey.Rnd(id) => s"uuid:${id.toString}"
+    case WritableKey.Static(name) => s"user:$name"
     case WritableKey.Scoped(scope, key) =>
       val encoded =
         val joined = scope
@@ -31,7 +32,7 @@ sealed trait BinaryKey:
         Base64.getEncoder.encodeToString(
           joined.getBytes(StandardCharsets.UTF_8)
         )
-      s"scoped://$encoded/$key"
+      s"scoped:$encoded/$key"
 
 object BinaryKey:
   given [K: Schema, A: Schema]: Schema[ListMap[K, A]] =
@@ -53,26 +54,27 @@ object BinaryKey:
 
     def random(id: UUID): WritableKey = Rnd(id)
 
-    def randomF(using zio.Random): UIO[WritableKey] =
+    def randomF(using Trace): UIO[WritableKey] =
       zio.Random.nextUUID.map(Rnd.apply)
 
+
+    private def validateKey(key: String): Either[String, String] =
+      Option(key).toRight("WritableKey.static: key cannot be null")
+      .flatMap(key => Option(key).filter(_.trim.nonEmpty).toRight("WritableKey.static: key must be non-empty"))
+
     def static(key: String): Either[String, WritableKey] =
-      if key == null || key.trim.isEmpty then
-        Left("WritableKey.static: key must be non-empty")
-      else Right(Static(key.trim))
+      validateKey(key).map(Static(_))
 
     def scoped(
         scope: ListMap[String, NonEmptyChunk[String]],
         key: String
-    ): Either[String, WritableKey] =
-      if key == null || key.trim.isEmpty then
-        Left("WritableKey.scoped: key must be non-empty")
-      else if scope.isEmpty then
-        Left("WritableKey.scoped: scope must be non-empty")
-      else if scope.exists { case (k, v) => k.trim.isEmpty || v.isEmpty } then
-        Left("WritableKey.scoped: scope keys and value lists must be non-empty")
-      else Right(Scoped(scope.map((k, v) => (k.trim, v)), key.trim))
-
+    ): zio.prelude.Validation[String, WritableKey] =
+      zio.prelude.Validation.validate(
+        zio.prelude.Validation.fromPredicate(scope)(_.nonEmpty)
+        .mapError(_ => "WritableKey.scoped: scope must be non-empty"),
+        zio.prelude.Validation.fromEither(validateKey(key))
+      ).map { case (scope, value) => Scoped(scope.map((k, v) => (k.trim, v)), value.trim) }
+      
   export WritableKey.{Rnd, Scoped, Static}
 
   given Schema[BinaryKey] = DeriveSchema.gen[BinaryKey]

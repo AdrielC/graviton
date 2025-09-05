@@ -1,24 +1,18 @@
-import dbcodegen.plugin.DbCodegenPlugin.autoImport._
+
+import cats.instances.set
+enablePlugins(
+  ZioSbtEcosystemPlugin,
+  ZioSbtCiPlugin
+)
+
+import scala.sys.process.*
+// import dbcodegen.plugin.DbCodegenPlugin.autoImport._
 
 ThisBuild / scalaVersion := "3.7.2"
 ThisBuild / organization := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
+ThisBuild / name := "graviton"
 
-
-Test / fork := true
-
-Test / javaOptions ++= Seq(
-  "-DTESTCONTAINERS_RYUK_DISABLED=false",
-  "-DTESTCONTAINERS_CHECKS_DISABLE=false",
-  "-DTC_LOG_LEVEL=DEBUG",
-  "-Dcom.zaxxer.hikari.level=DEBUG"         // optional: Hikari debug
-)
-
-Test / envVars ++= Map(
-  "TESTCONTAINERS_RYUK_DISABLED" -> "false",
-  "TESTCONTAINERS_CHECKS_DISABLE" -> "false",
-  "TC_LOG_LEVEL"                  -> "DEBUG"
-)
 
 lazy val zioV        = "2.1.20"
 lazy val zioPreludeV = "1.0.0-RC41"
@@ -28,10 +22,69 @@ lazy val zioJsonV    = "0.6.2"
 lazy val zioMetricsV = "2.4.3"
 lazy val zioCacheV       = "0.2.4"
 lazy val zioRocksdbV     = "0.4.4"
+lazy val zioConfigV     = "4.0.4"
 lazy val testContainersV = "1.19.7"
 lazy val zioLoggingV  = "2.2.4"
 lazy val magnumV      = "2.0.0-M2"
 lazy val postgresV    = "42.7.3"
+
+lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
+  "Generate DB schemas and snapshot into modules/pg/src/main/scala/graviton/db"
+)
+
+// Task to bootstrap local Postgres and stream output via sbt logger
+lazy val setUpPg = taskKey[Unit]("Bootstrap local Postgres (Podman) and stream logs")
+ThisBuild / setUpPg := {
+  val log = streams.value.log
+  val workDir = (ThisBuild / baseDirectory).value
+
+  val host = (ThisBuild / pgHost).value
+  val portString = (ThisBuild / pgPort).value
+  val port = scala.util.Try(portString.toInt).getOrElse(5432)
+
+  def pgReachable(): Boolean = {
+    val socket = new java.net.Socket()
+    try {
+      socket.connect(new java.net.InetSocketAddress(host, port), 1500)
+      true
+    } catch {
+      case _: Throwable => false
+    } finally {
+      try socket.close() catch { case _: Throwable => () }
+    }
+  }
+
+  def dockerAvailable(): Boolean = {
+    // check if docker is present and responsive
+    Process(Seq("docker", "info"), workDir).!(ProcessLogger(_ => (), _ => ())) == 0
+  }
+
+  if (pgReachable()) {
+    log.info(s"Postgres detected at ${host}:${port}. Skipping bootstrap.")
+  } else if (dockerAvailable()) {
+    log.warn("Docker is available but Postgres is not reachable. Skipping Podman bootstrap. " +
+      "Start your database with Docker or adjust PG_* settings if needed.")
+  } else {
+    val cmd = Seq("./scripts/bootstrap-podman-postgres.sh", "--fix-rootless")
+    log.info(s"Constrained environment detected (no Docker). Running: ${cmd.mkString(" ")} (cwd=${workDir.getAbsolutePath})")
+    val exit = Process(cmd, workDir).!(ProcessLogger(out => log.info(out), err => log.error(err)))
+    if (exit == 0) {
+      if (pgReachable()) log.info(s"Postgres is now reachable at ${host}:${port}.")
+      else log.warn(s"Podman bootstrap completed but Postgres still not reachable at ${host}:${port}.")
+    } else {
+      log.error(s"Podman Postgres bootstrap failed with exit code ${exit}")
+    }
+  }
+}
+
+// Run setUpPg automatically on sbt startup
+ThisBuild / onLoad := {
+  val prev = (ThisBuild / onLoad).value
+  (state: State) => {
+    val s1 = prev(state)
+    "setUpPg" :: s1
+  }
+}
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -41,8 +94,12 @@ lazy val commonSettings = Seq(
     "dev.zio" %% "zio-prelude" % zioPreludeV,
     "dev.zio" %% "zio-schema"        % zioSchemaV,
     "dev.zio" %% "zio-schema-derivation" % zioSchemaV,
-    "dev.zio" %% "zio-json"          % zioJsonV,
+    "dev.zio" %% "zio-schema-json"          % zioSchemaV,
+    "dev.zio" %% "zio-config" % zioConfigV,
+    "dev.zio" %% "zio-config-typesafe" % zioConfigV,
+    "dev.zio" %% "zio-config-magnolia" % zioConfigV,
     "io.github.iltotore" %% "iron" % ironV,
+    "io.github.iltotore" %% "iron-zio" % ironV,
     "io.github.rctcwyvrn" % "blake3" % "1.3",
     "dev.zio" %% "zio-logging" % zioLoggingV,
     "dev.zio" %% "zio-test"          % zioV % Test,
@@ -98,25 +155,54 @@ lazy val metrics = project
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core)
-  .enablePlugins(dbcodegen.plugin.DbCodegenPlugin)
   .settings(
     name := "graviton-pg",
-    // codegen settings (point at your template + local PG17)
-    dbcodegenTemplateFiles := Seq(baseDirectory.value / "codegen" / "magnum.ssp"),
-    // use 127.0.0.1 instead of localhost for deterministic host resolution
-    dbcodegenJdbcUrl        := "jdbc:postgresql://127.0.0.1:5432/postgres",
-    dbcodegenUsername       := Some("postgres"),
-    dbcodegenPassword       := Some("postgres"),
-    // pick what to include; this example keeps it simple:
-    dbcodegenSchemaTableFilter := { (schema, _table) => schema == "public" },
+    // on-demand schema generation snapshot directory (checked into VCS)
+    Compile / unmanagedSourceDirectories += (
+      baseDirectory.value / "src" / "main" / "scala" / "graviton" / "db"
+    ),
     // keep your existing deps:
     libraryDependencies ++= Seq(
       "com.augustnagro" %% "magnum"       % magnumV,
+      "com.augustnagro" %% "magnumpg"     % magnumV,
       "com.augustnagro" %% "magnumzio"    % magnumV,
       "org.postgresql"   % "postgresql"   % postgresV,
       "com.zaxxer"       % "HikariCP"     % "5.1.0",
       "org.testcontainers" % "postgresql" % testContainersV % Test
     )
+  )
+  .settings(commonSettings)
+  .settings(Test / fork := true)
+  .settings(Test / javaOptions ++= Seq(
+    "-DTESTCONTAINERS_RYUK_DISABLED=false",
+    "-DTESTCONTAINERS_CHECKS_DISABLE=false",
+    "-DTC_LOG_LEVEL=DEBUG",
+    "-Dcom.zaxxer.hikari.level=DEBUG"         // optional: Hikari debug
+  ))
+  .settings(Test / envVars ++= Map(
+    "TESTCONTAINERS_RYUK_DISABLED" -> "false",
+    "TESTCONTAINERS_CHECKS_DISABLE" -> "false",
+    "TC_LOG_LEVEL"                  -> "DEBUG"
+  ))
+  .settings(
+    pgHost := sys.env.get("PG_HOST").getOrElse("127.0.0.1"),
+    pgPort := sys.env.get("PG_PORT").getOrElse("5432"),
+    pgDatabase := sys.env.get("PG_DATABASE").getOrElse("postgres"),
+    pgUsername := sys.env.get("PG_USERNAME").getOrElse("postgres"),
+    pgPassword := sys.env.get("PG_PASSWORD").getOrElse("postgres")
+  )
+  .settings(Test / envVars ++= Map(
+    "PG_HOST" -> pgHost.value,
+    "PG_PORT" -> pgPort.value,
+    "PG_DATABASE" -> pgDatabase.value,
+    "PG_USERNAME" -> pgUsername.value,
+    "PG_PASSWORD" -> pgPassword.value
+  ))
+
+lazy val dbcodegen = project
+  .in(file("dbcodegen"))
+  .settings(
+    name := "graviton-dbcodegen"
   )
   .settings(commonSettings)
 
@@ -139,3 +225,21 @@ lazy val docs = project
     mdocVariables := Map("VERSION" -> version.value)
   )
   .enablePlugins(MdocPlugin)
+
+// Convenience alias to generate and snapshot PG schemas on demand via in-repo tool
+addCommandAlias("genPg", "dbcodegen/runMain dbcodegen.DbMain")
+
+lazy val pgHost = settingKey[String]("PG_HOST")
+ThisBuild / pgHost := sys.env.get("PG_HOST").getOrElse("127.0.0.1")
+
+lazy val pgPort = settingKey[String]("PG_PORT")
+ThisBuild / pgPort := sys.env.get("PG_PORT").getOrElse("5432")
+
+lazy val pgPassword = settingKey[String]("PG_PASSWORD")
+ThisBuild / pgPassword := sys.env.get("PG_PASSWORD").getOrElse("postgres")
+
+lazy val pgDatabase = settingKey[String]("PG_DATABASE")
+ThisBuild / pgDatabase := sys.env.get("PG_DATABASE").getOrElse("postgres")
+
+lazy val pgUsername = settingKey[String]("PG_USERNAME")
+ThisBuild / pgUsername := sys.env.get("PG_USERNAME").getOrElse("postgres")
