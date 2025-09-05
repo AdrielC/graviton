@@ -2,6 +2,7 @@ package graviton
 
 import zio.*
 import zio.schema.Schema
+import scala.compiletime.constValue
 
 /**
  * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
@@ -54,20 +55,19 @@ object FreeScanK:
   ) extends FreeScanK[F, (I1, I2), (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
     def compile(using Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), State] =
-      val a     = left.compile
-      val b     = right.compile
-      val sizeA = a.initial.productArity
+      val a           = left.compile
+      val b           = right.compile
+      type SA         = a.State
+      inline val NA   = constValue[Tuple.Size[SA]]
       Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
-        val s1        = st.take(sizeA).asInstanceOf[a.State]
-        val s2        = st.drop(sizeA).asInstanceOf[b.State]
-        val (i1, i2)  = in
-        val (s1b, o1) = a.step(s1, i1)
-        val (s2b, o2) = b.step(s2, i2)
-        ((s1b ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.zip(o2))
+        val (sa, sb)   = st.splitAt(NA)
+        val (i1, i2)   = in
+        val (s1b, o1)  = a.step(sa.asInstanceOf[SA], i1)
+        val (s2b, o2)  = b.step(sb.asInstanceOf[b.State], i2)
+        (s1b ++ s2b, o1.zip(o2))
       } { st =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        a.done(s1).zip(b.done(s2))
+        val (sa, sb) = st.splitAt(NA)
+        a.done(sa.asInstanceOf[SA]).zip(b.done(sb.asInstanceOf[b.State]))
       }
 
   final case class First[F[_, _], I, O, C, S <: Tuple](
