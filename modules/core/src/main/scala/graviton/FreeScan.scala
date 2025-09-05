@@ -140,9 +140,9 @@ object FreeScan:
   ) extends FreeScan[(I1, I2), (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
     def compile: Scan.Aux[(I1, I2), (O1, O2), Tuple.Concat[S1, S2]] =
-      val a      = left.compile
-      val b      = right.compile
-      val sizeA  = a.initial.productArity
+      val a     = left.compile
+      val b     = right.compile
+      val sizeA = a.initial.productArity
       Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
         val s1        = st.take(sizeA).asInstanceOf[a.State]
         val s2        = st.drop(sizeA).asInstanceOf[b.State]
@@ -233,17 +233,16 @@ object FreeScan:
       val a     = left.compile
       val b     = right.compile
       val sizeA = a.initial.productArity
-      Scan.statefulTuple[Either[I1, I2], Either[O1, O2], Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) {
-        (st, in) =>
-          val s1 = st.take(sizeA).asInstanceOf[a.State]
-          val s2 = st.drop(sizeA).asInstanceOf[b.State]
-          in match
-            case Left(i1)  =>
-              val (s1b, o1) = a.step(s1, i1)
-              ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.map(Left(_)))
-            case Right(i2) =>
-              val (s2b, o2) = b.step(s2, i2)
-              ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2.map(Right(_)))
+      Scan.statefulTuple[Either[I1, I2], Either[O1, O2], Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
+        val s1 = st.take(sizeA).asInstanceOf[a.State]
+        val s2 = st.drop(sizeA).asInstanceOf[b.State]
+        in match
+          case Left(i1)  =>
+            val (s1b, o1) = a.step(s1, i1)
+            ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.map(Left(_)))
+          case Right(i2) =>
+            val (s2b, o2) = b.step(s2, i2)
+            ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2.map(Right(_)))
       } { st =>
         val s1 = st.take(sizeA).asInstanceOf[a.State]
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
@@ -294,7 +293,8 @@ object FreeScan:
       init = init *: EmptyTuple,
       stepFn = (st: S *: EmptyTuple, i: I) =>
         val (s, outs) = stepFn(st.head, i)
-        (s *: EmptyTuple, outs),
+        (s *: EmptyTuple, outs)
+      ,
       doneFn = (st: S *: EmptyTuple) => doneFn(st.head),
     )
 
@@ -305,7 +305,6 @@ object FreeScan:
   ): Aux[I, O, S] =
     Stateful(init, stepFn, doneFn)
 
-
   // ---------------- Optimization ----------------
 
   private def optimize[I, O, S <: Tuple](fs: FreeScan.Aux[I, O, S]): FreeScan.Aux[I, O, S] =
@@ -314,25 +313,24 @@ object FreeScan:
       case Composed(l, r) if l.isInstanceOf[Identity[?]] => r.asInstanceOf[FreeScan.Aux[I, O, S]]
       case Composed(l, r) if r.isInstanceOf[Identity[?]] => l.asInstanceOf[FreeScan.Aux[I, O, S]]
       // Fuse mapped chains
-      case Mapped(Mapped(src, f1), f2)                    => optimize(Mapped(src, f1.andThen(f2))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Mapped(Mapped(src, f1), f2)                   => optimize(Mapped(src, f1.andThen(f2))).asInstanceOf[FreeScan.Aux[I, O, S]]
       // Fuse contramaps
-      case ContraMapped(ContraMapped(src, g1), g2)        => optimize(ContraMapped(src, g2.andThen(g1))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case ContraMapped(ContraMapped(src, g1), g2)       => optimize(ContraMapped(src, g2.andThen(g1))).asInstanceOf[FreeScan.Aux[I, O, S]]
       // Distribute map over composition where possible
-      case Mapped(Composed(a, b), f)                      => optimize(Composed(a, Mapped(b, f))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Mapped(Composed(a, b), f)                     => optimize(Composed(a, Mapped(b, f))).asInstanceOf[FreeScan.Aux[I, O, S]]
       // Distribute contramap over composition
-      case ContraMapped(Composed(a, b), g)                => optimize(Composed(ContraMapped(a, g), b)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case ContraMapped(Composed(a, b), g)               => optimize(Composed(ContraMapped(a, g), b)).asInstanceOf[FreeScan.Aux[I, O, S]]
       // Default: recursively optimize children
-      case Mapped(src, f)                                 => Mapped(optimize(src), f).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case ContraMapped(src, g)                           => ContraMapped(optimize(src), g).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case Dimapped(src, g, f)                            => Dimapped(optimize(src), g, f).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case Composed(l, r)                                 => Composed(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case Zipped(l, r)                                   => Zipped(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case Product(l, r)                                  => Product(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case First(src)                                     => First(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case Second(src)                                    => Second(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case LeftChoice(src)                                => LeftChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case RightChoice(src)                               => RightChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case PlusPlus(l, r)                                 => PlusPlus(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case FanIn(l, r)                                    => FanIn(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
-      case other                                          => other
-
+      case Mapped(src, f)                                => Mapped(optimize(src), f).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case ContraMapped(src, g)                          => ContraMapped(optimize(src), g).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Dimapped(src, g, f)                           => Dimapped(optimize(src), g, f).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Composed(l, r)                                => Composed(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Zipped(l, r)                                  => Zipped(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Product(l, r)                                 => Product(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case First(src)                                    => First(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Second(src)                                   => Second(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case LeftChoice(src)                               => LeftChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case RightChoice(src)                              => RightChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case PlusPlus(l, r)                                => PlusPlus(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case FanIn(l, r)                                   => FanIn(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case other                                         => other

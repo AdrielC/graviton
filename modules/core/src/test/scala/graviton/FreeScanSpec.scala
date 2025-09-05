@@ -20,26 +20,26 @@ object FreeScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk((2, 4), (4, 8)))
     },
     test("first lifts scan to first of pair") {
-      val a   = FreeScan.stateless1((i: Int) => i + 1)
-      val fs  = a.first[String].compile
+      val a  = FreeScan.stateless1((i: Int) => i + 1)
+      val fs = a.first[String].compile
       for out <- ZStream((1, "a"), (2, "b")).via(fs.toPipeline).runCollect
       yield assertTrue(out == Chunk((2, "a"), (3, "b")))
     },
     test("second lifts scan to second of pair") {
-      val a   = FreeScan.stateless1((i: Int) => i + 1)
-      val fs  = a.second[String].compile
+      val a  = FreeScan.stateless1((i: Int) => i + 1)
+      val fs = a.second[String].compile
       for out <- ZStream(("a", 1), ("b", 2)).via(fs.toPipeline).runCollect
       yield assertTrue(out == Chunk(("a", 2), ("b", 3)))
     },
     test("left applies to Left, passes Right through") {
-      val a   = FreeScan.stateless1((i: Int) => i + 1)
-      val fs  = a.left[String].compile
+      val a  = FreeScan.stateless1((i: Int) => i + 1)
+      val fs = a.left[String].compile
       for out <- ZStream(Left(1), Right("x"), Left(2)).via(fs.toPipeline).runCollect
       yield assertTrue(out == Chunk(Left(2), Right("x"), Left(3)))
     },
     test("right applies to Right, passes Left through") {
-      val a   = FreeScan.stateless1((i: Int) => i + 1)
-      val fs  = a.right[String].compile
+      val a  = FreeScan.stateless1((i: Int) => i + 1)
+      val fs = a.right[String].compile
       for out <- ZStream(Left("x"), Right(1), Right(2)).via(fs.toPipeline).runCollect
       yield assertTrue(out == Chunk(Left("x"), Right(2), Right(3)))
     },
@@ -51,9 +51,9 @@ object FreeScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(Left(2), Right(4), Left(4))) && assertTrue(both.initial == EmptyTuple)
     },
     test("||| fuses outputs from Either branches") {
-      val a   = FreeScan.stateless1((i: Int) => i + 1)
-      val b   = FreeScan.stateless1((j: Int) => j * 2)
-      val f   = (a ||| b).compile
+      val a = FreeScan.stateless1((i: Int) => i + 1)
+      val b = FreeScan.stateless1((j: Int) => j * 2)
+      val f = (a ||| b).compile
       for out <- ZStream(Left(1), Right(2), Left(3)).via(f.toPipeline).runCollect
       yield assertTrue(out == Chunk(2, 4, 4)) && assertTrue(f.initial == EmptyTuple)
     },
@@ -62,9 +62,9 @@ object FreeScanSpec extends ZIOSpecDefault:
         val s1 = s + i
         (s1, Chunk.single(i))
       }(s => Chunk.single(s))
-      val sl: FreeScan.Aux[Int, Int, EmptyTuple] = FreeScan.stateless1((i: Int) => i * 2)
-      val comp                                   = st.andThen(sl)
-      val scan                                   = comp.compile
+      val sl: FreeScan.Aux[Int, Int, EmptyTuple]  = FreeScan.stateless1((i: Int) => i * 2)
+      val comp                                    = st.andThen(sl)
+      val scan                                    = comp.compile
       for out <- ZStream(1, 2).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(2, 4, 6)) && assertTrue(scan.initial == Tuple1(0))
     },
@@ -82,4 +82,3 @@ object FreeScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk("2", "3"))
     },
   )
-
