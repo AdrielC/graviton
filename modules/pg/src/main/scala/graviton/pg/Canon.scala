@@ -2,7 +2,7 @@ package graviton.pg
 
 import zio.Chunk
 import zio.schema.DynamicValue
-import zio.schema.codec.JsonCodec.{ExplicitConfig}
+import zio.schema.codec.JsonCodec.ExplicitConfig
 import zio.schema.codec.JsonCodec
 
 object Canon:
@@ -17,14 +17,14 @@ object Canon:
     codec.encode(dv)
 
   def storeKey(
-      implId: String,
-      dvCanon: Chunk[Byte],
-      buildFp: Chunk[Byte],
-      H: Chunk[Byte] => Chunk[Byte]
+    implId: String,
+    dvCanon: Chunk[Byte],
+    buildFp: Chunk[Byte],
+    H: Chunk[Byte] => Chunk[Byte],
   ): StoreKey =
-    val sep = Chunk.single(0.toByte)
+    val sep      = Chunk.single(0.toByte)
     val material = Chunk.fromArray(
       implId.getBytes("UTF-8")
     ) ++ sep ++ dvCanon ++ sep ++ buildFp
-    
+
     StoreKey.applyUnsafe(H(material))

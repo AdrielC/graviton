@@ -9,13 +9,13 @@ import zio.test.*
 object MetricsBinaryStoreSpec extends ZIOSpecDefault:
   private val stub = new BinaryStore:
     def put(
-        attrs: BinaryAttributes,
-        chunkSize: Int
+      attrs: BinaryAttributes,
+      chunkSize: Int,
     ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
       ZSink.succeed(BinaryId("id"))
     def get(
-        id: BinaryId,
-        range: Option[ByteRange]
+      id: BinaryId,
+      range: Option[ByteRange],
     ): IO[Throwable, Option[graviton.Bytes]] =
       ZIO.succeed(None)
     def delete(id: BinaryId): IO[Throwable, Boolean] =
@@ -28,16 +28,16 @@ object MetricsBinaryStoreSpec extends ZIOSpecDefault:
       val store = MetricsBinaryStore(stub)
       for
         before <- Metrics.getCount.value.map(_.count)
-        _ <- store.get(BinaryId("a"), None)
-        after <- Metrics.getCount.value.map(_.count)
+        _      <- store.get(BinaryId("a"), None)
+        after  <- Metrics.getCount.value.map(_.count)
       yield assertTrue(after == before + 1)
     },
     test("records delete count") {
       val store = MetricsBinaryStore(stub)
       for
         before <- Metrics.deleteCount.value.map(_.count)
-        _ <- store.delete(BinaryId("a"))
-        after <- Metrics.deleteCount.value.map(_.count)
+        _      <- store.delete(BinaryId("a"))
+        after  <- Metrics.deleteCount.value.map(_.count)
       yield assertTrue(after == before + 1)
-    }
+    },
   )
