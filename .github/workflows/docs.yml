@@ -30,8 +30,10 @@ jobs:
           mkdir -p site
           cp -r docs/target/mdoc/* site/
           for d in modules/*/target/scala-*; do
-            name=$(basename $(dirname $d))
-            cp -r "$d/api" "site/$name"
+            name=$(basename "$(dirname "$(dirname "$d")")")
+            if [ -d "$d/api" ]; then
+              cp -r "$d/api" "site/$name"
+            fi
           done
       - uses: actions/upload-pages-artifact@v3
         with:
