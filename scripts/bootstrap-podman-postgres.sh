@@ -233,6 +233,16 @@ runroot = "/tmp/podman-runroot"
 graphroot = "/tmp/podman-root"
 CFG
 
+# Sanity check rootless Podman engine
+if ! podman info >/dev/null 2>&1; then
+  warn "podman info failed as rootless user."
+  warn "If the error mentions newuidmap/newgidmap or userns, user namespaces may be blocked."
+  warn "Attempting podman system reset/migrate to recover…"
+  podman system reset -f || true
+  podman system migrate || true
+  podman info >/dev/null 2>&1 || die "Rootless podman still not healthy."
+fi
+
 ############ podman API socket ############
 SOCK="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
 if [[ ! -S "$XDG_RUNTIME_DIR/podman/podman.sock" ]]; then
@@ -257,8 +267,8 @@ PG_HOST=${PG_HOST:-127.0.0.1}
 PG_DATABASE=${PG_DATABASE:-postgres}
 
 log "Removing old container (if any)…"
-docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
-docker image exists "$IMAGE" || docker pull "$IMAGE" >/dev/null
+podman rm -f "$PG_NAME" >/dev/null 2>&1 || true
+podman image exists "$IMAGE" || podman pull "$IMAGE" >/dev/null
 
 NET_FLAG="--network=${NETWORK_BACKEND}"
 USERNS_FLAG=()
@@ -268,7 +278,7 @@ fi
 
 log "Starting Postgres $PG_VERSION as '$PG_NAME' on ${PG_HOST}:${PG_PORT}…"
 set -x
-docker run --rm -d --name "$PG_NAME" \
+podman run --rm -d --name "$PG_NAME" \
   ${NET_FLAG} \
   "${USERNS_FLAG[@]}" \
   --cgroups=disabled \
@@ -284,13 +294,13 @@ set +x
 ############ wait ready & init schema ############
 log "Waiting for Postgres to become ready…"
 tries=0
-until docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
+until podman exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
   sleep 0.5
   tries=$((tries+1))
   if (( tries > 180 )); then
     warn "Postgres failed to become ready."
-    docker logs "$PG_NAME" || true
-    docker inspect "$PG_NAME" --format '{{json .State}}' || true
+    podman logs "$PG_NAME" || true
+    podman inspect "$PG_NAME" --format '{{json .State}}' || true
     die "Container did not become healthy."
   fi
  done
@@ -298,8 +308,8 @@ until docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
 if [[ "$DO_DDL" -eq 1 ]]; then
   if [[ -f "$DDL_PATH" ]]; then
     log "Loading DDL from $DDL_PATH…"
-    docker cp "$DDL_PATH" "$PG_NAME:/ddl.sql"
-    docker exec -u postgres "$PG_NAME" psql -f /ddl.sql >/dev/null
+    podman cp "$DDL_PATH" "$PG_NAME:/ddl.sql"
+    podman exec -u postgres "$PG_NAME" psql -f /ddl.sql >/dev/null
   else
     warn "DDL file not found at $DDL_PATH — skipping."
   fi
