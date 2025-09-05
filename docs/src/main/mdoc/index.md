@@ -22,3 +22,11 @@ Additional details about the layered model and terminology live in
 
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
+
+Further background:
+
+* [Design goals](design-goals.md) – overview of implemented features and active
+  work.
+* [Use cases](use-cases.md) – real‑world scenarios Graviton is built to support.
+* [Chunking strategies](chunking.md) – guidance on tuning the rolling hash
+  chunker.
