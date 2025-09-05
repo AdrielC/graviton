@@ -58,7 +58,9 @@ curl http://localhost:8080/files/<fileKey> -o README.copy.md
 ```
 
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
-is published as part of the project site.
+is published as part of the project site. Start with the getting started guides
+for [installation](docs/src/main/mdoc/getting-started/installation.md) and a
+[quick start](docs/src/main/mdoc/getting-started/quick-start.md) example.
 
 See [ROADMAP.md](ROADMAP.md) for the path to v0.1.0.
 

@@ -6,6 +6,10 @@
 - Replace any remaining references to the Torrent library in existing docs.
 - Document Prometheus metrics and structured logging in greater detail.
 - Ensure `./sbt docs/mdoc test` passes after each documentation change.
+- Translate Torrent API reference pages (binary store, chunking, content detection).
+- Port performance and optimization guides from Torrent.
+- Bring over core concept docs like content-addressable storage and binary streaming.
+- Add a contributing guide tailored for Graviton.
 
 - Outline a v0.1.0 roadmap covering APIs, packaging, and release targets.
 - Add usage docs for the CLI and HTTP gateway.
