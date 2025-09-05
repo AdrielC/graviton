@@ -2,7 +2,9 @@ package graviton
 
 import zio.*
 
-given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
+type ScanK[i, o, s <: Tuple] = Scan.Aux[i, o, s]
+
+given scanArrowK: ArrowK[ScanK] with
 
   def id[I]: Scan.Aux[I, I, EmptyTuple] = Scan.identity[I]
 

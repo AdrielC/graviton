@@ -2,7 +2,7 @@ package graviton
 
 import zio.*
 
-trait ArrowK[A[_, _, _]]:
+trait ArrowK[A[_, _, _ <: Tuple]]:
   def id[I]: A[I, I, EmptyTuple]
 
   def andThen[I, M, O, S1 <: Tuple, S2 <: Tuple](

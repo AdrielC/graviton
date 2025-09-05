@@ -3,6 +3,7 @@ package graviton
 import zio.*
 import zio.schema.Schema
 import scala.compiletime.ops.int.*
+import scala.annotation.unchecked.uncheckedVariance
 
 /**
  * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
@@ -14,7 +15,7 @@ sealed trait FreeScanK[F[_, _], -I, +O]:
   type Size <: Int
   type Types
   def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
-  def compileTo[K[_, _, _]](using ArrowK[K], FreeScanK.ArrowInterpreter[F, K]): K[I, O, State]
+  def compileTo[K[_, _, _]](using ArrowK[K], FreeScanK.ArrowInterpreter[F, K]): K[I @uncheckedVariance, O @uncheckedVariance, State]
   def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
   def labelsFromType(using FreeScanK.Interpreter[F]): Chunk[String]
