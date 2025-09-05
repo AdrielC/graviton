@@ -211,8 +211,7 @@ object FreeScanK:
   def id[F[_, _], A]: Aux[F, A, A, EmptyTuple]                                        = Id[F, A]()
   def op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }): Aux[F, I, O, S] = Op(fab)
 
-  // State schema helpers
-  extension [F[_, _], I, O, S <: Tuple](self: FreeScanK.Aux[F, I, O, S]) def stateSchema: Schema[S] = Schema[S]
+  // State schema helpers (placeholder for future composition of leaf schemas)
 
   // Optimizer (structure-only)
   private def optimize[F[_, _], I, O, S <: Tuple](fs: FreeScanK.Aux[F, I, O, S]): FreeScanK.Aux[F, I, O, S] =
