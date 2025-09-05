@@ -6,10 +6,10 @@ trait ContentTypeDetect:
   def detect(bytes: Bytes): IO[Throwable, Option[String]]
 
 object ContentTypeDetect:
-  private val PNG  = Chunk.fromArray(Array[Byte](0x89.toByte, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A))
-  private val PDF  = Chunk.fromArray("%PDF".getBytes("ISO-8859-1"))
-  private val RTF  = Chunk.fromArray("{\\rtf".getBytes("ISO-8859-1"))
-  private val ZIP  = Chunk.fromArray(Array[Byte](0x50, 0x4B, 0x03, 0x04))
+  private val PNG = Chunk.fromArray(Array[Byte](0x89.toByte, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a))
+  private val PDF = Chunk.fromArray("%PDF".getBytes("ISO-8859-1"))
+  private val RTF = Chunk.fromArray("{\\rtf".getBytes("ISO-8859-1"))
+  private val ZIP = Chunk.fromArray(Array[Byte](0x50, 0x4b, 0x03, 0x04))
 
   val live: UIO[ContentTypeDetect] = ZIO.succeed:
     new ContentTypeDetect:
@@ -31,10 +31,10 @@ object ContentTypeDetect:
 
   private def looksText(h: Chunk[Byte]): Boolean =
     val arr = h.toArray
-    var i = 0
+    var i   = 0
     while i < arr.length do
       val b = arr(i)
-      if b < 0x09 || (b > 0x0D && b < 0x20) then return false
+      if b < 0x09 || (b > 0x0d && b < 0x20) then return false
       i += 1
     true
 

@@ -11,17 +11,17 @@ object EncryptionSpec extends ZIOSpecDefault:
 
   private val masterKey =
     Chunk.fromArray("0123456789abcdef0123456789abcdef".getBytes)
-  private val env =
+  private val env       =
     ZLayer.succeed(Encryption.MasterKey(masterKey)) >>> Encryption.live
 
   private def blockKey(data: Array[Byte]): UIO[BlockKey] =
     for
       hashBytes <- Hashing.compute(
-        Bytes(ZStream.fromIterable(data.toIndexedSeq)),
-        HashAlgorithm.SHA256
-      )
-      digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
-      size = data.length.assume[Positive]
+                     Bytes(ZStream.fromIterable(data.toIndexedSeq)),
+                     HashAlgorithm.SHA256,
+                   )
+      digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+      size       = data.length.assume[Positive]
     yield BlockKey(Hash(digest, HashAlgorithm.SHA256), size)
 
   def spec =
@@ -29,10 +29,10 @@ object EncryptionSpec extends ZIOSpecDefault:
       test("encrypt/decrypt roundtrip") {
         val bytes = Chunk.fromArray("hello".getBytes)
         for
-          key <- blockKey("hello".getBytes)
-          enc <- ZIO.service[Encryption]
+          key    <- blockKey("hello".getBytes)
+          enc    <- ZIO.service[Encryption]
           cipher <- enc.encrypt(key.hash, bytes)
-          plain <- enc.decrypt(key.hash, cipher)
+          plain  <- enc.decrypt(key.hash, cipher)
         yield assertTrue(plain == bytes && cipher != bytes)
       },
       test("deterministic ciphertext") {
@@ -40,27 +40,27 @@ object EncryptionSpec extends ZIOSpecDefault:
         for
           key <- blockKey("same".getBytes)
           enc <- ZIO.service[Encryption]
-          c1 <- enc.encrypt(key.hash, bytes)
-          c2 <- enc.encrypt(key.hash, bytes)
+          c1  <- enc.encrypt(key.hash, bytes)
+          c2  <- enc.encrypt(key.hash, bytes)
         yield assertTrue(c1 == c2)
       },
       test("blobstore integration") {
         val data = "hello world".getBytes
         for
-          key <- blockKey(data)
-          blob <- InMemoryBlobStore.make()
-          enc <- ZIO.service[Encryption]
+          key    <- blockKey(data)
+          blob   <- InMemoryBlobStore.make()
+          enc    <- ZIO.service[Encryption]
           encBlob = new EncryptedBlobStore(blob, enc)
-          _ <- encBlob.write(key, Bytes(ZStream.fromIterable(data)))
-          out <- encBlob
-            .read(key, None)
-            .someOrFailException
-            .flatMap(_.runCollect)
-          raw <- blob.read(key).someOrFailException.flatMap(_.runCollect)
+          _      <- encBlob.write(key, Bytes(ZStream.fromIterable(data)))
+          out    <- encBlob
+                      .read(key, None)
+                      .someOrFailException
+                      .flatMap(_.runCollect)
+          raw    <- blob.read(key).someOrFailException.flatMap(_.runCollect)
         yield assertTrue(
           new String(out.toArray) == "hello world" && raw != Chunk.fromArray(
             data
           )
         )
-      }
+      },
     ).provideLayer(env)

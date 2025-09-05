@@ -14,7 +14,7 @@ object Chunker:
   final case class Bounds(min: Int, avg: Int, max: Int):
     require(
       min > 0 && avg >= min && max >= avg,
-      "Bounds(min <= avg <= max) violated"
+      "Bounds(min <= avg <= max) violated",
     )
 
   /** Strategy tag for telemetry & selection. */
@@ -36,9 +36,9 @@ object Chunker:
 
   /** Configuration for smart selection. */
   final case class SmartConfig(
-      default: Strategy,
-      rules: List[SmartRule],
-      smallFileFixed: Int = 1 << 18
+    default: Strategy,
+    rules: List[SmartRule],
+    smallFileFixed: Int = 1 << 18,
   )
 
   /** Select a [[Chunker]] based on the provided [[SmartConfig]] and hints. */
@@ -58,14 +58,14 @@ object Chunker:
 
   /** Build a [[Chunker]] from a strategy. */
   def fromStrategy(s: Strategy): Chunker = s match
-    case Strategy.Fixed(sz) => FixedChunker(sz)
-    case Strategy.FastCDC(b, n, w) =>
+    case Strategy.Fixed(sz)                 => FixedChunker(sz)
+    case Strategy.FastCDC(b, n, w)          =>
       FastCDCChunker(FastCDCChunker.Config(b, n, w))
-    case Strategy.Rolling(b, w) =>
+    case Strategy.Rolling(b, w)             =>
       RollingHashChunker(RollingHashChunker.Config(b, w))
     case Strategy.TokenAware(tokens, maxSz) =>
       new Chunker:
-        val name = s"token-aware(max=$maxSz)"
+        val name     = s"token-aware(max=$maxSz)"
         val pipeline = TokenAwareChunker.pipeline(tokens, maxSz)
     case Strategy.Pdf                       => PdfChunker
     case Strategy.Smart(default, overrides) =>
@@ -74,5 +74,5 @@ object Chunker:
         SmartConfig(default, overrides),
         new SmartHints:
           val contentType: Option[String] = None
-          val contentLength: Option[Long] = None
+          val contentLength: Option[Long] = None,
       )

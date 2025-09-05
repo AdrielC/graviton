@@ -2,30 +2,26 @@ package graviton.metrics
 
 import zio.*
 import zio.metrics.*
-import zio.metrics.connectors.prometheus.{
-  PrometheusPublisher,
-  prometheusLayer,
-  publisherLayer
-}
+import zio.metrics.connectors.prometheus.{PrometheusPublisher, prometheusLayer, publisherLayer}
 import zio.metrics.connectors.MetricsConfig
 import java.time.Duration
 
 object Metrics:
-  val putCount: Metric.Counter[Int] = Metric.counterInt("graviton_put_total")
-  val putLatency = Metric.timer(
+  val putCount: Metric.Counter[Int]    = Metric.counterInt("graviton_put_total")
+  val putLatency                       = Metric.timer(
     "graviton_put_latency_seconds",
-    java.time.temporal.ChronoUnit.SECONDS
+    java.time.temporal.ChronoUnit.SECONDS,
   )
-  val getCount: Metric.Counter[Int] = Metric.counterInt("graviton_get_total")
-  val getLatency = Metric.timer(
+  val getCount: Metric.Counter[Int]    = Metric.counterInt("graviton_get_total")
+  val getLatency                       = Metric.timer(
     "graviton_get_latency_seconds",
-    java.time.temporal.ChronoUnit.SECONDS
+    java.time.temporal.ChronoUnit.SECONDS,
   )
   val deleteCount: Metric.Counter[Int] =
     Metric.counterInt("graviton_delete_total")
-  val deleteLatency = Metric.timer(
+  val deleteLatency                    = Metric.timer(
     "graviton_delete_latency_seconds",
-    java.time.temporal.ChronoUnit.SECONDS
+    java.time.temporal.ChronoUnit.SECONDS,
   )
 
   val prometheus: ULayer[PrometheusPublisher] = publisherLayer
