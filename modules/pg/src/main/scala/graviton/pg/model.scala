@@ -13,7 +13,9 @@ import zio.schema.DynamicValue
 
 trait RefinedTypeExt[A, C] extends RefinedType[A, C]:
 
-  given (using d: DbCodec[A]): DbCodec[T] = d.biMap(applyUnsafe(_), _.value)
+  given (using d: DbCodec[A]): DbCodec[T] = 
+    d.biMap(applyUnsafe(_), _.value)
+
   given (using s: Schema[A]): Schema[T]   = s
     .annotate(rtc.message)
     .transformOrFail(either(_), v => Right(v.value))
@@ -92,51 +94,19 @@ object Algo:
   enum Id derives CanEqual, DbCodec:
     case Blake3, Sha256, Sha1, Md5
 
-enum StoreStatus derives CanEqual:
+@Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
+enum StoreStatus derives CanEqual, DbCodec:
   case Active
   case Paused
   case Retired
 
-object StoreStatus:
-  given DbCodec[StoreStatus] =
-    DbCodec[String].biMap(
-      _.toLowerCase match
-        case "active"  => Active
-        case "paused"  => Paused
-        case "retired" => Retired
-        case other     => throw new IllegalArgumentException(s"Invalid StoreStatus: $other"),
-      {
-        case Active  => "active"
-        case Paused  => "paused"
-        case Retired => "retired"
-      },
-    )
-
-enum LocationStatus derives CanEqual:
+@Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
+enum LocationStatus derives CanEqual, DbCodec:
   case Active
   case Stale
   case Missing
   case Deprecated
   case Error
-
-object LocationStatus:
-  given DbCodec[LocationStatus] =
-    DbCodec[String].biMap(
-      _.toLowerCase match
-        case "active"     => Active
-        case "stale"      => Stale
-        case "missing"    => Missing
-        case "deprecated" => Deprecated
-        case "error"      => Error
-        case other        => throw new IllegalArgumentException(s"Invalid LocationStatus: $other"),
-      {
-        case Active     => "active"
-        case Stale      => "stale"
-        case Missing    => "missing"
-        case Deprecated => "deprecated"
-        case Error      => "error"
-      },
-    )
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 

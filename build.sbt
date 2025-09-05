@@ -6,7 +6,6 @@ enablePlugins(
 
 import scala.sys.process.*
 import sbtunidoc.ScalaUnidocPlugin.autoImport._
-// import dbcodegen.plugin.DbCodegenPlugin.autoImport._
 
 ThisBuild / scalaVersion  := "3.7.2"
 ThisBuild / organization  := "io.quasar"
@@ -33,6 +32,7 @@ lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
 
 // Task to bootstrap local Postgres and stream output via sbt logger
 lazy val setUpPg = taskKey[Unit]("Bootstrap local Postgres (Podman) and stream logs")
+
 ThisBuild / setUpPg := {
   val log     = streams.value.log
   val workDir = (ThisBuild / baseDirectory).value
@@ -154,15 +154,69 @@ lazy val metrics = project
   )
   .settings(commonSettings)
 
+lazy val dbcodegen = project
+  .in(file("dbcodegen"))
+  .settings(
+    name := "graviton-dbcodegen",
+    runMain := Some("dbcodegen.DbMain")
+  )
+
 lazy val pg = project
   .in(file("modules/pg"))
-  .dependsOn(core)
+  .dependsOn(core, dbcodegen)
   .settings(
     name := "graviton-pg",
     // on-demand schema generation snapshot directory (checked into VCS)
     Compile / unmanagedSourceDirectories += (
       baseDirectory.value / "src" / "main" / "scala" / "graviton" / "db"
     ),
+      generatePgSchemas := {
+        val log = streams.value.log
+        log.info("Generating PG schemas...")
+        
+        val templatePath = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
+        val outputPath = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated").getAbsolutePath
+        
+        log.info(s"Template: $templatePath")
+        log.info(s"Output: $outputPath")
+        
+        // Set system properties before running
+        val oldTemplate = System.getProperty("dbcodegen.template")
+        val oldOut = System.getProperty("dbcodegen.out")
+        val oldJdbcUrl = System.getProperty("dbcodegen.jdbcUrl")
+        val oldUsername = System.getProperty("dbcodegen.username")
+        val oldPassword = System.getProperty("dbcodegen.password")
+        
+        try {
+          System.setProperty("dbcodegen.template", templatePath)
+          System.setProperty("dbcodegen.out", outputPath)
+          System.setProperty("dbcodegen.jdbcUrl", s"jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}")
+          System.setProperty("dbcodegen.username", pgUsername.value)
+          System.setProperty("dbcodegen.password", pgPassword.value)
+          
+          // Run the main class
+          (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
+          
+          log.info("Schema generation completed successfully")
+          Seq(file(outputPath))
+        } finally {
+          // Restore old system properties
+          if (oldTemplate != null) System.setProperty("dbcodegen.template", oldTemplate)
+          else System.clearProperty("dbcodegen.template")
+          
+          if (oldOut != null) System.setProperty("dbcodegen.out", oldOut)
+          else System.clearProperty("dbcodegen.out")
+          
+          if (oldJdbcUrl != null) System.setProperty("dbcodegen.jdbcUrl", oldJdbcUrl)
+          else System.clearProperty("dbcodegen.jdbcUrl")
+          
+          if (oldUsername != null) System.setProperty("dbcodegen.username", oldUsername)
+          else System.clearProperty("dbcodegen.username")
+          
+          if (oldPassword != null) System.setProperty("dbcodegen.password", oldPassword)
+          else System.clearProperty("dbcodegen.password")
+        }
+      },
     // keep your existing deps:
     libraryDependencies ++= Seq(
       "com.augustnagro"   %% "magnum"     % magnumV,
@@ -207,12 +261,6 @@ lazy val pg = project
     )
   )
 
-lazy val dbcodegen = project
-  .in(file("dbcodegen"))
-  .settings(
-    name := "graviton-dbcodegen"
-  )
-  .settings(commonSettings)
 
 lazy val tika = project
   .in(file("modules/tika"))
@@ -241,10 +289,18 @@ lazy val docs = project
   )
   .enablePlugins(MdocPlugin, WebsitePlugin)
 
-// Convenience alias to generate and snapshot PG schemas on demand via in-repo tool
+// Convenience aliases for database operations
 addCommandAlias(
   "genPg",
-  "dbcodegen/runMain dbcodegen.DbMain -Ddbcodegen.template=modules/pg/codegen/magnum.ssp -Ddbcodegen.out=modules/pg/src/main/scala/graviton/db",
+  "dbcodegen/runMain dbcodegen.DbMain " +
+    "-Ddbcodegen.template=modules/pg/codegen/magnum.ssp " +
+    "-Ddbcodegen.out=modules/pg/src/main/scala/graviton/db",
+)
+
+addCommandAlias(
+  "inspectPgConstraints", 
+  "dbcodegen/runMain dbcodegen.DbMain " +
+    "-Ddbcodegen.inspect-only=true"
 )
 
 lazy val pgHost = settingKey[String]("PG_HOST")
