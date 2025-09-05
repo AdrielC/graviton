@@ -7,20 +7,20 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
   def id[I]: Scan.Aux[I, I, EmptyTuple] = Scan.identity[I]
 
   def andThen[I, M, O, S1 <: Tuple, S2 <: Tuple](
-    left:  Aux[I, M, S1],
-    right: Aux[M, O, S2]
+    left: Scan.Aux[I, M, S1],
+    right: Scan.Aux[M, O, S2],
   ): Scan.Aux[I, O, Tuple.Concat[S1, S2]] = left.andThen(right)
 
   def zip[I, O1, O2, S1 <: Tuple, S2 <: Tuple](
-    left:  Aux[I, O1, S1],
-    right: Aux[I, O2, S2]
+    left: Scan.Aux[I, O1, S1],
+    right: Scan.Aux[I, O2, S2],
   ): Scan.Aux[I, (O1, O2), Tuple.Concat[S1, S2]] = left.zip(right)
 
   def product[I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left:  Aux[I1, O1, S1],
-    right: Aux[I2, O2, S2]
+    left: Scan.Aux[I1, O1, S1],
+    right: Scan.Aux[I2, O2, S2],
   ): Scan.Aux[(I1, I2), (O1, O2), Tuple.Concat[S1, S2]] =
-    val a = left; val b = right
+    val a     = left; val b = right
     val sizeA = a.initial.productArity
     Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
       val s1        = st.take(sizeA).asInstanceOf[a.State]
@@ -88,8 +88,8 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
     }(s => a.done(s).map(Right(_)))
 
   def plusPlus[I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left:  Aux[I1, O1, S1],
-    right: Aux[I2, O2, S2]
+    left: Scan.Aux[I1, O1, S1],
+    right: Scan.Aux[I2, O2, S2],
   ): Scan.Aux[Either[I1, I2], Either[O1, O2], Tuple.Concat[S1, S2]] =
     val a     = left
     val b     = right
@@ -111,8 +111,8 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
     }
 
   def fanIn[I1, O, S1 <: Tuple, I2, S2 <: Tuple](
-    left:  Aux[I1, O, S1],
-    right: Aux[I2, O, S2]
+    left: Scan.Aux[I1, O, S1],
+    right: Scan.Aux[I2, O, S2],
   ): Scan.Aux[Either[I1, I2], O, Tuple.Concat[S1, S2]] =
     val a     = left
     val b     = right
@@ -140,4 +140,3 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
   )(
     done: S => Chunk[O]
   ): Scan.Aux[I, O, S] = Scan.statefulTuple(initial)(step)(done)
-

@@ -20,4 +20,3 @@ object TSOpSchemaLabelsSpec extends ZIOSpecDefault:
       assertTrue(lab == Chunk("buffer", "sum")) && assertTrue(sch.asInstanceOf[Schema[?]] != null)
     },
   )
-

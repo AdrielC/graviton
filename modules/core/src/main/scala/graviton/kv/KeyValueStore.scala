@@ -28,11 +28,11 @@ object KeyValueStore:
     ZLayer.scoped {
       for
         namespaces <- Ref.make(Map.empty[String, Map[Chunk[Byte], List[InMemoryKeyValueEntry]]])
-        _ <- ZIO.addFinalizer(
-               namespaces.get.flatMap { map =>
-                 ZIO.logDebug(map.values.map(_.size).sum.toString + " items left in kv store")
-               }
-             )
+        _          <- ZIO.addFinalizer(
+                        namespaces.get.flatMap { map =>
+                          ZIO.logDebug(map.values.map(_.size).sum.toString + " items left in kv store")
+                        }
+                      )
       yield InMemoryKeyValueStore(namespaces)
     }
 
@@ -64,7 +64,7 @@ object KeyValueStore:
     namespaces: Ref[Map[String, Map[Chunk[Byte], List[InMemoryKeyValueEntry]]]]
   ) extends KeyValueStore:
     def put(namespace: String, key: Chunk[Byte], value: Chunk[Byte], timestamp: Timestamp): IO[Throwable, Boolean] =
-      namespaces.update { ns => add(ns, namespace, key, value, timestamp) }.as(true)
+      namespaces.update(ns => add(ns, namespace, key, value, timestamp)).as(true)
 
     def getLatest(namespace: String, key: Chunk[Byte], before: Option[Timestamp]): IO[Throwable, Option[Chunk[Byte]]] =
       namespaces.get.map { ns =>
@@ -129,9 +129,9 @@ object KeyValueStore:
                 val remainingValues = values.take(after.length + 1)
                 if remainingValues.isEmpty then ns.updated(namespace, data - key)
                 else ns.updated(namespace, data.updated(key, remainingValues))
-              case None => ns
+              case None       => ns
           }
-        case None =>
+        case None                  =>
           namespaces.update { ns =>
             ns.get(namespace) match
               case Some(data) => ns.updated(namespace, data - key)
@@ -143,17 +143,16 @@ object KeyValueStore:
       namespace: String,
       key: Chunk[Byte],
       value: Chunk[Byte],
-      timestamp: Timestamp
+      timestamp: Timestamp,
     ): Map[String, Map[Chunk[Byte], List[InMemoryKeyValueEntry]]] =
       ns.get(namespace) match
         case Some(data) =>
           data.get(key) match
             case Some(entries) =>
               ns.updated(namespace, data.updated(key, InMemoryKeyValueEntry(value, timestamp) :: entries))
-            case None =>
+            case None          =>
               ns.updated(namespace, data.updated(key, List(InMemoryKeyValueEntry(value, timestamp))))
-        case None =>
+        case None       =>
           ns + (namespace -> Map(key -> List(InMemoryKeyValueEntry(value, timestamp))))
 
     override def toString: String = "InMemoryKeyValueStore"
-

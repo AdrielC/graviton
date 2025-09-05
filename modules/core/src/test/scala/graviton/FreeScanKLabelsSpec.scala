@@ -41,4 +41,3 @@ object FreeScanKLabelsSpec extends ZIOSpecDefault:
       assertTrue(f.labelsFromType == Chunk("previous", "previous"))
     },
   )
-
