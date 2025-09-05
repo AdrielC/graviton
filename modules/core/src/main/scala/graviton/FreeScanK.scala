@@ -57,17 +57,16 @@ object FreeScanK:
     def compile(using Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), State] =
       val a = left.compile
       val b = right.compile
-      type SA = a.State
-      inline val NA = constValue[Tuple.Size[SA]]
-      Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
+      inline val NA = constValue[Tuple.Size[S1]]
+      Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[S1, S2]](a.initial ++ b.initial) { (st, in) =>
         val (sa, sb)  = st.splitAt(NA)
         val (i1, i2)  = in
-        val (s1b, o1) = a.step(sa.asInstanceOf[SA], i1)
-        val (s2b, o2) = b.step(sb.asInstanceOf[b.State], i2)
+        val (s1b, o1) = a.step(sa.asInstanceOf[S1], i1)
+        val (s2b, o2) = b.step(sb.asInstanceOf[S2], i2)
         (s1b ++ s2b, o1.zip(o2))
       } { st =>
         val (sa, sb) = st.splitAt(NA)
-        a.done(sa.asInstanceOf[SA]).zip(b.done(sb.asInstanceOf[b.State]))
+        a.done(sa.asInstanceOf[S1]).zip(b.done(sb.asInstanceOf[S2]))
       }
 
   final case class First[F[_, _], I, O, C, S <: Tuple](
