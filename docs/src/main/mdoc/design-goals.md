@@ -83,5 +83,5 @@ val maybeDropped: Option[Bytes] = bytes.drop(Length(10L))
 
 Planned enhancements include semantic chunking policies, richer storage
 integrations, and manifest‑based deduplication strategies.  See the
-[ROADMAP](../../../../ROADMAP.md) for milestone tracking toward v0.1.0.
+[ROADMAP](roadmap.md) for milestone tracking toward v0.1.0.
 

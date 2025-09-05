@@ -1,4 +1,10 @@
-# Graviton
+---
+id: index
+title: "Getting Started with Graviton"
+sidebar_label: "Getting Started"
+---
+
+@PROJECT_BADGES@
 
 Graviton is a ZIO‑native port of the Binny binary storage layer. It provides
 content‑addressable storage, block deduplication, and streaming APIs for
