@@ -15,7 +15,7 @@ object NT:
 
   type Carry[C] = (carry: Option[C])
 
-  inline def labelsOf[S <: Tuple]: Chunk[String] =
+  inline def labelsOf[S]: Chunk[String] =
     val m     = summonInline[Mirror.ProductOf[S]]
     val t     = constValueTuple[m.MirroredElemLabels]
     val iter  = t.asInstanceOf[Product].productIterator
