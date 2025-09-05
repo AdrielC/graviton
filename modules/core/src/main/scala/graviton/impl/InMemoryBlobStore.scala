@@ -5,21 +5,21 @@ import zio.*
 import zio.stream.*
 
 final class InMemoryBlobStore private (
-    ref: Ref[Map[BlockKey, Chunk[Byte]]],
-    val id: BlobStoreId
+  ref: Ref[Map[BlockKey, Chunk[Byte]]],
+  val id: BlobStoreId,
 ) extends BlobStore:
 
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 
   def read(
-      key: BlockKey,
-      range: Option[ByteRange] = None
+    key: BlockKey,
+    range: Option[ByteRange] = None,
   ): IO[Throwable, Option[Bytes]] =
     ref.get.map(_.get(key).map { ch =>
       val sliced = range match
         case Some(ByteRange(start, end)) =>
           ch.drop(start.toInt).take((end - start).toInt)
-        case None => ch
+        case None                        => ch
       Bytes(ZStream.fromChunk(sliced))
     })
 

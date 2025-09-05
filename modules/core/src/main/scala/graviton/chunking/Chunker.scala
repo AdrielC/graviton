@@ -14,13 +14,15 @@ object Chunker:
   final case class Bounds(min: Int, avg: Int, max: Int):
     require(
       min > 0 && avg >= min && max >= avg,
-      "Bounds(min <= avg <= max) violated"
+      "Bounds(min <= avg <= max) violated",
     )
 
   /** Strategy tag for telemetry & selection. */
   enum Strategy:
     case Fixed(size: Int)
     case FastCDC(bounds: Bounds, normalization: Int = 2, window: Int = 64)
+    case Rolling(bounds: Bounds, window: Int = 48)
+    case TokenAware(tokens: Set[String], maxChunkSize: Int)
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])
 
@@ -34,9 +36,9 @@ object Chunker:
 
   /** Configuration for smart selection. */
   final case class SmartConfig(
-      default: Strategy,
-      rules: List[SmartRule],
-      smallFileFixed: Int = 1 << 18
+    default: Strategy,
+    rules: List[SmartRule],
+    smallFileFixed: Int = 1 << 18,
   )
 
   /** Select a [[Chunker]] based on the provided [[SmartConfig]] and hints. */
@@ -56,9 +58,15 @@ object Chunker:
 
   /** Build a [[Chunker]] from a strategy. */
   def fromStrategy(s: Strategy): Chunker = s match
-    case Strategy.Fixed(sz) => FixedChunker(sz)
-    case Strategy.FastCDC(b, n, w) =>
+    case Strategy.Fixed(sz)                 => FixedChunker(sz)
+    case Strategy.FastCDC(b, n, w)          =>
       FastCDCChunker(FastCDCChunker.Config(b, n, w))
+    case Strategy.Rolling(b, w)             =>
+      RollingHashChunker(RollingHashChunker.Config(b, w))
+    case Strategy.TokenAware(tokens, maxSz) =>
+      new Chunker:
+        val name     = s"token-aware(max=$maxSz)"
+        val pipeline = TokenAwareChunker.pipeline(tokens, maxSz)
     case Strategy.Pdf                       => PdfChunker
     case Strategy.Smart(default, overrides) =>
       // if Smart is provided directly, fall back to default without hints
@@ -66,5 +74,5 @@ object Chunker:
         SmartConfig(default, overrides),
         new SmartHints:
           val contentType: Option[String] = None
-          val contentLength: Option[Long] = None
+          val contentLength: Option[Long] = None,
       )

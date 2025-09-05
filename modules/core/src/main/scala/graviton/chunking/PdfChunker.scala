@@ -5,11 +5,12 @@ import zio.stream.*
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.zip.InflaterInputStream
 
-/** Chunker that splits a PDF on `stream` boundaries and emits uncompressed
-  * stream data.
-  */
+/**
+ * Chunker that splits a PDF on `stream` boundaries and emits uncompressed
+ * stream data.
+ */
 object PdfChunker extends Chunker:
-  val name = "pdf"
+  val name                                                   = "pdf"
   val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
     ZPipeline.fromChannel:
       def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
@@ -18,11 +19,11 @@ object PdfChunker extends Chunker:
         ZChannel.readWith(
           (in: Chunk[Byte]) => loop(buf ++ in),
           (err: Throwable) => ZChannel.fail(err),
-          (_: Any) => ZChannel.write(split(buf))
+          (_: Any) => ZChannel.write(split(buf)),
         )
       loop(Chunk.empty)
 
-  private val streamToken = "stream".getBytes("ISO-8859-1")
+  private val streamToken    = "stream".getBytes("ISO-8859-1")
   private val endStreamToken = "endstream".getBytes("ISO-8859-1")
 
   private def indexOf(src: Array[Byte], tgt: Array[Byte], from: Int): Int =
@@ -35,8 +36,8 @@ object PdfChunker extends Chunker:
     -1
 
   private def split(bytes: Chunk[Byte]): Chunk[Chunk[Byte]] =
-    val arr = bytes.toArray
-    val out = scala.collection.mutable.ListBuffer.empty[Chunk[Byte]]
+    val arr    = bytes.toArray
+    val out    = scala.collection.mutable.ListBuffer.empty[Chunk[Byte]]
     var cursor = 0
     while cursor < arr.length do
       val streamIdx = indexOf(arr, streamToken, cursor)
@@ -44,8 +45,7 @@ object PdfChunker extends Chunker:
         out += Chunk.fromArray(arr.slice(cursor, arr.length))
         cursor = arr.length
       else
-        if streamIdx > cursor then
-          out += Chunk.fromArray(arr.slice(cursor, streamIdx))
+        if streamIdx > cursor then out += Chunk.fromArray(arr.slice(cursor, streamIdx))
         var dataStart = streamIdx + streamToken.length
         if dataStart < arr.length && (arr(dataStart) == '\n' || arr(
             dataStart
@@ -56,18 +56,18 @@ object PdfChunker extends Chunker:
               dataStart
             ) == '\n'
           then dataStart += 1
-        val endIdx = indexOf(arr, endStreamToken, dataStart)
+        val endIdx    = indexOf(arr, endStreamToken, dataStart)
         if endIdx == -1 then
           out += Chunk.fromArray(arr.slice(dataStart, arr.length))
           cursor = arr.length
         else
-          val raw = arr.slice(dataStart, endIdx)
+          val raw          = arr.slice(dataStart, endIdx)
           val decompressed =
             try
-              val in = new InflaterInputStream(new ByteArrayInputStream(raw))
+              val in  = new InflaterInputStream(new ByteArrayInputStream(raw))
               val buf = new ByteArrayOutputStream()
               val tmp = new Array[Byte](1024)
-              var n = in.read(tmp)
+              var n   = in.read(tmp)
               while n > 0 do
                 buf.write(tmp, 0, n)
                 n = in.read(tmp)

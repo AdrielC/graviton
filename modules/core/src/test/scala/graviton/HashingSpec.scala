@@ -11,7 +11,7 @@ object HashingSpec extends ZIOSpecDefault:
         Bytes(ZStream.fromIterable("hello world".getBytes.toIndexedSeq))
       for
         sha <- Hashing.compute(bytes, HashAlgorithm.SHA256)
-        bl <- Hashing.compute(bytes, HashAlgorithm.Blake3)
+        bl  <- Hashing.compute(bytes, HashAlgorithm.Blake3)
       yield assertTrue(
         sha.toArray
           .map("%02x".format(_))
@@ -25,19 +25,19 @@ object HashingSpec extends ZIOSpecDefault:
       val stream = Bytes(
         ZStream.fromChunks(
           Chunk.fromArray("ab".getBytes),
-          Chunk.fromArray("cd".getBytes)
+          Chunk.fromArray("cd".getBytes),
         )
       )
       for
-        hashes <- Hashing.rolling(stream, HashAlgorithm.SHA256).runCollect
-        expectedFirst <- Hashing.compute(
-          Bytes(ZStream.fromIterable("ab".getBytes.toIndexedSeq)),
-          HashAlgorithm.SHA256
-        )
+        hashes         <- Hashing.rolling(stream, HashAlgorithm.SHA256).runCollect
+        expectedFirst  <- Hashing.compute(
+                            Bytes(ZStream.fromIterable("ab".getBytes.toIndexedSeq)),
+                            HashAlgorithm.SHA256,
+                          )
         expectedSecond <- Hashing.compute(
-          Bytes(ZStream.fromIterable("abcd".getBytes.toIndexedSeq)),
-          HashAlgorithm.SHA256
-        )
+                            Bytes(ZStream.fromIterable("abcd".getBytes.toIndexedSeq)),
+                            HashAlgorithm.SHA256,
+                          )
       yield assertTrue(
         hashes.map(_.bytes) == Chunk(expectedFirst, expectedSecond)
       )
@@ -45,9 +45,9 @@ object HashingSpec extends ZIOSpecDefault:
     test("sink computes digest without buffering entire stream") {
       val data = Chunk.fromArray("hello world".getBytes)
       for
-        dig <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
+        dig      <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
         expected <- Hashing
-          .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
+                      .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
       yield assertTrue(dig == expected)
-    }
+    },
   )
