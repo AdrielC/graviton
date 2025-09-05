@@ -22,7 +22,7 @@ object PgTypeResolver {
        |WITH RECURSIVE col AS (
        |  SELECT c.oid AS relid,
        |         a.attnum,
-       |         a.attname AS column_name,
+       |         a.attname AS columnName,
        |         t.oid AS type_oid,
        |         t.typtype,
        |         t.typcategory,
@@ -36,7 +36,7 @@ object PgTypeResolver {
        |  JOIN pg_type t ON t.oid = a.atttypid
        |  WHERE n.nspname = ? AND c.relname = ? AND a.attnum > 0 AND NOT a.attisdropped
        |  UNION ALL
-       |  SELECT col.relid, col.attnum, col.column_name,
+       |  SELECT col.relid, col.attnum, col.columnName,
        |         base.oid, base.typtype, base.typcategory, base.typname,
        |         base.typbasetype, base.typelem, col.depth + 1
        |  FROM col
@@ -44,11 +44,11 @@ object PgTypeResolver {
        |),
        |resolved AS (
        |  SELECT DISTINCT ON (relid, attnum)
-       |    relid, attnum, column_name, type_oid, typtype, typcategory, typname, typelem
+       |    relid, attnum, columnName, type_oid, typtype, typcategory, typname, typelem
        |  FROM col
        |  ORDER BY relid, attnum, depth DESC
        |)
-       |SELECT column_name,
+       |SELECT columnName,
        |       typtype,
        |       typcategory,
        |       typname,
@@ -71,14 +71,13 @@ object PgTypeResolver {
     val rs = ps.executeQuery()
     val buf = mutable.Map.empty[String, ColumnInfo]
     while (rs.next()) {
-      val column        = rs.getString("column_name")
+      val column        = rs.getString("columnName")
       val typtype       = rs.getString("typtype")
       val typcategory   = rs.getString("typcategory")
       val typname       = rs.getString("typname")
       val arrayElemType = Option(rs.getString("array_elem_type"))
       val rangeSubtype  = Option(rs.getString("range_subtype"))
-      val enumLabels =
-        enumLabelsFor(if (typtype == "e") typname else arrayElemType.orNull, source)
+      val enumLabels = enumLabelsFor(if (typtype == "e") typname else arrayElemType.orNull, source)
       buf += column -> ColumnInfo(typtype, typcategory, typname, arrayElemType, enumLabels, rangeSubtype)
     }
     rs.close()
