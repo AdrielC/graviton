@@ -83,6 +83,9 @@ CREATE TABLE block (
   CONSTRAINT block_inline_len_consistent
     CHECK (inline_bytes IS NULL OR octet_length(inline_bytes) = size_bytes)
 );
+-- Optional: ensure inline_bytes is only used for small blocks
+ALTER TABLE block
+  ADD CONSTRAINT block_inline_threshold CHECK (inline_bytes IS NULL OR size_bytes <= 1048576);
 CREATE INDEX block_size_idx   ON block (size_bytes);
 CREATE INDEX block_created_br ON block USING BRIN (created_at);
 
@@ -102,6 +105,8 @@ CREATE TABLE block_location (
   UNIQUE (algo_id, hash, blob_store_key),
   FOREIGN KEY (algo_id, hash) REFERENCES block(algo_id, hash) ON DELETE CASCADE
 );
+-- Optional: forbid zero-length locations
+ALTER TABLE block_location ADD CONSTRAINT block_location_nonzero CHECK (bytes_length > 0);
 -- accelerate common probes
 CREATE INDEX block_location_by_block            ON block_location (algo_id, hash);
 CREATE INDEX block_location_block_status_idx    ON block_location (algo_id, hash, status);
@@ -121,6 +126,8 @@ CREATE TABLE file (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (algo_id, hash, size_bytes)
 );
+-- Accelerate GC/age scans
+CREATE INDEX file_created_brin ON file USING BRIN (created_at);
 
 CREATE TABLE file_block (
   file_id        UUID        NOT NULL REFERENCES file(id) ON DELETE CASCADE,
