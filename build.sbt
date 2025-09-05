@@ -227,7 +227,10 @@ lazy val docs = project
   .enablePlugins(MdocPlugin)
 
 // Convenience alias to generate and snapshot PG schemas on demand via in-repo tool
-addCommandAlias("genPg", "dbcodegen/runMain dbcodegen.DbMain")
+addCommandAlias(
+  "genPg",
+  "dbcodegen/runMain dbcodegen.DbMain -Ddbcodegen.template=modules/pg/codegen/magnum.ssp -Ddbcodegen.out=modules/pg/src/main/scala/graviton/db"
+)
 
 lazy val pgHost = settingKey[String]("PG_HOST")
 ThisBuild / pgHost := sys.env.get("PG_HOST").getOrElse("127.0.0.1")
