@@ -11,6 +11,8 @@ import zio.schema.Schema
  */
 sealed trait FreeScanK[F[_, _], -I, +O]:
   type State <: Tuple
+  type Size <: Int
+  type Types
   def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
   def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
@@ -27,10 +29,14 @@ object FreeScanK:
   // Constructors
   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
     type State = EmptyTuple
+    type Size  = 0
+    type Types = zio.constraintless.TypeList.End
     def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple] = Scan.identity[A]
 
   final case class Op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }) extends FreeScanK[F, I, O]:
     type State = S
+    type Size  = Tuple.Size[S]
+    type Types = Any
     def compile(using i: Interpreter[F]): Scan.Aux[I, O, S] = i.toScan(fab)
     def schema(using i: Interpreter[F]): Schema[S]          = i.stateSchema(fab)
     def labels(using i: Interpreter[F]): Chunk[String]      = i.stateLabels(fab)
@@ -40,6 +46,8 @@ object FreeScanK:
     right: FreeScanK.Aux[F, B, C, S2],
   ) extends FreeScanK[F, A, C]:
     type State = Tuple.Concat[S1, S2]
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
+    type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[A, C, State] = left.compile.andThen(right.compile)
 
   final case class Zip[F[_, _], I, O1, O2, S1 <: Tuple, S2 <: Tuple](
@@ -47,6 +55,8 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I, O2, S2],
   ) extends FreeScanK[F, I, (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
+    type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State] = left.compile.zip(right.compile)
 
   final case class Product[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
@@ -54,6 +64,8 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I2, O2, S2],
   ) extends FreeScanK[F, (I1, I2), (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
+    type Size  = Tuple.Size[S1] + Tuple.Size[S2]
+    type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), State] =
       val a     = left.compile
       val b     = right.compile
