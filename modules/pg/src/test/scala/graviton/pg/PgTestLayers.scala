@@ -103,7 +103,7 @@ object PgTestLayers:
                          c.withUsername(config.username)
                          c.withPassword(config.password)
                          c.withDatabaseName(config.database)
-                         config.initScript.foreach(path => c.withInitScript(path.toString))
+                         config.initScript.foreach(path => c.withInitScript(s"classpath:${path.getFileName.toString}"))
                          c.withStartupAttempts(config.startupAttempts)
                          c.withStartupTimeout(Duration.ofSeconds(config.startupTimeout))
                          c.withReuse(true)
