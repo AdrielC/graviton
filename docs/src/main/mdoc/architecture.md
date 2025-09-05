@@ -12,10 +12,8 @@ Binny `BinaryStore`:
 3. **BlockStore** – a logical registry that hashes incoming streams, writes the
    resulting blocks to one or more `BlobStore`s, and records sectors through a
    `BlockResolver` which is consulted on reads.
-4. **File** – an ordered sequence of block keys. A file's identity (`FileKey`)
-   is derived from the canonical content hash and is independent of chunking.
-5. **FileStore** – assembles files from blocks, records manifests, and provides
-   streaming read access.
+4. **Blob** – a contiguous immutable byte stream, defined by a `Manifest` of ordered `(offset, size, BlockKey)` entries. Its identity (`BlobKey`) is derived from the canonical content hash and is independent of chunking.
+5. **Manifest** – ordered entries describing how blocks assemble a Blob; independent from block identity.
 6. **View** – a virtual transformation over a file. Views are described by a
    `ViewKey` and may be materialized or computed on demand.
 

@@ -17,9 +17,9 @@ ZIO‑native content‑addressable storage inspired by Binny.
 graph TD
     B[Block] -->|persists| S[BlobStore]
     B --> R[BlockStore]
-    R --> F[File]
-    F --> M[FileStore]
-    M --> V[View]
+    R --> M[Manifest]
+    M --> B[Blob]
+    B --> V[View]
 ```
 
 ```mermaid
@@ -32,7 +32,7 @@ sequenceDiagram
     C->>BS: stream file bytes
     BS->>BL: write blocks
     BS->>RS: register sectors
-    BS-->>C: FileKey
+    BS-->>C: BlobKey
 ```
 
 ## Quickstart
@@ -40,10 +40,10 @@ sequenceDiagram
 ### CLI
 
 ```bash
-# ingest a file
+# ingest bytes
 graviton put README.md
-# retrieve the file using the returned key
-graviton get <fileKey> > README.copy.md
+# retrieve the blob using the returned key
+graviton get <blobKey> > README.copy.md
 ```
 
 ### HTTP Gateway
@@ -51,10 +51,10 @@ graviton get <fileKey> > README.copy.md
 Assuming the gateway is running on `localhost:8080`:
 
 ```bash
-# upload bytes
-curl -X POST --data-binary @README.md http://localhost:8080/files
-# download the stored file
-curl http://localhost:8080/files/<fileKey> -o README.copy.md
+# upload bytes (returns BlobKey)
+curl -X POST --data-binary @README.md http://localhost:8080/blobs
+# download the stored blob
+curl http://localhost:8080/blobs/<blobKey> -o README.copy.md
 ```
 
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
