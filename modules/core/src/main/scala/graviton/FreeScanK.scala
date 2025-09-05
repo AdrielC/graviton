@@ -14,7 +14,7 @@ sealed trait FreeScanK[F[_, _], -I, +O]:
   type Size <: Int
   type Types
   def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
-  def compileTo[A[_, _, _]](using ArrowK[A], FreeScanK.ArrowInterpreter[F, A]): A[I, O, State]
+  def compileTo[A[_, _, _]](using ArrowK[[i, o, s <: Tuple] =>> A[i, o, s]], FreeScanK.ArrowInterpreter[F, A]): A[I, O, State]
   def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
   def labelsFromType(using FreeScanK.Interpreter[F]): Chunk[String]
@@ -38,7 +38,7 @@ object FreeScanK:
     type Size  = 0
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple] = Scan.identity[A]
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[A, A, EmptyTuple] = K.id[A]
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[A, A, EmptyTuple] = K.id[A]
     def labelsFromType(using Interpreter[F]): Chunk[String]       = Chunk.empty
 
   final case class Op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }) extends FreeScanK[F, I, O]:
@@ -46,7 +46,7 @@ object FreeScanK:
     type Size  = Tuple.Size[S]
     type Types = Any
     def compile(using i: Interpreter[F]): Scan.Aux[I, O, S]    = i.toScan(fab)
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[I, O, S] = AI.toArrow(fab)
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[I, O, S] = AI.toArrow(fab)
     def schema(using i: Interpreter[F]): Schema[S]             = i.stateSchema(fab)
     def labels(using i: Interpreter[F]): Chunk[String]         = i.stateLabels(fab)
     def labelsFromType(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
@@ -59,7 +59,7 @@ object FreeScanK:
     type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[A, C, State] = left.compile.andThen(right.compile)
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[A, C, State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[A, C, State] =
       K.andThen(left.compileTo[T], right.compileTo[T])
     def labelsFromType(using Interpreter[F]): Chunk[String]  = left.labelsFromType ++ right.labelsFromType
 
@@ -71,7 +71,7 @@ object FreeScanK:
     type Size  = Tuple.Size[S1] + Tuple.Size[S2]
     type Types = Any
     def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State] = left.compile.zip(right.compile)
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[I, (O1, O2), State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[I, (O1, O2), State] =
       K.zip(left.compileTo[T], right.compileTo[T])
     def labelsFromType(using Interpreter[F]): Chunk[String]         = left.labelsFromType ++ right.labelsFromType
 
@@ -99,7 +99,7 @@ object FreeScanK:
         a.done(s1).zip(b.done(s2))
       }
     def labelsFromType(using Interpreter[F]): Chunk[String]                = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(I1, I2), (O1, O2), State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[(I1, I2), (O1, O2), State] =
       K.product(left.compileTo[T], right.compileTo[T])
 
   final case class First[F[_, _], I, O, C, S <: Tuple](
@@ -122,7 +122,7 @@ object FreeScanK:
           case None    => Chunk.empty
       }
     def labelsFromType(using Interpreter[F]): Chunk[String]            = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(I, C), (O, C), State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[(I, C), (O, C), State] =
       K.first(src.compileTo[T])
 
   final case class Second[F[_, _], I, O, C, S <: Tuple](
@@ -145,7 +145,7 @@ object FreeScanK:
           case None    => Chunk.empty
       }
     def labelsFromType(using Interpreter[F]): Chunk[String]            = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(C, I), (C, O), State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[(C, I), (C, O), State] =
       K.second(src.compileTo[T])
 
   final case class LeftChoice[F[_, _], I, O, C, S <: Tuple](
@@ -162,7 +162,7 @@ object FreeScanK:
           case Right(c) => (s, Chunk.single(Right(c)))
       }(s => a.done(s).map(Left(_)))
     def labelsFromType(using Interpreter[F]): Chunk[String]                    = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I, C], Either[O, C], S] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[Either[I, C], Either[O, C], S] =
       K.left(src.compileTo[T])
 
   final case class RightChoice[F[_, _], I, O, C, S <: Tuple](
@@ -179,7 +179,7 @@ object FreeScanK:
           case Left(c)  => (s, Chunk.single(Left(c)))
       }(s => a.done(s).map(Right(_)))
     def labelsFromType(using Interpreter[F]): Chunk[String]                    = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[C, I], Either[C, O], S] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[Either[C, I], Either[C, O], S] =
       K.right(src.compileTo[T])
 
   final case class PlusPlus[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
@@ -207,7 +207,7 @@ object FreeScanK:
         a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
       }
     def labelsFromType(using Interpreter[F]): Chunk[String]                            = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], Either[O1, O2], State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], Either[O1, O2], State] =
       K.plusPlus(left.compileTo[T], right.compileTo[T])
 
   final case class FanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
@@ -235,7 +235,7 @@ object FreeScanK:
         a.done(s1) ++ b.done(s2)
       }
     def labelsFromType(using Interpreter[F]): Chunk[String]               = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], O, State] =
+    def compileTo[T[_, _, _]](using K: ArrowK[[i, o, s <: Tuple] =>> T[i, o, s]], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], O, State] =
       K.fanIn(left.compileTo[T], right.compileTo[T])
 
   // Syntax

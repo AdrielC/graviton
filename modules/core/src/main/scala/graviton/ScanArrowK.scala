@@ -3,24 +3,23 @@ package graviton
 import zio.*
 
 given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
-  type Aux[-I, +O, S <: Tuple] = Scan.Aux[I, O, S]
 
-  def id[X]: Aux[X, X, EmptyTuple] = Scan.identity[X]
+  def id[I]: Scan.Aux[I, I, EmptyTuple] = Scan.identity[I]
 
   def andThen[I, M, O, S1 <: Tuple, S2 <: Tuple](
     left:  Aux[I, M, S1],
     right: Aux[M, O, S2]
-  ): Aux[I, O, Tuple.Concat[S1, S2]] = left.andThen(right)
+  ): Scan.Aux[I, O, Tuple.Concat[S1, S2]] = left.andThen(right)
 
   def zip[I, O1, O2, S1 <: Tuple, S2 <: Tuple](
     left:  Aux[I, O1, S1],
     right: Aux[I, O2, S2]
-  ): Aux[I, (O1, O2), Tuple.Concat[S1, S2]] = left.zip(right)
+  ): Scan.Aux[I, (O1, O2), Tuple.Concat[S1, S2]] = left.zip(right)
 
   def product[I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
     left:  Aux[I1, O1, S1],
     right: Aux[I2, O2, S2]
-  ): Aux[(I1, I2), (O1, O2), Tuple.Concat[S1, S2]] =
+  ): Scan.Aux[(I1, I2), (O1, O2), Tuple.Concat[S1, S2]] =
     val a = left; val b = right
     val sizeA = a.initial.productArity
     Scan.statefulTuple[(I1, I2), (O1, O2), Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
@@ -36,7 +35,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
       a.done(s1).zip(b.done(s2))
     }
 
-  def first[I, O, C, S <: Tuple](src: Aux[I, O, S]): Aux[(I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] =
+  def first[I, O, C, S <: Tuple](src: Scan.Aux[I, O, S]): Scan.Aux[(I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] =
     val a     = src
     val sizeA = a.initial.productArity
     Scan.statefulTuple[(I, C), (O, C), Tuple.Concat[a.State, Tuple1[Option[C]]]](a.initial ++ Tuple1(None)) { (st, in) =>
@@ -52,7 +51,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
         case None    => Chunk.empty
     }
 
-  def second[I, O, C, S <: Tuple](src: Aux[I, O, S]): Aux[(C, I), (C, O), Tuple.Concat[Tuple1[Option[C]], S]] =
+  def second[I, O, C, S <: Tuple](src: Scan.Aux[I, O, S]): Scan.Aux[(C, I), (C, O), Tuple.Concat[Tuple1[Option[C]], S]] =
     val a     = src
     val sizeA = 1
     Scan.statefulTuple[(C, I), (C, O), Tuple.Concat[Tuple1[Option[C]], a.State]](Tuple1(None) ++ a.initial) { (st, in) =>
@@ -68,7 +67,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
         case None    => Chunk.empty
     }
 
-  def left[I, O, C, S <: Tuple](src: Aux[I, O, S]): Aux[Either[I, C], Either[O, C], S] =
+  def left[I, O, C, S <: Tuple](src: Scan.Aux[I, O, S]): Scan.Aux[Either[I, C], Either[O, C], S] =
     val a = src
     Scan.statefulTuple[Either[I, C], Either[O, C], a.State](a.initial) { (s, in) =>
       in match
@@ -78,7 +77,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
         case Right(c) => (s, Chunk.single(Right(c)))
     }(s => a.done(s).map(Left(_)))
 
-  def right[I, O, C, S <: Tuple](src: Aux[I, O, S]): Aux[Either[C, I], Either[C, O], S] =
+  def right[I, O, C, S <: Tuple](src: Scan.Aux[I, O, S]): Scan.Aux[Either[C, I], Either[C, O], S] =
     val a = src
     Scan.statefulTuple[Either[C, I], Either[C, O], a.State](a.initial) { (s, in) =>
       in match
@@ -91,7 +90,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
   def plusPlus[I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
     left:  Aux[I1, O1, S1],
     right: Aux[I2, O2, S2]
-  ): Aux[Either[I1, I2], Either[O1, O2], Tuple.Concat[S1, S2]] =
+  ): Scan.Aux[Either[I1, I2], Either[O1, O2], Tuple.Concat[S1, S2]] =
     val a     = left
     val b     = right
     val sizeA = a.initial.productArity
@@ -114,7 +113,7 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
   def fanIn[I1, O, S1 <: Tuple, I2, S2 <: Tuple](
     left:  Aux[I1, O, S1],
     right: Aux[I2, O, S2]
-  ): Aux[Either[I1, I2], O, Tuple.Concat[S1, S2]] =
+  ): Scan.Aux[Either[I1, I2], O, Tuple.Concat[S1, S2]] =
     val a     = left
     val b     = right
     val sizeA = a.initial.productArity
@@ -140,5 +139,5 @@ given scanArrowK: ArrowK[[i, o, s <: Tuple] =>> Scan.Aux[i, o, s]] with
     step: (S, I) => (S, Chunk[O])
   )(
     done: S => Chunk[O]
-  ): Aux[I, O, S] = Scan.statefulTuple(initial)(step)(done)
+  ): Scan.Aux[I, O, S] = Scan.statefulTuple(initial)(step)(done)
 
