@@ -4,6 +4,13 @@ Graviton is a ZIO‑native port of the Binny binary storage layer. It provides
 content‑addressable storage, block deduplication, and streaming APIs for
 Quasar and other applications.
 
+## Current status
+
+- Implemented: content‑addressable storage (BLAKE3), layered block/file model, ZIO Streams APIs, filesystem and S3 blob stores, media type detection (Tika), structured logging, Prometheus metrics, scan utilities.
+- Modules: `core`, `fs`, `s3`, `tika`, `metrics`, `pg`.
+- Examples: CLI usage and HTTP gateway.
+- Planned: view materialization improvements, replication/healing controls, production ops guides.
+
 ## Modules
 
 * **core** – base types and in‑memory stores used in tests and examples.
@@ -22,3 +29,10 @@ Additional details about the layered model and terminology live in
 
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
+
+## Quick links
+
+- Architecture: [architecture.md](architecture.md), [binary-store.md](binary-store.md)
+- Operations: [logging.md](logging.md), [metrics.md](metrics.md)
+- Utilities: [scan.md](scan.md), [file-descriptor-schema.md](file-descriptor-schema.md)
+- Examples: [examples/index.md](examples/index.md)

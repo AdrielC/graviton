@@ -58,6 +58,21 @@ curl http://localhost:8080/files/<fileKey> -o README.copy.md
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
 is published as part of the project site.
 
+## Project status
+
+- Implemented: content-addressable storage (BLAKE3), layered block/file model, ZIO Streams APIs, filesystem and S3 blob stores, media type detection (Tika), structured logging, Prometheus metrics, scan utilities.
+- Modules: `core`, `fs`, `s3`, `tika`, `metrics`, `pg` (Postgres integration/tooling).
+- Examples: CLI and HTTP gateway walkthroughs for local workflows.
+- Planned/next: richer view materialization, replication/healing controls, expanded dashboards and production guides.
+
+## Documentation map
+
+- Architecture: [architecture.md](docs/src/main/mdoc/architecture.md), [binary-store.md](docs/src/main/mdoc/binary-store.md)
+- Operations: [logging.md](docs/src/main/mdoc/logging.md), [metrics.md](docs/src/main/mdoc/metrics.md)
+- Utilities: [scan.md](docs/src/main/mdoc/scan.md), [file-descriptor-schema.md](docs/src/main/mdoc/file-descriptor-schema.md)
+- Examples: [examples/index.md](docs/src/main/mdoc/examples/index.md)
+- Index: [docs home](docs/src/main/mdoc/index.md)
+
 ## Logging
 
 Graviton uses [ZIO Logging](https://zio.dev/reference/logging/) for structured
