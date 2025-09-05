@@ -49,6 +49,19 @@ install_pkg() {
   local distro; distro="$(detect_distro)"
   case "$distro" in
     ubuntu|debian)
+      # Some environments block plain HTTP traffic which Ubuntu's default
+      # apt sources still use.  Rewrite any http:// entries to https:// so the
+      # package install can proceed even when only HTTPS is allowed.
+      if grep -Rq '^URIs: http://.*ubuntu.com' /etc/apt/sources.list.d 2>/dev/null; then
+        warn "Switching APT sources to HTTPS"
+        if has_cmd sudo; then
+          sudo find /etc/apt/sources.list.d \( -name '*.sources' -o -name '*.list' \) \
+            -exec sed -i 's|http://|https://|g' {} +
+        else
+          find /etc/apt/sources.list.d \( -name '*.sources' -o -name '*.list' \) \
+            -exec sed -i 's|http://|https://|g' {} +
+        fi
+      fi
       if has_cmd sudo; then sudo apt-get update -y; sudo apt-get install -y "$@"
       else apt-get update -y; apt-get install -y "$@"; fi
       ;;
