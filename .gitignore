@@ -33,6 +33,7 @@ out/
 .idea_modules/
 
 dist/*
+site/
 target/
 lib_managed/
 src_managed/
