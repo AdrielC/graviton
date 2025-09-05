@@ -16,6 +16,7 @@ sealed trait FreeScanK[F[_, _], -I, +O]:
   def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
   def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
+  inline def stateLabelsFromType: Chunk[String] = NT.labelsOf[State]
 
 object FreeScanK:
   type Aux[F[_, _], -I, +O, S <: Tuple] = FreeScanK[F, I, O] { type State = S }
