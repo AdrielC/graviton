@@ -15,7 +15,7 @@ object CodeGenerator {
     outputDirectory: File,
     config: CodeGeneratorConfig,
   )(log: java.util.logging.Logger = java.util.logging.Logger.getLogger("dbcodegen")): Seq[Path] = {
-    val _ = log
+    val _ = (log, templateFiles)
     val ds = new DbConnectionSource(jdbcUrl, username, password)
 
     val crawlOpts = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions()

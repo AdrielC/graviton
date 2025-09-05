@@ -151,6 +151,45 @@ ALTER TABLE file_block
   ADD CONSTRAINT file_block_non_overlapping
   EXCLUDE USING gist (file_id WITH =, span WITH &&);
 
+-- ---------------------- CAS-aligned Views ----------------------
+-- View: blob (alias for immutable byte streams)
+CREATE OR REPLACE VIEW blob AS
+SELECT
+  f.id                         AS blob_id,
+  f.algo_id                    AS algo_id,
+  f.hash                       AS hash,
+  f.size_bytes                 AS total_size,
+  f.media_type                 AS media_type_hint,
+  f.created_at                 AS created_at
+FROM file f;
+
+-- View: manifest_entry (ordered entries describing block placement in a blob)
+CREATE OR REPLACE VIEW manifest_entry AS
+SELECT
+  fb.file_id                   AS blob_id,
+  fb.seq                       AS seq,
+  fb.offset_bytes              AS offset,
+  fb.length_bytes              AS size,
+  fb.block_algo_id             AS algo_id,
+  fb.block_hash                AS hash
+FROM file_block fb
+ORDER BY fb.file_id, fb.seq;
+
+-- View: replica (placement records for blocks across stores)
+CREATE OR REPLACE VIEW replica AS
+SELECT
+  bl.algo_id                   AS algo_id,
+  bl.hash                      AS hash,
+  bl.blob_store_key            AS store_key,
+  bl.uri                       AS sector,
+  bl.status                    AS status,
+  bl.bytes_length              AS size_bytes,
+  bl.etag                      AS etag,
+  bl.storage_class             AS storage_class,
+  bl.first_seen_at             AS first_seen_at,
+  bl.last_verified_at          AS last_verified_at
+FROM block_location bl;
+
 -- ---------------------- Merkle Snapshots -----------------------
 CREATE TABLE merkle_snapshot (
   id                 BIGSERIAL   PRIMARY KEY,

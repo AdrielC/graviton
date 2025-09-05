@@ -27,7 +27,7 @@ final class InMemoryFileStore private (
       ], Nothing, (Vector[BlockKey], Long)] =
         ZSink.foldLeftZIO((Vector.empty[BlockKey], 0L)) { case ((acc, sz), chunk) =>
           ZStream.fromChunk(chunk).run(blockStore.put).map { key =>
-            (acc :+ key, sz + key.size.toLong)
+            (acc :+ key, sz + chunk.size.toLong)
           }
         }
 

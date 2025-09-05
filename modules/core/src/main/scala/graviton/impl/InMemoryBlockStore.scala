@@ -1,6 +1,7 @@
 package graviton.impl
 
 import graviton.*
+import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import io.github.iltotore.iron.*
@@ -15,6 +16,38 @@ final class InMemoryBlockStore private (
   primary: BlobStore,
   resolver: BlockResolver,
 ) extends BlockStore:
+
+  private val MaxBlockSize: Int = 4 * 1024 * 1024
+
+  def storeBlock(attrs: BinaryAttributes): ZSink[Any & Scope, GravitonError, Byte, Byte, BlockKey] =
+    val algo = HashAlgorithm.SHA256
+    ZSink
+      .collectAllN[Byte](MaxBlockSize)
+      .mapError(_ => GravitonError.BackendUnavailable("ingest failure"))
+      .mapZIO { collected =>
+        val size = collected.length
+        for
+          hasher <- Hashing.hasher(algo)
+          _      <- hasher.update(collected)
+          dig    <- hasher.digest
+          digest  = dig.assume[MinLength[16] & MaxLength[64]]
+          key     = BlockKey(Hash(digest, algo), size.assume[Positive])
+          state  <- index.get.map(_.get(key))
+          _      <- state match
+                      case Some(st) =>
+                        index.update(
+                          _.updated(key, st.copy(refs = st.refs + 1, unreferencedAt = None))
+                        )
+                      case None     =>
+                        val data = Bytes(ZStream.fromChunk(collected))
+                        for
+                          _      <- primary.write(key, data).mapError(e => GravitonError.BackendUnavailable(e.getMessage))
+                          status <- primary.status
+                          _      <- resolver.record(key, BlockSector(primary.id, status))
+                          _      <- index.update(_ + (key -> BlockState(1, None)))
+                        yield ()
+        yield key
+      }
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey] =
     ZSink.unwrap {
