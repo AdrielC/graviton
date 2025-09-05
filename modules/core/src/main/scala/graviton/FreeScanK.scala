@@ -1,7 +1,7 @@
 package graviton
 
 import zio.*
-import zio.schema.Schema
+import zio.schema.{DeriveSchema, Schema}
 import scala.compiletime.ops.int.*
 
 /**
@@ -241,3 +241,37 @@ object FreeScanK:
       case PlusPlus(l, r)   => PlusPlus(optimize(l), optimize(r)).asInstanceOf[FreeScanK.Aux[F, I, O, S]]
       case FanIn(l, r)      => FanIn(optimize(l), optimize(r)).asInstanceOf[FreeScanK.Aux[F, I, O, S]]
       case other            => other
+
+  // Serializable tree representation and schema
+  sealed trait Tree
+  object Tree:
+    case object Id                                                  extends Tree
+    final case class Op(name: String, labels: Chunk[String])        extends Tree
+    final case class AndThen(left: Tree, right: Tree)               extends Tree
+    final case class Zip(left: Tree, right: Tree)                   extends Tree
+    final case class Product(left: Tree, right: Tree)               extends Tree
+    final case class First(src: Tree)                               extends Tree
+    final case class Second(src: Tree)                              extends Tree
+    final case class LeftChoice(src: Tree)                          extends Tree
+    final case class RightChoice(src: Tree)                         extends Tree
+    final case class PlusPlus(left: Tree, right: Tree)              extends Tree
+    final case class FanIn(left: Tree, right: Tree)                 extends Tree
+
+  given treeSchema: Schema[Tree] = DeriveSchema.gen[Tree]
+
+  def toTree[F[_, _], I, O, S <: Tuple](fs: FreeScanK.Aux[F, I, O, S])(using i: Interpreter[F]): Tree =
+    fs match
+      case Id()           => Tree.Id
+      case Op(fab)        =>
+        val name   = fab.getClass.getSimpleName
+        val labels = i.stateLabels(fab)
+        Tree.Op(name, labels)
+      case AndThen(l, r)  => Tree.AndThen(toTree(l), toTree(r))
+      case Zip(l, r)      => Tree.Zip(toTree(l), toTree(r))
+      case Product(l, r)  => Tree.Product(toTree(l), toTree(r))
+      case First(s)       => Tree.First(toTree(s))
+      case Second(s)      => Tree.Second(toTree(s))
+      case LeftChoice(s)  => Tree.LeftChoice(toTree(s))
+      case RightChoice(s) => Tree.RightChoice(toTree(s))
+      case PlusPlus(l, r) => Tree.PlusPlus(toTree(l), toTree(r))
+      case FanIn(l, r)    => Tree.FanIn(toTree(l), toTree(r))
