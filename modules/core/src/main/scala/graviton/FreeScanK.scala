@@ -1,6 +1,7 @@
 package graviton
 
 import zio.*
+import zio.schema.Schema
 
 /**
  * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
@@ -19,6 +20,8 @@ object FreeScanK:
   // Interpreter from DSL to concrete Scan
   trait Interpreter[F[_, _]]:
     def toScan[I, O, S <: Tuple](op: F[I, O] { type State = S }): Scan.Aux[I, O, S]
+    def stateSchema[I, O, S <: Tuple](op: F[I, O] { type State = S }): Schema[S]
+    def stateLabels[I, O, S <: Tuple](op: F[I, O] { type State = S }): Chunk[String]
 
   // Constructors
   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
@@ -28,6 +31,8 @@ object FreeScanK:
   final case class Op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }) extends FreeScanK[F, I, O]:
     type State = S
     def compile(using i: Interpreter[F]): Scan.Aux[I, O, S] = i.toScan(fab)
+    def schema(using i: Interpreter[F]): Schema[S] = i.stateSchema(fab)
+    def labels(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
 
   final case class AndThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
     left: FreeScanK.Aux[F, A, B, S1],
@@ -186,18 +191,23 @@ object FreeScanK:
 
   // Syntax
   extension [F[_, _], I, O, S <: Tuple](self: FreeScanK.Aux[F, I, O, S])
-    def >>>[O2, S2 <: Tuple](that: FreeScanK.Aux[F, O, O2, S2]): FreeScanK.Aux[F, I, O2, Tuple.Concat[S, S2]] = AndThen(self, that)
-    def &&&[O2, S2 <: Tuple](that: FreeScanK.Aux[F, I, O2, S2]): FreeScanK.Aux[F, I, (O, O2), Tuple.Concat[S, S2]] = Zip(self, that)
-    def ***[I2, O2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O2, S2]): FreeScanK.Aux[F, (I, I2), (O, O2), Tuple.Concat[S, S2]] = Product(self, that)
-    def first[C]: FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] = First(self)
-    def second[C]: FreeScanK.Aux[F, (C, I), (C, O), Tuple.Concat[Tuple1[Option[C]], S]] = Second(self)
-    def left[C]: FreeScanK.Aux[F, Either[I, C], Either[O, C], S] = LeftChoice(self)
-    def right[C]: FreeScanK.Aux[F, Either[C, I], Either[C, O], S] = RightChoice(self)
-    def +++[I2, O2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O2, S2]): FreeScanK.Aux[F, Either[I, I2], Either[O, O2], Tuple.Concat[S, S2]] = PlusPlus(self, that)
-    def |||[I2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O, S2]): FreeScanK.Aux[F, Either[I, I2], O, Tuple.Concat[S, S2]] = FanIn(self, that)
+    transparent inline def >>>[O2, S2 <: Tuple](that: FreeScanK.Aux[F, O, O2, S2]): FreeScanK.Aux[F, I, O2, Tuple.Concat[S, S2]] = AndThen(self, that)
+    transparent inline def &&&[O2, S2 <: Tuple](that: FreeScanK.Aux[F, I, O2, S2]): FreeScanK.Aux[F, I, (O, O2), Tuple.Concat[S, S2]] = Zip(self, that)
+    transparent inline def ***[I2, O2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O2, S2]): FreeScanK.Aux[F, (I, I2), (O, O2), Tuple.Concat[S, S2]] = Product(self, that)
+    transparent inline def first[C]: FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] = First(self)
+    transparent inline def second[C]: FreeScanK.Aux[F, (C, I), (C, O), Tuple.Concat[Tuple1[Option[C]], S]] = Second(self)
+    transparent inline def left[C]: FreeScanK.Aux[F, Either[I, C], Either[O, C], S] = LeftChoice(self)
+    transparent inline def right[C]: FreeScanK.Aux[F, Either[C, I], Either[C, O], S] = RightChoice(self)
+    transparent inline def +++[I2, O2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O2, S2]): FreeScanK.Aux[F, Either[I, I2], Either[O, O2], Tuple.Concat[S, S2]] = PlusPlus(self, that)
+    transparent inline def |||[I2, S2 <: Tuple](that: FreeScanK.Aux[F, I2, O, S2]): FreeScanK.Aux[F, Either[I, I2], O, Tuple.Concat[S, S2]] = FanIn(self, that)
 
   def id[F[_, _], A]: Aux[F, A, A, EmptyTuple] = Id[F, A]()
   def op[F[_, _], I, O, S <: Tuple](fab: F[I, O] { type State = S }): Aux[F, I, O, S] = Op(fab)
+
+  // State schema helpers
+  extension [F[_, _], I, O, S <: Tuple](self: FreeScanK.Aux[F, I, O, S])
+    def stateSchema: Schema[S] = Schema[S]
+
 
   // Optimizer (structure-only)
   private def optimize[F[_, _], I, O, S <: Tuple](fs: FreeScanK.Aux[F, I, O, S]): FreeScanK.Aux[F, I, O, S] =
