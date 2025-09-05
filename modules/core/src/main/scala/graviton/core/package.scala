@@ -5,7 +5,7 @@ import zio.schema.*
 import scala.collection.immutable.ListMap
 
 package object core:
-  type Bytes = ZStream[Any, Throwable, Byte]
+  type Bytes        = ZStream[Any, Throwable, Byte]
   type StorageError = GravitonError
 
   given [K: Schema, V: Schema] => Schema[ListMap[K, V]] =
