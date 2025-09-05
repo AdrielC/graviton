@@ -22,7 +22,7 @@ object PgTypeResolver {
        |WITH RECURSIVE col AS (
        |  SELECT c.oid AS relid,
        |         a.attnum,
-       |         a.attname AS column,
+       |         a.attname AS column_name,
        |         t.oid AS type_oid,
        |         t.typtype,
        |         t.typcategory,
@@ -36,7 +36,7 @@ object PgTypeResolver {
        |  JOIN pg_type t ON t.oid = a.atttypid
        |  WHERE n.nspname = ? AND c.relname = ? AND a.attnum > 0 AND NOT a.attisdropped
        |  UNION ALL
-       |  SELECT col.relid, col.attnum, col.column,
+       |  SELECT col.relid, col.attnum, col.column_name,
        |         base.oid, base.typtype, base.typcategory, base.typname,
        |         base.typbasetype, base.typelem, col.depth + 1
        |  FROM col
@@ -44,11 +44,11 @@ object PgTypeResolver {
        |),
        |resolved AS (
        |  SELECT DISTINCT ON (relid, attnum)
-       |    relid, attnum, column, type_oid, typtype, typcategory, typname, typelem
+       |    relid, attnum, column_name, type_oid, typtype, typcategory, typname, typelem
        |  FROM col
        |  ORDER BY relid, attnum, depth DESC
        |)
-       |SELECT column,
+       |SELECT column_name,
        |       typtype,
        |       typcategory,
        |       typname,
@@ -71,7 +71,7 @@ object PgTypeResolver {
     val rs = ps.executeQuery()
     val buf = mutable.Map.empty[String, ColumnInfo]
     while (rs.next()) {
-      val column        = rs.getString("column")
+      val column        = rs.getString("column_name")
       val typtype       = rs.getString("typtype")
       val typcategory   = rs.getString("typcategory")
       val typname       = rs.getString("typname")
