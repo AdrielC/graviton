@@ -169,6 +169,24 @@ inline given [T, C](using DbCodec[T], Constraint[T, C]): DbCodec[T :| C] =
 given DbCodec[java.util.UUID] =
   DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
 
+given DbCodec[PgRange[Long]] =
+  DbCodec[String].biMap(
+    s =>
+      val stripped = s.stripPrefix("[").stripSuffix(")")
+      val parts    = stripped.split(",", 2)
+      val lower    = Option(parts.headOption.getOrElse(""))
+        .filter(_.nonEmpty)
+        .map(_.toLong)
+      val upper    =
+        if parts.length > 1 then Option(parts(1)).filter(_.nonEmpty).map(_.toLong) else None
+      PgRange(lower, upper)
+    ,
+    r =>
+      val lower = r.lower.map(_.toString).getOrElse("")
+      val upper = r.upper.map(_.toString).getOrElse("")
+      s"[$lower,$upper)",
+  )
+
 given JsonBDbCodec[Json] with
   def encode(a: Json): String    =
     a.toJson
