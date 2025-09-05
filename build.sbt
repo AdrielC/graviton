@@ -5,6 +5,7 @@ enablePlugins(
 )
 
 import scala.sys.process.*
+import sbtunidoc.ScalaUnidocPlugin.autoImport._
 // import dbcodegen.plugin.DbCodegenPlugin.autoImport._
 
 ThisBuild / scalaVersion  := "3.7.2"
@@ -226,12 +227,19 @@ lazy val docs = project
   .in(file("docs"))
   .dependsOn(core, fs, s3, tika)
   .settings(
-    publish / skip := true,
-    mdocIn         := baseDirectory.value / "src/main/mdoc",
-    mdocOut        := baseDirectory.value / "target/mdoc",
-    mdocVariables  := Map("VERSION" -> version.value),
+    publish / skip                             := true,
+    moduleName                                 := "graviton-docs",
+    scalacOptions -= "-Yno-imports",
+    scalacOptions -= "-Xfatal-warnings",
+    projectName                                := "graviton",
+    mainModuleName                             := (core / moduleName).value,
+    projectStage                               := ProjectStage.ProductionReady,
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, fs, s3, tika, metrics, pg),
+    mdocIn                                     := baseDirectory.value / "src/main/mdoc",
+    mdocOut                                    := baseDirectory.value / "target/mdoc",
+    mdocVariables                              := Map("VERSION" -> version.value),
   )
-  .enablePlugins(MdocPlugin)
+  .enablePlugins(MdocPlugin, WebsitePlugin)
 
 // Convenience alias to generate and snapshot PG schemas on demand via in-repo tool
 addCommandAlias(
