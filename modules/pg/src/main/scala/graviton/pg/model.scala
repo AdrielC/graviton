@@ -92,17 +92,51 @@ object Algo:
   enum Id derives CanEqual, DbCodec:
     case Blake3, Sha256, Sha1, Md5
 
-enum StoreStatus derives DbCodec:
+enum StoreStatus derives CanEqual:
   case Active
   case Paused
   case Retired
 
-enum LocationStatus derives DbCodec:
+object StoreStatus:
+  given DbCodec[StoreStatus] =
+    DbCodec[String].biMap(
+      _.toLowerCase match
+        case "active"  => Active
+        case "paused"  => Paused
+        case "retired" => Retired
+        case other     => throw new IllegalArgumentException(s"Invalid StoreStatus: $other"),
+      {
+        case Active  => "active"
+        case Paused  => "paused"
+        case Retired => "retired"
+      },
+    )
+
+enum LocationStatus derives CanEqual:
   case Active
   case Stale
   case Missing
   case Deprecated
   case Error
+
+object LocationStatus:
+  given DbCodec[LocationStatus] =
+    DbCodec[String].biMap(
+      _.toLowerCase match
+        case "active"     => Active
+        case "stale"      => Stale
+        case "missing"    => Missing
+        case "deprecated" => Deprecated
+        case "error"      => Error
+        case other        => throw new IllegalArgumentException(s"Invalid LocationStatus: $other"),
+      {
+        case Active     => "active"
+        case Stale      => "stale"
+        case Missing    => "missing"
+        case Deprecated => "deprecated"
+        case Error      => "error"
+      },
+    )
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 
