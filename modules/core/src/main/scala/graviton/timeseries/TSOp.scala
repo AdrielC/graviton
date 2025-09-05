@@ -9,7 +9,7 @@ sealed trait TSOp[I, O]:
   type State <: Tuple
 
 object TSOp:
-  // Named states
+  // Named states (kept for schema derivation examples)
   final case class Prev[A](previous: Option[A])
   final case class MovAvgState[A](buffer: List[A], sum: A)
 
