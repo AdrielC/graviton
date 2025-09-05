@@ -305,10 +305,6 @@ object FreeScan:
   ): Aux[I, O, S] =
     Stateful(init, stepFn, doneFn)
 
-  /** Lift an existing concrete `Scan` into `FreeScan`. */
-  def fromScan[I, O, S <: Tuple](scan: Scan.Aux[I, O, S]): Aux[I, O, S] =
-    // Wrap as a Stateful node to preserve state type
-    Stateful(scan.initial, scan.step, scan.done)
 
   // ---------------- Optimization ----------------
 
