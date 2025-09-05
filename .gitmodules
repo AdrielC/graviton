@@ -1,6 +1,0 @@
-[submodule "torren"]
-	path = torren
-	url = http://git.tybera.net/tybera/torrent
-[submodule "torrent"]
-	path = torrent
-	url = http://git.tybera.net/tybera/torrent
