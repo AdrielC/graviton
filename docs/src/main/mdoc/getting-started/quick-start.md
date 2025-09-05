@@ -6,6 +6,7 @@
 import zio.*
 import zio.stream.*
 import graviton.*
+import graviton.impl.InMemoryBinaryStore
 import graviton.core.BinaryAttributes
 
 def storeAndFetch(store: BinaryStore): ZIO[Any, Throwable, Option[Bytes]] =
@@ -17,6 +18,15 @@ def storeAndFetch(store: BinaryStore): ZIO[Any, Throwable, Option[Bytes]] =
 ```
 
 The function above writes a stream of bytes to an existing `BinaryStore` and then retrieves the stored content.
+
+```scala mdoc:silent
+val runDemo = for
+  store <- InMemoryBinaryStore.make()
+  data  <- storeAndFetch(store)
+yield data
+```
+
+The `runDemo` program creates an in-memory store, writes a greeting, and reads it back.
 
 ## Next Steps
 
