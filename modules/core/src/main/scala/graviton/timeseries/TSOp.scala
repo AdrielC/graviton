@@ -38,14 +38,14 @@ object TSOp:
   object Schemas:
     def singleElemTuple[T](schemaT: Schema[T]): Schema[T *: EmptyTuple] =
       schemaT.transform[T *: EmptyTuple](t => t *: EmptyTuple, { case h *: _ => h })
-    def emptyTuple: Schema[EmptyTuple] = Schema[Unit].transform(_ => EmptyTuple, _ => ())
+    def emptyTuple: Schema[EmptyTuple]                                  = Schema[Unit].transform(_ => EmptyTuple, _ => ())
 
     given prevSchema[A](using sa: Schema[A]): Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
     given movAvgSchema[A](using sa: Schema[A]): Schema[MovAvgState[A]] = DeriveSchema.gen[MovAvgState[A]]
-    def prevSchemaFor[A](sa: Schema[A]): Schema[Prev[A]] =
+    def prevSchemaFor[A](sa: Schema[A]): Schema[Prev[A]]               =
       given Schema[A] = sa
       DeriveSchema.gen[Prev[A]]
-    def movAvgSchemaFor[A](sa: Schema[A]): Schema[MovAvgState[A]] =
+    def movAvgSchemaFor[A](sa: Schema[A]): Schema[MovAvgState[A]]      =
       given Schema[A] = sa
       DeriveSchema.gen[MovAvgState[A]]
 
@@ -63,7 +63,7 @@ object TSOp:
         case m: MovingAvg[a]    =>
           given frac: Fractional[a] = m.frac
           import frac.*
-          val n = m.n
+          val n                     = m.n
           Scan
             .stateful[a, a, MovAvgState[a]](MovAvgState[a](Nil, frac.zero)) { (st, d) =>
               val buf1 = (d :: st.buffer).take(n)
