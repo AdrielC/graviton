@@ -1,9 +1,9 @@
 # Design Goals
 
 Graviton is a ZIO‑native content‑addressable storage system focused on
-streaming binary processing and deterministic chunking.  It builds on the
-Binny `BinaryStore` model while incorporating lessons from the Torrent
-prototype.
+streaming binary processing and deterministic chunking. It builds on the
+Binny `BinaryStore` model while incorporating lessons from an early
+prototype that explored streaming ingestion and content‑defined chunking.
 
 ## Current Implementation Status
 
