@@ -22,3 +22,8 @@ Additional details about the layered model and terminology live in
 
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
+
+## CAS Layer
+
+* [CAS Layer Spec](cas-layer-spec.md)
+* [Roadmap](roadmap.md)
