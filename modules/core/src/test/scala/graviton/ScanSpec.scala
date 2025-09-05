@@ -17,10 +17,10 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(1, 3, 6, 6))
     },
     test("stateless composition with identity is a no-op on state") {
-      val add1 = Scan.stateless1((i: Int) => i + 1)
-      val double = Scan.stateless1((i: Int) => i * 2)
+      val add1     = Scan.stateless1((i: Int) => i + 1)
+      val double   = Scan.stateless1((i: Int) => i * 2)
       val composed = add1.andThen(double)
-      val id = Scan.identity[Int]
+      val id       = Scan.identity[Int]
       for
         out1 <- ZStream(1, 2).via(composed.toPipeline).runCollect
         out2 <- ZStream(1, 2, 3).via(id.toPipeline).runCollect
@@ -30,10 +30,10 @@ object ScanSpec extends ZIOSpecDefault:
     },
     test("map transforms output values") {
       val scan = Scan
-        .stateful(0)({ (s: Int, i: Int) =>
+        .stateful(0) { (s: Int, i: Int) =>
           val sum = s + i
           (sum, Chunk.single(sum))
-        })(s => Chunk.single(s))
+        }(s => Chunk.single(s))
         .map(_ * 2)
       for out <- ZStream(1, 2, 3).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(2, 6, 12, 12))
@@ -52,22 +52,18 @@ object ScanSpec extends ZIOSpecDefault:
     },
     test("stateful composed after stateless keeps only stateful state") {
       val stateless = Scan.stateless1((i: Int) => i + 1)
-      val stateful = Scan.stateful(0)({ (s: Int, i: Int) =>
+      val stateful  = Scan.stateful(0) { (s: Int, i: Int) =>
         val sum = s + i
         (sum, Chunk.single(sum))
-      })(_ => Chunk.empty)
-      val composed = stateless.andThen(stateful)
+      }(_ => Chunk.empty)
+      val composed  = stateless.andThen(stateful)
       for out <- ZStream(1, 2).via(composed.toPipeline).runCollect
       yield assertTrue(composed.initial == Tuple1(0)) &&
         assertTrue(out == Chunk(2, 5))
     },
     test("stateful composition appends state tuples") {
-      val s1 = Scan.stateful(0)({ (s: Int, i: Int) =>
-        (s + i, Chunk.single(i))
-      })(_ => Chunk.empty)
-      val s2 = Scan.stateful(0)({ (s: Int, i: Int) =>
-        (s + i, Chunk.single(s + i))
-      })(s => Chunk.single(s))
+      val s1       = Scan.stateful(0)((s: Int, i: Int) => (s + i, Chunk.single(i)))(_ => Chunk.empty)
+      val s2       = Scan.stateful(0)((s: Int, i: Int) => (s + i, Chunk.single(s + i)))(s => Chunk.single(s))
       val composed = s1.andThen(s2)
       for
         out <- ZStream(1, 2).via(composed.toPipeline).runCollect
@@ -76,7 +72,7 @@ object ScanSpec extends ZIOSpecDefault:
         assertTrue(out == Chunk(1, 3, 3))
     },
     test("many stateless functions fuse without blowing the stack") {
-      val scans = List.fill(1000)(Scan.stateless1((i: Int) => i + 1))
+      val scans                    = List.fill(1000)(Scan.stateless1((i: Int) => i + 1))
       val composed: Scan[Int, Int] = scans.reduce[Scan[Int, Int]](_.andThen(_))
       for out <- ZStream(0).via(composed.toPipeline).runCollect
       yield assertTrue(out == Chunk(1000))
@@ -87,26 +83,26 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(1, 2, 2, 3))
     },
     test("zip runs two scans in parallel") {
-      val s1 = Scan.stateless1((i: Int) => i + 1)
-      val s2 = Scan.stateless1((i: Int) => i * 2)
+      val s1     = Scan.stateless1((i: Int) => i + 1)
+      val s2     = Scan.stateless1((i: Int) => i * 2)
       val zipped = s1.zip(s2)
       for out <- ZStream(1, 2).via(zipped.toPipeline).runCollect
       yield assertTrue(out == Chunk((2, 2), (3, 4)))
     },
     test("hashAndCount computes digest and length") {
       val bytes = Chunk.fromArray("abc".getBytes)
-      val scan = Scan.hashAndCount(HashAlgorithm.SHA256)
+      val scan  = Scan.hashAndCount(HashAlgorithm.SHA256)
       for
-        out <- ZStream.fromChunk(bytes).via(scan.toPipeline).runCollect
+        out    <- ZStream.fromChunk(bytes).via(scan.toPipeline).runCollect
         digest <- Hashing
-          .compute(Bytes(ZStream.fromChunk(bytes)), HashAlgorithm.SHA256)
-        digRef = digest.assume[MinLength[16] & MaxLength[64]]
+                    .compute(Bytes(ZStream.fromChunk(bytes)), HashAlgorithm.SHA256)
+        digRef  = digest.assume[MinLength[16] & MaxLength[64]]
       yield assertTrue(
         out == Chunk((Hash(digRef, HashAlgorithm.SHA256), bytes.length.toLong))
       )
     },
     test("toChannel yields Take-based channel") {
-      val scan = Scan.count
+      val scan     = Scan.count
       val pipeline = ZPipeline.fromChannel(
         scan.toChannel.mapOut(
           _.fold(Chunk.empty[Long], cause => throw cause.squash, chunk => chunk)
@@ -120,8 +116,8 @@ object ScanSpec extends ZIOSpecDefault:
       assertTrue(st.head == 3L) && assertTrue(out == Chunk(3L))
     },
     test("chunkBy splits input into fixed-size chunks") {
-      val scan = Scan.fixedSize[Byte](2)
-      val bytes = List[Byte](1, 2, 3, 4, 5)
+      val scan     = Scan.fixedSize[Byte](2)
+      val bytes    = List[Byte](1, 2, 3, 4, 5)
       val (_, out) = scan.runAll(bytes)
       assertTrue(out == Chunk(Chunk(1, 2), Chunk(3, 4), Chunk(5)))
     },
@@ -131,11 +127,11 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(2, 4, 6))
     },
     test("runZPure yields final state and outputs") {
-      val scan = Scan.stateful(0) { (s: Int, i: Int) =>
+      val scan      = Scan.stateful(0) { (s: Int, i: Int) =>
         val sum = s + i
         (sum, Chunk.single(sum))
       }(s => Chunk.single(s))
       val (st, out) = scan.runZPure(List(1, 2, 3)).run(scan.initial)
       assertTrue(out == Chunk(1, 3, 6, 6)) && assertTrue(st.head == 6)
-    }
+    },
   )

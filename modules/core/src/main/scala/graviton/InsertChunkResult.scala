@@ -1,7 +1,7 @@
 package graviton
 
 final case class InsertChunkResult(
-    id: BinaryId,
-    size: Long,
-    deduplicated: Boolean
+  id: BinaryId,
+  size: Long,
+  deduplicated: Boolean,
 )
