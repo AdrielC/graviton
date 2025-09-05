@@ -25,6 +25,7 @@ lazy val zioConfigV      = "4.0.4"
 lazy val testContainersV = "1.19.7"
 lazy val zioLoggingV     = "2.2.4"
 lazy val magnumV         = "2.0.0-M2"
+lazy val scalateV        = "1.10.1"
 lazy val postgresV       = "42.7.3"
 
 lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
