@@ -13,6 +13,10 @@ sealed trait FreeScan[-I, +O]:
   /** Compile this free description into a concrete `Scan`. */
   def compile: Scan.Aux[I, O, State]
 
+  /** Compile with a small optimization pass to simplify the graph. */
+  def compileOptimized: Scan.Aux[I, O, State] =
+    FreeScan.optimize(this).compile.asInstanceOf[Scan.Aux[I, O, State]]
+
 object FreeScan:
   type Aux[-I, +O, S <: Tuple] = FreeScan[I, O] { type State = S }
 
@@ -300,4 +304,39 @@ object FreeScan:
     doneFn: S => Chunk[O]
   ): Aux[I, O, S] =
     Stateful(init, stepFn, doneFn)
+
+  /** Lift an existing concrete `Scan` into `FreeScan`. */
+  def fromScan[I, O, S <: Tuple](scan: Scan.Aux[I, O, S]): Aux[I, O, S] =
+    // Wrap as a Stateful node to preserve state type
+    Stateful(scan.initial, scan.step, scan.done)
+
+  // ---------------- Optimization ----------------
+
+  private def optimize[I, O, S <: Tuple](fs: FreeScan.Aux[I, O, S]): FreeScan.Aux[I, O, S] =
+    fs match
+      // Eliminate identities
+      case Composed(l, r) if l.isInstanceOf[Identity[?]] => r.asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Composed(l, r) if r.isInstanceOf[Identity[?]] => l.asInstanceOf[FreeScan.Aux[I, O, S]]
+      // Fuse mapped chains
+      case Mapped(Mapped(src, f1), f2)                    => optimize(Mapped(src, f1.andThen(f2))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      // Fuse contramaps
+      case ContraMapped(ContraMapped(src, g1), g2)        => optimize(ContraMapped(src, g2.andThen(g1))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      // Distribute map over composition where possible
+      case Mapped(Composed(a, b), f)                      => optimize(Composed(a, Mapped(b, f))).asInstanceOf[FreeScan.Aux[I, O, S]]
+      // Distribute contramap over composition
+      case ContraMapped(Composed(a, b), g)                => optimize(Composed(ContraMapped(a, g), b)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      // Default: recursively optimize children
+      case Mapped(src, f)                                 => Mapped(optimize(src), f).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case ContraMapped(src, g)                           => ContraMapped(optimize(src), g).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Dimapped(src, g, f)                            => Dimapped(optimize(src), g, f).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Composed(l, r)                                 => Composed(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Zipped(l, r)                                   => Zipped(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Product(l, r)                                  => Product(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case First(src)                                     => First(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case Second(src)                                    => Second(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case LeftChoice(src)                                => LeftChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case RightChoice(src)                               => RightChoice(optimize(src)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case PlusPlus(l, r)                                 => PlusPlus(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case FanIn(l, r)                                    => FanIn(optimize(l), optimize(r)).asInstanceOf[FreeScan.Aux[I, O, S]]
+      case other                                          => other
 
