@@ -20,4 +20,3 @@ final case class Manifest(
 
 object Manifest:
   given Schema[Manifest] = DeriveSchema.gen[Manifest]
-

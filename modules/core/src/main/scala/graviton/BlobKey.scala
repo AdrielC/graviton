@@ -15,4 +15,3 @@ final case class BlobKey(
 
 object BlobKey:
   given Schema[BlobKey] = DeriveSchema.gen[BlobKey]
-
