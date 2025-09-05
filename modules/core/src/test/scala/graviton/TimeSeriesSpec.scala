@@ -23,5 +23,5 @@ object TimeSeriesSpec extends ZIOSpecDefault:
       val scan = TimeSeries.countWindow(3)
       for out <- ZStream.range(0, 7).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(3, 3, 1))
-    }
+    },
   )

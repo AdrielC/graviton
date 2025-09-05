@@ -6,13 +6,12 @@ import zio.*
 import zio.logging.logContext
 import zio.stream.*
 
-final case class LoggingBinaryStore(underlying: BinaryStore)
-    extends BinaryStore:
+final case class LoggingBinaryStore(underlying: BinaryStore) extends BinaryStore:
   import LoggingBinaryStore.*
 
   private def around[A](name: String)(fa: IO[Throwable, A]): IO[Throwable, A] =
     loggingActive.get.flatMap {
-      case true => fa
+      case true  => fa
       case false =>
         logContext.get.flatMap { ctx =>
           ctx.get(cidKey) match
@@ -20,16 +19,16 @@ final case class LoggingBinaryStore(underlying: BinaryStore)
               loggingActive.locally(true) {
                 ZIO.logInfo(s"$name start") *> fa.tapBoth(
                   err => ZIO.logErrorCause(s"$name error", Cause.fail(err)),
-                  _ => ZIO.logInfo(s"$name finish")
+                  _ => ZIO.logInfo(s"$name finish"),
                 )
               }
-            case None =>
+            case None    =>
               Random.nextUUID.flatMap { cid =>
                 ZIO.logAnnotate(cidKey, cid.toString) {
                   loggingActive.locally(true) {
                     ZIO.logInfo(s"$name start") *> fa.tapBoth(
                       err => ZIO.logErrorCause(s"$name error", Cause.fail(err)),
-                      _ => ZIO.logInfo(s"$name finish")
+                      _ => ZIO.logInfo(s"$name finish"),
                     )
                   }
                 }
@@ -38,32 +37,30 @@ final case class LoggingBinaryStore(underlying: BinaryStore)
     }
 
   override def put(
-      attrs: BinaryAttributes,
-      chunkSize: Int
+    attrs: BinaryAttributes,
+    chunkSize: Int,
   ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.unwrapScoped {
       loggingActive.get.flatMap {
-        case true => ZIO.succeed(underlying.put(attrs, chunkSize))
+        case true  => ZIO.succeed(underlying.put(attrs, chunkSize))
         case false =>
           logContext.get.flatMap { ctx =>
             ctx.get(cidKey) match
               case Some(_) =>
                 loggingActive.locally(true) {
                   for
-                    _ <- ZIO.logInfo("put start")
+                    _   <- ZIO.logInfo("put start")
                     sink = underlying.put(attrs, chunkSize)
                   yield sink
                     .mapZIO(id => ZIO.logInfo("put finish").as(id))
-                    .mapErrorZIO(err =>
-                      ZIO.logErrorCause("put error", Cause.fail(err)).as(err)
-                    )
+                    .mapErrorZIO(err => ZIO.logErrorCause("put error", Cause.fail(err)).as(err))
                 }
-              case None =>
+              case None    =>
                 Random.nextUUID.flatMap { cid =>
                   ZIO.logAnnotate(cidKey, cid.toString) {
                     loggingActive.locally(true) {
                       for
-                        _ <- ZIO.logInfo("put start")
+                        _   <- ZIO.logInfo("put start")
                         sink = underlying.put(attrs, chunkSize)
                       yield sink
                         .mapZIO(id => ZIO.logInfo("put finish").as(id))
@@ -80,8 +77,8 @@ final case class LoggingBinaryStore(underlying: BinaryStore)
     }
 
   override def get(
-      id: BinaryId,
-      range: Option[ByteRange]
+    id: BinaryId,
+    range: Option[ByteRange],
   ): IO[Throwable, Option[graviton.Bytes]] =
     around("get")(underlying.get(id, range))
 
@@ -92,9 +89,9 @@ final case class LoggingBinaryStore(underlying: BinaryStore)
     around("exists")(underlying.exists(id))
 
 object LoggingBinaryStore:
-  private val cidKey = "correlation-id"
+  private val cidKey                   = "correlation-id"
   val loggingActive: FiberRef[Boolean] =
-    Unsafe.unsafe { implicit u => FiberRef.unsafe.make(false) }
+    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(false))
 
   val layer: ZLayer[BinaryStore, Nothing, BinaryStore] =
     ZLayer.fromFunction(LoggingBinaryStore(_))

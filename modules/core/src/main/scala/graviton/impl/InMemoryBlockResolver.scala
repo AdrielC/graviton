@@ -4,7 +4,7 @@ import graviton.*
 import zio.*
 
 final class InMemoryBlockResolver private (
-    state: Ref[Map[BlockKey, Set[BlockSector]]]
+  state: Ref[Map[BlockKey, Set[BlockSector]]]
 ) extends BlockResolver:
   def record(key: BlockKey, sector: BlockSector): UIO[Unit] =
     state.update { m =>

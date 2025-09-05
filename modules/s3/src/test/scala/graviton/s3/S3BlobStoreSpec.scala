@@ -31,23 +31,23 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
             .build()
           val bucket = "test"
           for
-            _ <- ZIO.attempt(
-              client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build())
-            )
-            store = new S3BlobStore(client, bucket, BlobStoreId("test"))
-            data = Chunk.fromArray("hello".getBytes)
+            _         <- ZIO.attempt(
+                           client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build())
+                         )
+            store      = new S3BlobStore(client, bucket, BlobStoreId("test"))
+            data       = Chunk.fromArray("hello".getBytes)
             hashBytes <- Hashing
-              .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
-            digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
-            hash = Hash(digest, HashAlgorithm.SHA256)
-            key = BlockKey(hash, data.length.assume[Positive])
-            _ <- store.write(key, Bytes(ZStream.fromChunk(data)))
-            outOpt <- store.read(key)
-            out <- outOpt match
-              case Some(bs) => bs.runCollect
-              case None     => ZIO.fail(new RuntimeException("missing data"))
-            deleted <- store.delete(key)
-            missing <- store.read(key)
+                           .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
+            digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+            hash       = Hash(digest, HashAlgorithm.SHA256)
+            key        = BlockKey(hash, data.length.assume[Positive])
+            _         <- store.write(key, Bytes(ZStream.fromChunk(data)))
+            outOpt    <- store.read(key)
+            out       <- outOpt match
+                           case Some(bs) => bs.runCollect
+                           case None     => ZIO.fail(new RuntimeException("missing data"))
+            deleted   <- store.delete(key)
+            missing   <- store.read(key)
           yield assertTrue(out == data, deleted, missing.isEmpty)
         }
       }

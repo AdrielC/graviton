@@ -1,6 +1,6 @@
 package graviton
 
 final case class BlockSector(
-    blobStoreId: BlobStoreId,
-    status: BlobStoreStatus
+  blobStoreId: BlobStoreId,
+  status: BlobStoreStatus,
 )
