@@ -1,9 +1,8 @@
 # Binary Store Design
 
-Torrent (implemented in this repository as **Graviton**) provides an immutable
-binary substrate for Quasar.  The system is organised into a small set of
-layered concepts that keep storage concerns isolated from higher‑level document
-workflows.
+Graviton provides an immutable binary substrate for Quasar.  The system is
+organised into a small set of layered concepts that keep storage concerns
+isolated from higher‑level document workflows.
 
 ## Goals
 
@@ -66,6 +65,7 @@ modules/core    – base types and in‑memory stores
 modules/fs      – filesystem backed blob store
 modules/s3      – S3‑compatible blob store
 modules/tika    – media type detection utilities
+modules/metrics – Prometheus instrumentation for core operations
 ```
 
 Each module provides a `ZLayer` for easy wiring into ZIO applications. The `s3`

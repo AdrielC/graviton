@@ -5,8 +5,10 @@ ZIO‑native content‑addressable storage inspired by Binny.
 ## Features
 
 * Content‑addressable binary store with BLAKE3 hashing
-* Pluggable blob stores (filesystem, S3/MinIO, …)
-* ZIO Streams based APIs for non‑blocking I/O
+* Pluggable blob stores (filesystem, S3‑compatible, …)
+* ZIO Streams‑based APIs for non‑blocking I/O
+* Structured logging with correlation IDs
+* Prometheus metrics for core operations
 * Media type detection utilities backed by Apache Tika
 
 ## Architecture
@@ -56,7 +58,11 @@ curl http://localhost:8080/files/<fileKey> -o README.copy.md
 ```
 
 Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and
-is published as part of the project site.
+is published as part of the project site. Start with the getting started guides
+for [installation](docs/src/main/mdoc/getting-started/installation.md) and a
+[quick start](docs/src/main/mdoc/getting-started/quick-start.md) example.
+
+See [ROADMAP.md](ROADMAP.md) for the path to v0.1.0.
 
 ## Logging
 
