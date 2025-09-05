@@ -7,14 +7,14 @@ import zio.*
 import zio.stream.*
 
 final case class StackedBinaryStore(
-    primary: BinaryStore,
-    replicas: Chunk[BinaryStore]
+  primary: BinaryStore,
+  replicas: Chunk[BinaryStore],
 ) extends BinaryStore:
   private val allStores: Chunk[BinaryStore] = primary +: replicas
 
   def put(
-      attrs: BinaryAttributes,
-      chunkSize: Int
+    attrs: BinaryAttributes,
+    chunkSize: Int,
   ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.collectAll[Byte].mapZIO { data =>
       ZIO
@@ -30,21 +30,21 @@ final case class StackedBinaryStore(
         }
         .flatMap {
           case head :: _ => ZIO.succeed(head)
-          case Nil =>
+          case Nil       =>
             ZIO.fail(BackendUnavailable("all replicas failed"))
         }
     }
 
   def get(
-      id: BinaryId,
-      range: Option[ByteRange] = None
+    id: BinaryId,
+    range: Option[ByteRange] = None,
   ): IO[Throwable, Option[Bytes]] =
     def loop(
-        stores: Chunk[BinaryStore],
-        lastErr: Option[Throwable]
+      stores: Chunk[BinaryStore],
+      lastErr: Option[Throwable],
     ): IO[Throwable, Option[Bytes]] =
       stores.headOption match
-        case None =>
+        case None        =>
           lastErr match
             case Some(err) => ZIO.fail(err)
             case None      => ZIO.succeed(None)

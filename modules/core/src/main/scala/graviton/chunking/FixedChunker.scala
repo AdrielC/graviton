@@ -7,7 +7,7 @@ import zio.stream.*
 object FixedChunker:
   def apply(size: Int): Chunker =
     new Chunker:
-      val name = s"fixed($size)"
+      val name                                                   = s"fixed($size)"
       val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
         ZPipeline.fromChannel:
           def splitAll(acc: Chunk[Byte]): (Chunk[Chunk[Byte]], Chunk[Byte]) =
@@ -30,6 +30,6 @@ object FixedChunker:
               (err: Throwable) => ZChannel.fail(err),
               (_: Any) =>
                 if buf.isEmpty then ZChannel.unit
-                else ZChannel.write(Chunk(buf))
+                else ZChannel.write(Chunk(buf)),
             )
           loop(Chunk.empty)

@@ -17,9 +17,9 @@ object Encryption:
 
     // RFC 5869 HKDF inspired by zio-crypto's implementation
     private def hkdf(
-        master: Array[Byte],
-        salt: Array[Byte],
-        length: Int
+      master: Array[Byte],
+      salt: Array[Byte],
+      length: Int,
     ): Array[Byte] =
       val mac = Mac.getInstance("HmacSHA256")
       mac.init(new SecretKeySpec(salt, "HmacSHA256"))
@@ -39,7 +39,7 @@ object Encryption:
       ZIO.attempt {
         val secret = new SecretKeySpec(deriveKey(hash), "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = new GCMParameterSpec(128, nonce(hash))
+        val spec   = new GCMParameterSpec(128, nonce(hash))
         cipher.init(Cipher.ENCRYPT_MODE, secret, spec)
         Chunk.fromArray(cipher.doFinal(data.toArray))
       }
@@ -48,10 +48,10 @@ object Encryption:
       ZIO.attempt {
         val secret = new SecretKeySpec(deriveKey(hash), "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val spec = new GCMParameterSpec(128, nonce(hash))
+        val spec   = new GCMParameterSpec(128, nonce(hash))
         cipher.init(Cipher.DECRYPT_MODE, secret, spec)
         Chunk.fromArray(cipher.doFinal(data.toArray))
       }
 
   val live: ZLayer[MasterKey, Nothing, Encryption] =
-    ZLayer.fromFunction { (mk: MasterKey) => new AesGcm(mk.bytes) }
+    ZLayer.fromFunction((mk: MasterKey) => new AesGcm(mk.bytes))
