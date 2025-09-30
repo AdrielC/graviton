@@ -25,8 +25,8 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant BS as BlockStore
-    participant BL as FileStore
+    participant BS as FileStore
+    participant BL as BlockStore
     participant RS as Resolver
 
     C->>BS: stream file bytes
