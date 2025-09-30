@@ -13,10 +13,10 @@ import zio.schema.DynamicValue
 
 trait RefinedTypeExt[A, C] extends RefinedType[A, C]:
 
-  given (using d: DbCodec[A]): DbCodec[T] = 
+  given (using d: DbCodec[A]): DbCodec[T] =
     d.biMap(applyUnsafe(_), _.value)
 
-  given (using s: Schema[A]): Schema[T]   = s
+  given (using s: Schema[A]): Schema[T] = s
     .annotate(rtc.message)
     .transformOrFail(either(_), v => Right(v.value))
 
@@ -95,18 +95,44 @@ object Algo:
     case Blake3, Sha256, Sha1, Md5
 
 @Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
-enum StoreStatus derives CanEqual, DbCodec:
-  case Active
-  case Paused
-  case Retired
+enum StoreStatus(val dbValue: String) derives CanEqual:
+  case Active  extends StoreStatus("active")
+  case Paused  extends StoreStatus("paused")
+  case Retired extends StoreStatus("retired")
+
+object StoreStatus:
+  private val lookup: Map[String, StoreStatus] = values.map(status => status.dbValue -> status).toMap
+
+  given DbCodec[StoreStatus] =
+    DbCodec[String].biMap(
+      s =>
+        lookup.getOrElse(
+          s.toLowerCase(java.util.Locale.ROOT),
+          throw IllegalArgumentException(s"Unknown store status '$s'"),
+        ),
+      _.dbValue,
+    )
 
 @Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
-enum LocationStatus derives CanEqual, DbCodec:
-  case Active
-  case Stale
-  case Missing
-  case Deprecated
-  case Error
+enum LocationStatus(val dbValue: String) derives CanEqual:
+  case Active     extends LocationStatus("active")
+  case Stale      extends LocationStatus("stale")
+  case Missing    extends LocationStatus("missing")
+  case Deprecated extends LocationStatus("deprecated")
+  case Error      extends LocationStatus("error")
+
+object LocationStatus:
+  private val lookup: Map[String, LocationStatus] = values.map(status => status.dbValue -> status).toMap
+
+  given DbCodec[LocationStatus] =
+    DbCodec[String].biMap(
+      s =>
+        lookup.getOrElse(
+          s.toLowerCase(java.util.Locale.ROOT),
+          throw IllegalArgumentException(s"Unknown location status '$s'"),
+        ),
+      _.dbValue,
+    )
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 
