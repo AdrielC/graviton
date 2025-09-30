@@ -131,7 +131,7 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
     xa.transact {
       sql"""
         INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
-        VALUES (${row.key}, ${row.implId}, ${row.buildFp}, ${row.dvSchemaUrn}, ${row.dvCanonical}, ${row.dvJsonPreview}, ${row.status})
+        VALUES (${row.key}, ${row.implId}, ${row.buildFp}, ${row.dvSchemaUrn}, ${row.dvCanonical}, ${row.dvJsonPreview}, ${row.status.toDbValue})
         ON CONFLICT (key) DO UPDATE
         SET updated_at = now(),
             version    = blob_store.version + 1
@@ -164,7 +164,7 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
                            rows     <- xa.transact {
                                          val rows = sql"""
               SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-              FROM blob_store WHERE status = ${StoreStatus.Active}
+              FROM blob_store WHERE status = ${StoreStatus.Active.toDbValue}
               ORDER BY updated_at DESC
               Limit $limit
               OFFSET $offset
