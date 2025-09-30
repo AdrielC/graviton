@@ -95,7 +95,8 @@ object SchemaConverter {
             (scalaT, Some(dataEnum))
           case None =>
             val typeName = info.arrayElemType.orElse(info.rangeSubType).getOrElse(info.typname)
-            val targetType = localTypeNameToSqlType(typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
+            val targetType =
+              localTypeNameToSqlType(connection, typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeString       =
@@ -120,7 +121,10 @@ object SchemaConverter {
         val (baseScalaType, dataEnum) = enumValues match {
           case enumValues if enumValues.isEmpty =>
             val targetType =
-              arrayElementType.flatMap(localTypeNameToSqlType).orElse(localTypeNameToSqlType(tpe.getName)).getOrElse(tpe.getJavaSqlType)
+              arrayElementType
+                .flatMap(localTypeNameToSqlType(connection, _))
+                .orElse(localTypeNameToSqlType(connection, tpe.getName))
+                .getOrElse(tpe.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeStringMapped = config.typeMapping(targetType, scalaTypeStringGuess)
@@ -162,73 +166,95 @@ object SchemaConverter {
     case Types.DATALINK                                                                                     => classTag[java.net.URL]
   }
 
-  private val vendorSpecificTypeMappings: Map[String, SQLType] = Map(
-    // PostgreSQL-specific aliases
-    "TEXT"                 -> JDBCType.LONGVARCHAR,
-    "UUID"                 -> JDBCType.LONGVARCHAR,
-    "JSON"                 -> JDBCType.OTHER,
-    "JSONB"                -> JDBCType.OTHER,
-    "INT2"                 -> JDBCType.SMALLINT,
-    "INT"                  -> JDBCType.INTEGER,
-    "INT4"                 -> JDBCType.INTEGER,
-    "INT8"                 -> JDBCType.BIGINT,
-    "FLOAT4"               -> JDBCType.FLOAT,
-    "FLOAT8"               -> JDBCType.DOUBLE,
-    "MONEY"                -> JDBCType.DECIMAL,
-    "BPCHAR"               -> JDBCType.CHAR,
-    "NAME"                 -> JDBCType.VARCHAR,
-    "OID"                  -> JDBCType.BIGINT,
-    "REGCLASS"             -> JDBCType.BIGINT,
-    "BYTEA"                -> JDBCType.BINARY,
-    "TIMESTAMPTZ"          -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
-    "TIMETZ"               -> JDBCType.TIME_WITH_TIMEZONE,
-    "BOOL"                 -> JDBCType.BOOLEAN,
-    "SERIAL"               -> JDBCType.BIGINT,
-    "BIGSERIAL"            -> JDBCType.BIGINT,
-    "SMALLSERIAL"          -> JDBCType.INTEGER,
-    // MySQL variants
-    "TINYTEXT"             -> JDBCType.LONGVARCHAR,
-    "MEDIUMTEXT"           -> JDBCType.LONGVARCHAR,
-    "LONGTEXT"             -> JDBCType.LONGVARCHAR,
-    "TINYBLOB"             -> JDBCType.BINARY,
-    "MEDIUMBLOB"           -> JDBCType.BLOB,
-    "LONGBLOB"             -> JDBCType.BLOB,
-    "DATETIME"             -> JDBCType.TIMESTAMP,
-    "YEAR"                 -> JDBCType.SMALLINT,
-    // Oracle variants
-    "VARCHAR2"             -> JDBCType.VARCHAR,
-    "NVARCHAR2"            -> JDBCType.NVARCHAR,
-    "NUMBER"               -> JDBCType.NUMERIC,
-    "RAW"                  -> JDBCType.BINARY,
-    "TIMESTAMP WITH TIME ZONE"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
-    "TIMESTAMP WITH LOCAL TIME ZONE" -> JDBCType.TIMESTAMP,
-    // SQL Server variants
-    "UNIQUEIDENTIFIER"     -> JDBCType.OTHER,
-    "DATETIME2"            -> JDBCType.TIMESTAMP,
-    "SMALLDATETIME"        -> JDBCType.TIMESTAMP,
-    "DATETIMEOFFSET"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
-    "NTEXT"                -> JDBCType.LONGNVARCHAR,
-    "NVARCHAR"             -> JDBCType.NVARCHAR,
-    "NCHAR"                -> JDBCType.NCHAR,
-    "IMAGE"                -> JDBCType.LONGVARBINARY,
-    // Generic aliases
-    "VARCHAR"              -> JDBCType.VARCHAR,
-    "DECIMAL"              -> JDBCType.DECIMAL,
-    "NUMERIC"              -> JDBCType.NUMERIC,
-    "BOOLEAN"              -> JDBCType.BOOLEAN,
-    "TIME"                 -> JDBCType.TIME,
-    "DATE"                 -> JDBCType.DATE,
-    "TIMESTAMP"            -> JDBCType.TIMESTAMP,
+  def localTypeNameToSqlType(
+    connection: DatabaseConnectionSource,
+    localTypeName: String,
+  ): Option[SQLType] = {
+    val trimmed = Option(localTypeName).map(_.trim).filter(_.nonEmpty)
+    trimmed.flatMap { name =>
+      val upper = name.toUpperCase(Locale.ROOT)
+
+      vendorSpecificTypeNameToSqlType(upper)
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
+        .orElse(typeInfoSqlType(connection, name))
+    }
+  }
+
+  private val vendorSpecificOverrides: Map[String, SQLType] = Map(
+    "TEXT"          -> JDBCType.LONGVARCHAR,
+    "UUID"          -> JDBCType.LONGVARCHAR,
+    "JSON"          -> JDBCType.OTHER,
+    "JSONB"         -> JDBCType.OTHER,
+    "INT2"          -> JDBCType.SMALLINT,
+    "INT"           -> JDBCType.INTEGER,
+    "INT4"          -> JDBCType.INTEGER,
+    "INT8"          -> JDBCType.BIGINT,
+    "FLOAT4"        -> JDBCType.FLOAT,
+    "FLOAT8"        -> JDBCType.DOUBLE,
+    "MONEY"         -> JDBCType.DECIMAL,
+    "BPCHAR"        -> JDBCType.CHAR,
+    "VARCHAR"       -> JDBCType.VARCHAR,
+    "NAME"          -> JDBCType.VARCHAR,
+    "OID"           -> JDBCType.BIGINT,
+    "REGCLASS"      -> JDBCType.BIGINT,
+    "BYTEA"         -> JDBCType.BINARY,
+    "TIMESTAMPTZ"   -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"        -> JDBCType.TIME_WITH_TIMEZONE,
+    "DATETIME"      -> JDBCType.TIMESTAMP,
+    "SMALLSERIAL"   -> JDBCType.INTEGER,
+    "SERIAL"        -> JDBCType.INTEGER,
+    "BIGSERIAL"     -> JDBCType.BIGINT,
+    "TINYTEXT"      -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"    -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"      -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"      -> JDBCType.BLOB,
+    "MEDIUMBLOB"    -> JDBCType.BLOB,
+    "LONGBLOB"      -> JDBCType.BLOB,
+    "NVARCHAR2"     -> JDBCType.NVARCHAR,
+    "NCHAR"         -> JDBCType.NCHAR,
+    "NCLOB"         -> JDBCType.NCLOB,
+    "BIT VARYING"   -> JDBCType.VARBINARY,
+    "CHARACTER"     -> JDBCType.CHAR,
+    "CHARACTER VARYING" -> JDBCType.VARCHAR,
+    "DOUBLE PRECISION" -> JDBCType.DOUBLE,
+    "BOOLEAN"       -> JDBCType.BOOLEAN,
+    "BOOL"          -> JDBCType.BOOLEAN,
+    "NUMERIC"       -> JDBCType.NUMERIC,
+    "DECIMAL"       -> JDBCType.DECIMAL,
+    "DATE"          -> JDBCType.DATE,
+    "TIME"          -> JDBCType.TIME,
+    "GEOGRAPHY"     -> JDBCType.OTHER,
+    "GEOMETRY"      -> JDBCType.OTHER,
+    "XML"           -> JDBCType.SQLXML,
+    "UUID[]"        -> JDBCType.ARRAY,
   )
 
-  def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
-    val upper            = localTypeName.toUpperCase(Locale.ROOT)
-    lazy val normalized  = if (upper.startsWith("_")) upper.drop(1) else upper
-    if (upper.startsWith("_")) Some(JDBCType.ARRAY)
-    else
-      vendorSpecificTypeMappings
-        .get(upper)
-        .orElse(vendorSpecificTypeMappings.get(normalized))
-        .orElse(Try(JDBCType.valueOf(upper)).toOption)
+  private def vendorSpecificTypeNameToSqlType(typeName: String): Option[SQLType] =
+    vendorSpecificOverrides.get(typeName).orElse {
+      if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
+    }
+
+  private def typeInfoSqlType(
+    connection: DatabaseConnectionSource,
+    typeName: String,
+  ): Option[SQLType] = {
+    val conn = connection.get()
+    try {
+      val typeInfo = conn.getMetaData.getTypeInfo
+      try {
+        Iterator
+          .continually(())
+          .takeWhile(_ => typeInfo.next())
+          .collectFirst { _ =>
+            Option(typeInfo.getString("TYPE_NAME"))
+              .filter(_.equalsIgnoreCase(typeName))
+              .flatMap(_ => Try(JDBCType.valueOf(typeInfo.getInt("DATA_TYPE"))).toOption)
+          }
+          .flatten
+      } finally typeInfo.close()
+    } finally {
+      val _ = connection.releaseConnection(conn)
+      ()
+    }
   }
 }
