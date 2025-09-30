@@ -15,10 +15,10 @@ ZIO‑native content‑addressable storage inspired by Binny.
 
 ```mermaid
 graph TD
-    B[Block] -->|persists| S[BlobStore]
+    B[Block] -->|persists| S[BlockStore]
     B --> R[BlockStore]
     R --> M[Manifest]
-    M --> B[Blob]
+    M --> B[Block]
     B --> V[View]
 ```
 
@@ -26,13 +26,13 @@ graph TD
 sequenceDiagram
     participant C as Client
     participant BS as BlockStore
-    participant BL as BlobStore
+    participant BL as BinaryStore
     participant RS as Resolver
 
     C->>BS: stream file bytes
     BS->>BL: write blocks
     BS->>RS: register sectors
-    BS-->>C: BlobKey
+    BS-->>C: BinaryKey
 ```
 
 ## Quickstart
@@ -43,7 +43,7 @@ sequenceDiagram
 # ingest bytes
 graviton put README.md
 # retrieve the blob using the returned key
-graviton get <blobKey> > README.copy.md
+graviton get <binaryKey> > README.copy.md
 ```
 
 ### HTTP Gateway
