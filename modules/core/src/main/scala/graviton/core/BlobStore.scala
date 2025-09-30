@@ -5,11 +5,11 @@ import zio.stream.*
 
 trait BlobStore extends BlockStore:
   def insertWith(
-    key: BinaryKey.WritableKey
+    key: FileKey.WritableKey
   ): ZSink[Any, Throwable, Byte, Byte, Boolean]
-  def findBinary(key: BinaryKey): IO[Throwable, Option[Bytes]]
-  def copy(from: BinaryKey, to: BinaryKey.WritableKey): IO[Throwable, Unit]
-  override def delete(key: BinaryKey): IO[Throwable, Boolean]
+  def findBinary(key: FileKey): IO[Throwable, Option[Bytes]]
+  def copy(from: FileKey, to: FileKey.WritableKey): IO[Throwable, Unit]
+  override def delete(key: FileKey): IO[Throwable, Boolean]
   def writeWithAttrs(
     provided: BinaryAttributes
-  ): ZSink[Any, Throwable, Byte, Byte, (BinaryKey.CasKey, BinaryAttributes)]
+  ): ZSink[Any, Throwable, Byte, Byte, (FileKey.CasKey, BinaryAttributes)]

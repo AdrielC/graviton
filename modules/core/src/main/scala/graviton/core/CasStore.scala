@@ -4,8 +4,8 @@ import zio.*
 import zio.stream.*
 
 trait CasStore extends KeyedStore:
-  def insert: ZSink[Any, Throwable, Byte, Byte, BinaryKey.CasKey]
-  def findBinary(key: BinaryKey.CasKey): IO[Throwable, Option[Bytes]]
+  def insert: ZSink[Any, Throwable, Byte, Byte, FileKey.CasKey]
+  def findBinary(key: FileKey.CasKey): IO[Throwable, Option[Bytes]]
   def readAttributes(
-    key: BinaryKey.CasKey
+    key: FileKey.CasKey
   ): IO[Throwable, Option[BinaryAttributes]]
