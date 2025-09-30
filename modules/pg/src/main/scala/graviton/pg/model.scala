@@ -110,11 +110,11 @@ enum LocationStatus derives CanEqual, DbCodec:
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 
-final case class FileKey(
+final case class BlobKey(
   algoId: Short,
   hash: HashBytes,
   size: PosLong,
-  mediaType: Option[String],
+  mediaTypeHint: Option[String],
 ) derives DbCodec
 
 final case class BlobStoreRow(

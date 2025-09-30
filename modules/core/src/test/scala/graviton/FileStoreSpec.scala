@@ -8,50 +8,24 @@ import graviton.core.{BinaryAttributeKey, BinaryAttributes}
 
 object FileStoreSpec extends ZIOSpecDefault:
 
-  def spec = suite("FileStoreSpec")(
-    test("ingest and read back a file") {
-      val detect = new ContentTypeDetect:
-        def detect(bytes: Bytes) = ZIO.succeed(Some("text/plain"))
+  def spec = suite("CASSpec")(
+    test("ingest and read back bytes via BlockStore") {
       for
         blob     <- InMemoryBlobStore.make()
         resolver <- InMemoryBlockResolver.make
         blocks   <- InMemoryBlockStore.make(blob, resolver)
-        files    <- InMemoryFileStore.make(blocks, detect)
-        attrs     =
-          BinaryAttributes
-            .advertised(BinaryAttributeKey.filename, "t.txt", "client") ++
-            BinaryAttributes.advertised(
-              BinaryAttributeKey.contentType,
-              "text/plain",
-              "client",
-            )
-        fk       <- ZStream
+        key      <- ZStream
                       .fromIterable("abc" * 1000)
                       .map(_.toByte)
-                      .run(files.put(attrs, 64 * 1024))
-        out      <- files.get(fk).someOrFailException.flatMap(_.runCollect)
+                      .run(blocks.put)
+        out      <- blocks.get(key).someOrFailException.flatMap(_.runCollect)
       yield assertTrue(out.length == 3000)
     },
-    test("mismatched content type fails") {
-      val detect  = new ContentTypeDetect:
-        def detect(bytes: Bytes) = ZIO.succeed(Some("text/plain"))
-      val attempt = for
-        blob     <- InMemoryBlobStore.make()
-        resolver <- InMemoryBlockResolver.make
-        blocks   <- InMemoryBlockStore.make(blob, resolver)
-        files    <- InMemoryFileStore.make(blocks, detect)
-        attrs     =
-          BinaryAttributes
-            .advertised(BinaryAttributeKey.filename, "d.png", "client") ++
-            BinaryAttributes.advertised(
-              BinaryAttributeKey.contentType,
-              "image/png",
-              "client",
-            )
-        _        <- ZStream
-                      .fromIterable("data".getBytes.toIndexedSeq)
-                      .run(files.put(attrs, 64 * 1024))
-      yield ()
-      attempt.exit.map(exit => assertTrue(exit.isFailure))
+    test("invalid attributes are rejected by BinaryAttributes.validate") {
+      val attrs =
+        BinaryAttributes
+          .advertised(BinaryAttributeKey.filename, "bad/name", "client") ++
+          BinaryAttributes.advertised(BinaryAttributeKey.contentType, "not/a^type", "client")
+      BinaryAttributes.validate(attrs).exit.map(exit => assertTrue(exit.isFailure))
     },
   )
