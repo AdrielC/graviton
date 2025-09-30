@@ -16,7 +16,7 @@ ZIO‑native content‑addressable storage inspired by Binny.
 ```mermaid
 graph TD
     B[Block] -->|persists| S[BlockStore]
-    B --> R[BlockStore]
+    B --> R[FileStore]
     R --> M[Manifest]
     M --> B[Block]
     B --> V[View]
@@ -26,13 +26,13 @@ graph TD
 sequenceDiagram
     participant C as Client
     participant BS as BlockStore
-    participant BL as BinaryStore
+    participant BL as FileStore
     participant RS as Resolver
 
     C->>BS: stream file bytes
     BS->>BL: write blocks
     BS->>RS: register sectors
-    BS-->>C: BinaryKey
+    BS-->>C: FileKey
 ```
 
 ## Quickstart
