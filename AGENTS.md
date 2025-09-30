@@ -21,6 +21,7 @@ This file captures future work items discussed with the AI.
 2. Build out a CLI and an HTTP gateway with end-to-end tests.
 3. Add configuration-driven integration tests (including TestContainers) for all storage backends.
 4. Set up CI workflows that run tests, publish docs, and push artifacts to Maven Central.
+5. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
 
 ## Upcoming Work Focus
 
@@ -35,3 +36,8 @@ This file captures future work items discussed with the AI.
 
 ### Additional enhancements
 - Document CLI/HTTP usage, configuration examples for filesystem and S3 backends, richer metrics/logging snippets, broader test coverage (including TestContainers), and CI workflows for publishing to Maven Central.
+
+## Workflow Requirements
+
+- Always run `./sbt scalafmtAll && ./sbt test` before committing or opening a pull request.
+- Sync with the latest `main` branch (e.g., `git fetch origin main` followed by `git merge origin/main` or an equivalent rebase) before creating commits so conflict resolution happens early.
