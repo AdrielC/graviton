@@ -34,14 +34,8 @@ export graviton.db.{
 given DbCodec[Chunk[Byte]] =
   DbCodec[Array[Byte]].biMap(Chunk.fromArray, _.toArray)
 
-given [A, C](using codec: DbCodec[A], constraint: RuntimeConstraint[A, C]): DbCodec[A :| C] =
-  codec.biMap(
-    value =>
-      value
-        .refineEither[C]
-        .fold(err => throw IllegalArgumentException(s"${constraint.message}: $err"), identity),
-    refined => refined.asInstanceOf[A],
-  )
+inline given [T, C](using DbCodec[T], Constraint[T, C]): DbCodec[T :| C] =
+  summon[DbCodec[T]].biMap(_.refineUnsafe[C], _.asInstanceOf[T])
 
 given DbCodec[java.util.UUID] =
   DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
