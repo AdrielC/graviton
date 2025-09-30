@@ -1,129 +1,13 @@
 package graviton.pg
 
-import zio.*
-import zio.stream.*
-import zio.Chunk
-import java.util.UUID
 import com.augustnagro.magnum.*
 import com.augustnagro.magnum.magzio.*
-import io.github.iltotore.iron.{zio as _, *}
+import graviton.db.*
 import io.github.iltotore.iron.constraint.all.*
-import zio.prelude.*
-import zio.prelude.classic.Monoid
-
-opaque type Max[A] <: A = A
-object Max:
-  def apply[A](a: A): Max[A]              = a
-  def unapply(a: Max[Long]): Option[Long] = Some(a)
-  given [A](using PartialOrd[A], Identity[A]): Monoid[Max[A]] with
-    def identity: Max[A]                            = Max(Identity[A].identity)
-    def combine(a: => Max[A], b: => Max[A]): Max[A] = a.maximum(b)
-
-  extension [A](a: Max[A])
-    def value: A                                            = a
-    def maximum(other: Max[A])(using PartialOrd[A]): Max[A] =
-      if a > other then a else other
-
-type BlockInsert = (key: BlockKey, offset: NonNegLong, length: PosLong)
-
-case class Cursor(queryId: Option[UUID], offset: Long, total: Option[Max[Long]], pageSize: Long):
-  def isLast: Boolean                  = total.exists(_ <= offset) || pageSize == 0
-  def next(lastPageSize: Long): Cursor = Cursor(
-    queryId,
-    offset + lastPageSize,
-    total.filter(_ > offset + lastPageSize),
-    pageSize,
-  )
-  def combine(other: Cursor): Cursor   = if queryId == other.queryId then other.next(other.offset)
-  else this
-
-  def withTotal(newTotal: Max[Long]): Cursor =
-    copy(total = total.map(_.maximum(newTotal)).orElse(Some(newTotal)))
-
-  def withQueryId(newQueryId: Option[UUID]): Cursor = copy(queryId = newQueryId)
-
-object Cursor:
-  val emptyQueryId = UUID.fromString("00000000-0000-0000-0000-000000000000")
-  given Monoid[Cursor] with
-    def identity: Cursor                            = Cursor(None, 0L, None, 0L)
-    def combine(a: => Cursor, b: => Cursor): Cursor =
-      if a.queryId == b.queryId |
-          b.queryId.contains(emptyQueryId) |
-          a.queryId.contains(emptyQueryId)
-      then
-        a.next(b.offset)
-          .withQueryId(
-            Seq(a.queryId, b.queryId).flatten
-              .filter(_ != emptyQueryId)
-              .headOption
-          )
-      else b.total.fold(a)(a.withTotal).next(b.offset)
-
-  case class Patch(offset: Long, total: Option[Max[Long]])
-
-  val differ: Differ[Cursor, Patch] = new Differ[Cursor, Patch] {
-
-    /**
-     * Combines two patches to produce a new patch that describes the updates of
-     * the first patch and then the updates of the second patch. The combine
-     * operation should be associative. In addition, if the combine operation is
-     * commutative then joining multiple fibers concurrently will result in
-     * deterministic `FiberRef` values.
-     */
-    def combine(first: Patch, second: Patch): Patch =
-      Patch(
-        first.offset + second.offset,
-        first.total
-          .as(first)
-          .zipWith(second.total.as(second)) { (a, b) =>
-            (a.total
-              .zipWith(b.total)(_ min _))
-              .flatMap { t =>
-                Some(t).filter(_ > a.offset + second.offset)
-              }
-              .orElse(first.total.orElse(second.total))
-          }
-          .flatten,
-      )
-
-    /**
-     * Constructs a patch describing the updates to a value from an old value and
-     * a new value.
-     */
-    def diff(oldValue: Cursor, newValue: Cursor): Patch =
-      Patch(newValue.offset - oldValue.offset, newValue.total.filter(_ > newValue.offset))
-
-    /**
-     * An empty patch that describes no changes.
-     */
-    def empty: Patch = Patch(0L, None)
-
-    /**
-     * Applies a patch to an old value to produce a new value that is equal to the
-     * old value with the updates described by the patch.
-     */
-    def patch(patch: Patch)(oldValue: Cursor): Cursor =
-      oldValue
-        .next(patch.offset)
-        .withTotal(patch.total.getOrElse(oldValue.total.getOrElse(Max(0L))))
-  }
-
-  private[pg] object ref:
-    val cursorRef: FiberRef[Cursor] = Unsafe.unsafe { implicit u =>
-      FiberRef.unsafe.makePatch(
-        initial,
-        Cursor.differ,
-        Patch(0L, None),
-        (a, b) => (a.combine(b)),
-      )
-    }
-
-  val initial: Cursor = Cursor(None, 0L, None, 100L)
-
-trait BlobStoreRepo:
-  def upsert(row: BlobStoreRow): Task[Int]
-  def get(key: StoreKey): Task[Option[BlobStoreRow]]
-  def listActive(cursor: Option[Cursor] = None): ZStream[Any, Throwable, BlobStoreRow]
+import io.github.iltotore.iron.{zio as _, *}
+import zio.*
+import zio.Chunk
+import zio.stream.*
 
 final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
 
@@ -159,7 +43,7 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
             .min(cursor.map(_.offset).getOrElse(firstCursor.pageSize))
             .min(firstCursor.pageSize)
         rows         = ZStream.paginateChunkZIO(0) { offset =>
-                         for {
+                         for
                            totalNow <- total.get
                            rows     <- xa.transact {
                                          val rows = sql"""
@@ -184,7 +68,7 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
                                            Some(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)),
                                          )
                                        }
-                         } yield rows
+                         yield rows
                        }
       yield rows
     }
@@ -194,25 +78,6 @@ object BlobStoreRepoLive:
     ZLayer.fromFunction(new BlobStoreRepoLive(_))
 
 // ---- Block repository -------------------------------------------------------
-
-trait BlockRepo:
-
-  def upsertBlock(
-    key: BlockKey,
-    size: PosLong,
-    inline: Option[SmallBytes],
-  ): Task[Int]
-
-  def getHead(key: BlockKey): Task[Option[(PosLong, Boolean)]]
-
-  def linkLocation(
-    key: BlockKey,
-    storeKey: StoreKey,
-    uri: Option[String],
-    len: PosLong,
-    etag: Option[String],
-    storageClass: Option[String],
-  ): Task[Int]
 
 final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
   def upsertBlock(
@@ -260,23 +125,13 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
     }
 
 object BlockRepoLive:
-  val layer =
+  val layer: ZLayer[TransactorZIO, Nothing, BlockRepo] =
     ZLayer.derive[BlockRepoLive]
 
 // ---- File repository --------------------------------------------------------
 
-trait BlobRepo:
-
-  def upsertBlob(key: BlobKey): Task[UUID]
-
-  def putBlobBlocks(
-    blobId: UUID
-  ): ZPipeline[Any, Throwable, BlockInsert, BlockKey]
-
-  def findBlobId(key: BlobKey): Task[Option[UUID]]
-
 final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
-  def upsertBlob(key: BlobKey): Task[UUID] =
+  def upsertBlob(key: BlobKey): Task[java.util.UUID] =
     Random.nextUUID.flatMap(id =>
       xa.transact {
         sql"""
@@ -285,12 +140,12 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
           ON CONFLICT (algo_id, hash, size_bytes) DO UPDATE
           SET media_type_hint = EXCLUDED.media_type_hint
           RETURNING id
-        """.query[UUID].run().head
+        """.query[java.util.UUID].run().head
       }
     )
 
   def putBlobBlocks(
-    blobId: UUID
+    blobId: java.util.UUID
   ): ZPipeline[Any, Throwable, BlockInsert, BlockKey] =
     ZPipeline.fromFunction((s: ZStream[Any, Throwable, BlockInsert]) =>
       s.zipWithIndex.mapChunksZIO { case chunk =>
@@ -307,12 +162,12 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
       }
     )
 
-  def findBlobId(key: BlobKey): Task[Option[UUID]] =
+  def findBlobId(key: BlobKey): Task[Option[java.util.UUID]] =
     xa.transact {
       sql"""
         SELECT id FROM blob
         WHERE algo_id = ${key.algoId} AND hash = ${key.hash} AND size_bytes = ${key.size}
-      """.query[UUID].run().headOption
+      """.query[java.util.UUID].run().headOption
     }
 
 object BlobRepoLive:
