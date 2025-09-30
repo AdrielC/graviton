@@ -31,6 +31,10 @@ stack.
 Additional details about the layered model and terminology live in
 [binary-store.md](binary-store.md).
 
+Read the [storage API and frame design overview](storage-api-overview.md) for a
+deep dive into key types, ingestion workflows, metadata handling, and the
+self-describing frame format.
+
 See the [examples](examples/index.md) for end‑to‑end CLI and HTTP gateway
 walkthroughs.
 
