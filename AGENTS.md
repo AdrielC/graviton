@@ -21,6 +21,7 @@ This file captures future work items discussed with the AI.
 2. Build out a CLI and an HTTP gateway with end-to-end tests.
 3. Add configuration-driven integration tests (including TestContainers) for all storage backends.
 4. Set up CI workflows that run tests, publish docs, and push artifacts to Maven Central.
+5. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
 
 ## Upcoming Work Focus
 
