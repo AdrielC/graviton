@@ -265,32 +265,32 @@ object BlockRepoLive:
 
 // ---- File repository --------------------------------------------------------
 
-trait FileRepo:
+trait BlobRepo:
 
-  def upsertFile(key: FileKey): Task[UUID]
+  def upsertBlob(key: BlobKey): Task[UUID]
 
-  def putFileBlocks(
-    fileId: UUID
+  def putBlobBlocks(
+    blobId: UUID
   ): ZPipeline[Any, Throwable, BlockInsert, BlockKey]
 
-  def findFileId(key: FileKey): Task[Option[UUID]]
+  def findBlobId(key: BlobKey): Task[Option[UUID]]
 
-final class FileRepoLive(xa: TransactorZIO) extends FileRepo:
-  def upsertFile(key: FileKey): Task[UUID] =
+final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
+  def upsertBlob(key: BlobKey): Task[UUID] =
     Random.nextUUID.flatMap(id =>
       xa.transact {
         sql"""
-          INSERT INTO file (id, algo_id, hash, size_bytes, media_type)
-          VALUES ($id, ${key.algoId}, ${key.hash}, ${key.size}, ${key.mediaType})
+          INSERT INTO blob (id, algo_id, hash, size_bytes, media_type_hint)
+          VALUES ($id, ${key.algoId}, ${key.hash}, ${key.size}, ${key.mediaTypeHint})
           ON CONFLICT (algo_id, hash, size_bytes) DO UPDATE
-          SET media_type = EXCLUDED.media_type
+          SET media_type_hint = EXCLUDED.media_type_hint
           RETURNING id
         """.query[UUID].run().head
       }
     )
 
-  def putFileBlocks(
-    fileId: UUID
+  def putBlobBlocks(
+    blobId: UUID
   ): ZPipeline[Any, Throwable, BlockInsert, BlockKey] =
     ZPipeline.fromFunction((s: ZStream[Any, Throwable, BlockInsert]) =>
       s.zipWithIndex.mapChunksZIO { case chunk =>
@@ -298,8 +298,8 @@ final class FileRepoLive(xa: TransactorZIO) extends FileRepo:
           .mapZIO { case ((bk, offset, len), idx) =>
             xa.transact {
               sql"""
-                  INSERT INTO file_block (file_id, seq, block_algo_id, block_hash, offset_bytes, length_bytes)
-                  VALUES ($fileId, $idx, ${bk.algoId}, ${bk.hash}, $offset, $len)
+                  INSERT INTO blob_block (blob_id, seq, block_algo_id, block_hash, offset_bytes, length_bytes)
+                  VALUES ($blobId, $idx, ${bk.algoId}, ${bk.hash}, $offset, $len)
                 """.returning[BlockKey].run()
             }.map(Chunk.fromIterable)
           }
@@ -307,14 +307,14 @@ final class FileRepoLive(xa: TransactorZIO) extends FileRepo:
       }
     )
 
-  def findFileId(key: FileKey): Task[Option[UUID]] =
+  def findBlobId(key: BlobKey): Task[Option[UUID]] =
     xa.transact {
       sql"""
-        SELECT id FROM file
+        SELECT id FROM blob
         WHERE algo_id = ${key.algoId} AND hash = ${key.hash} AND size_bytes = ${key.size}
       """.query[UUID].run().headOption
     }
 
-object FileRepoLive:
-  val layer: ZLayer[TransactorZIO, Nothing, FileRepo] =
-    ZLayer.derive[FileRepoLive]
+object BlobRepoLive:
+  val layer: ZLayer[TransactorZIO, Nothing, BlobRepo] =
+    ZLayer.derive[BlobRepoLive]

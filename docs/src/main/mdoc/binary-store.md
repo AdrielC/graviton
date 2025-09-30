@@ -36,20 +36,14 @@ forwards them to `BlobStore`s.  Each write records a `BlockSector` so that the
 fan‑out across sectors, allowing blocks to exist in multiple locations.  The
 store exposes sinks for streaming writes and streams for listings.
 
-### File
-A file is an ordered list of `BlockKey`s.  Its identity, the `FileKey`, is based
-solely on the decoded content hash and size, making it independent of the
-chunking strategy.
-
-### FileStore
-Responsible for assembling files from blocks, verifying provided metadata, and
-returning manifests.  Insertions stream through chunking, hashing and block
-writes in a single pass.
+### Blob and Manifest
+A Blob is defined by a `Manifest`: an ordered list of entries `(offset, size, BlockKey)`.
+Its identity, the `BlobKey`, is based solely on the decoded content hash and size, making it independent of the chunking strategy. The CAS layer does not expose a `FileStore`.
 
 ### View
-A deterministic transformation over a file.  Views are identified by a
-`ViewKey` consisting of the base `FileKey` and a chain of `FileTransformOp`s.
-They may be materialised into files or rendered on demand.
+A deterministic transformation over a Blob.  Views are identified by a
+`ViewKey` consisting of the base `BlobKey` and a chain of `ViewTransformOp`s.
+They may be materialised into blobs or rendered on demand.
 
 ## Reading data
 
