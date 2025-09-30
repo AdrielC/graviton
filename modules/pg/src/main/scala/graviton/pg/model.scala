@@ -95,18 +95,58 @@ object Algo:
     case Blake3, Sha256, Sha1, Md5
 
 @Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
-enum StoreStatus derives CanEqual, DbCodec:
+enum StoreStatus derives CanEqual:
   case Active
   case Paused
   case Retired
 
+object StoreStatus:
+  private val decode: Map[String, StoreStatus] = Map(
+    "active"  -> Active,
+    "paused"  -> Paused,
+    "retired" -> Retired,
+  )
+
+  private val encode: Map[StoreStatus, String] = decode.map(_.swap)
+
+  given DbCodec[StoreStatus] =
+    DbCodec[String].biMap(
+      s =>
+        decode.getOrElse(
+          s.toLowerCase(java.util.Locale.ROOT),
+          throw IllegalArgumentException(s"Unknown store status '$s'"),
+        ),
+      status => encode(status),
+    )
+
 @Table(PostgresDbType, SqlNameMapper.CamelToUpperSnakeCase)
-enum LocationStatus derives CanEqual, DbCodec:
+enum LocationStatus derives CanEqual:
   case Active
   case Stale
   case Missing
   case Deprecated
   case Error
+
+object LocationStatus:
+  private val decode: Map[String, LocationStatus] = Map(
+    "active"     -> Active,
+    "stale"      -> Stale,
+    "missing"    -> Missing,
+    "deprecated" -> Deprecated,
+    "error"      -> Error,
+  )
+
+  private val encode: Map[LocationStatus, String] = decode.map(_.swap)
+
+  given DbCodec[LocationStatus] =
+    DbCodec[String].biMap(
+      s =>
+        decode.getOrElse(
+          s.toLowerCase(java.util.Locale.ROOT),
+          throw IllegalArgumentException(s"Unknown location status '$s'"),
+        ),
+      status => encode(status),
+    )
 
 final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec
 
