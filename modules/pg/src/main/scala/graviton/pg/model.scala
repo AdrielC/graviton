@@ -7,6 +7,7 @@ import zio.json.ast.Json
 import com.augustnagro.magnum.*
 import com.augustnagro.magnum.pg.json.*
 import io.github.iltotore.iron.{zio as _, *}
+import io.github.iltotore.iron.RuntimeConstraint
 import io.github.iltotore.iron.constraint.all.*
 import zio.schema.Schema
 import zio.schema.DynamicValue
@@ -159,8 +160,14 @@ final case class BlobStoreRow(
 given DbCodec[Chunk[Byte]] =
   DbCodec[Array[Byte]].biMap(Chunk.fromArray, _.toArray)
 
-inline given [T, C](using DbCodec[T], Constraint[T, C]): DbCodec[T :| C] =
-  summon[DbCodec[T]].biMap(_.refineUnsafe[C], identity)
+given [A, C](using codec: DbCodec[A], constraint: RuntimeConstraint[A, C]): DbCodec[A :| C] =
+  codec.biMap(
+    value =>
+      value
+        .refineEither[C]
+        .fold(err => throw IllegalArgumentException(s"${constraint.message}: $err"), identity),
+    refined => refined.asInstanceOf[A],
+  )
 
 given DbCodec[java.util.UUID] =
   DbCodec[String].biMap(java.util.UUID.fromString, _.toString)

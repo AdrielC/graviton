@@ -4,7 +4,7 @@ import graviton.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import io.github.iltotore.iron.*
+import io.github.iltotore.iron.{zio => _, *}
 import io.github.iltotore.iron.constraint.all.*
 import io.minio.{MakeBucketArgs, MinioClient}
 import org.testcontainers.containers.MinIOContainer
@@ -51,4 +51,8 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
           yield assertTrue(out == data, deleted, missing.isEmpty)
         }
       }
-    ) @@ TestAspect.ifEnvSet("TESTCONTAINERS")
+    ) @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
+      value.trim match
+        case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
+        case _                                                                                       => false
+    }
