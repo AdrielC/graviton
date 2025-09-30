@@ -8,6 +8,8 @@ package object core:
   type Bytes        = ZStream[Any, Throwable, Byte]
   type StorageError = GravitonError
 
+  export refined.given
+
   given [K: Schema, V: Schema] => Schema[ListMap[K, V]] =
     Schema.list[((K, V))].transform(ListMap.from, _.toList)
 

@@ -1,12 +1,12 @@
 package graviton.chunking
 
-import zio.*
+import graviton.core.model.Block
 import zio.stream.*
 
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
-  def pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]]
+  def pipeline: ZPipeline[Any, Throwable, Byte, Block]
 
 object Chunker:
 
