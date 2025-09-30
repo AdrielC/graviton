@@ -162,83 +162,73 @@ object SchemaConverter {
     case Types.DATALINK                                                                                     => classTag[java.net.URL]
   }
 
-  private val localTypeMappings: Map[String, SQLType] = {
-    val postgres = Map(
-      JDBCType.LONGVARCHAR          -> Seq("TEXT", "NAME"),
-      JDBCType.OTHER                -> Seq("JSON", "JSONB", "UUID"),
-      JDBCType.SMALLINT             -> Seq("INT2", "SMALLSERIAL"),
-      JDBCType.INTEGER              -> Seq("INT", "INT4", "SERIAL"),
-      JDBCType.BIGINT               -> Seq("INT8", "BIGSERIAL", "OID", "REGCLASS"),
-      JDBCType.FLOAT                -> Seq("FLOAT4"),
-      JDBCType.DOUBLE               -> Seq("FLOAT8"),
-      JDBCType.DECIMAL              -> Seq("MONEY"),
-      JDBCType.CHAR                 -> Seq("BPCHAR"),
-      JDBCType.BINARY               -> Seq("BYTEA"),
-      JDBCType.TIMESTAMP_WITH_TIMEZONE -> Seq("TIMESTAMPTZ"),
-      JDBCType.TIME_WITH_TIMEZONE      -> Seq("TIMETZ"),
-    )
-
-    val mysql = Map(
-      JDBCType.TINYINT     -> Seq("TINYINT"),
-      JDBCType.SMALLINT    -> Seq("SMALLINT"),
-      JDBCType.INTEGER     -> Seq("MEDIUMINT", "INT", "INTEGER"),
-      JDBCType.BIGINT      -> Seq("BIGINT"),
-      JDBCType.FLOAT       -> Seq("FLOAT"),
-      JDBCType.DOUBLE      -> Seq("DOUBLE", "DOUBLE PRECISION"),
-      JDBCType.DECIMAL     -> Seq("DEC", "DECIMAL", "NUMERIC"),
-      JDBCType.BOOLEAN     -> Seq("BOOL", "BOOLEAN", "BIT"),
-      JDBCType.DATE        -> Seq("DATE"),
-      JDBCType.TIME        -> Seq("TIME"),
-      JDBCType.TIMESTAMP   -> Seq("DATETIME", "TIMESTAMP"),
-      JDBCType.LONGVARCHAR -> Seq("LONGTEXT", "MEDIUMTEXT", "TINYTEXT"),
-      JDBCType.VARCHAR     -> Seq("VARCHAR", "NVARCHAR", "NVARCHAR2", "VARCHAR2"),
-      JDBCType.VARBINARY   -> Seq("VARBINARY"),
-      JDBCType.CHAR        -> Seq("CHAR", "NCHAR"),
-      JDBCType.CLOB        -> Seq("TEXT"),
-      JDBCType.BLOB        -> Seq("BLOB", "LONGBLOB", "MEDIUMBLOB", "TINYBLOB"),
-      JDBCType.OTHER       -> Seq("JSON"),
-    )
-
-    val sqlite = Map(
-      JDBCType.INTEGER     -> Seq("INTEGER"),
-      JDBCType.FLOAT       -> Seq("REAL"),
-      JDBCType.DECIMAL     -> Seq("NUMERIC"),
-      JDBCType.LONGVARCHAR -> Seq("TEXT"),
-      JDBCType.BLOB        -> Seq("BLOB"),
-    )
-
-    val oracle = Map(
-      JDBCType.DECIMAL   -> Seq("NUMBER"),
-      JDBCType.TIMESTAMP -> Seq("TIMESTAMP"),
-      JDBCType.DATE      -> Seq("DATE"),
-      JDBCType.CLOB      -> Seq("CLOB"),
-      JDBCType.BLOB      -> Seq("BLOB"),
-      JDBCType.CHAR      -> Seq("CHAR"),
-      JDBCType.VARCHAR   -> Seq("VARCHAR", "VARCHAR2", "NVARCHAR2"),
-    )
-
-    (postgres.toSeq ++ mysql.toSeq ++ sqlite.toSeq ++ oracle.toSeq).flatMap { case (sqlType, names) =>
-      names.map(name => name -> sqlType)
-    }.toMap
-  }
+  private val vendorSpecificTypeMappings: Map[String, SQLType] = Map(
+    // PostgreSQL-specific aliases
+    "TEXT"                 -> JDBCType.LONGVARCHAR,
+    "UUID"                 -> JDBCType.LONGVARCHAR,
+    "JSON"                 -> JDBCType.OTHER,
+    "JSONB"                -> JDBCType.OTHER,
+    "INT2"                 -> JDBCType.SMALLINT,
+    "INT"                  -> JDBCType.INTEGER,
+    "INT4"                 -> JDBCType.INTEGER,
+    "INT8"                 -> JDBCType.BIGINT,
+    "FLOAT4"               -> JDBCType.FLOAT,
+    "FLOAT8"               -> JDBCType.DOUBLE,
+    "MONEY"                -> JDBCType.DECIMAL,
+    "BPCHAR"               -> JDBCType.CHAR,
+    "NAME"                 -> JDBCType.VARCHAR,
+    "OID"                  -> JDBCType.BIGINT,
+    "REGCLASS"             -> JDBCType.BIGINT,
+    "BYTEA"                -> JDBCType.BINARY,
+    "TIMESTAMPTZ"          -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"               -> JDBCType.TIME_WITH_TIMEZONE,
+    "BOOL"                 -> JDBCType.BOOLEAN,
+    "SERIAL"               -> JDBCType.BIGINT,
+    "BIGSERIAL"            -> JDBCType.BIGINT,
+    "SMALLSERIAL"          -> JDBCType.INTEGER,
+    // MySQL variants
+    "TINYTEXT"             -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"           -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"             -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"             -> JDBCType.BINARY,
+    "MEDIUMBLOB"           -> JDBCType.BLOB,
+    "LONGBLOB"             -> JDBCType.BLOB,
+    "DATETIME"             -> JDBCType.TIMESTAMP,
+    "YEAR"                 -> JDBCType.SMALLINT,
+    // Oracle variants
+    "VARCHAR2"             -> JDBCType.VARCHAR,
+    "NVARCHAR2"            -> JDBCType.NVARCHAR,
+    "NUMBER"               -> JDBCType.NUMERIC,
+    "RAW"                  -> JDBCType.BINARY,
+    "TIMESTAMP WITH TIME ZONE"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMESTAMP WITH LOCAL TIME ZONE" -> JDBCType.TIMESTAMP,
+    // SQL Server variants
+    "UNIQUEIDENTIFIER"     -> JDBCType.OTHER,
+    "DATETIME2"            -> JDBCType.TIMESTAMP,
+    "SMALLDATETIME"        -> JDBCType.TIMESTAMP,
+    "DATETIMEOFFSET"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "NTEXT"                -> JDBCType.LONGNVARCHAR,
+    "NVARCHAR"             -> JDBCType.NVARCHAR,
+    "NCHAR"                -> JDBCType.NCHAR,
+    "IMAGE"                -> JDBCType.LONGVARBINARY,
+    // Generic aliases
+    "VARCHAR"              -> JDBCType.VARCHAR,
+    "DECIMAL"              -> JDBCType.DECIMAL,
+    "NUMERIC"              -> JDBCType.NUMERIC,
+    "BOOLEAN"              -> JDBCType.BOOLEAN,
+    "TIME"                 -> JDBCType.TIME,
+    "DATE"                 -> JDBCType.DATE,
+    "TIMESTAMP"            -> JDBCType.TIMESTAMP,
+  )
 
   def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
-    val normalized = localTypeName.trim.toUpperCase(Locale.ROOT)
-    val collapsed  = normalized.replaceAll("\\s+", " ")
-
-    if (collapsed.startsWith("_")) Some(JDBCType.ARRAY)
+    val upper            = localTypeName.toUpperCase(Locale.ROOT)
+    lazy val normalized  = if (upper.startsWith("_")) upper.drop(1) else upper
+    if (upper.startsWith("_")) Some(JDBCType.ARRAY)
     else
-      localTypeMappings
-        .get(collapsed)
-        .orElse(localTypeMappings.get(collapsed.replace(" ", "")))
-        .orElse {
-          collapsed match {
-            case "TIMESTAMPTZ" => Some(JDBCType.TIMESTAMP_WITH_TIMEZONE)
-            case "TIMETZ"      => Some(JDBCType.TIME_WITH_TIMEZONE)
-            case "CHARACTER VARYING" | "NATIONAL CHARACTER VARYING" => Some(JDBCType.VARCHAR)
-            case "CHARACTER" | "NATIONAL CHARACTER"                 => Some(JDBCType.CHAR)
-            case other => Try(JDBCType.valueOf(other)).toOption
-          }
-        }
+      vendorSpecificTypeMappings
+        .get(upper)
+        .orElse(vendorSpecificTypeMappings.get(normalized))
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
   }
 }
