@@ -98,9 +98,14 @@ enum StoreStatus derives CanEqual:
   case Retired
 
 object StoreStatus:
+  import java.util.Locale
+
+  private def normalize(value: String): String =
+    value.trim.toLowerCase(Locale.ROOT)
+
   given DbCodec[StoreStatus] =
     DbCodec[String].biMap(
-      _.toLowerCase match
+      normalize(_) match
         case "active"  => Active
         case "paused"  => Paused
         case "retired" => Retired
@@ -168,6 +173,24 @@ inline given [T, C](using DbCodec[T], Constraint[T, C]): DbCodec[T :| C] =
 
 given DbCodec[java.util.UUID] =
   DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
+
+given DbCodec[PgRange[Long]] =
+  DbCodec[String].biMap(
+    s =>
+      val stripped = s.stripPrefix("[").stripSuffix(")")
+      val parts    = stripped.split(",", 2)
+      val lower    = Option(parts.headOption.getOrElse(""))
+        .filter(_.nonEmpty)
+        .map(_.toLong)
+      val upper    =
+        if parts.length > 1 then Option(parts(1)).filter(_.nonEmpty).map(_.toLong) else None
+      PgRange(lower, upper)
+    ,
+    r =>
+      val lower = r.lower.map(_.toString).getOrElse("")
+      val upper = r.upper.map(_.toString).getOrElse("")
+      s"[$lower,$upper)",
+  )
 
 given JsonBDbCodec[Json] with
   def encode(a: Json): String    =
