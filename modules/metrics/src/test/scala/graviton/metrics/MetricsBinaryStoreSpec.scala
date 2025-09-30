@@ -1,26 +1,22 @@
 package graviton.metrics
 
 import graviton.{BinaryId, BinaryStore, ByteRange}
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import zio.test.*
 
 object MetricsBinaryStoreSpec extends ZIOSpecDefault:
   private val stub = new BinaryStore:
-    def put(
-      attrs: BinaryAttributes,
-      chunkSize: Int,
-    ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+    def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
       ZSink.succeed(BinaryId("id"))
     def get(
       id: BinaryId,
       range: Option[ByteRange],
     ): IO[Throwable, Option[graviton.Bytes]] =
       ZIO.succeed(None)
-    def delete(id: BinaryId): IO[Throwable, Boolean] =
+    def delete(id: BinaryId): IO[Throwable, Boolean]        =
       ZIO.succeed(true)
-    def exists(id: BinaryId): IO[Throwable, Boolean] =
+    def exists(id: BinaryId): IO[Throwable, Boolean]        =
       ZIO.succeed(true)
 
   def spec = suite("MetricsBinaryStore")(

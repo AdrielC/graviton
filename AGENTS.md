@@ -36,3 +36,8 @@ This file captures future work items discussed with the AI.
 
 ### Additional enhancements
 - Document CLI/HTTP usage, configuration examples for filesystem and S3 backends, richer metrics/logging snippets, broader test coverage (including TestContainers), and CI workflows for publishing to Maven Central.
+
+## Workflow Requirements
+
+- Always run `./sbt scalafmtAll && ./sbt test` before committing or opening a pull request.
+- Sync with the latest `main` branch (e.g., `git fetch origin main` followed by `git merge origin/main` or an equivalent rebase) before creating commits so conflict resolution happens early.
