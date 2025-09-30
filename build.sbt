@@ -157,66 +157,66 @@ lazy val metrics = project
 lazy val dbcodegen = project
   .in(file("dbcodegen"))
   .settings(
-    name := "graviton-dbcodegen",
-    runMain := Some("dbcodegen.DbMain")
+    name    := "graviton-dbcodegen",
+    runMain := Some("dbcodegen.DbMain"),
   )
 
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core, dbcodegen)
   .settings(
-    name := "graviton-pg",
+    name              := "graviton-pg",
     // on-demand schema generation snapshot directory (checked into VCS)
     Compile / unmanagedSourceDirectories += (
       baseDirectory.value / "src" / "main" / "scala" / "graviton" / "db"
     ),
-      generatePgSchemas := {
-        val log = streams.value.log
-        log.info("Generating PG schemas...")
-        
-        val templatePath = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
-        val outputPath = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated").getAbsolutePath
-        
-        log.info(s"Template: $templatePath")
-        log.info(s"Output: $outputPath")
-        
-        // Set system properties before running
-        val oldTemplate = System.getProperty("dbcodegen.template")
-        val oldOut = System.getProperty("dbcodegen.out")
-        val oldJdbcUrl = System.getProperty("dbcodegen.jdbcUrl")
-        val oldUsername = System.getProperty("dbcodegen.username")
-        val oldPassword = System.getProperty("dbcodegen.password")
-        
-        try {
-          System.setProperty("dbcodegen.template", templatePath)
-          System.setProperty("dbcodegen.out", outputPath)
-          System.setProperty("dbcodegen.jdbcUrl", s"jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}")
-          System.setProperty("dbcodegen.username", pgUsername.value)
-          System.setProperty("dbcodegen.password", pgPassword.value)
-          
-          // Run the main class
-          (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
-          
-          log.info("Schema generation completed successfully")
-          Seq(file(outputPath))
-        } finally {
-          // Restore old system properties
-          if (oldTemplate != null) System.setProperty("dbcodegen.template", oldTemplate)
-          else System.clearProperty("dbcodegen.template")
-          
-          if (oldOut != null) System.setProperty("dbcodegen.out", oldOut)
-          else System.clearProperty("dbcodegen.out")
-          
-          if (oldJdbcUrl != null) System.setProperty("dbcodegen.jdbcUrl", oldJdbcUrl)
-          else System.clearProperty("dbcodegen.jdbcUrl")
-          
-          if (oldUsername != null) System.setProperty("dbcodegen.username", oldUsername)
-          else System.clearProperty("dbcodegen.username")
-          
-          if (oldPassword != null) System.setProperty("dbcodegen.password", oldPassword)
-          else System.clearProperty("dbcodegen.password")
-        }
-      },
+    generatePgSchemas := {
+      val log = streams.value.log
+      log.info("Generating PG schemas...")
+
+      val templatePath = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
+      val outputPath   = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated").getAbsolutePath
+
+      log.info(s"Template: $templatePath")
+      log.info(s"Output: $outputPath")
+
+      // Set system properties before running
+      val oldTemplate = System.getProperty("dbcodegen.template")
+      val oldOut      = System.getProperty("dbcodegen.out")
+      val oldJdbcUrl  = System.getProperty("dbcodegen.jdbcUrl")
+      val oldUsername = System.getProperty("dbcodegen.username")
+      val oldPassword = System.getProperty("dbcodegen.password")
+
+      try {
+        System.setProperty("dbcodegen.template", templatePath)
+        System.setProperty("dbcodegen.out", outputPath)
+        System.setProperty("dbcodegen.jdbcUrl", s"jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}")
+        System.setProperty("dbcodegen.username", pgUsername.value)
+        System.setProperty("dbcodegen.password", pgPassword.value)
+
+        // Run the main class
+        (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
+
+        log.info("Schema generation completed successfully")
+        Seq(file(outputPath))
+      } finally {
+        // Restore old system properties
+        if (oldTemplate != null) System.setProperty("dbcodegen.template", oldTemplate)
+        else System.clearProperty("dbcodegen.template")
+
+        if (oldOut != null) System.setProperty("dbcodegen.out", oldOut)
+        else System.clearProperty("dbcodegen.out")
+
+        if (oldJdbcUrl != null) System.setProperty("dbcodegen.jdbcUrl", oldJdbcUrl)
+        else System.clearProperty("dbcodegen.jdbcUrl")
+
+        if (oldUsername != null) System.setProperty("dbcodegen.username", oldUsername)
+        else System.clearProperty("dbcodegen.username")
+
+        if (oldPassword != null) System.setProperty("dbcodegen.password", oldPassword)
+        else System.clearProperty("dbcodegen.password")
+      }
+    },
     // keep your existing deps:
     libraryDependencies ++= Seq(
       "com.augustnagro"   %% "magnum"     % magnumV,
@@ -261,7 +261,6 @@ lazy val pg = project
     )
   )
 
-
 lazy val tika = project
   .in(file("modules/tika"))
   .dependsOn(core)
@@ -298,9 +297,9 @@ addCommandAlias(
 )
 
 addCommandAlias(
-  "inspectPgConstraints", 
+  "inspectPgConstraints",
   "dbcodegen/runMain dbcodegen.DbMain " +
-    "-Ddbcodegen.inspect-only=true"
+    "-Ddbcodegen.inspect-only=true",
 )
 
 lazy val pgHost = settingKey[String]("PG_HOST")

@@ -5,7 +5,7 @@ import zio.test.*
 import com.augustnagro.magnum.magzio.*
 import com.augustnagro.magnum.{DbCodec, sql}
 
-case object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & TransactorZIO]:
+object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & TransactorZIO]:
 
   val bootstrap =
     ((ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
