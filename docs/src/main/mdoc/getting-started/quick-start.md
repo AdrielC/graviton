@@ -7,12 +7,11 @@ import zio.*
 import zio.stream.*
 import graviton.*
 import graviton.impl.InMemoryBinaryStore
-import graviton.core.BinaryAttributes
 
 def storeAndFetch(store: BinaryStore): ZIO[Any, Throwable, Option[Bytes]] =
   for
     id <- ZStream.fromIterable("Hello, Graviton!".getBytes)
-            .run(store.put(BinaryAttributes.empty, chunkSize = 1024 * 1024))
+            .run(store.put)
     data <- store.get(id)
   yield data
 ```

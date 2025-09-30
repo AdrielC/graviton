@@ -1,7 +1,6 @@
 package graviton.impl
 
 import graviton.*
-import graviton.core.BinaryAttributes
 import zio.*
 
 /**
@@ -12,8 +11,6 @@ import zio.*
  * provided [[Hint]].
  */
 final class DefaultCopyTool extends CopyTool:
-  private val DefaultChunkSize: Int = 64 * 1024
-
   def copy(
     src: BinaryStore,
     dest: BinaryStore,
@@ -24,8 +21,7 @@ final class DefaultCopyTool extends CopyTool:
       bytes <- src
                  .get(id)
                  .someOrFail(GravitonError.NotFound(s"binary $id not found"))
-      _     <-
-        bytes.run(dest.put(BinaryAttributes.empty, DefaultChunkSize)).unit
+      _     <- bytes.run(dest.put).unit
     yield ()
 
     for
