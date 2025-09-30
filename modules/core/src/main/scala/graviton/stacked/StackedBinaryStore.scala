@@ -2,7 +2,6 @@ package graviton.stacked
 
 import graviton.*
 import graviton.GravitonError.BackendUnavailable
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 
@@ -12,15 +11,12 @@ final case class StackedBinaryStore(
 ) extends BinaryStore:
   private val allStores: Chunk[BinaryStore] = primary +: replicas
 
-  def put(
-    attrs: BinaryAttributes,
-    chunkSize: Int,
-  ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+  def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.collectAll[Byte].mapZIO { data =>
       ZIO
         .foldLeft(allStores)(List.empty[BinaryId]) { (acc, store) =>
           Bytes(ZStream.fromChunk(data))
-            .run(store.put(attrs, chunkSize))
+            .run(store.put)
             .either
             .flatMap {
               case Right(id)                   => ZIO.succeed(id :: acc)

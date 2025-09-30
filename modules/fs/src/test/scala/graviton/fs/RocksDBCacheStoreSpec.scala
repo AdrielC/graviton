@@ -93,5 +93,9 @@ object RocksDBCacheStoreSpec extends ZIOSpecDefault:
             calls     <- ref.get
           yield assertTrue(calls == 1)
         }
-      } @@ TestAspect.ifEnvSet("TESTCONTAINERS"),
+      } @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
+        value.trim match
+          case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
+          case _                                                                                       => false
+      },
     )
