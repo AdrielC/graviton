@@ -1,7 +1,6 @@
 package graviton.logging
 
 import graviton.{BinaryId, BinaryStore, ByteRange}
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.logging.logContext
 import zio.stream.*
@@ -36,13 +35,10 @@ final case class LoggingBinaryStore(underlying: BinaryStore) extends BinaryStore
         }
     }
 
-  override def put(
-    attrs: BinaryAttributes,
-    chunkSize: Int,
-  ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+  override def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.unwrapScoped {
       loggingActive.get.flatMap {
-        case true  => ZIO.succeed(underlying.put(attrs, chunkSize))
+        case true  => ZIO.succeed(underlying.put)
         case false =>
           logContext.get.flatMap { ctx =>
             ctx.get(cidKey) match
@@ -50,7 +46,7 @@ final case class LoggingBinaryStore(underlying: BinaryStore) extends BinaryStore
                 loggingActive.locally(true) {
                   for
                     _   <- ZIO.logInfo("put start")
-                    sink = underlying.put(attrs, chunkSize)
+                    sink = underlying.put
                   yield sink
                     .mapZIO(id => ZIO.logInfo("put finish").as(id))
                     .mapErrorZIO(err => ZIO.logErrorCause("put error", Cause.fail(err)).as(err))
@@ -61,7 +57,7 @@ final case class LoggingBinaryStore(underlying: BinaryStore) extends BinaryStore
                     loggingActive.locally(true) {
                       for
                         _   <- ZIO.logInfo("put start")
-                        sink = underlying.put(attrs, chunkSize)
+                        sink = underlying.put
                       yield sink
                         .mapZIO(id => ZIO.logInfo("put finish").as(id))
                         .mapErrorZIO(err =>

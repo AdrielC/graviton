@@ -1,82 +1,104 @@
-# Binary Store Design
+# Cedar 2.0 Binary Store Refactor
 
-Graviton provides an immutable binary substrate for Quasar.  The system is
-organised into a small set of layered concepts that keep storage concerns
-isolated from higher‑level document workflows.
+This document records the agreed plan for evolving the Graviton (Cedar 2.0) storage
+stack. The objective is to provide a unified, type-safe API for storing binary
+streams while preserving rich metadata and enabling both deduplicated and direct
+file ingestion paths.
 
-## Goals
+## 1. Refined Types and Invariants
 
-- **Content‑addressable**: all bytes are identified by cryptographic hashes.
-- **Immutable**: data never changes once written; new content yields new keys.
-- **Deduplicated**: identical blocks are stored once and referenced many times.
-- **Reversible transforms**: encryption and compression are recorded so reads
-  can invert them transparently.
-- **Location aware**: blocks may exist in multiple `BlobStore`s and are resolved
-  at read time.
+- Adopt [Iron](https://github.com/IronCoreLabs/iron) refined types to reject
+  illegal states at compile time:
+  - `Size = Int :| Positive` for file lengths (`> 0`).
+  - `Index = Long :| NonNegative` for block indices and offsets (`>= 0`).
+  - `Block = Chunk[Byte] :| (Positive & SizeLessEqual[MAX_BLOCK_SIZE_IN_BYTES])`
+    so a block can never be empty or exceed the configured maximum.
+- Model metadata with `BinaryAttributeKey[A]` and store attributes in two
+  `ListMap`s inside `BinaryAttributes`:
+  - `advertised`: values supplied by callers (claimed size, provided hash,
+    user-supplied content type, etc.).
+  - `confirmed`: values derived by the service after ingestion (computed size,
+    canonical hash, detected content type, and so on).
+- Persist each entry as `BinaryAttribute(value, source)` so that the origin is
+  tracked (e.g. `"client"`, `"server"`, `"build-info"`).
+- Call `BinaryAttributes.validate` before accepting a request to enforce naming
+  and MIME-type constraints.
 
-## Concepts
+## 2. Chunking via `Chunker`
 
-### Block
-A block is a deduplicated chunk of bytes addressed by a `BlockKey`.  Blocks are
-immutable and can be replicated across many stores.
+- Replace ad-hoc chunking with a `Chunker` abstraction:
 
-### BlockSector
-Each physical copy of a block is tracked as a *sector* containing the
-`blobStoreId`, lifecycle `status`, and optional transform metadata.  Sectors are
-aggregated by a `BlockResolver` which performs read‑time fan‑out and healing.
+  ```scala
+  trait Chunker {
+    def name: String
+    def pipeline: ZPipeline[Any, Throwable, Byte, Block]
+  }
+  ```
 
-### BlobStore
-A pluggable backend capable of reading and writing raw blocks.  Filesystem and
-S3 implementations live in dedicated modules.
+- The pipeline must never emit an empty chunk. Implementations include fixed
+  size splitting, FastCDC, or anchored CDC that aligns with semantic markers
+  (e.g. PDF `stream`/`endstream`).
+- Keep the active `Chunker` in a `FiberRef[Chunker]` so callers can override it
+  locally without changing method signatures.
 
-### BlockStore
-A logical registry that hashes incoming streams, deduplicates blocks, and
-forwards them to `BlobStore`s.  Each write records a `BlockSector` so that the
-`BlockResolver` can track every physical copy.  Reads consult the resolver and
-fan‑out across sectors, allowing blocks to exist in multiple locations.  The
-store exposes sinks for streaming writes and streams for listings.
+## 3. Unified `BinaryStore` API
 
-### File
-A file is an ordered list of `BlockKey`s.  Its identity, the `FileKey`, is based
-solely on the decoded content hash and size, making it independent of the
-chunking strategy.
+The core API stays centred on the **single-sink** operation. Both
+`BinaryStore.insert` and `BinaryStore.insertWith` accept a byte stream, write just
+enough data to materialise a `BinaryKey`, and then return that key together with
+any leftover `Bytes`. Callers can inspect the leftovers to decide whether to
+retry, split the upload, or surface an error. This keeps the primitive
+signature aligned with Cedar’s CAS semantics while supporting user-provided
+keys.
 
-### FileStore
-Responsible for assembling files from blocks, verifying provided metadata, and
-returning manifests.  Insertions stream through chunking, hashing and block
-writes in a single pass.
+On top of that primitive we expose a **manifest-building sink** (tentatively
+named `insertFile`). It repeatedly feeds the leftover bytes back into the single
+sink until the input stream is fully consumed. Only when there are no leftovers
+does it succeed, returning the ordered list of `BinaryKey`s that make up the
+logical file. From the caller’s perspective this is the ergonomic “upload a
+whole file” operation, while internally it still reuses the chunk-based
+pipeline.
 
-### View
-A deterministic transformation over a file.  Views are identified by a
-`ViewKey` consisting of the base `FileKey` and a chain of `FileTransformOp`s.
-They may be materialised into files or rendered on demand.
+The block-oriented machinery underneath:
 
-## Reading data
+- Hashes each emitted block, checks for existing content, and persists new
+  blocks through the configured `BlobStore`.
+- Generates a `BinaryKey.CasKey` from the ordered block hashes plus total size.
+- Maintains reference counts and sector placement as blocks are reused.
 
-1. Resolve the desired block or file key.
-2. Locate one or more `BlockSector`s via the resolver.
-3. Stream bytes from a `BlobStore`, reversing any recorded transforms.
-4. Assemble blocks back into the original file representation.
+A direct ingestion mode (“**FileStore**”) keeps the high-level semantics but may
+persist data in a single object (e.g. temporary file promoted after hashing)
+rather than individual blocks. The implementation choice remains invisible to
+callers—they always interact through `insert`/`insertWith` or the
+`insertFile` wrapper. Mode selection can come from a `FiberRef[StoreMode]` that
+defaults based on size thresholds (e.g. files smaller than 1 MiB choose the
+file-store path).
 
-## Module Layout
+## 4. Attribute Handling
 
-```
-modules/core    – base types and in‑memory stores
-modules/fs      – filesystem backed blob store
-modules/s3      – S3‑compatible blob store
-modules/tika    – media type detection utilities
-modules/metrics – Prometheus instrumentation for core operations
-```
+- Accept `BinaryAttributes` from callers via a `FiberRef.currentAttributes`.
+- Merge confirmed attributes (computed hash, byte size, timestamps) with
+  advertised entries using the existing `++` semantics while preserving sources.
+- Store the merged attributes alongside the manifest so both advertised and
+  confirmed values can be retrieved later.
 
-Each module provides a `ZLayer` for easy wiring into ZIO applications. The `s3`
-module works with AWS S3 and other S3‑compatible endpoints such as MinIO.
+## 5. Environment and API Surface
 
-## Migration Notes
+- Migrate to ZIO 2.x idioms: eliminate `Has[_]`, use `ZLayer`/`ZEnvironment`,
+  and capture contextual overrides with `FiberRef`s (chunker, attributes, store
+  mode).
+- Keep security concerns (KMS, auth, signed URLs) at the boundary APIs; the
+  storage layer focuses on correctness and data integrity.
+- Implement REST endpoints with ZIO HTTP’s Endpoints DSL, validate inputs with
+  Iron, and return streaming downloads via `ZStream`.
 
-The attribute system has been consolidated around `graviton.core.BinaryAttributes`.
-The previous `AttributeName`/`BinaryAttributes` pair has been removed in favour of
-typed `BinaryAttributeKey`s, so downstream code should construct and query
-attributes using the new API. Binary attributes are now separated into
-`advertised` and `confirmed` sets, each recording the origin of the value via a
-`source` field.
+## 6. Next Steps
 
+1. Implement the `FileStore` ingestion mode and surface the manifest-building
+   sink.
+2. Finish all chunker implementations (fixed, FastCDC, anchored CDC).
+3. Add attribute retrieval and update methods on `BinaryStore`.
+4. Wire up ZIO HTTP endpoints with schema derivation and validation.
+5. Expand the documentation with end-to-end examples and update `AGENTS.md`
+   whenever scope or conventions change.
+6. Cover both ingestion modes and attribute validation with comprehensive tests.

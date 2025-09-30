@@ -1,6 +1,6 @@
-# File Descriptor Schema
+# Manifest Schema
 
-The `FileDescriptor` manifest and its related key types are defined using
+The `Manifest` and related key types (`BlockKey`, `BlobKey`) are defined using
 `zio.schema.Schema`. These definitions act as the single source of truth and
 can be rendered to JSON Schema when needed.
 

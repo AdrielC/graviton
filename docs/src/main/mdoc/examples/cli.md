@@ -1,12 +1,12 @@
 # CLI Example
 
-The `graviton` CLI ingests and retrieves files via the local store.
+The `graviton` CLI ingests and retrieves blobs via the local store.
 
 ```bash
-# ingest a file and capture the returned FileKey
+# ingest bytes and capture the returned BlobKey
 $ graviton put README.md
-FILE_KEY=...
+BLOB_KEY=...
 
 # retrieve the stored bytes
-$ graviton get $FILE_KEY > README.copy.md
+$ graviton get $BLOB_KEY > README.copy.md
 ```

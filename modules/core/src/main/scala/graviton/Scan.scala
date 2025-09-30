@@ -6,7 +6,7 @@ import zio.ChunkBuilder
 import zio.stream.Take
 import zio.prelude.fx.ZPure
 // import scala.compiletime.{erasedValue, summonFrom}
-import io.github.iltotore.iron.*
+import io.github.iltotore.iron.{zio => _, *}
 import io.github.iltotore.iron.constraint.all.*
 
 /**
@@ -17,6 +17,9 @@ import io.github.iltotore.iron.constraint.all.*
  */
 sealed trait Scan[-I, +O]:
   type State <: Tuple
+  type Size = scala.Tuple.Size[State]
+
+  inline def size: Size = scala.compiletime.summonInline[Size]
 
   def initial: State
   def step(state: State, in: I): (State, Chunk[O])
