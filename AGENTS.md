@@ -28,6 +28,12 @@ This file captures future work items discussed with the AI.
 9. Add attribute retrieval APIs and persist advertised/confirmed metadata alongside manifests.
 10. Build ZIO HTTP endpoints that use Iron validation and `BinaryAttributeKey` metadata, returning streaming downloads.
 11. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
+12. Implement the anchored ingest pipeline: transport decoding, 8–16 KiB sniffing, anchored tokenization, CDC within anchors, per-chunk hashing/compress/encrypt, frame emission, and manifest construction.
+13. Build the tokenizer and CDC pipeline with the DFA/Aho-Corasick matcher, `ZSink.foldWeightedDecompose` anchoring cost model, and 1 MiB staging rechunker exposed via `ZPipeline.anchoredCdc`.
+14. Define and implement the self-describing frame format (`"QUASAR"` magic, algorithm IDs, sizes, nonce, truncated hash, key ID, and optional metadata) with canonical AAD encoding and strict `Take.chunk`/`Take.fail` semantics.
+15. Extend deduplication support: store base blocks from anchored CDC, keep manifests mutable for future CDC tuning, and prototype a rolling-hash index for containment detection without sub-block slicing.
+16. Ship format-aware views that preserve canonical bytes while layering PDF object/page maps and ZIP central-directory access over manifest offsets.
+17. Add operational guardrails: bounded `Queue[Take]` backpressure, guaranteed `OutputStream` closure, ingestion bomb protection, and enforced `./sbt scalafmtAll` pre-commit checks.
 
 ## Upcoming Work Focus
 
@@ -47,3 +53,4 @@ This file captures future work items discussed with the AI.
 
 - Always run `./sbt scalafmtAll && ./sbt test` before committing or opening a pull request.
 - Sync with the latest `main` branch (e.g., `git fetch origin main` followed by `git merge origin/main` or an equivalent rebase) before creating commits so conflict resolution happens early.
+- When a task from this file is completed, update the relevant entry to mark it as done and record the completion commit or date.
