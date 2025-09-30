@@ -1,5 +1,6 @@
 package graviton.chunking
 
+import graviton.core.model.Block
 import zio.*
 import zio.stream.*
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
@@ -10,18 +11,25 @@ import java.util.zip.InflaterInputStream
  * stream data.
  */
 object PdfChunker extends Chunker:
-  val name                                                   = "pdf"
-  val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
-    ZPipeline.fromChannel:
-      def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
-        Byte
+  val name                                       = "pdf"
+  val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+    ZPipeline
+      .fromChannel {
+        def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
+          Byte
       ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
-        ZChannel.readWith(
-          (in: Chunk[Byte]) => loop(buf ++ in),
-          (err: Throwable) => ZChannel.fail(err),
-          (_: Any) => ZChannel.write(split(buf)),
+          ZChannel.readWith(
+            (in: Chunk[Byte]) => loop(buf ++ in),
+            (err: Throwable) => ZChannel.fail(err),
+            (_: Any) => ZChannel.write(split(buf)),
+          )
+        loop(Chunk.empty)
+      }
+      .mapChunksZIO { chunked =>
+        ZIO.foreach(chunked)(bytes =>
+          ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err))
         )
-      loop(Chunk.empty)
+      }
 
   private val streamToken    = "stream".getBytes("ISO-8859-1")
   private val endStreamToken = "endstream".getBytes("ISO-8859-1")

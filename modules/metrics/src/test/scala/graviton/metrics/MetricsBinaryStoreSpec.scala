@@ -1,17 +1,13 @@
 package graviton.metrics
 
 import graviton.{BinaryId, BinaryStore, ByteRange}
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import zio.test.*
 
 object MetricsBinaryStoreSpec extends ZIOSpecDefault:
   private val stub = new BinaryStore:
-    def put(
-      attrs: BinaryAttributes,
-      chunkSize: Int,
-    ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+    def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
       ZSink.succeed(BinaryId("id"))
     def get(
       id: BinaryId,

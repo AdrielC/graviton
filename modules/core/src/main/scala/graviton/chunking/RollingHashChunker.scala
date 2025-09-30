@@ -1,5 +1,6 @@
 package graviton.chunking
 
+import graviton.core.model.Block
 import zio.*
 import zio.stream.*
 
@@ -14,24 +15,31 @@ object RollingHashChunker:
 
   def apply(cfg: Config): Chunker =
     new Chunker:
-      val name                                                   =
+      val name                                       =
         s"rolling(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
-      val pipeline: ZPipeline[Any, Throwable, Byte, Chunk[Byte]] =
-        ZPipeline.fromChannel:
-          def loop(state: State): ZChannel[Any, Throwable, Chunk[
-            Byte
+      val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+        ZPipeline
+          .fromChannel {
+            def loop(state: State): ZChannel[Any, Throwable, Chunk[
+              Byte
           ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
-            ZChannel.readWith(
-              (in: Chunk[Byte]) =>
-                val (next, out) = process(state, in, cfg)
-                ZChannel.write(out) *> loop(next)
-              ,
-              (err: Throwable) => ZChannel.fail(err),
-              (_: Any) =>
-                if state.buffer.isEmpty then ZChannel.unit
-                else ZChannel.write(Chunk.single(state.buffer)),
+              ZChannel.readWith(
+                (in: Chunk[Byte]) =>
+                  val (next, out) = process(state, in, cfg)
+                  ZChannel.write(out) *> loop(next)
+                ,
+                (err: Throwable) => ZChannel.fail(err),
+                (_: Any) =>
+                  if state.buffer.isEmpty then ZChannel.unit
+                  else ZChannel.write(Chunk.single(state.buffer)),
+              )
+            loop(State.empty(cfg))
+          }
+          .mapChunksZIO { chunked =>
+            ZIO.foreach(chunked)(bytes =>
+              ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err))
             )
-          loop(State.empty(cfg))
+          }
 
   private final case class State(
     cfg: Config,

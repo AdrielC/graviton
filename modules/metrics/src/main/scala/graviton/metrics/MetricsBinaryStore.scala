@@ -1,19 +1,15 @@
 package graviton.metrics
 
 import graviton.{BinaryId, BinaryStore, ByteRange}
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import Metrics.*
 
 final case class MetricsBinaryStore(underlying: BinaryStore) extends BinaryStore:
-  override def put(
-    attrs: BinaryAttributes,
-    chunkSize: Int,
-  ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+  override def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.unwrapScoped {
       Clock.nanoTime.map { start =>
-        underlying.put(attrs, chunkSize).mapZIO { id =>
+        underlying.put.mapZIO { id =>
           for
             end <- Clock.nanoTime
             _   <- putCount.increment

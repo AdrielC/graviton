@@ -1,16 +1,12 @@
 package graviton.impl
 
 import graviton.*
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 
 final class InMemoryBinaryStore private (ref: Ref[Map[BinaryId, Chunk[Byte]]]) extends BinaryStore:
 
-  def put(
-    attrs: BinaryAttributes,
-    chunkSize: Int,
-  ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+  def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
     ZSink.collectAll[Byte].mapZIO { data =>
       val id = BinaryId(java.util.UUID.randomUUID().toString)
       ref.update(_ + (id -> data)).as(id)

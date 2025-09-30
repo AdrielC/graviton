@@ -1,7 +1,6 @@
 package graviton.logging
 
 import graviton.{BinaryId, BinaryStore, ByteRange}
-import graviton.core.BinaryAttributes
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -10,10 +9,7 @@ import zio.test.ZTestLogger
 
 object LoggingBinaryStoreSpec extends ZIOSpecDefault:
   private val dummyStore = new BinaryStore:
-    def put(
-      attrs: BinaryAttributes,
-      chunkSize: Int,
-    ): ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
+    def put: ZSink[Any, Throwable, Byte, Nothing, BinaryId] =
       ZSink.fail(new NotImplementedError("unused"))
     def get(
       id: BinaryId,
