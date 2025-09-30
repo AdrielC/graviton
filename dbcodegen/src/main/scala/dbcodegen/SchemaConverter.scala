@@ -5,6 +5,7 @@ import schemacrawler.tools.utility.SchemaCrawlerUtility
 import us.fatehi.utility.datasource.DatabaseConnectionSource
 
 import java.sql.{JDBCType, SQLType, Types}
+import java.util.Locale
 import scala.jdk.CollectionConverters._
 import scala.reflect.{classTag, ClassTag}
 import scala.util.Try
@@ -94,7 +95,8 @@ object SchemaConverter {
             (scalaT, Some(dataEnum))
           case None =>
             val typeName = info.arrayElemType.orElse(info.rangeSubType).getOrElse(info.typname)
-            val targetType = localTypeNameToSqlType(typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
+            val targetType =
+              localTypeNameToSqlType(connection, typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeString       =
@@ -119,7 +121,10 @@ object SchemaConverter {
         val (baseScalaType, dataEnum) = enumValues match {
           case enumValues if enumValues.isEmpty =>
             val targetType =
-              arrayElementType.flatMap(localTypeNameToSqlType).orElse(localTypeNameToSqlType(tpe.getName)).getOrElse(tpe.getJavaSqlType)
+              arrayElementType
+                .flatMap(localTypeNameToSqlType(connection, _))
+                .orElse(localTypeNameToSqlType(connection, tpe.getName))
+                .getOrElse(tpe.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeStringMapped = config.typeMapping(targetType, scalaTypeStringGuess)
@@ -161,32 +166,95 @@ object SchemaConverter {
     case Types.DATALINK                                                                                     => classTag[java.net.URL]
   }
 
-  def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = localTypeName.toUpperCase match {
-    // TODO: specific to Postgres
-    case "TEXT" | "UUID"  => Some(JDBCType.LONGVARCHAR)
-    case "JSON" | "JSONB" => Some(JDBCType.OTHER)
-    case "INT2"           => Some(JDBCType.SMALLINT)
-    case "INT" | "INT4"   => Some(JDBCType.INTEGER)
-    case "INT8"           => Some(JDBCType.BIGINT)
-    case "FLOAT4"         => Some(JDBCType.FLOAT)
-    case "FLOAT8"         => Some(JDBCType.DOUBLE)
-    case "MONEY"          => Some(JDBCType.DECIMAL)
-    case "BPCHAR"         => Some(JDBCType.CHAR)
-    case "VARCHAR"        => Some(JDBCType.VARCHAR)
-    case "NAME"           => Some(JDBCType.VARCHAR)
-    case "OID"            => Some(JDBCType.BIGINT)
-    case "REGCLASS"       => Some(JDBCType.BIGINT)
-    case "BYTEA"          => Some(JDBCType.BINARY)
-    case "TIMESTAMPTZ"    => Some(JDBCType.TIMESTAMP_WITH_TIMEZONE)
-    case "TIMESTAMP" | "TIMESTAMPTZ" => Some(JDBCType.TIMESTAMP)
-    case "TIME"           => Some(JDBCType.TIME)
-    case "TIMETZ"         => Some(JDBCType.TIME_WITH_TIMEZONE)
-    case "DATE"           => Some(JDBCType.DATE)
-    case "BOOL" | "BOOLEAN" => Some(JDBCType.BOOLEAN)
-    case "NUMERIC"        => Some(JDBCType.NUMERIC)
-    case "DECIMAL"        => Some(JDBCType.DECIMAL)
-    case "SERIAL" | "BIGSERIAL" => Some(JDBCType.BIGINT)
-    case t if t.startsWith("_") => Some(JDBCType.ARRAY)
-    case other            => Try(JDBCType.valueOf(other)).toOption
+  def localTypeNameToSqlType(
+    connection: DatabaseConnectionSource,
+    localTypeName: String,
+  ): Option[SQLType] = {
+    val trimmed = Option(localTypeName).map(_.trim).filter(_.nonEmpty)
+    trimmed.flatMap { name =>
+      val upper = name.toUpperCase(Locale.ROOT)
+
+      vendorSpecificTypeNameToSqlType(upper)
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
+        .orElse(typeInfoSqlType(connection, name))
+    }
+  }
+
+  private val vendorSpecificOverrides: Map[String, SQLType] = Map(
+    "TEXT"          -> JDBCType.LONGVARCHAR,
+    "UUID"          -> JDBCType.LONGVARCHAR,
+    "JSON"          -> JDBCType.OTHER,
+    "JSONB"         -> JDBCType.OTHER,
+    "INT2"          -> JDBCType.SMALLINT,
+    "INT"           -> JDBCType.INTEGER,
+    "INT4"          -> JDBCType.INTEGER,
+    "INT8"          -> JDBCType.BIGINT,
+    "FLOAT4"        -> JDBCType.FLOAT,
+    "FLOAT8"        -> JDBCType.DOUBLE,
+    "MONEY"         -> JDBCType.DECIMAL,
+    "BPCHAR"        -> JDBCType.CHAR,
+    "VARCHAR"       -> JDBCType.VARCHAR,
+    "NAME"          -> JDBCType.VARCHAR,
+    "OID"           -> JDBCType.BIGINT,
+    "REGCLASS"      -> JDBCType.BIGINT,
+    "BYTEA"         -> JDBCType.BINARY,
+    "TIMESTAMPTZ"   -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"        -> JDBCType.TIME_WITH_TIMEZONE,
+    "DATETIME"      -> JDBCType.TIMESTAMP,
+    "SMALLSERIAL"   -> JDBCType.INTEGER,
+    "SERIAL"        -> JDBCType.INTEGER,
+    "BIGSERIAL"     -> JDBCType.BIGINT,
+    "TINYTEXT"      -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"    -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"      -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"      -> JDBCType.BLOB,
+    "MEDIUMBLOB"    -> JDBCType.BLOB,
+    "LONGBLOB"      -> JDBCType.BLOB,
+    "NVARCHAR2"     -> JDBCType.NVARCHAR,
+    "NCHAR"         -> JDBCType.NCHAR,
+    "NCLOB"         -> JDBCType.NCLOB,
+    "BIT VARYING"   -> JDBCType.VARBINARY,
+    "CHARACTER"     -> JDBCType.CHAR,
+    "CHARACTER VARYING" -> JDBCType.VARCHAR,
+    "DOUBLE PRECISION" -> JDBCType.DOUBLE,
+    "BOOLEAN"       -> JDBCType.BOOLEAN,
+    "BOOL"          -> JDBCType.BOOLEAN,
+    "NUMERIC"       -> JDBCType.NUMERIC,
+    "DECIMAL"       -> JDBCType.DECIMAL,
+    "DATE"          -> JDBCType.DATE,
+    "TIME"          -> JDBCType.TIME,
+    "GEOGRAPHY"     -> JDBCType.OTHER,
+    "GEOMETRY"      -> JDBCType.OTHER,
+    "XML"           -> JDBCType.SQLXML,
+    "UUID[]"        -> JDBCType.ARRAY,
+  )
+
+  private def vendorSpecificTypeNameToSqlType(typeName: String): Option[SQLType] =
+    vendorSpecificOverrides.get(typeName).orElse {
+      if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
+    }
+
+  private def typeInfoSqlType(
+    connection: DatabaseConnectionSource,
+    typeName: String,
+  ): Option[SQLType] = {
+    val conn = connection.get()
+    try {
+      val typeInfo = conn.getMetaData.getTypeInfo
+      try {
+        Iterator
+          .continually(())
+          .takeWhile(_ => typeInfo.next())
+          .collectFirst { _ =>
+            Option(typeInfo.getString("TYPE_NAME"))
+              .filter(_.equalsIgnoreCase(typeName))
+              .flatMap(_ => Try(JDBCType.valueOf(typeInfo.getInt("DATA_TYPE"))).toOption)
+          }
+          .flatten
+      } finally typeInfo.close()
+    } finally {
+      val _ = connection.releaseConnection(conn)
+      ()
+    }
   }
 }

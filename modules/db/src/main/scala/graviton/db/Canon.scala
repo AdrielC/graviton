@@ -1,9 +1,9 @@
-package graviton.pg
+package graviton.db
 
 import zio.Chunk
 import zio.schema.DynamicValue
-import zio.schema.codec.JsonCodec.ExplicitConfig
 import zio.schema.codec.JsonCodec
+import zio.schema.codec.JsonCodec.ExplicitConfig
 
 object Canon:
   private val codec = JsonCodec.schemaBasedBinaryCodec[DynamicValue](

@@ -21,6 +21,19 @@ This file captures future work items discussed with the AI.
 2. Build out a CLI and an HTTP gateway with end-to-end tests.
 3. Add configuration-driven integration tests (including TestContainers) for all storage backends.
 4. Set up CI workflows that run tests, publish docs, and push artifacts to Maven Central.
+5. Fold in the Cedar 2.0 storage refactor: adopt Iron refined types for block sizes and indices, split `BinaryAttributes` into advertised/confirmed maps keyed by `BinaryAttributeKey`, and ensure `BinaryAttributes.validate` gates ingest.
+6. Introduce a `Chunker` abstraction that exposes a name and `ZPipeline[Any, Throwable, Byte, Block]`, configurable through a `FiberRef`.
+7. Unify storage behind the new `BinaryStore` sinks: keep `insert`/`insertWith` as the single-sink operations that return a `BinaryKey` plus any leftover bytes, layer an `insertFile` helper that replays leftovers until the stream is exhausted, and support both block-deduplicated and direct file ingestion modes (the latter renamed simply "FileStore").
+8. Track ingestion context via `FiberRef`s for the active chunker, current attributes, and preferred store mode.
+9. Add attribute retrieval APIs and persist advertised/confirmed metadata alongside manifests.
+10. Build ZIO HTTP endpoints that use Iron validation and `BinaryAttributeKey` metadata, returning streaming downloads.
+11. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
+12. Implement the anchored ingest pipeline: transport decoding, 8–16 KiB sniffing, anchored tokenization, CDC within anchors, per-chunk hashing/compress/encrypt, frame emission, and manifest construction.
+13. Build the tokenizer and CDC pipeline with the DFA/Aho-Corasick matcher, `ZSink.foldWeightedDecompose` anchoring cost model, and 1 MiB staging rechunker exposed via `ZPipeline.anchoredCdc`.
+14. Define and implement the self-describing frame format (`"QUASAR"` magic, algorithm IDs, sizes, nonce, truncated hash, key ID, and optional metadata) with canonical AAD encoding and strict `Take.chunk`/`Take.fail` semantics.
+15. Extend deduplication support: store base blocks from anchored CDC, keep manifests mutable for future CDC tuning, and prototype a rolling-hash index for containment detection without sub-block slicing.
+16. Ship format-aware views that preserve canonical bytes while layering PDF object/page maps and ZIP central-directory access over manifest offsets.
+17. Add operational guardrails: bounded `Queue[Take]` backpressure, guaranteed `OutputStream` closure, ingestion bomb protection, and enforced `./sbt scalafmtAll` pre-commit checks.
 
 ## Upcoming Work Focus
 
@@ -35,3 +48,9 @@ This file captures future work items discussed with the AI.
 
 ### Additional enhancements
 - Document CLI/HTTP usage, configuration examples for filesystem and S3 backends, richer metrics/logging snippets, broader test coverage (including TestContainers), and CI workflows for publishing to Maven Central.
+
+## Workflow Requirements
+
+- Always run `./sbt scalafmtAll && ./sbt test` before committing or opening a pull request.
+- Sync with the latest `main` branch (e.g., `git fetch origin main` followed by `git merge origin/main` or an equivalent rebase) before creating commits so conflict resolution happens early.
+- When a task from this file is completed, update the relevant entry to mark it as done and record the completion commit or date.

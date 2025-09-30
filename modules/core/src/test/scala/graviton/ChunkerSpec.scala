@@ -1,13 +1,14 @@
 package graviton
 
+import graviton.chunking.*
+import graviton.core.model.Block
 import zio.*
 import zio.stream.*
 import zio.test.*
-import graviton.chunking.*
 import java.util.zip.{Deflater, DeflaterOutputStream}
 import java.io.ByteArrayOutputStream
 
-object ChunkerSpec extends ZIOSpecDefault:
+case object ChunkerSpec extends ZIOSpecDefault:
 
   private def compress(data: Array[Byte], level: Int): Array[Byte] =
     val bos  = new ByteArrayOutputStream()
@@ -31,13 +32,12 @@ object ChunkerSpec extends ZIOSpecDefault:
     test("fixed chunker splits by size") {
       val data = Chunk.fromArray("abcdef".getBytes("UTF-8"))
       ZStream.fromChunk(data).via(FixedChunker(2).pipeline).runCollect.map { out =>
-        assertTrue(
-          out == Chunk(
-            Chunk.fromArray("ab".getBytes),
-            Chunk.fromArray("cd".getBytes),
-            Chunk.fromArray("ef".getBytes),
-          )
+        val expected = Chunk(
+          Block.unsafeFromChunk(Chunk.fromArray("ab".getBytes)),
+          Block.unsafeFromChunk(Chunk.fromArray("cd".getBytes)),
+          Block.unsafeFromChunk(Chunk.fromArray("ef".getBytes)),
         )
+        assertTrue(out.map(_.toChunk) == expected.map(_.toChunk))
       }
     },
     test("pdf chunker normalizes compressed streams") {
@@ -48,7 +48,7 @@ object ChunkerSpec extends ZIOSpecDefault:
         c1 <- ZStream.fromChunk(pdf1).via(PdfChunker.pipeline).runCollect
         c2 <- ZStream.fromChunk(pdf2).via(PdfChunker.pipeline).runCollect
       yield assertTrue(
-        c1 == c2 && c1.exists(_ == Chunk.fromArray(content))
+        c1.map(_.toChunk) == c2.map(_.toChunk) && c1.exists(_.toChunk == Chunk.fromArray(content))
       )
     },
   )

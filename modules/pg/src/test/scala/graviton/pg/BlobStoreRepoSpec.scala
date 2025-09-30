@@ -1,5 +1,7 @@
 package graviton.pg
 
+import graviton.db.{BlobStoreRepo, BlobStoreRow, StoreKey, StoreStatus, given}
+
 import zio.*
 import zio.test.*
 import com.augustnagro.magnum.magzio.*
@@ -45,13 +47,13 @@ object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & Trans
           _        <- xa.transact {
                         Console.printLine("Inserting data") *>
                           ZIO.attempt(sql"""
-                INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
-                VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
-              """.query[Int].run()) *>
+            INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
+            VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
+          """.query[Int].run()) *>
                           Console.printLine("Reading data") *>
                           ZIO.attempt(sql"""
-                SELECT * FROM blob_store WHERE key = ${sampleRow.key}
-              """.query[BlobStoreRow].run())
+            SELECT * FROM blob_store WHERE key = ${sampleRow.key}
+          """.query[BlobStoreRow].run())
                       }
         } yield assertTrue(true)
       },
@@ -61,6 +63,11 @@ object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & Trans
           row   = sampleRow
           _    <- repo.upsert(row)
           got  <- repo.get(row.key)
+          _    <- Console.printLine(got)
         yield assertTrue(got.exists(_.implId == "fs"))
       },
-    ) @@ TestAspect.ifEnvSet("TESTCONTAINERS")
+    ) @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
+      value.trim match
+        case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
+        case _                                                                                       => false
+    }

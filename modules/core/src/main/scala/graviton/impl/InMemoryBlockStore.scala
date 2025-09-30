@@ -2,10 +2,9 @@ package graviton.impl
 
 import graviton.*
 import graviton.core.BinaryAttributes
+import graviton.core.model.*
 import zio.*
 import zio.stream.*
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
 import java.time.Instant
 
 private final case class BlockState(refs: Int, unreferencedAt: Option[Instant])
@@ -17,7 +16,7 @@ final class InMemoryBlockStore private (
   resolver: BlockResolver,
 ) extends BlockStore:
 
-  private val MaxBlockSize: Int = 4 * 1024 * 1024
+  private val MaxBlockSize: Int = Limits.MAX_BLOCK_SIZE_IN_BYTES
 
   def storeBlock(attrs: BinaryAttributes): ZSink[Any & Scope, GravitonError, Byte, Byte, BlockKey] =
     val algo = HashAlgorithm.SHA256
@@ -25,13 +24,12 @@ final class InMemoryBlockStore private (
       .collectAllN[Byte](MaxBlockSize)
       .mapError(_ => GravitonError.BackendUnavailable("ingest failure"))
       .mapZIO { collected =>
-        val size = collected.length
         for
+          block  <- Block.fromChunkZIO(collected)
           hasher <- Hashing.hasher(algo)
-          _      <- hasher.update(collected)
+          _      <- hasher.update(block.toChunk)
           dig    <- hasher.digest
-          digest  = dig.assume[MinLength[16] & MaxLength[64]]
-          key     = BlockKey(Hash(digest, algo), size.assume[Positive])
+          key     = BlockKey(Hash(dig, algo), block.size)
           state  <- index.get.map(_.get(key))
           _      <- state match
                       case Some(st) =>
@@ -62,12 +60,13 @@ final class InMemoryBlockStore private (
         collect
           .zipWithPar(Hashing.sink(HashAlgorithm.SHA256))((_, dig) => dig)
           .mapZIO { hashBytes =>
-            val digest = hashBytes.assume[MinLength[16] & MaxLength[64]]
+            val digest = hashBytes
             for
               size     <- sizeRef.get
+              refined  <- Size.fromZIO(size)
               key       = BlockKey(
                             Hash(digest, HashAlgorithm.SHA256),
-                            size.assume[Positive],
+                            refined,
                           )
               stateOpt <- index.get.map(_.get(key))
               _        <- stateOpt match

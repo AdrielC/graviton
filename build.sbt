@@ -111,7 +111,7 @@ lazy val commonSettings = Seq(
 )
 
 lazy val root = (project in file("."))
-  .aggregate(core, fs, s3, tika, metrics, pg, docs)
+  .aggregate(core, db, fs, s3, tika, metrics, pg, docs)
   .settings(name := "graviton")
 
 lazy val core = project
@@ -120,6 +120,20 @@ lazy val core = project
     name := "graviton-core"
   )
   .settings(commonSettings)
+
+lazy val db = project
+  .in(file("modules/db"))
+  .settings(
+    name := "graviton-db"
+  )
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.augustnagro"   %% "magnum"     % magnumV,
+      "com.augustnagro"   %% "magnumpg"   % magnumV,
+      "com.augustnagro"   %% "magnumzio"  % magnumV,
+    )
+  )
 
 lazy val fs = project
   .in(file("modules/fs"))
@@ -163,7 +177,7 @@ lazy val dbcodegen = project
 
 lazy val pg = project
   .in(file("modules/pg"))
-  .dependsOn(core, dbcodegen)
+  .dependsOn(core, db, dbcodegen)
   .settings(
     name              := "graviton-pg",
     // on-demand schema generation snapshot directory (checked into VCS)
@@ -281,7 +295,7 @@ lazy val docs = project
     projectName                                := "graviton",
     mainModuleName                             := (core / moduleName).value,
     projectStage                               := ProjectStage.ProductionReady,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, fs, s3, tika, metrics, pg),
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, db, fs, s3, tika, metrics, pg),
     mdocIn                                     := baseDirectory.value / "src/main/mdoc",
     mdocOut                                    := baseDirectory.value / "target/mdoc",
     mdocVariables                              := Map("VERSION" -> version.value),

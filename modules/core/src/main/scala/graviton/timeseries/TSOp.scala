@@ -9,36 +9,37 @@ sealed trait TSOp[I, O]:
   type State <: Tuple
 
 object TSOp:
+  sealed trait State                                       extends Product
   // Named states (kept for schema derivation examples)
-  final case class Prev[A](previous: Option[A])
-  final case class MovAvgState[A](buffer: List[A], sum: A)
+  final case class Prev[A](previous: Option[A])            extends State
+  final case class MovAvgState[A](buffer: List[A], sum: A) extends State
 
   // Ops (generic over element A)
   final case class Delta[A](numeric: Numeric[A], schemaA: Schema[A]) extends TSOp[A, A]:
-    type State = Prev[A] *: EmptyTuple
+    type State = Tuple1[Prev[A]]
   object Delta:
     def make[A](using num: Numeric[A], sa: Schema[A]): Delta[A] = Delta(num, sa)
 
   final case class MovingAvg[A](n: Int, frac: Fractional[A], schemaA: Schema[A]) extends TSOp[A, A]:
-    type State = MovAvgState[A] *: EmptyTuple
+    override type State = Tuple1[MovAvgState[A]]
   object MovingAvg:
-    def make[A](n: Int)(using f: Fractional[A], sa: Schema[A]): MovingAvg[A] = MovingAvg(n, f, sa)
+    inline def make[A](inline n: Int)(using f: Fractional[A], sa: Schema[A]): MovingAvg[A] = MovingAvg(n, f, sa)
 
   // Pure-data stateless ops
   final case class PairSub[A](numeric: Numeric[A], schemaA: Schema[A]) extends TSOp[(A, A), A]:
     type State = EmptyTuple
   object PairSub:
-    def make[A](using n: Numeric[A], sa: Schema[A]): PairSub[A] = PairSub(n, sa)
+    inline def make[A](using n: Numeric[A], sa: Schema[A]): PairSub[A] = PairSub(n, sa)
 
   final case class RateFromPair[A](frac: Fractional[A], schemaA: Schema[A]) extends TSOp[(Long, A), A]:
     type State = EmptyTuple
   object RateFromPair:
-    def make[A](using f: Fractional[A], sa: Schema[A]): RateFromPair[A] = RateFromPair(f, sa)
+    inline def make[A](using f: Fractional[A], sa: Schema[A]): RateFromPair[A] = RateFromPair(f, sa)
 
   object Schemas:
-    def singleElemTuple[T](schemaT: Schema[T]): Schema[T *: EmptyTuple] =
-      schemaT.transform[T *: EmptyTuple](t => t *: EmptyTuple, { case h *: _ => h })
-    def emptyTuple: Schema[EmptyTuple]                                  = Schema[Unit].transform(_ => EmptyTuple, _ => ())
+    def singleElemTuple[T](schemaT: Schema[T]): Schema[Tuple1[T]] =
+      schemaT.transform[Tuple1[T]](t => t *: EmptyTuple, { case h *: _ => h })
+    def emptyTuple: Schema[EmptyTuple]                            = Schema[Unit].transform(_ => EmptyTuple, _ => ())
 
     given prevSchema[A](using sa: Schema[A]): Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
     given movAvgSchema[A](using sa: Schema[A]): Schema[MovAvgState[A]] = DeriveSchema.gen[MovAvgState[A]]
@@ -49,15 +50,21 @@ object TSOp:
       given Schema[A] = sa
       DeriveSchema.gen[MovAvgState[A]]
 
-  given FreeScanK.Interpreter[TSOp] with
+  inline given FreeScanK.Interpreter[TSOp] with
+    type Flatten[A] <: Tuple | A = A match
+      case a *: b => a *: Flatten[b]
+      case _      => Tuple1[A]
+    end Flatten
+
+    override type State = TSOp.State
     def toScan[I, O, S <: Tuple](op: TSOp[I, O] { type State = S }): Scan.Aux[I, O, S] =
       op match
         case d: Delta[a]        =>
           given num: Numeric[a] = d.numeric
           Scan
-            .stateful[a, a, Prev[a]](Prev[a](None)) { (st, a0) =>
-              val out = st.previous.map(p => num.minus(a0, p)).getOrElse(a0)
-              (Prev(Some(a0)), Chunk.single(out))
+            .stateful[a, a, Flatten[Prev[a]]](Tuple(Prev[a](None))) { (st, a0) =>
+              val out = st._1.previous.map(p => num.minus(a0, p)).getOrElse(a0)
+              (Tuple1(Prev(Some(a0))), Chunk.single(out))
             }(_ => Chunk.empty)
             .asInstanceOf[Scan.Aux[I, O, S]]
         case m: MovingAvg[a]    =>
@@ -65,16 +72,18 @@ object TSOp:
           import frac.*
           val n                     = m.n
           Scan
-            .stateful[a, a, MovAvgState[a]](MovAvgState[a](Nil, frac.zero)) { (st, d) =>
-              val buf1 = (d :: st.buffer).take(n)
-              val sum1 = (st.sum + d) - (if st.buffer.size >= n then st.buffer.last else frac.zero)
+            .stateful[a, a, Flatten[MovAvgState[a]]](Tuple1(MovAvgState[a](Nil, frac.zero))) { (st, d) =>
+              val buf1 = (d :: st._1.buffer).take(n)
+              val sum1 = (st._1.sum + d) - (if st._1.buffer.size >= n then st._1.buffer.last else frac.zero)
               val avg  = sum1 / fromInt(buf1.size)
-              (MovAvgState(buf1, sum1), Chunk.single(avg))
+              (Tuple1(MovAvgState(buf1, sum1)), Chunk.single(avg))
             }(_ => Chunk.empty)
             .asInstanceOf[Scan.Aux[I, O, S]]
         case p: PairSub[a]      =>
           given num: Numeric[a] = p.numeric
-          Scan.stateless[(a, a), a] { case (x, y) => Chunk.single(num.minus(x, y)) }.asInstanceOf[Scan.Aux[I, O, S]]
+          Scan
+            .stateless[(a, a), a] { case (x, y) => Chunk.single(num.minus(x, y)) }
+            .asInstanceOf[Scan.Aux[I, O, S]]
         case r: RateFromPair[a] =>
           given frac: Fractional[a] = r.frac
           import frac.*
