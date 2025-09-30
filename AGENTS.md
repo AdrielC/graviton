@@ -21,7 +21,13 @@ This file captures future work items discussed with the AI.
 2. Build out a CLI and an HTTP gateway with end-to-end tests.
 3. Add configuration-driven integration tests (including TestContainers) for all storage backends.
 4. Set up CI workflows that run tests, publish docs, and push artifacts to Maven Central.
-5. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
+5. Fold in the Cedar 2.0 storage refactor: adopt Iron refined types for block sizes and indices, split `BinaryAttributes` into advertised/confirmed maps keyed by `BinaryAttributeKey`, and ensure `BinaryAttributes.validate` gates ingest.
+6. Introduce a `Chunker` abstraction that exposes a name and `ZPipeline[Any, Throwable, Byte, Block]`, configurable through a `FiberRef`.
+7. Unify storage behind the new `BinaryStore` sinks: keep `insert`/`insertWith` as the single-sink operations that return a `BinaryKey` plus any leftover bytes, layer an `insertFile` helper that replays leftovers until the stream is exhausted, and support both block-deduplicated and direct file ingestion modes (the latter renamed simply "FileStore").
+8. Track ingestion context via `FiberRef`s for the active chunker, current attributes, and preferred store mode.
+9. Add attribute retrieval APIs and persist advertised/confirmed metadata alongside manifests.
+10. Build ZIO HTTP endpoints that use Iron validation and `BinaryAttributeKey` metadata, returning streaming downloads.
+11. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
 
 ## Upcoming Work Focus
 
