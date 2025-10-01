@@ -12,7 +12,7 @@ import graviton.impl.InMemoryBinaryStore
 import graviton.logging.LoggingBinaryStore
 import zio.ZLayer
 
-val loggingStore: ZLayer[Any, Nothing, BinaryStore] =
+def loggingStoreLayer: ZLayer[Any, Nothing, BinaryStore] =
   ZLayer.fromZIO(InMemoryBinaryStore.make()) >>> LoggingBinaryStore.layer
 ```
 
@@ -48,7 +48,7 @@ structured pipelines such as Loki:
 import zio.Runtime
 import zio.logging.consoleJsonLogger
 
-val jsonLogger = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
+def jsonLogger = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
 ```
 
 Extend the resulting `LogFormat` with additional annotations (such as request
