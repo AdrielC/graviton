@@ -49,7 +49,7 @@ structured pipelines such as Loki:
 ```scala mdoc:silent
 import zio.Runtime
 import zio.logging.consoleJsonLogger
-import scala.annotation.nowar
+import scala.annotation.nowarn
 
 @nowarn("msg=unused value")
 val jsonLogger = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
