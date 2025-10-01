@@ -31,7 +31,7 @@ val layer = Metrics.prometheus ++ Metrics.prometheusUpdater
 Expose the scraped data through an HTTP endpoint. `Metrics.scrape` returns the
 Prometheus text format and can be mounted on any HTTP server:
 
-```scala mdoc:passthrough
+```scala
 import zio.*
 import zio.http.*
 import zio.metrics.connectors.prometheus.PrometheusPublisher
@@ -78,7 +78,7 @@ notifications when tail latencies or error spikes exceed agreed thresholds.
 `Metrics.prometheusUpdater` publishes updates every five seconds by default. If
 you want slower scrapes, replace it with a custom layer:
 
-```scala mdoc:passthrough
+```scala
 import zio.metrics.connectors.prometheus.{PrometheusPublisher, prometheusLayer, publisherLayer}
 import zio.metrics.connectors.MetricsConfig
 import zio.ZLayer
