@@ -1,226 +1,171 @@
-# Graviton — Storage Concepts
+# Graviton Glossary and Terminology
 
-Friday, September 5, 2025 – 04:46 AM UTC-6
+This document defines the key terms used in **Graviton**, the content-addressable storage (CAS) layer for immutable binary data.  
+Its goal is to provide a single source of truth for the vocabulary and invariants used throughout Graviton.
 
-Graviton is the **content-addressable storage (CAS)** layer. It owns **immutable bytes** and the **facts** needed to reassemble them. It does **not** own users, permissions, documents, folders, or workflows.
-
-Graviton’s job:
-- Break incoming bytes into **Blocks** (bounded size).
-- Hash and store each Block **once** (dedupe).
-- Record how Blocks join together into a **Blob** (a contiguous logical byte stream).
-- Track **where** replicas of Blocks live across backends.
-- Stream bytes out again, verifiably, in order.
-
-Everything else lives **above** Graviton.
+> **Note:** Higher-level concepts like files, documents, folders, and permissions live in a separate layer (e.g., Quasar) and are **explicitly out of scope**.
 
 ---
 
-## What Graviton is
+## What Graviton Is
 
-- **Block** — smallest immutable unit. Identity is its `(hash, algo)`. Size is ≤ `MaxBlockSize`.
-- **Manifest** — ordered entries describing where each Block sits in a Blob: `(offset, size, BlockKey)`.
-- **Blob** — a contiguous immutable byte stream, defined by its Manifest. Identity includes `(fullHash, algo, totalSize [, mediaTypeHint])`.
-- **Store** — a concrete backend instance (e.g., S3 bucket + account/region, Ceph pool, POSIX root).
-- **Sector** — the address inside a Store where a replica lives (key/path/oid and optional byte range).
-- **Replica** — the placement record coupling `BlockKey` with `(StoreId, Sector)` and lifecycle status.
+Graviton is a **CAS layer**. Its responsibilities:
 
-All of this is immutable identity and placement.
+- Breaks incoming bytes into **Blocks** of bounded size.  
+- Hashes and deduplicates each Block so identical content is stored only once.  
+- Records how Blocks join together into a **Blob** via a **Manifest**.  
+- Tracks where replicas of each Block live across backends (Stores, Sectors, Replicas).  
+- Streams bytes back in order, reconstructing the original content.  
 
----
-
-## What Graviton is not
-
-- No Documents, Folders, Tags, Matters, Cases, or Search indices.
-- No Permissions (RBAC/ABAC), Audit Trails, or Workflows.
-- No filetype semantics: it does not “know” about PDFs, ZIPs, OCR, redaction, or “document types.”
-- No business rules. Only physics of bytes: identity, assembly, placement.
-
-Those belong to the higher layer (e.g., Quasar).
+Everything else—documents, cases, workflows—lives **above** Graviton.
 
 ---
 
-## Binary attributes (lightweight, optional)
+## Fundamental Types and Primitives
 
-When storing data, callers may pass `BinaryAttributes` (claimed size, content type hints, createdAt, ownerOrgId, etc.).
-Graviton treats attributes as validation hints and ingest-time assertions (e.g., claimed size must match actual), not as durable user metadata.
+### Block
+- Smallest immutable unit of storage.  
+- Identity = `(hash, algo)` where algo = hash algorithm.  
+- Hashing algorithms: **BLAKE3** (default), **SHA-256** (FIPS).  
+- Immutable once written; deduplicated on identical `(hash, algo)`.  
+- Boundaries determined by a **Chunker**.  
 
----
+### BlockKey
+- Pure CAS identifier for a Block (`hash, algo`).  
+- Size is stored alongside but not part of the identity.  
+- Globally unique for block content.  
 
-## Opaque types (Scala 3 style, conceptual)
+### Manifest
+- Ordered list of **ManifestEntry = (offset, size, block: BlockKey)**.  
+- Defines how Blocks assemble into a Blob.  
+- Independent from Block identity. Immutable once persisted.  
 
-- `Offset`: byte position within the Blob where a Block begins (opaque `Long`).
-- `Size`: length of a chunk or total size (opaque `Int`/`Long`).
-- `Hash`: bytes + algorithm (BLAKE3 by default; SHA-256 for FIPS deployments).
-- `BlockKey`: opaque wrapper over `Hash` (pure CAS identity).
-- `BlobKey`: `(fullHash, algo, totalSize [, mediaTypeHint])`.
-- `StoreId`, `Sector`, `ReplicaStatus`: placement primitives (opaque data; only drivers interpret `Sector`).
+### Blob
+- Contiguous immutable byte stream defined by its Manifest.  
+- Identity = **BlobKey**: `(fullHash, algo, totalSize [, mediaTypeHint])`.  
+- Different chunking strategies → same BlobKey for identical content.  
 
-Rule: BlockKey knows nothing about offsets. Offset/Size are Manifest concerns, not Block identity.
-
----
-
-## Ingest primitive: storeBlock returns a ZSink
-
-Why a Sink? Because a Sink fits the streaming world perfectly:
-- It consumes up to `MaxBlockSize` bytes.
-- It produces exactly one `BlockKey`.
-- It peels leftovers (any bytes beyond the block boundary) so you can apply it repeatedly on a larger stream.
-
-Signature (conceptual):
-
-```scala
-trait BlockStore:
-  /** Build a Sink that:
-    *  - reads up to MaxBlockSize bytes
-    *  - hashes & stores that block
-    *  - emits one BlockKey
-    *  - returns any leftover Byte as leftover
-    *  - uses BinaryAttributes as ingest hints/claims
-    */
-  def storeBlock(attrs: BinaryAttributes)
-    : ZSink[Any with Scope, StorageError, Byte, Byte, BlockKey]
-```
-
-- Input: `Byte`
-- Output: `BlockKey` (one per block)
-- Leftover: `Byte` (anything not consumed)
-- Errors: `StorageError` (e.g., too large, backend failure)
-
-This keeps the backend API minimal. Everything else (manifests, blob assembly) composes on top.
+### BlobKey
+- Identifies a complete Blob.  
+- Subclasses:
+  - **CasKey** = content-addressable form.  
+  - **WritableKey** = user-supplied key.  
 
 ---
 
-## Applying the Sink correctly (repeat over a stream)
+## Storage and Replication
 
-In ZIO 2, you typically drive Sinks from a `ZStream`:
+### Store
+- Physical backend (S3, GCS, Azure Blob, Ceph, POSIX).  
+- Configurable credentials and lifecycle status.  
 
-```scala
-// Pseudocode: repeatedly apply the one-block sink across the stream
-val in: ZStream[Any, Throwable, Byte] = /* your upload stream */
+### Sector
+- Driver-specific address within a Store (e.g., S3 key, file path, DB row ID).  
+- Opaque to higher layers.  
 
-val oneBlockSink = blockStore.storeBlock(attrs)
-
-// Pattern A (recommended): turn Sink into a Pipeline, then apply with via(...)
-val pipeline = ZPipeline.fromSink(oneBlockSink)  // applies the sink repeatedly
-val blockKeys: ZStream[Any with Scope, StorageError, BlockKey] =
-  in.via(pipeline)
-```
-
-Note on naming: historically `transduce` was used with transducers; in ZIO 2 you’ll typically do `in.via(ZPipeline.fromSink(sink))`.
-If you prefer writing `in.transduce(sink)`, add a tiny extension method that internally calls `via(ZPipeline.fromSink(sink))`.
-
-What you get: a stream of `BlockKey` values, one per stored block, while the Sink automatically handles leftovers and back-pressure.
+### Replica
+- Placement of a Block on a Store: `(BlockKey, StoreId, Sector, ReplicaStatus, …)`.  
+- Status values:
+  - `Active` (readable)  
+  - `Quarantined` (temporarily excluded)  
+  - `Deprecated` (eligible for GC)  
+  - `Lost` (unreadable, may trigger repair)  
 
 ---
 
-## Building the Manifest while streaming
+## Additional Concepts
 
-As each `BlockKey` comes out, track its `(offset, size)` to build the Manifest:
+### Offset and Size
+- **Offset:** Byte position within a Blob (opaque long).  
+- **Size:** Positive int/long, refined to prevent zero values.  
 
-- Keep a running `currentOffset` (starts at `0`).
-- For every emitted `BlockKey`, you (the layering code) know how many bytes the block consumed; record:
+### Hash and Algorithm
+- Cryptographic hashes identify Blocks and Blobs.  
+- Algorithm is encoded in BlockKey and BlobKey.  
 
-```
-ManifestEntry = (offset = currentOffset, size = blockSize, block = BlockKey)
-currentOffset += blockSize
-```
+### Binary Attributes
+- **Advertised:** Supplied by client (claimed size, MIME).  
+- **Confirmed:** Computed by service (true size, hash).  
+- Each entry tracks its **origin** (`client`, `server`, `build-info`).  
+- Invalid attributes (e.g., wrong size) → upload rejected.  
 
-- Append entries in order; at the end you have the full Manifest.
-
-The backend does not need offsets to define Blocks. Offsets live in the Manifest that you produce as the stream advances.
-
----
-
-## Finalizing the Blob
-
-After streaming all blocks:
-1. Compute the full Blob hash while streaming (or stream again if you don’t hash inline).
-2. Assemble the BlobKey = `(fullHash, algo, totalSize [, mediaTypeHint])`.
-3. Persist the Manifest and link it to the BlobKey.
-4. (Optional) Enforce replication policy (e.g., keep ≥ 2 Active replicas across Stores).
-
-Now the Blob is immutable, verifiable, and fetchable.
+### Chunker
+- Determines Block boundaries.  
+- Implementations:
+  - Fixed-size  
+  - Rolling hash (FastCDC)  
+  - Anchored chunking (semantic markers like `/stream … endstream`)  
+- Must never emit empty blocks.  
+- Active Chunker stored in `FiberRef[Chunker]`.  
 
 ---
 
-## Reading a Blob
+## Storage Layers
 
-To read `BlobKey`:
-- Load its Manifest.
-- For each entry in order:
-  - Choose a healthy Replica of the `BlockKey`.
-  - Read its bytes from the selected `(StoreId, Sector)`.
-  - Optionally re-hash to verify (spot-check or full).
-- Stream the bytes out in order (the consumer reconstitutes the exact original content).
+### BlockStore
+- Ingest primitive.  
+- Exposes `storeBlock(attrs)` sink → reads ≤ MaxBlockSize, hashes, deduplicates, emits BlockKey.  
+- Returns leftovers for next block.  
 
-Random access is trivial: binary search the Manifest by `offset` and fetch only needed Blocks.
+### Manifest Builder
+- Repeatedly runs `storeBlock`, records offsets + sizes, computes BlobKey.  
+- Persists Manifest and BlobKey.  
 
----
+### BlobStore
+- Pluggable backend storing blocks.  
+- Handles replication and healthy replica selection.  
 
-## Placement model (Stores, Sectors, Replicas)
+### BlockResolver
+- Maps BlockKeys to live replicas.  
+- Selects healthy replica for reads.  
 
-- Store: a backend instance you can register (S3/GCS/Azure/Posix/Ceph/etc.). Encapsulates credentials/config and a status (`Active`, `ReadOnly`, `Draining`, `Disabled`).
-- Sector: driver-opaque address within a Store (e.g., S3 key, RADOS oid, POSIX path, optional byte range).
-- Replica: `(BlockKey, StoreId, Sector, ReplicaStatus, timestamps, health probes)`.
-  - `Active`: eligible for reads.
-  - `Quarantined`: temporarily excluded from reads.
-  - `Deprecated`: not used; eligible for GC.
-  - `Lost`: missing/unreadable; triggers repair if policy requires.
-
-Invariant: Graviton chooses replicas for reads; callers do not pass Sectors when reading a Blob.
-
----
-
-## Typical ingest flow (end-to-end)
-
-1. Call `storeBlock(attrs)` to get a one-block Sink.
-2. Stream your upload through `via(ZPipeline.fromSink(...))` to get a stream of `BlockKey`s.
-3. Accumulate a Manifest by walking each block in order (track offset/size).
-4. Compute full content hash + total size → BlobKey.
-5. Persist Manifest + BlobKey; commit the Blob.
-6. Replicate Blocks to satisfy policy; mark Replicas `Active`.
-
-Done. The same flow works for multi-GB inputs because it’s streaming and bounded.
+### BinaryStore
+- Primary public API.  
+- Provides streaming-friendly operations:
+  - `insert` → returns BlobKey (CAS).  
+  - `insertWith(key: WritableKey)` → stores under user key.  
+  - `exists`, `findBinary`, `listKeys`, `copy`, `delete`.  
 
 ---
 
-## Clear boundary with Quasar (upper layer)
+## Blob Flows
 
-What Quasar adds on top of Graviton:
-- Documents (IDs, titles, authors, case/matter associations).
-- Folders / Packages (a “file” that users see can reference multiple Blobs).
-- Permissions (RBAC/ABAC/clearance levels).
-- Audit (who uploaded, when accessed, workflows).
-- Views/Transforms (OCR, redaction, PDF/A) → deterministic transforms producing new Blobs or virtual read-paths.
-- Search/Indexing (text, embeddings, metadata queries).
+### Ingest Flow
+1. Call `storeBlock(attrs)` → one-block sink.  
+2. Stream through → sequence of BlockKeys.  
+3. Record manifest entries.  
+4. Compute full hash and size → BlobKey.  
+5. Persist manifest + BlobKey.  
+6. Replicate blocks per policy.  
 
-Graviton stays focused on identity, assembly, and placement of immutable bytes.
-
----
-
-## Naming recap (final)
-
-- Block — CAS unit (hash + algo), ≤ MaxBlockSize.
-- Manifest — ordered `(offset, size, BlockKey)` entries.
-- Blob — contiguous logical bytes with identity `(fullHash, algo, size [, mediaTypeHint])`.
-- Store — backend instance (S3/Ceph/Posix/etc.).
-- Sector — address within a Store (key/path/oid/range).
-- Replica — placement record (BlockKey + StoreId + Sector + status).
-
-Single primitive to implement:
-
-`storeBlock(attrs): ZSink[*, StorageError, Byte, Byte, BlockKey]`
-
-Everything else composes from that.
+### Read Flow
+1. Load manifest from BlobKey.  
+2. For each entry:  
+   - Resolve healthy Replica.  
+   - Read block bytes.  
+   - Verify integrity (spot/full re-hash).  
+3. Stream bytes in order.  
+4. Random access via manifest binary search.  
 
 ---
 
-## Notes on API style
+## Frame Format
+Each Block is wrapped in a **Frame** (self-describing container):
 
-- Use opaque types for `Offset`, `Size`, `StoreId`, etc. (Scala 3).
-- Keep error algebra small (`StorageError`) and let higher layers enrich.
-- Keep attributes optional and validating, not authoritative metadata.
-- Hash inline where possible (single pass), but allow double-pass modes for tricky clients.
-- Support FIPS by pluggable hash algorithms (encode algo into both `BlockKey` and `BlobKey`).
+- Magic bytes + version  
+- Flags + algorithm IDs (hash, compression, encryption)  
+- Size fields (plaintext, compressed, ciphertext)  
+- Nonce + integrity hash  
+- Optional metadata (dict IDs, file IDs, chunk indices)  
+- Payload = encrypted/compressed block  
 
-That’s it: small, sharp, streaming-first CAS, with clear edges.
+---
+
+## Excluded Concepts
+Graviton **does not** manage:
+- Files, folders, documents, packages  
+- Permissions, access control, audit trails  
+- Business rules or workflows  
+- File type semantics (e.g., PDF parsing)  
+
+These belong to the **application layer** (e.g., Quasar).
