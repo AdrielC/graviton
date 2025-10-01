@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+if [[ "${GRAVITON_USE_SBTN:-0}" == "1" ]]; then
+  if command -v sbtn >/dev/null 2>&1; then
+    exec sbtn "$@"
+  else
+    echo "sbtn client not found on PATH; falling back to bundled launcher" >&2
+  fi
+fi
 #
 # A more capable sbt runner, coincidentally also called sbt.
 # Author: Paul Phillips <paulp@improving.org>
