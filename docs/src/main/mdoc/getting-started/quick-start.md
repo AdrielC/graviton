@@ -21,7 +21,7 @@ The storage model revolves around a few reusable building blocks:
 - **Stores** – Physical locations where block replicas are persisted. Graviton ships with filesystem and S3 stores out of the box.
 - **Chunkers** – Pluggable strategies (fixed, FastCDC, anchored) that decide how streams are split into blocks.
 
-For a deeper glossary covering invariants and replication guarantees, head to the [Concepts overview](../concepts.md).
+For a deeper glossary covering invariants and replication guarantees, head to the [Concepts overview](../concepts/index.md).
 
 ## Install the CLI
 
@@ -88,7 +88,6 @@ import zio.*
 import zio.stream.*
 import graviton.*
 import graviton.impl.InMemoryBinaryStore
-import scala.annotation.nowarn
 
 def storeAndFetch(store: BinaryStore): Task[Option[Bytes]] =
   for
@@ -96,8 +95,7 @@ def storeAndFetch(store: BinaryStore): Task[Option[Bytes]] =
     data <- store.get(id)
   yield data
 
-@nowarn("msg=unused value of type zio.ZIO")
-val runDemo = for
+val _ = for
   store <- InMemoryBinaryStore.make()
   data  <- storeAndFetch(store)
 yield data
@@ -109,6 +107,6 @@ Graviton resolves the manifest, streams each block from the configured store, an
 
 - Explore the [HTTP gateway](../interfaces/http-gateway.md) for remote ingest and retrieval.
 - Wire up monitoring using the [metrics guide](../operations/metrics.md).
-- Learn how manifests evolve and how replication is enforced in the [replication model docs](../concepts.md#replication).
+- Learn how manifests evolve and how replication is enforced in the [replication model docs](../concepts/replication.md).
 
 Questions or feedback? Join the discussion in the Graviton issue tracker and let us know what workflows you want to build on top of CAS storage.

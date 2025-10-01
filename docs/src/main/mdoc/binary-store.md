@@ -7,7 +7,7 @@ file ingestion paths.
 
 ## 1. Refined Types and Invariants
 
-- Adopt [Iron](https://github.com/IronCoreLabs/iron) refined types to reject
+- Adopt [Iron](https://iltotore.github.io/iron/docs/) refined types to reject
   illegal states at compile time:
   - `Size = Int :| Positive` for file lengths (`> 0`).
   - `Index = Long :| NonNegative` for block indices and offsets (`>= 0`).
@@ -44,8 +44,8 @@ file ingestion paths.
 ## 3. Unified `BinaryStore` API
 
 The core API stays centred on the **single-sink** operation. Both
-`BinaryStore.insert` and `BinaryStore.insertWith` accept a byte stream, write just
-enough data to materialise a `BinaryKey`, and then return that key together with
+`BlobStore.insert` and `BlobStore.insertWith` return `zio.stream.ZSink`, write just
+enough data to materialise a `BlobKey`, and then return that key together with
 any leftover `Bytes`. Callers can inspect the leftovers to decide whether to
 retry, split the upload, or surface an error. This keeps the primitive
 signature aligned with Cedar’s CAS semantics while supporting user-provided
@@ -54,7 +54,7 @@ keys.
 On top of that primitive we expose a **manifest-building sink** (tentatively
 named `insertFile`). It repeatedly feeds the leftover bytes back into the single
 sink until the input stream is fully consumed. Only when there are no leftovers
-does it succeed, returning the ordered list of `BinaryKey`s that make up the
+does it succeed, returning the ordered list of `BlockKey`s (and transforms) that make up the
 logical file. From the caller’s perspective this is the ergonomic “upload a
 whole file” operation, while internally it still reuses the chunk-based
 pipeline.
@@ -66,7 +66,7 @@ The block-oriented machinery underneath:
 - Generates a `BinaryKey.CasKey` from the ordered block hashes plus total size.
 - Maintains reference counts and sector placement as blocks are reused.
 
-A direct ingestion mode (“**FileStore**”) keeps the high-level semantics but may
+A direct ingestion mode (“**BlobStore**”) keeps the high-level semantics but may
 persist data in a single object (e.g. temporary file promoted after hashing)
 rather than individual blocks. The implementation choice remains invisible to
 callers—they always interact through `insert`/`insertWith` or the
@@ -84,9 +84,6 @@ file-store path).
 
 ## 5. Environment and API Surface
 
-- Migrate to ZIO 2.x idioms: eliminate `Has[_]`, use `ZLayer`/`ZEnvironment`,
-  and capture contextual overrides with `FiberRef`s (chunker, attributes, store
-  mode).
 - Keep security concerns (KMS, auth, signed URLs) at the boundary APIs; the
   storage layer focuses on correctness and data integrity.
 - Implement REST endpoints with ZIO HTTP’s Endpoints DSL, validate inputs with
@@ -97,7 +94,7 @@ file-store path).
 1. Implement the `FileStore` ingestion mode and surface the manifest-building
    sink.
 2. Finish all chunker implementations (fixed, FastCDC, anchored CDC).
-3. Add attribute retrieval and update methods on `BinaryStore`.
+3. Add attribute retrieval and update methods on `BlobStore`.
 4. Wire up ZIO HTTP endpoints with schema derivation and validation.
 5. Expand the documentation with end-to-end examples and update `AGENTS.md`
    whenever scope or conventions change.

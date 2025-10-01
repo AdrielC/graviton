@@ -2,11 +2,11 @@ package graviton.pg
 
 import graviton.db.*
 
-import com.augustnagro.magnum.*
-import com.augustnagro.magnum.magzio.TransactorZIO
+import com.augustnagro.magnum.magzio.*
+import com.augustnagro.magnum.sql
 import zio.*
 import zio.stream.ZStream
-import zio.test.{Spec as ZSpec, *}
+import zio.test.*
 
 import java.nio.file.Path
 
@@ -18,7 +18,7 @@ object BlobRepoSpec extends ZIOSpecDefault {
       case _                                                                                       => false
   }
 
-  private val configLayer: ZLayer[Any, Nothing, PgTestLayers.PgTestConfig] =
+  private val configLayer: ZLayer[Nothing, Nothing, PgTestLayers.PgTestConfig] =
     ZLayer.succeed(
       PgTestLayers.PgTestConfig(
         image = "postgres",
@@ -34,7 +34,7 @@ object BlobRepoSpec extends ZIOSpecDefault {
       )
     )
 
-  private val repoLayer: ZLayer[Any, Throwable, TransactorZIO & BlockRepo & BlobRepo] =
+  private val repoLayer: ZLayer[Nothing, Any, TransactorZIO & BlockRepoLive & BlobRepoLive] =
     configLayer >>> PgTestLayers.layer >>> {
       val xa = ZLayer.environment[TransactorZIO]
       xa ++ BlockRepoLive.layer ++ BlobRepoLive.layer
@@ -52,7 +52,7 @@ object BlobRepoSpec extends ZIOSpecDefault {
   private def sampleHash(seed: Int): HashBytes =
     HashBytes.applyUnsafe(Chunk.fill(32)((seed + 17).toByte))
 
-  override def spec: ZSpec[TestEnvironment & Scope, Any] =
+  override def spec =
     suite("BlobRepo")(
       test("upsertBlob registers blob and manifest entries are persisted") {
         for {

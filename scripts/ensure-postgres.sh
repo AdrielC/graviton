@@ -4,24 +4,41 @@ set -euo pipefail
 # ensure-postgres.sh
 # Ensures a local PostgreSQL is available. If it's already reachable, prints
 # export lines for env vars. Otherwise, starts a container (Docker preferred,
-# Podman fallback), waits until ready, then prints export lines.
+# Podman fallback, native as last resort), waits until ready, then prints export lines.
 #
 # Usage:
-#   ./scripts/ensure-postgres.sh [--engine auto|docker|podman] \
+#   ./scripts/ensure-postgres.sh [--engine auto|docker|podman|native] \
 #       [--pg-version 17] [--name graviton-pg] \
 #       [--host 127.0.0.1] [--port 5432] \
-#       [--db postgres] [--user postgres] [--password postgres]
+#       [--db postgres] [--user postgres] [--password postgres] \
+#       [--auto-install] [--no-ddl] [--apply-external]
 #
 # Typical integration:
 #   eval "$(./scripts/ensure-postgres.sh)"
 #
+# Auto-install is enabled automatically when running in:
+#   - CI environments (CI=true, ENV=CI)
+#   - Agent environments (AGENT=true, ENV=AGENT)
+#   - Or explicitly with AUTO_INSTALL_PG=1 or --auto-install
+#
+# Examples:
+#   # In CI (auto-detects and installs if needed)
+#   ENV=CI ./scripts/ensure-postgres.sh --engine native
+#   
+#   # In agent environment
+#   AGENT=true ./scripts/ensure-postgres.sh --engine native
+#   
+#   # Explicit auto-install
+#   ./scripts/ensure-postgres.sh --auto-install --engine native
+#
 
-ENGINE="auto"                      # auto | docker | podman
+
+ENGINE="auto"                      # auto | docker | podman | native
 PG_VERSION="${PG_VERSION:-17}"
 NAME="${PG_NAME:-graviton-pg}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
-PG_DATABASE="${PG_DATABASE:-postgres}"
+PG_DATABASE="${PG_DATABASE:-graviton}"
 # Optional: comma-separated additional databases to ensure
 EXTRA_DBS="${PG_DBS:-}"
 PG_USERNAME="${PG_USERNAME:-postgres}"
@@ -30,6 +47,20 @@ DDL_PATH="${DDL_PATH:-modules/pg/ddl.sql}"
 DO_DDL=${DO_DDL:-1}
 # If PG is already reachable (external), optionally apply DDL using local psql
 APPLY_EXTERNAL=${APPLY_EXTERNAL:-0}
+# For native mode: where to store data
+PG_DATA_DIR="${PG_DATA_DIR:-${HOME}/.graviton/pgdata}"
+
+# Auto-detect ephemeral environments and enable auto-install
+# Checks: CI=true, AGENT=true, ENV=CI, ENV=AGENT, or explicit AUTO_INSTALL_PG=1
+if [[ "${CI:-false}" == "true" ]] || \
+   [[ "${AGENT:-false}" == "true" ]] || \
+   [[ "${ENV:-LOCAL}" == "CI" ]] || \
+   [[ "${ENV:-LOCAL}" == "AGENT" ]] || \
+   [[ "${AUTO_INSTALL_PG:-0}" == "1" ]]; then
+  AUTO_INSTALL_PG=1
+else
+  AUTO_INSTALL_PG=0
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,11 +76,79 @@ while [[ $# -gt 0 ]]; do
     --ddl) DDL_PATH="${2:?}"; shift 2 ;;
     --no-ddl) DO_DDL=0; shift ;;
     --apply-external) APPLY_EXTERNAL=1; shift ;;
+    --auto-install) AUTO_INSTALL_PG=1; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+# Auto-install postgres tools if requested and missing
+auto_install_postgres() {
+  [[ "${AUTO_INSTALL_PG}" != "1" ]] && return 1
+  
+  echo "Auto-installing PostgreSQL tools..." >&2
+  
+  # Detect OS and package manager
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    if has_cmd brew; then
+      echo "Installing postgresql@${PG_VERSION} via Homebrew..." >&2
+      brew install "postgresql@${PG_VERSION}" >/dev/null 2>&1 || {
+        echo "Homebrew installation failed, trying postgresql (latest)..." >&2
+        brew install postgresql >/dev/null 2>&1 || return 1
+      }
+      # Add to PATH if not already there
+      PG_BIN="/opt/homebrew/opt/postgresql@${PG_VERSION}/bin"
+      [[ -d "$PG_BIN" ]] && export PATH="$PG_BIN:$PATH"
+      return 0
+    else
+      echo "Homebrew not found. Install from https://brew.sh" >&2
+      return 1
+    fi
+  elif [[ -f /etc/debian_version ]]; then
+    # Debian/Ubuntu
+    if has_cmd apt-get; then
+      echo "Installing postgresql-${PG_VERSION} via apt..." >&2
+      sudo apt-get update -qq >/dev/null 2>&1
+      sudo apt-get install -y -qq "postgresql-${PG_VERSION}" "postgresql-client-${PG_VERSION}" >/dev/null 2>&1 || {
+        echo "Failed to install postgresql-${PG_VERSION}, trying postgresql (default version)..." >&2
+        sudo apt-get install -y -qq postgresql postgresql-client >/dev/null 2>&1 || return 1
+      }
+      # Add to PATH
+      PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
+      [[ -d "$PG_BIN" ]] && export PATH="$PG_BIN:$PATH"
+      return 0
+    fi
+  elif [[ -f /etc/redhat-release ]]; then
+    # RHEL/CentOS/Fedora
+    if has_cmd dnf; then
+      echo "Installing postgresql${PG_VERSION}-server via dnf..." >&2
+      sudo dnf install -y -q "postgresql${PG_VERSION}-server" "postgresql${PG_VERSION}" >/dev/null 2>&1 || {
+        echo "Failed to install postgresql${PG_VERSION}, trying postgresql (default)..." >&2
+        sudo dnf install -y -q postgresql-server postgresql >/dev/null 2>&1 || return 1
+      }
+      return 0
+    elif has_cmd yum; then
+      echo "Installing postgresql${PG_VERSION}-server via yum..." >&2
+      sudo yum install -y -q "postgresql${PG_VERSION}-server" "postgresql${PG_VERSION}" >/dev/null 2>&1 || {
+        echo "Failed to install postgresql${PG_VERSION}, trying postgresql (default)..." >&2
+        sudo yum install -y -q postgresql-server postgresql >/dev/null 2>&1 || return 1
+      }
+      return 0
+    fi
+  elif [[ -f /etc/arch-release ]]; then
+    # Arch Linux
+    if has_cmd pacman; then
+      echo "Installing postgresql via pacman..." >&2
+      sudo pacman -Sy --noconfirm postgresql >/dev/null 2>&1 || return 1
+      return 0
+    fi
+  fi
+  
+  echo "Unsupported OS or package manager for auto-install." >&2
+  return 1
+}
 
 # TCP check using bash's /dev/tcp; avoid external deps
 pg_reachable() {
@@ -64,9 +163,14 @@ wait_pg() {
     tries=$((tries+1))
     if (( tries > 180 )); then
       echo "Timed out waiting for Postgres at ${host}:${port}" >&2
+      if [[ -n "${ENGINE_USED}" ]]; then
+        echo "Check logs: docker logs $NAME (or podman logs $NAME)" >&2
+      fi
       return 1
     fi
   done
+  # Give postgres a moment to fully start accepting connections
+  sleep 0.5
 }
 
 ENGINE_USED=""
@@ -109,6 +213,60 @@ start_with_podman() {
   ENGINE_USED="podman"
 }
 
+start_with_native() {
+  # Start Postgres natively using pg_ctl (requires postgres to be installed locally)
+  if ! has_cmd pg_ctl || ! has_cmd initdb || ! has_cmd createdb || ! has_cmd psql; then
+    if [[ "${AUTO_INSTALL_PG}" == "1" ]]; then
+      auto_install_postgres || {
+        echo "Auto-installation failed. Install manually:" >&2
+        echo "  macOS: brew install postgresql@${PG_VERSION}" >&2
+        echo "  Ubuntu/Debian: sudo apt-get install postgresql-${PG_VERSION}" >&2
+        echo "  RHEL/Fedora: sudo dnf install postgresql${PG_VERSION}-server" >&2
+        return 1
+      }
+      # Re-check after installation
+      if ! has_cmd pg_ctl || ! has_cmd initdb || ! has_cmd createdb || ! has_cmd psql; then
+        echo "Postgres tools still not found after installation." >&2
+        return 1
+      fi
+    else
+      echo "Native postgres tools (pg_ctl, initdb, createdb, psql) not found." >&2
+      echo "Install postgres: brew install postgresql@${PG_VERSION} (macOS) or apt-get install postgresql (Linux)" >&2
+      echo "Or run with AUTO_INSTALL_PG=1 or --auto-install flag to auto-install." >&2
+      return 1
+    fi
+  fi
+
+  mkdir -p "$PG_DATA_DIR"
+  
+  # Initialize data directory if needed
+  if [[ ! -f "$PG_DATA_DIR/PG_VERSION" ]]; then
+    echo "Initializing postgres data directory at $PG_DATA_DIR..." >&2
+    initdb -D "$PG_DATA_DIR" --username="$PG_USERNAME" --pwfile=<(echo "$PG_PASSWORD") >/dev/null 2>&1 || {
+      echo "Failed to initialize postgres data directory." >&2
+      return 1
+    }
+  fi
+
+  # Check if already running
+  if pg_ctl status -D "$PG_DATA_DIR" >/dev/null 2>&1; then
+    : # Already running
+  else
+    # Start postgres
+    pg_ctl -D "$PG_DATA_DIR" -l "$PG_DATA_DIR/logfile" -o "-p $PG_PORT" start >/dev/null 2>&1 || {
+      echo "Failed to start native postgres on port $PG_PORT." >&2
+      return 1
+    }
+  fi
+
+  ENGINE_USED="native"
+}
+
+ensure_db_native() {
+  # Just use the unified abstraction - it already handles native mode
+  ensure_db_and_user_and_schema
+}
+
 # Helpers to run commands inside container based on engine used
 ctr_exec() {
   if [[ "$ENGINE_USED" == "docker" ]]; then
@@ -126,35 +284,103 @@ ctr_cp() {
   fi
 }
 
+# Generic SQL execution abstraction - works for container or native
+exec_sql() {
+  local db="$1"
+  local sql="$2"
+  
+  if [[ "$ENGINE_USED" == "native" ]]; then
+    # Native: use local psql
+    export PGPASSWORD="${PG_PASSWORD}"
+    psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d "$db" -c "$sql" >/dev/null 2>&1
+  else
+    # Container: use container's psql as postgres superuser
+    ctr_exec -u postgres "$NAME" psql -d "$db" -c "$sql" >/dev/null 2>&1
+  fi
+}
+
+exec_sql_file() {
+  local db="$1"
+  local file="$2"
+  
+  if [[ "$ENGINE_USED" == "native" ]]; then
+    # Native: use local psql with local file
+    export PGPASSWORD="${PG_PASSWORD}"
+    psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d "$db" -f "$file" >/dev/null 2>&1
+  else
+    # Container: copy file and execute
+    ctr_cp "$file" "${NAME}:/tmp/ddl.sql"
+    ctr_exec -u postgres "$NAME" psql -d "$db" -f /tmp/ddl.sql >/dev/null 2>&1
+  fi
+}
+
+check_role_exists() {
+  local role="$1"
+  
+  if [[ "$ENGINE_USED" == "native" ]]; then
+    export PGPASSWORD="${PG_PASSWORD}"
+    psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres -tAc \
+      "SELECT 1 FROM pg_roles WHERE rolname='${role}'" 2>/dev/null | grep -q 1
+  else
+    ctr_exec -u postgres "$NAME" bash -lc \
+      "psql -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${role}'\" | grep -q 1" 2>/dev/null
+  fi
+}
+
+check_db_exists() {
+  local db="$1"
+  
+  if [[ "$ENGINE_USED" == "native" ]]; then
+    export PGPASSWORD="${PG_PASSWORD}"
+    psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d postgres -tAc \
+      "SELECT 1 FROM pg_database WHERE datname='${db}'" 2>/dev/null | grep -q 1
+  else
+    ctr_exec -u postgres "$NAME" bash -lc \
+      "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${db}'\" | grep -q 1" 2>/dev/null
+  fi
+}
+
 ensure_db_and_user_and_schema() {
-  # Ensure role and database exist, grant privileges, and apply DDL if requested
-  # Use container's psql as postgres superuser
+  # Ensure role and database exist, grant privileges, and apply DDL
+  # Works for both containers and native postgres
+  
   # 1) Ensure role
-  ctr_exec -u postgres "$NAME" bash -lc "psql -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname='${PG_USERNAME}'\" | grep -q 1 || psql -d postgres -c \"CREATE ROLE ${PG_USERNAME} LOGIN PASSWORD '${PG_PASSWORD}'\"" >/dev/null
+  if ! check_role_exists "${PG_USERNAME}"; then
+    exec_sql postgres "CREATE ROLE \"${PG_USERNAME}\" LOGIN PASSWORD '${PG_PASSWORD}'" || true
+  fi
+  
   # 2) Ensure database
-  ctr_exec -u postgres "$NAME" bash -lc "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'\" | grep -q 1 || psql -d postgres -c \"CREATE DATABASE ${PG_DATABASE}\"" >/dev/null
+  if ! check_db_exists "${PG_DATABASE}"; then
+    exec_sql postgres "CREATE DATABASE \"${PG_DATABASE}\"" || true
+  fi
+  
   # 3) Grants
-  ctr_exec -u postgres "$NAME" psql -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${PG_DATABASE} TO ${PG_USERNAME}" >/dev/null
+  exec_sql postgres "GRANT ALL PRIVILEGES ON DATABASE \"${PG_DATABASE}\" TO \"${PG_USERNAME}\"" || true
+  
   # 4) Ensure any extra databases
   if [[ -n "${EXTRA_DBS}" ]]; then
     IFS=',' read -r -a _dbs <<< "${EXTRA_DBS}"
     for _db in "${_dbs[@]}"; do
       _db_trimmed="${_db// /}"
       [[ -z "${_db_trimmed}" ]] && continue
-      ctr_exec -u postgres "$NAME" bash -lc "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='${_db_trimmed}'\" | grep -q 1 || psql -d postgres -c \"CREATE DATABASE ${_db_trimmed}\"" >/dev/null
-      ctr_exec -u postgres "$NAME" psql -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${_db_trimmed} TO ${PG_USERNAME}" >/dev/null
+      
+      if ! check_db_exists "${_db_trimmed}"; then
+        exec_sql postgres "CREATE DATABASE \"${_db_trimmed}\"" || true
+      fi
+      exec_sql postgres "GRANT ALL PRIVILEGES ON DATABASE \"${_db_trimmed}\" TO \"${PG_USERNAME}\"" || true
     done
   fi
+  
   # 5) Apply DDL if requested and available to primary and extras
   if [[ "${DO_DDL}" == "1" && -f "${DDL_PATH}" ]]; then
-    ctr_cp "${DDL_PATH}" "${NAME}:/ddl.sql"
-    ctr_exec -u postgres "$NAME" psql -d "${PG_DATABASE}" -f /ddl.sql >/dev/null
+    exec_sql_file "${PG_DATABASE}" "${DDL_PATH}" || true
+    
     if [[ -n "${EXTRA_DBS}" ]]; then
       IFS=',' read -r -a _dbs <<< "${EXTRA_DBS}"
       for _db in "${_dbs[@]}"; do
         _db_trimmed="${_db// /}"
         [[ -z "${_db_trimmed}" ]] && continue
-        ctr_exec -u postgres "$NAME" psql -d "${_db_trimmed}" -f /ddl.sql >/dev/null || true
+        exec_sql_file "${_db_trimmed}" "${DDL_PATH}" || true
       done
     fi
   fi
@@ -378,8 +604,10 @@ else
         start_with_docker
       elif has_cmd podman; then
         start_with_podman
+      elif has_cmd pg_ctl; then
+        start_with_native
       else
-        echo "Neither Docker nor Podman are available to start Postgres." >&2
+        echo "Neither Docker, Podman, nor native Postgres tools are available." >&2
         exit 1
       fi
       ;;
@@ -397,6 +625,9 @@ else
         echo "Podman not available." >&2; exit 1
       fi
       ;;
+    native)
+      start_with_native || exit 1
+      ;;
     *)
       echo "Unknown engine: $ENGINE" >&2; exit 2
       ;;
@@ -404,8 +635,10 @@ else
 
   # 3) Wait until reachable
   wait_pg "$PG_HOST" "$PG_PORT"
-  # 3b) Ensure schema if we just (re)started a managed container
-  if [[ -n "$ENGINE_USED" ]]; then
+  # 3b) Ensure schema if we just (re)started a managed container or native
+  if [[ "$ENGINE_USED" == "native" ]]; then
+    ensure_db_native
+  elif [[ -n "$ENGINE_USED" ]]; then
     ensure_db_and_user_and_schema
   fi
 fi

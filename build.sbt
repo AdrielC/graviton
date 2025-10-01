@@ -1,7 +1,7 @@
 import cats.instances.set
 enablePlugins(
   ZioSbtEcosystemPlugin,
-  ZioSbtCiPlugin,
+  ZioSbtCiPlugin
 )
 
 import scala.sys.process.*
@@ -42,6 +42,11 @@ lazy val autoBootstrapPg = settingKey[Boolean](
 
 lazy val docsSiteArchive = taskKey[java.io.File]("Bundle rendered documentation into a distributable zip")
 lazy val docsSiteArtifact = Artifact("graviton-docs", "zip", "zip")
+lazy val serveDocs = taskKey[Unit]("Serve documentation site locally")
+// Custom tasks for docs
+lazy val buildDocs = taskKey[Unit]("Build complete documentation site")
+lazy val previewDocs = taskKey[Unit]("Preview documentation site")
+lazy val installDocs = taskKey[Unit]("Install documentation dependencies")
 
 lazy val MdocKeys = _root_.mdoc.MdocPlugin.autoImport
 
@@ -63,40 +68,49 @@ ThisBuild / setUpPg := {
   val host       = (ThisBuild / pgHost).value
   val portString = (ThisBuild / pgPort).value
   val port       = scala.util.Try(portString.toInt).getOrElse(5432)
+  val db         = (ThisBuild / pgDatabase).value
+  val user       = (ThisBuild / pgUsername).value
+  val password   = (ThisBuild / pgPassword).value
 
   def pgReachable(): Boolean = {
-    val socket = new java.net.Socket()
-    try {
-      socket.connect(new java.net.InetSocketAddress(host, port), 1500)
-      true
-    } catch {
-      case _: Throwable => false
-    } finally {
-      try socket.close()
-      catch { case _: Throwable => () }
-    }
+    // Use bash /dev/tcp check (same as ensure-postgres.sh)
+    val cmd = Seq("bash", "-c", s"echo > /dev/tcp/${host}/${portString}")
+    Process(cmd, workDir).!(ProcessLogger(_ => (), _ => ())) == 0
   }
 
-  def dockerAvailable(): Boolean =
-    // check if docker is present and responsive
-    Process(Seq("docker", "info"), workDir).!(ProcessLogger(_ => (), _ => ())) == 0
-
   if (pgReachable()) {
-    log.info(s"Postgres detected at $host:$port. Skipping bootstrap.")
-  } else if (dockerAvailable()) {
-    log.warn(
-      "Docker is available but Postgres is not reachable. Skipping Podman bootstrap. " +
-        "Start your database with Docker or adjust PG_* settings if needed."
-    )
+    log.info(s"Postgres already reachable at $host:$port")
   } else {
-    val cmd  = Seq("./scripts/bootstrap-podman-postgres.sh", "--fix-rootless")
-    log.info(s"Constrained environment detected (no Docker). Running: ${cmd.mkString(" ")} (cwd=${workDir.getAbsolutePath})")
-    val exit = Process(cmd, workDir).!(ProcessLogger(out => log.info(out), err => log.error(err)))
-    if (exit == 0) {
-      if (pgReachable()) log.info(s"Postgres is now reachable at $host:$port.")
-      else log.warn(s"Podman bootstrap completed but Postgres still not reachable at $host:$port.")
+    log.info("Postgres not reachable, running ensure-postgres.sh...")
+    
+    val cmd = Seq(
+      "./scripts/ensure-postgres.sh",
+      "--host", host,
+      "--port", portString,
+      "--db", db,
+      "--user", user,
+      "--password", password,
+      "--engine", "auto"  // Docker → Podman → Native (with auto-install in CI)
+    )
+    
+    // Run and capture output (export statements)
+    val output = Process(cmd, workDir).!!(ProcessLogger(err => log.warn(err)))
+    
+    // Parse and set environment variables from output
+    output.split("\n").foreach { line =>
+      if (line.startsWith("export ")) {
+        val parts = line.stripPrefix("export ").split("=", 2)
+        if (parts.length == 2) {
+          System.setProperty(parts(0), parts(1))
+          log.info(s"Set ${parts(0)}=${parts(1)}")
+        }
+      }
+    }
+    
+    if (pgReachable()) {
+      log.info(s"Postgres is now reachable at $host:$port")
     } else {
-      log.error(s"Podman Postgres bootstrap failed with exit code $exit")
+      log.warn(s"ensure-postgres.sh completed but Postgres still not reachable at $host:$port")
     }
   }
 }
@@ -318,72 +332,277 @@ lazy val tika = project
   )
   .settings(commonSettings)
 
+
 lazy val docs = project
   .in(file("docs"))
-  .dependsOn(core, fs, s3, tika, metrics)
-  .settings(
-    publish / skip                             := false,
-    Compile / publishArtifact                  := false,
-    Compile / packageBin / publishArtifact     := false,
-    Compile / packageSrc / publishArtifact     := false,
-    Compile / packageDoc / publishArtifact     := false,
-    doc / skip                                 := true,
-    moduleName                                 := "graviton-docs",
-    scalacOptions -= "-Yno-imports",
-    scalacOptions -= "-Xfatal-warnings",
-    projectName                                := "graviton",
-    mainModuleName                             := (core / moduleName).value,
-    projectStage                               := ProjectStage.ProductionReady,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, db, fs, s3, tika, metrics, pg),
-    MdocKeys.mdocIn                            := baseDirectory.value / "src/main/mdoc",
-    MdocKeys.mdocOut                           := baseDirectory.value / "target/mdoc",
-    MdocKeys.mdocVariables                     := Map(
-      "VERSION"        -> version.value
-    ),
-  )
-  .settings(
-    docsSiteArchive := {
-      MdocKeys.mdoc.toTask("").value
-
-      val log       = streams.value.log
-      val stageRoot = target.value / "site"
-      val docsOut   = MdocKeys.mdocOut.value
-
-      IO.delete(stageRoot)
-      IO.createDirectory(stageRoot)
-
-      val docsDir = stageRoot / "docs"
-      IO.createDirectory(docsDir)
-      IO.copyDirectory(docsOut, docsDir)
-
-      val sidebars = baseDirectory.value / "sidebars.js"
-      if (sidebars.exists()) IO.copyFile(sidebars, stageRoot / "sidebars.js")
-
-      val pkgJson = baseDirectory.value / "package.json"
-      if (pkgJson.exists()) IO.copyFile(pkgJson, stageRoot / "package.json")
-
-      val versionsJson = stageRoot / "versions.json"
-      IO.write(versionsJson, s"""[\"${version.value}\"]\n""")
-
-      val archive = target.value / s"${moduleName.value}-${version.value}-docs.zip"
-      IO.delete(archive)
-      IO.zip(_root_.sbt.io.Path.allSubpaths(stageRoot), archive)
-
-      log.info(s"Packaged documentation archive at ${archive.getName}")
-      archive
-    },
-    artifacts := artifacts.value.filterNot(_ == docsSiteArtifact) :+ docsSiteArtifact,
-    packagedArtifacts :=
-      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value),
-    mdocIn                                     := baseDirectory.value / "src/main/mdoc",
-    mdocOut                                    := baseDirectory.value / "target/mdoc",
-    mdocVariables                              := Map("VERSION" -> version.value),
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-http"                          % zioHttpV,
-      "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV,
-    ),
-  )
   .enablePlugins(MdocPlugin, WebsitePlugin)
+  .dependsOn(core, fs, s3, tika, metrics, pg)
+  .settings(
+    projectName := "Graviton",
+    mainModuleName := "graviton",
+    projectHomePage := "https://github.com/AdrielC/graviton",
+    projectStage := ProjectStage.Development,
+    websiteDir := (target.value / "website").toPath,
+    docsVersioningScheme := WebsitePlugin.VersioningScheme.SemanticVersioning,
+    MdocKeys.mdocIn := baseDirectory.value / "src" / "main" / "mdoc",
+    MdocKeys.mdocVariables := Map(
+      "VERSION" -> version.value,
+      "SCALA_VERSION" -> scalaVersion.value,
+      "GITHUB_ORG" -> "AdrielC",
+      "GITHUB_REPO" -> "graviton"
+    ),
+
+    // Docs build pipeline
+    installDocs := {
+      val log = streams.value.log
+      val websiteDir = (target.value / "website")
+      
+      if (!websiteDir.exists()) {
+        log.info("Creating new website scaffold...")
+        Process(
+          s"""npm init docusaurus@latest website classic --package-manager npm --skip-install""",
+          target.value
+        ).!
+        
+        Process("npm install", websiteDir).!
+        Process("npm install prism-react-renderer@next prismjs @mdx-js/react d3 react-force-graph", websiteDir).!
+        
+        log.info("✓ Website dependencies installed")
+      }
+    },
+    
+    buildDocs := {
+      val log = streams.value.log
+      val websiteDir = target.value / "website"
+      
+      // 1. Install if needed
+      if (!websiteDir.exists()) {
+        installDocs.value
+      }
+      
+      // 2. Copy Matrix theme CSS
+      val cssSrc = baseDirectory.value / "css" / "custom.css"
+      val cssDst = websiteDir / "src" / "css" / "custom.css"
+      if (cssSrc.exists()) {
+        IO.createDirectory(cssDst.getParentFile)
+        IO.copyFile(cssSrc, cssDst)
+        log.info("✓ Copied Matrix theme CSS")
+      }
+      
+      // 3. Copy sidebars.js
+      val sidebarsSrc = baseDirectory.value / "sidebars.js"
+      val sidebarsDst = websiteDir / "sidebars.js"
+      if (sidebarsSrc.exists()) {
+        IO.copyFile(sidebarsSrc, sidebarsDst)
+        log.info("✓ Copied sidebars.js")
+      }
+      
+      // 4. Generate ScalaDoc
+      (ScalaUnidoc / doc).value
+      val apiSrc = (ScalaUnidoc / unidoc / target).value
+      val apiDst = websiteDir / "static" / "api"
+      if (apiSrc.exists()) {
+        IO.delete(apiDst)
+        IO.copyDirectory(apiSrc, apiDst)
+        log.info("✓ Copied ScalaDoc to static/api/")
+      }
+      
+      // 5. Write docusaurus.config.js
+      val configFile = websiteDir / "docusaurus.config.js"
+      val configContents =
+        s"""const lightCodeTheme = require('prism-react-renderer/themes/github');
+           |const darkCodeTheme = require('prism-react-renderer/themes/vsDark');
+           |
+           |module.exports = {
+           |  title: 'Graviton',
+           |  url: 'https://adrielc.github.io',
+           |  baseUrl: '/graviton/',
+           |  organizationName: 'io.quasar',
+           |  projectName: 'graviton',
+           |  onBrokenLinks: 'ignore',
+           |  onBrokenMarkdownLinks: 'warn',
+           |  favicon: 'img/favicon.ico',
+           |  i18n: { defaultLocale: 'en', locales: ['en'] },
+           |  themeConfig: {
+           |    colorMode: { defaultMode: 'dark', respectPrefersColorScheme: false },
+           |    navbar: {
+           |      title: 'Graviton',
+           |      items: [
+           |        { to: '/docs/', label: 'Docs', position: 'left' },
+           |        { href: '/graviton/api/', label: 'API', position: 'left' },
+           |        { to: '/vis', label: 'Visualize', position: 'left' },
+           |        { href: 'https://github.com/AdrielC/graviton', label: 'GitHub', position: 'right' }
+           |      ]
+           |    },
+           |    prism: {
+           |      additionalLanguages: ['scala'],
+           |      theme: lightCodeTheme,
+           |      darkTheme: darkCodeTheme
+           |    }
+           |  },
+           |  presets: [
+           |    [
+           |      'classic',
+           |      {
+           |        docs: {
+           |          routeBasePath: 'docs',
+           |          path: 'docs',
+           |          sidebarPath: './sidebars.js'
+           |        },
+           |        blog: false,
+           |        theme: {
+           |          customCss: './src/css/custom.css'
+           |        }
+           |      }
+           |    ]
+           |  ]
+           |};""".stripMargin
+      IO.write(configFile, configContents)
+      log.info("✓ Wrote docusaurus.config.js")
+      
+      // 6. Write Prism Scala language support
+      val prismDir = websiteDir / "src" / "theme"
+      IO.createDirectory(prismDir)
+      val prismFile = prismDir / "prism-include-languages.js"
+      val prismJs =
+        """module.exports = function prismIncludeLanguages(PrismObject) {
+          |  // Scala language definition
+          |  PrismObject.languages.scala = {
+          |    'triple-quoted-string': {
+          |      pattern: /\"\"\"[\\s\\S]*?\"\"\"/,
+          |      alias: 'string'
+          |    },
+          |    'string': {
+          |      pattern: /("|')(?:\\.|(?!\1)[^\\\r\n])*\1/,
+          |      greedy: true
+          |    },
+          |    'keyword': /\b(?:abstract|case|catch|class|def|do|else|extends|final|finally|for|forSome|if|implicit|import|lazy|match|new|null|object|override|package|private|protected|return|sealed|self|super|this|throw|trait|try|type|val|var|while|with|yield)\b/,
+          |    'builtin': /\b(?:String|Int|Long|Short|Byte|Boolean|Double|Float|Char|Any|AnyRef|AnyVal|Unit|Nothing)\b/,
+          |    'number': /\b0x(?:[\da-f]*\.)?[\da-f]+|(?:\d+\.?\d*|\.\d+)(?:e\d+)?[dfl]?/i,
+          |    'symbol': /'[^\d\s\\]\w*/,
+          |    'function': /\b(?!(?:if|while|for|return|else)\b)[a-z_]\w*(?=\s*[({])/i,
+          |    'punctuation': /[{}[\];(),.:]/,
+          |    'operator': /<-|=>|\b(?:->|<-|<:|>:|\|)\b|[+\-*/%&|^!=<>]=?|\b(?:and|or)\b/
+          |  };
+          |};""".stripMargin
+      IO.write(prismFile, prismJs)
+      log.info("✓ Added Scala syntax highlighting")
+      
+      // 7. Create interactive visualization component
+      val componentsDir = websiteDir / "src" / "components"
+      IO.createDirectory(componentsDir)
+      val visFile = componentsDir / "BinaryStorageVis.js"
+      val visJs =
+        """import React, { useEffect, useRef } from 'react';
+          |
+          |export default function BinaryStorageVis() {
+          |  const canvasRef = useRef(null);
+          |
+          |  useEffect(() => {
+          |    const canvas = canvasRef.current;
+          |    if (!canvas) return;
+          |    const ctx = canvas.getContext('2d');
+          |    const W = canvas.width;
+          |    const H = canvas.height;
+          |
+          |    const nodes = [
+          |      { id: 'manifest', group: 1, x: W * 0.2, y: H * 0.5 },
+          |      { id: 'block1', group: 2, x: W * 0.45, y: H * 0.3 },
+          |      { id: 'block2', group: 2, x: W * 0.45, y: H * 0.5 },
+          |      { id: 'block3', group: 2, x: W * 0.45, y: H * 0.7 },
+          |      { id: 'store1', group: 3, x: W * 0.75, y: H * 0.35 },
+          |      { id: 'store2', group: 3, x: W * 0.75, y: H * 0.65 },
+          |    ];
+          |    const links = [
+          |      ['manifest', 'block1'],
+          |      ['manifest', 'block2'],
+          |      ['manifest', 'block3'],
+          |      ['block1', 'store1'],
+          |      ['block2', 'store1'],
+          |      ['block2', 'store2'],
+          |      ['block3', 'store2'],
+          |    ];
+          |
+          |    const colorFor = g => (g === 1 ? '#00ff41' : g === 2 ? '#3fb950' : '#58d46e');
+          |
+          |    function draw() {
+          |      ctx.clearRect(0, 0, W, H);
+          |      ctx.strokeStyle = '#21262d';
+          |      ctx.lineWidth = 2;
+          |      links.forEach(([a, b]) => {
+          |        const na = nodes.find(n => n.id === a);
+          |        const nb = nodes.find(n => n.id === b);
+          |        ctx.beginPath();
+          |        ctx.moveTo(na.x, na.y);
+          |        ctx.lineTo(nb.x, nb.y);
+          |        ctx.stroke();
+          |      });
+          |      nodes.forEach(n => {
+          |        ctx.fillStyle = colorFor(n.group);
+          |        ctx.beginPath();
+          |        ctx.arc(n.x, n.y, 10, 0, Math.PI * 2);
+          |        ctx.fill();
+          |        ctx.fillStyle = '#e6edf3';
+          |        ctx.font = '12px sans-serif';
+          |        ctx.fillText(n.id, n.x + 12, n.y + 4);
+          |      });
+          |    }
+          |
+          |    draw();
+          |  }, []);
+          |
+          |  return (
+          |    <div style={{ height: 520, background: '#0d1117', padding: '10px', border: '1px solid #21262d' }}>
+          |      <canvas ref={canvasRef} width={900} height={500} style={{ width: '100%', maxWidth: '100%' }} />
+          |    </div>
+          |  );
+          |}""".stripMargin
+      IO.write(visFile, visJs)
+      log.info("✓ Added interactive visualization component")
+      
+      // 7.5. Ensure homepage redirects to /docs/
+      val pagesDir = websiteDir / "src" / "pages"
+      IO.createDirectory(pagesDir)
+      val indexPage = pagesDir / "index.js"
+      val indexJs =
+        """import React, { useEffect } from 'react';
+          |import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+          |
+          |export default function Home() {
+          |  const { siteConfig } = useDocusaurusContext();
+          |  useEffect(() => {
+          |    const base = (siteConfig && siteConfig.baseUrl) ? siteConfig.baseUrl : '/';
+          |    window.location.replace(base + 'docs/');
+          |  }, []);
+          |  return null;
+          |}
+          |""".stripMargin
+      IO.write(indexPage, indexJs)
+      log.info("✓ Added homepage redirect to /docs/")
+      
+      // 8. Run mdoc
+      (Compile / mdoc).toTask("").value
+      log.info("✓ Generated mdoc content")
+      
+      // 9. Build website
+      Process("npm run build", websiteDir).!
+      log.info("✓ Built website")
+      
+      log.info(s"Website built at: ${websiteDir}/build")
+    },
+    
+    previewDocs := {
+      val log = streams.value.log
+      val websiteDir = target.value / "website"
+      
+      buildDocs.value
+      
+      log.info("Starting preview server...")
+      Process("npm run serve", websiteDir).!
+    }
+  )
+  
+  
 
 // Convenience aliases for database operations
 addCommandAlias(

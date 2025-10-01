@@ -2,11 +2,11 @@ package graviton.pg
 
 import graviton.db.*
 
-import com.augustnagro.magnum.*
 import com.augustnagro.magnum.magzio.TransactorZIO
+import com.augustnagro.magnum.sql
 import zio.*
 import zio.json.ast.Json
-import zio.test.{Spec as ZSpec, *}
+import zio.test.*
 
 import java.nio.file.Path
 
@@ -34,7 +34,7 @@ object BlockRepoSpec extends ZIOSpecDefault {
       )
     )
 
-  private val repoLayer: ZLayer[Any, Throwable, TransactorZIO & StoreRepo & BlockRepo] =
+  private val repoLayer: ZLayer[Nothing, Any, TransactorZIO & StoreRepo & BlockRepo] =
     configLayer >>> PgTestLayers.layer >>> {
       val xa = ZLayer.environment[TransactorZIO]
       xa ++ StoreRepoLive.layer ++ BlockRepoLive.layer
@@ -64,7 +64,7 @@ object BlockRepoSpec extends ZIOSpecDefault {
   private def sampleHash(seed: Int): HashBytes =
     HashBytes.applyUnsafe(Chunk.fill(32)((seed + 42).toByte))
 
-  override def spec: ZSpec[TestEnvironment & Scope, Any] =
+  override def spec: Spec[TestEnvironment & Scope, Any] =
     suite("BlockRepo")(
       test("upsertBlock stores block metadata and head lookup succeeds") {
         for {
@@ -95,7 +95,9 @@ object BlockRepoSpec extends ZIOSpecDefault {
                            SELECT status, etag, storage_class
                            FROM replica
                            WHERE store_key = ${store.key}
-                         """.query[(ReplicaStatus, Option[String], Option[String])].run()
+                         """
+                         .query[(ReplicaStatus, Option[String], Option[String])]
+                         .run()
                        }
         } yield assertTrue(rows.nonEmpty, rows.head == ((ReplicaStatus.Active, Some("etag-2"), Some("glacier"))))
       },

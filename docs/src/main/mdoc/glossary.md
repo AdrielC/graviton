@@ -180,8 +180,8 @@ The PostgreSQL catalog mirrors these concepts directly:
 ### BinaryStore
 - Primary public API used by higher layers.
 - Provides streaming-friendly operations:
-  - `insert` → stores bytes content-addressably and returns a BlobKey.
-  - `insertWith(key: WritableKey)` → stores bytes under a caller-provided alias while still producing a CasKey.
+  - `insert` → stores bytes content-addressably and returns a `BinaryKey.CASKey`.
+  - `insertWith(key: BinaryKey.WritableKey)` → stores bytes under a caller-provided alias while still producing a CasKey.
   - `exists`, `findBinary`, `listKeys`, `copy`, `delete`, and `openStream` primitives.
 - Exposes hooks for observability (structured logging, metrics, audit events) keyed by the concepts in this glossary.
 

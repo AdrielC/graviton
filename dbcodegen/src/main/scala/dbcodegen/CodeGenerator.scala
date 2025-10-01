@@ -183,18 +183,16 @@ object CodeGenerator {
       if (primaryKeyColumns.isEmpty) then
         sb.append("  type Id = Null\n\n")
       else
-        val namedTuple  = renderNamedTuple(primaryKeyColumns)
-        val tupleType   = renderTupleType(primaryKeyColumns)
+        
+        val tupleType   = if primaryKeyColumns.size == 1 then primaryKeyColumns.head.scalaType else renderNamedTuple(primaryKeyColumns)
         val tupleCtor   = renderTupleCtor(primaryKeyColumns)
         val idCodecName = "given_DbCodec_Id"
 
-        sb.append(s"  opaque type Id <: Tuple = $tupleType\n")
-        sb.append(s"  type Tupled = $namedTuple\n\n")
+        sb.append(s"  opaque type Id <: $tupleType = $tupleType\n")
 
         sb.append("  object Id:\n")
-        sb.append(s"    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]\n")
-        sb.append(s"    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]\n")
-        sb.append(s"    def apply($tupleCtor): Id        = fromTuple(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n\n")
+        sb.append(s"    given DbCodec[Id] = DbCodec.derived[$tupleType].asInstanceOf[DbCodec[Id]]\n")
+        sb.append(s"    def apply($tupleCtor): Id        = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}")
 
         val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
         sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
@@ -266,7 +264,7 @@ object CodeGenerator {
 
   private def renderNamedTuple(columns: Seq[DataColumn]): String = {
     columns.toList match
-      case Nil => "Unit"
+      case Nil => "Null"
       case single :: Nil =>
         s"(${single.scalaName}: ${renderColumnType(single, forceRequired = true)})"
       case many =>
@@ -279,7 +277,7 @@ object CodeGenerator {
 
   private def renderTupleType(columns: Seq[DataColumn]): String = {
     columns.toList match
-      case Nil => "EmptyTuple"
+      case Nil => "Null"
       case single :: Nil => s"Tuple1[${renderColumnType(single, forceRequired = true)}]"
       case many => many.map(column => renderColumnType(column, forceRequired = true)).mkString("(", ", ", ")")
   }
@@ -399,7 +397,7 @@ object CodeGenerator {
 
   private def renderNamedTupleLiteralFromTuple(columns: Seq[DataColumn], tupleExpr: String): String =
     columns.toList match
-      case Nil => "EmptyTuple"
+      case Nil => "Null"
       case single :: Nil => s"(${single.scalaName} = $tupleExpr)"
       case many =>
         many
@@ -409,7 +407,7 @@ object CodeGenerator {
 
   private def renderPlainTupleFromNamed(namedExpr: String, columns: Seq[DataColumn]): String =
     columns.toList match
-      case Nil => "EmptyTuple"
+      case Nil => "Null"
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
 

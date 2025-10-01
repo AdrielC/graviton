@@ -1,0 +1,162 @@
+/**
+ * Matrix-themed Graviton Documentation
+ */
+
+/* Light mode - Professional emerald green */
+:root {
+  --ifm-color-primary: #059669;
+  --ifm-color-primary-dark: #047857;
+  --ifm-color-primary-darker: #065f46;
+  --ifm-color-primary-darkest: #064e3b;
+  --ifm-color-primary-light: #10b981;
+  --ifm-color-primary-lighter: #34d399;
+  --ifm-color-primary-lightest: #6ee7b7;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(5, 150, 105, 0.1);
+}
+
+/* Dark mode - Matrix cyberpunk aesthetic */
+[data-theme='dark'] {
+  /* Primary Matrix green */
+  --ifm-color-primary: #00ff41;
+  --ifm-color-primary-dark: #00e63a;
+  --ifm-color-primary-darker: #00cc33;
+  --ifm-color-primary-darkest: #00992b;
+  --ifm-color-primary-light: #33ff66;
+  --ifm-color-primary-lighter: #66ff8c;
+  --ifm-color-primary-lightest: #99ffad;
+  
+  /* Backgrounds - GitHub dark inspired with green tint */
+  --ifm-background-color: #0d1117;
+  --ifm-background-surface-color: #161b22;
+  --ifm-navbar-background-color: #010409;
+  --ifm-footer-background-color: #010409;
+  
+  /* Text - High contrast, readable */
+  --ifm-font-color-base: #e6edf3;
+  --ifm-font-color-base-inverse: #0d1117;
+  --ifm-font-color-secondary: #7d8590;
+  --ifm-heading-color: #00ff41;
+  --ifm-link-color: #3fb950;
+  --ifm-link-hover-color: #58d46e;
+  --ifm-menu-color: #e6edf3;
+  --ifm-menu-color-active: #00ff41;
+  --ifm-toc-link-color: #7d8590;
+  
+  /* Code blocks */
+  --ifm-code-background: #161b22;
+  --docusaurus-highlighted-code-line-bg: rgba(63, 185, 80, 0.15);
+  
+  /* Cards and tables */
+  --ifm-card-background-color: #161b22;
+  --ifm-table-stripe-background: rgba(63, 185, 80, 0.05);
+  
+  /* Borders */
+  --ifm-table-border-color: #21262d;
+  --ifm-toc-border-color: #21262d;
+  --ifm-hr-background-color: #21262d;
+}
+
+/* Matrix code blocks */
+[data-theme='dark'] code {
+  background-color: #000000;
+  color: #00ff41;
+  border: 1px solid #1a3a1a;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+  padding: 2px 6px;
+}
+
+[data-theme='dark'] pre {
+  background-color: #000000;
+  border: 1px solid #00ff41;
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+}
+
+[data-theme='dark'] pre code {
+  border: none;
+  background-color: transparent;
+}
+
+/* Glowing headings */
+[data-theme='dark'] h1 {
+  text-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
+}
+
+[data-theme='dark'] h2,
+[data-theme='dark'] h3 {
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+}
+
+/* Navbar Matrix glow */
+[data-theme='dark'] .navbar {
+  border-bottom: 1px solid #00ff41;
+  box-shadow: 0 2px 10px rgba(0, 255, 65, 0.2);
+}
+
+/* Link hover glow */
+[data-theme='dark'] a:hover {
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+}
+
+/* Inline code (not in pre blocks) */
+[data-theme='dark'] code:not([class*="language-"]) {
+  background-color: #161b22;
+  color: #3fb950;
+  border-color: #21262d;
+}
+
+/* Scala syntax highlighting - Matrix theme */
+[data-theme='dark'] .token.keyword,
+[data-theme='dark'] .token.builtin {
+  color: #00ff41;
+  font-weight: bold;
+}
+
+[data-theme='dark'] .token.class-name,
+[data-theme='dark'] .token.type-name {
+  color: #3fb950;
+}
+
+[data-theme='dark'] .token.function {
+  color: #58d46e;
+}
+
+[data-theme='dark'] .token.string {
+  color: #7ee787;
+}
+
+[data-theme='dark'] .token.number,
+[data-theme='dark'] .token.boolean {
+  color: #79c0ff;
+}
+
+[data-theme='dark'] .token.operator,
+[data-theme='dark'] .token.punctuation {
+  color: #c9d1d9;
+}
+
+[data-theme='dark'] .token.comment {
+  color: #8b949e;
+  font-style: italic;
+}
+
+[data-theme='dark'] .token.annotation,
+[data-theme='dark'] .token.decorator {
+  color: #ffa657;
+}
+
+/* Sidebar styling */
+[data-theme='dark'] .menu__link--active {
+  background-color: rgba(0, 255, 65, 0.1);
+  border-left: 3px solid #00ff41;
+}
+
+/* Search bar (if enabled) */
+[data-theme='dark'] .DocSearch-Button {
+  background-color: #161b22;
+  border: 1px solid #21262d;
+}
+
+[data-theme='dark'] .DocSearch-Button:hover {
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+}

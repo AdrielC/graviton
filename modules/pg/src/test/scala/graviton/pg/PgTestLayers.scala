@@ -13,6 +13,8 @@ import org.testcontainers.containers.PostgreSQLContainerProvider
 import zio.prelude.fx.*
 import zio.prelude.*
 
+import scala.compiletime.summonInline
+
 object PgTestLayers:
 
   case class PgTestConfig(
@@ -35,7 +37,7 @@ object PgTestLayers:
       ConfigProvider
         .fromMap(
           Map(
-            "image"           -> "postgres:17-alpine",
+            "image"   -> "postgres:17-alpine",
             "username"        -> "postgres",
             "password"        -> "postgres",
             "database"        -> "postgres",
@@ -78,7 +80,7 @@ object PgTestLayers:
 
     end config
 
-  val containerProvider: ZLayer[Any, Throwable, PostgreSQLContainerProvider] =
+  val containerProvider: ZLayer[Nothing, Throwable, PostgreSQLContainerProvider] =
     ZLayer.succeed(new PostgreSQLContainerProvider())
 
   val getImageName: ZPure[Nothing, Unit, DockerImageName, PgTestConfig, Throwable, DockerImageName] =
@@ -92,14 +94,14 @@ object PgTestLayers:
       img    <- State.get[DockerImageName]
     yield img
 
-  private def mkContainer: ZLayer[PgTestConfig, Throwable, PostgreSQLContainer[?]] =
+  private inline def mkContainer[A <: PostgreSQLContainer[A]]: ZLayer[PgTestConfig, Throwable, PostgreSQLContainer[A]] =
     ZLayer.scoped:
       for
         imgN      <- getImageName.toZIO
         config    <- ZIO.service[PgTestConfig]
         container <- ZIO.acquireRelease(
                        ZIO.attempt {
-                         val c = PostgreSQLContainer(imgN)
+                         val c = PgTestLayers[A].make(imgN)
                          c.withUsername(config.username)
                          c.withPassword(config.password)
                          c.withDatabaseName(config.database)
@@ -114,10 +116,10 @@ object PgTestLayers:
                      )(c => ZIO.attempt(c.stop()).orDie)
       yield container
 
-  private def mkDataSource: ZLayer[PostgreSQLContainer[?], Throwable, HikariDataSource] =
+  private def mkDataSource[A <: PostgreSQLContainer[A]]: ZLayer[PostgreSQLContainer[A], Throwable, HikariDataSource] =
     ZLayer.scoped:
       for
-        container <- ZIO.service[PostgreSQLContainer[?]]
+        container <- ZIO.service[PostgreSQLContainer[A]]
         ds        <- ZIO.acquireRelease(
                        ZIO.attempt {
                          val ds  = new HikariDataSource()
@@ -149,5 +151,17 @@ object PgTestLayers:
   val transactorLayer: ZLayer[DataSource, Nothing, TransactorZIO] =
     TransactorZIO.layer
 
-  val layer: ZLayer[PgTestConfig, Throwable, TransactorZIO] =
+  inline def layer[A <: PostgreSQLContainer[A]]: ZLayer[PgTestConfig, Throwable, TransactorZIO] =
     mkContainer >>> mkDataSource >>> transactorLayer
+
+  trait PgTestLayers[+A <: PostgreSQLContainer[A]]:
+    def make(dockerImageName: => DockerImageName): A
+  end PgTestLayers
+
+  object PgTestLayers:
+
+    inline def apply[A <: PostgreSQLContainer[A]]: PgTestLayers[A] =
+      scala.compiletime.summonInline[PgTestLayers[A]]
+
+    given PgTestLayers[PostgreSQLContainer[? <: PostgreSQLContainer[?]]] = 
+      PostgreSQLContainer(_)

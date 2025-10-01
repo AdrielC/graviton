@@ -6,11 +6,11 @@ Binny `BinaryStore`:
 1. **Block** – a deduplicated chunk of bytes identified by a cryptographic
    `BlockKey`. Blocks are immutable and can be stored in multiple locations,
    with each physical copy represented as a `BlockSector`.
-2. **BlobStore** – a pluggable backend that persists blocks on a filesystem,
+2. **BlockStore** – a pluggable backend that persists blocks on a filesystem,
    object store, or other medium. Each store reports its health and lifecycle
    status.
-3. **BlockStore** – a logical registry that hashes incoming streams, writes the
-   resulting blocks to one or more `BlobStore`s, and records sectors through a
+3. **BlobStore** – a logical registry that hashes incoming streams, writes the
+   resulting blocks to one or more `BlockStore`s, and records sectors through a
    `BlockResolver` which is consulted on reads.
 4. **Blob** – a contiguous immutable byte stream, defined by a `Manifest` of ordered `(offset, size, BlockKey)` entries. Its identity (`BlobKey`) is derived from the canonical content hash and is independent of chunking.
 5. **Manifest** – ordered entries describing how blocks assemble a Blob; independent from block identity.

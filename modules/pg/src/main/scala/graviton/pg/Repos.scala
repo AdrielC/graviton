@@ -85,8 +85,8 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
     }
 
 object StoreRepoLive:
-  val layer: ZLayer[TransactorZIO, Nothing, StoreRepo] =
-    ZLayer.fromFunction(new StoreRepoLive(_))
+  inline transparent def layer: ZLayer[Nothing, Any, StoreRepoLive] =
+    ZLayer.derive[StoreRepoLive]
 
 // ---- Block repository -------------------------------------------------------
 
@@ -137,7 +137,7 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
     }
 
 object BlockRepoLive:
-  val layer: ZLayer[TransactorZIO, Nothing, BlockRepo] =
+  inline transparent def layer =
     ZLayer.derive[BlockRepoLive]
 
 // ---- File repository --------------------------------------------------------
@@ -183,5 +183,5 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
     }
 
 object BlobRepoLive:
-  val layer: ZLayer[TransactorZIO, Nothing, BlobRepo] =
+  inline transparent def layer =
     ZLayer.derive[BlobRepoLive]

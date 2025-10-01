@@ -55,14 +55,99 @@
 ---
 
 ## Workflow Requirements
+
+### PostgreSQL Setup (Automated)
+
+The project includes `./scripts/ensure-postgres.sh` which **automatically handles PostgreSQL** in any environment:
+
+#### Local Development (macOS/Linux with Docker)
+```bash
+# Automatic setup - tries Docker → Podman → Native
+eval "$(./scripts/ensure-postgres.sh)"
+
+# Or let sbt handle it automatically
+GRAVITON_BOOTSTRAP_PG=1 ./sbt test
+```
+
+#### CI/Agent Environments (Ephemeral)
+The script **auto-detects** ephemeral environments and installs postgres when needed:
+
+```bash
+# CI platforms (GitHub Actions, GitLab CI, etc.) - CI=true is auto-set
+./scripts/ensure-postgres.sh --engine native
+
+# Custom agents - set AGENT=true or ENV=AGENT
+AGENT=true ./scripts/ensure-postgres.sh --engine native
+ENV=AGENT ./scripts/ensure-postgres.sh --engine native
+
+# Explicit auto-install
+AUTO_INSTALL_PG=1 ./scripts/ensure-postgres.sh --engine native
+```
+
+**Supported platforms for auto-install:**
+- macOS → Homebrew (`brew install postgresql@17`)
+- Ubuntu/Debian → apt (`apt-get install postgresql-17`)
+- RHEL/CentOS/Fedora → dnf/yum (`dnf install postgresql17-server`)
+- Arch Linux → pacman (`pacman -S postgresql`)
+
+**Engine fallback chain:** Docker → Podman → Native (with auto-install in CI/agents)
+
+The script:
+1. Detects if postgres is already running (any source)
+2. If not, starts via Docker/Podman or native `pg_ctl`
+3. Creates databases and applies DDL schema
+4. Exports connection variables for sbt/tests
+
+#### sbt Integration
+The `setUpPg` task is integrated and uses `ensure-postgres.sh`:
+
+```bash
+# Manual postgres setup
+./sbt setUpPg
+
+# Auto-run on sbt startup
+GRAVITON_BOOTSTRAP_PG=1 ./sbt
+
+# Direct test (postgres auto-started if needed)
+./sbt test
+```
+
+### Testing & Code Quality
+
 - Always run:
   ```bash
   TESTCONTAINERS=0 ./sbt scalafmtAll test
   ```
-- Schema changes **must** be reflected in generated bindings:
-  1. Start a local PostgreSQL instance without Docker (e.g. `apt-get install postgresql` then `pg_ctlcluster 16 main start`).
-  2. Apply `modules/pg/ddl.sql` to an empty database (for example `psql -d graviton -f modules/pg/ddl.sql`).
-  3. Regenerate bindings with `PG_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/graviton PG_USERNAME=postgres PG_PASSWORD=postgres ./sbt "dbcodegen/run"`.
-  4. Commit the updated files in `modules/pg/src/main/resources/generated/` together with the DDL change.
-- Sync with latest main before commits (git fetch origin main && git merge origin/main or rebase).
-- Mark tasks as done with commit/date in this file.
+
+### Schema Changes & Code Generation
+
+Schema changes **must** be reflected in generated bindings:
+
+1. **Ensure postgres is running** (automatic via script above)
+
+2. **Apply DDL changes:**
+   ```bash
+   # The ensure-postgres.sh script auto-applies DDL, or manually:
+   psql -h 127.0.0.1 -p 5432 -U postgres -d graviton -f modules/pg/ddl.sql
+   ```
+
+3. **Regenerate bindings:**
+   ```bash
+   # Option A: Use environment variables (set by ensure-postgres.sh)
+   eval "$(./scripts/ensure-postgres.sh)"
+   ./sbt "dbcodegen/run"
+   
+   # Option B: Manual connection params
+   PG_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/graviton \
+   PG_USERNAME=postgres \
+   PG_PASSWORD=postgres \
+   ./sbt "dbcodegen/run"
+   ```
+
+4. **Commit changes:**
+   - DDL: `modules/pg/ddl.sql`
+   - Generated code: `modules/pg/src/main/scala/graviton/pg/generated/`
+
+### Git Workflow
+- Sync with latest main before commits: `git fetch origin main && git merge origin/main` (or rebase)
+- Mark completed tasks in this file with commit hash and date

@@ -14,7 +14,7 @@ Graviton is a ZIO‑native content‑addressable storage layer for immutable bin
 
 ## Core Concepts
 
-- [Graviton Glossary](concepts.md) – canonical definitions and invariants for blocks, manifests, blobs, and replicas.
+- [Graviton Glossary](concepts/index.md) – canonical definitions and invariants for blocks, manifests, blobs, and replicas.
 - [Architecture](architecture.md) – system overview and interactions between chunkers, stores, and catalogs.
 - [Storage API overview](storage-api-overview.md) – deep dive into streaming ingest, manifests, and frame formats.
 - [Binary store walkthrough](binary-store.md) – how public APIs map onto the underlying CAS layer.

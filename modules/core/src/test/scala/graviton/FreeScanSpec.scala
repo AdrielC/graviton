@@ -4,11 +4,12 @@ import zio.*
 import zio.stream.*
 import zio.test.*
 
-object FreeScanSpec extends ZIOSpecDefault:
+case object FreeScanSpec extends ZIOSpecDefault:
   def spec = suite("FreeScanSpec")(
     test("identity compiles and preserves input") {
       val fs   = FreeScan.identity[Int]
       val scan = fs.compile
+      println(scan)
       for out <- ZStream(1, 2, 3).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(1, 2, 3)) && assertTrue(scan.initial == EmptyTuple)
     },

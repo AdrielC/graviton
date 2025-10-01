@@ -235,3 +235,5 @@ Temporary Items
 project/metals.sbt
 
 .idea/
+
+node_modules/

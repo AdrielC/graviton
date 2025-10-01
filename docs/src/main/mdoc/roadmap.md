@@ -74,7 +74,7 @@ single streaming pass:
 
 ### Operational Guardrails
 
-- Apply backpressure with bounded `Queue[Take]` instances.
+- Apply backpressure with bounded `Queue[Take[Throwable, Byte]]` instances.
 - Close wrapped `OutputStream`s on both success (`Take.end`) and failure
   (`Take.fail` only).
 - Cap decode efforts during sniffing and format parsing to guard against

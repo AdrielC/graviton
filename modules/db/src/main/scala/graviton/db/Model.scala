@@ -26,7 +26,7 @@ trait RefinedTypeExt[A: {Schema, DbCodec}, C] extends RefinedType[A, C]:
   given Schema[T] =
     summon[Schema[A]]
       .transformOrFail(either(_), a => Right(a.value))
-      .annotate((RefinedTypeExtMessage(rtc.message)))
+      .annotate(rtc)
 
 end RefinedTypeExt
 
@@ -82,36 +82,12 @@ object StoreStatus:
         str => fromPg.getOrElse(str, throw IllegalArgumentException("Unknown store_status_t value")),
         toPg,
       )
+end StoreStatus
 
-enum ReplicaStatus derives CanEqual:
+@Table(PostgresDbType)
+enum ReplicaStatus derives CanEqual, DbCodec, Schema:
   case Active, Quarantined, Deprecated, Lost
-
-object ReplicaStatus:
-  private val toPg: Map[ReplicaStatus, String] = Map(
-    Active      -> "active",
-    Quarantined -> "quarantined",
-    Deprecated  -> "deprecated",
-    Lost        -> "lost",
-  )
-
-  private val fromPg: Map[String, ReplicaStatus] = toPg.map(_.swap)
-
-  given DbCodec[ReplicaStatus] =
-    DbCodec[String].biMap(
-      str =>
-        fromPg.getOrElse(
-          str,
-          throw IllegalArgumentException(s"Unknown replica_status_t value '$str'"),
-        ),
-      status => toPg(status),
-    )
-
-  given Schema[ReplicaStatus] =
-    Schema[String]
-      .transform(
-        str => fromPg.getOrElse(str, throw IllegalArgumentException("Unknown replica_status_t value")),
-        toPg,
-      )
+end ReplicaStatus
 
 final case class BlockInsert(
   algoId: Short,

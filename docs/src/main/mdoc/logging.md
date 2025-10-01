@@ -11,11 +11,10 @@ import graviton.BinaryStore
 import graviton.impl.InMemoryBinaryStore
 import graviton.logging.LoggingBinaryStore
 import zio.ZLayer
-import scala.annotation.nowarn
 
-@nowarn("msg=unused value")
-val loggingStore: ZLayer[Any, Nothing, BinaryStore] =
+val _: ZLayer[Any, Nothing, BinaryStore] =
   ZLayer.fromZIO(InMemoryBinaryStore.make()) >>> LoggingBinaryStore.layer
+
 ```
 
 The layer generates a UUID when a request enters the store and carries it
@@ -34,7 +33,7 @@ through SLF4J and populate MDC entries with the correlation ID:
 import zio.Runtime
 import zio.logging.backend.SLF4J
 
-val runtime = Runtime.removeDefaultLoggers >>> SLF4J.slf4j
+val _ = Runtime.removeDefaultLoggers >>> SLF4J.slf4j
 ```
 
 SLF4J bridges automatically copy log annotations to MDC, so Kibana or CloudWatch
@@ -49,10 +48,8 @@ structured pipelines such as Loki:
 ```scala mdoc:silent
 import zio.Runtime
 import zio.logging.consoleJsonLogger
-import scala.annotation.nowarn
 
-@nowarn("msg=unused value")
-val jsonLogger = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
+val _ = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
 ```
 
 Extend the resulting `LogFormat` with additional annotations (such as request

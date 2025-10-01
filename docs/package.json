@@ -1,5 +1,24 @@
 {
-  "name": "@zio.dev/graviton",
+  "name": "@io.quasar/graviton",
   "description": "graviton Documentation",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+
+  "dependencies": {
+    "@docusaurus/core": "^3.5.1",
+    "@docusaurus/preset-classic": "^3.5.1",
+    "@docusaurus/theme-common": "^3.5.1",
+    "@docusaurus/theme-search-algolia": "^3.5.1",
+    "@docusaurus/theme-translations": "^3.5.1",
+    "@docusaurus/plugin-content-docs": "^3.5.1"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "^3.5.1"
+  },
+  "scripts": {
+    "dev": "docusaurus start",
+    "build": "docusaurus build",
+    "clean": "docusaurus clear",
+    "serve": "docusaurus serve",
+    "swizzle": "docusaurus swizzle"
+  }
 }
