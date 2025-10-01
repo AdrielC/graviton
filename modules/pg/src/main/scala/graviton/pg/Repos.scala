@@ -15,8 +15,14 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
         INSERT INTO store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
         VALUES (${row.key}, ${row.implId}, ${row.buildFp}, ${row.dvSchemaUrn}, ${row.dvCanonical}, ${row.dvJsonPreview}, ${row.status})
         ON CONFLICT (key) DO UPDATE
-        SET updated_at = now(),
-            version    = store.version + 1
+        SET impl_id         = EXCLUDED.impl_id,
+            build_fp       = EXCLUDED.build_fp,
+            dv_schema_urn  = EXCLUDED.dv_schema_urn,
+            dv_canonical_bin = EXCLUDED.dv_canonical_bin,
+            dv_json_preview  = EXCLUDED.dv_json_preview,
+            status          = EXCLUDED.status,
+            updated_at      = now(),
+            version         = store.version + 1
       """.update.run()
     }
 
@@ -31,43 +37,60 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
   def listActive(cursor: Option[Cursor] = None): Stream[Throwable, StoreRow] =
     ZStream.unwrapScoped {
       for
-        total       <- Ref.make(cursor.getOrElse(Cursor.initial))
-        firstCursor <- total.get
-        limit        =
-          cursor
-            .flatMap(_.total)
-            .getOrElse(Max(Long.MaxValue))
-            .value
-            .min(cursor.map(_.offset).getOrElse(firstCursor.pageSize))
-            .min(firstCursor.pageSize)
-        rows         = {
-          ZStream.paginateChunkZIO(0) { offset =>
+        cursorRef    <- Ref.make(cursor.getOrElse(Cursor.initial))
+        initialState <- cursorRef.get
+        pageSize      = cursor.map(_.pageSize).getOrElse(initialState.pageSize)
+        stream        =
+          ZStream.paginateChunkZIO(0L) { offset =>
             for {
-              totalNow                    <- total.get
-              (rows, newTotal, newOffset) <-
-                xa.transact {
-                  val rows = sql"""
-                    SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-                    FROM store WHERE status = ${StoreStatus.Active}
-                    ORDER BY updated_at DESC
-                    Limit $limit
-                    OFFSET $offset
-                  """
-                    .query[(Long, StoreRow)]
-                    .run()
-
-                  val newTotal  = rows.headOption.map(_._1).orElse(totalNow.total).getOrElse(0L)
-                  val newOffset = offset + rows.size
-                  (Chunk.fromIterable(rows.view.map(_._2)), newTotal, newOffset)
-                }
-
-              current <- total.get
-              _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
-
-            } yield (rows, Option(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
+              state         <- cursorRef.get
+              existingTotal  = state.total.map(_.value)
+              effectiveLimit =
+                existingTotal
+                  .map(total => math.min(pageSize, math.max(0L, total - offset)))
+                  .getOrElse(pageSize)
+              result        <-
+                if effectiveLimit <= 0 then ZIO.succeed((Chunk.empty[StoreRow], Option.empty[Long]))
+                else
+                  xa
+                    .transact {
+                      sql"""
+                        SELECT key,
+                               impl_id,
+                               build_fp,
+                               dv_schema_urn,
+                               dv_canonical_bin,
+                               dv_json_preview,
+                               status,
+                               version,
+                               count(*) OVER () AS total
+                        FROM store
+                        WHERE status = ${StoreStatus.Active}
+                        ORDER BY updated_at DESC
+                        LIMIT $effectiveLimit
+                        OFFSET $offset
+                      """
+                        .query[(StoreRow, Long)]
+                        .run()
+                    }
+                    .flatMap { rows =>
+                      val chunk          = Chunk.fromIterable(rows.map(_._1))
+                      val queriedTotal   = rows.headOption.map(_._2)
+                      val combinedTotal  = queriedTotal.orElse(existingTotal)
+                      val delta          = chunk.size.toLong
+                      val updatedCursor  =
+                        val base = combinedTotal
+                          .map(total => state.withTotal(Max(total)))
+                          .getOrElse(state)
+                        base.next(delta)
+                      val hasMoreByTotal = combinedTotal.exists(total => offset + delta < total)
+                      val hasMoreByPage  = combinedTotal.isEmpty && delta == effectiveLimit && delta > 0
+                      val nextOffset     = Option.when(chunk.nonEmpty && (hasMoreByTotal || hasMoreByPage))(offset + delta)
+                      cursorRef.set(updatedCursor).as((chunk, nextOffset))
+                    }
+            } yield result
           }
-        }
-      yield rows
+      yield stream
     }
 
 object StoreRepoLive:
@@ -147,16 +170,16 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
   ): ZPipeline[Any, Throwable, BlockInsert, BlockKey] =
     ZPipeline.fromFunction((s: ZStream[Any, Throwable, BlockInsert]) =>
       s.zipWithIndex.mapChunksZIO { case chunk =>
-        chunk
-          .mapZIO { case (BlockInsert(algoId, hash, len, offset), idx) =>
-            xa.transact {
-              sql"""
-                  INSERT INTO manifest_entry (blob_id, seq, block_algo_id, block_hash, offset_bytes, size_bytes)
-                  VALUES ($blobId, $idx, $algoId, $hash, $offset, $len)
-                """.returning[BlockKey].run()
-            }.map(Chunk.fromIterable)
-          }
-          .map(_.flatten)
+        chunk.mapZIO { case (BlockInsert(algoId, hash, len, offset), idx) =>
+          val seq      = Math.toIntExact(idx)
+          val blockKey = BlockKey(algoId, hash)
+          xa.transact {
+            sql"""
+                INSERT INTO manifest_entry (blob_id, seq, block_algo_id, block_hash, offset_bytes, size_bytes)
+                VALUES ($blobId, $seq, $algoId, $hash, $offset, $len)
+              """.update.run()
+          }.as(blockKey)
+        }
       }
     )
 
