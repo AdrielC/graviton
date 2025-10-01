@@ -83,7 +83,12 @@ ThisBuild / onLoad := {
   val prev = (ThisBuild / onLoad).value
   (state: State) => {
     val s1 = prev(state)
-    "setUpPg" :: s1
+    val skip = sys.env
+      .get("GRAVITON_SKIP_PG_BOOTSTRAP")
+      .map(_.trim.toLowerCase)
+      .exists(v => v == "1" || v == "true" || v == "yes")
+
+    if (skip) s1 else "setUpPg" :: s1
   }
 }
 

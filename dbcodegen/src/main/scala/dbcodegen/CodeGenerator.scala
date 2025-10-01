@@ -2,6 +2,7 @@ package dbcodegen
 
 import java.nio.file.{Path, Files}
 import java.io.File
+import java.util.Locale
 import scala.collection.immutable.Seq
 import org.slf4j.LoggerFactory
 import schemacrawler.tools.utility.SchemaCrawlerUtility
@@ -156,118 +157,139 @@ object CodeGenerator {
     val sb = new StringBuilder
     sb.append("package graviton.pg.generated\n\n")
     sb.append("import com.augustnagro.magnum.*\n")
-    sb.append("import com.augustnagro.magnum.pg.enums.*\n")
-    sb.append("import graviton.pg.given\n")
-    sb.append("import graviton.pg.PgRange\n")
-    sb.append("import io.github.iltotore.iron.*\n")
-    sb.append("import io.github.iltotore.iron.constraint.all.*\n")
-    sb.append("import zio.schema.*\n")
-    sb.append("import zio.schema.annotation.*\n\n")
-    
-    // Generate Iron type aliases for common constraints
-    sb.append("// Iron Type Aliases for Database Constraints\n")
-    sb.append("type NonEmptyString = String :| MinLength[1]\n")
-    sb.append("type EmailString = String :| Match[\"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}$\"]\n")
-    sb.append("type PositiveInt = Int :| Positive\n")
-    sb.append("type NonNegativeInt = Int :| GreaterEqual[0]\n")
-    sb.append("type UuidString = String :| Match[\"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$\"]\n\n")
+    sb.append("import graviton.db.{*, given}\n")
+    sb.append("import zio.Chunk\n")
+    sb.append("import zio.json.ast.Json\n")
+    sb.append("import zio.schema.{DeriveSchema, Schema}\n\n")
 
-    // Generate enums
-    schema.enums.foreach { e =>
-      sb.append(s"enum ${e.scalaName} derives DbCodec:\n")
-      e.values.foreach { v =>
-        sb.append(s"  @SqlName(\"${v.name}\")\n")
-        sb.append(s"  case ${v.scalaName}\n")
-      }
-      sb.append("\n")
-    }
-
-    // Generate tables
-    schema.tables.foreach { t =>
+    schema.tables.foreach { table =>
       sb.append("@Table(PostgresDbType)\n")
-      sb.append(s"case class ${t.scalaName}(\n")
-      val cols = t.columns
-      cols.foreach { c =>
-        if (c.db.isPartOfPrimaryKey) sb.append("  @Id\n")
-        sb.append(s"  @SqlName(\"${c.name}\")\n")
-        val ironType = mapToIronType(c)
-        sb.append(s"  ${c.scalaName}: $ironType,\n")
+      sb.append(s"final case class ${table.scalaName}(\n")
+      val columns = table.columns
+      columns.zipWithIndex.foreach { case (column, idx) =>
+        if (column.db.isPartOfPrimaryKey) sb.append("  @Id\n")
+        sb.append(s"  @SqlName(\"${column.name}\")\n")
+        val tpe = renderColumnType(column)
+        val suffix = if (idx == columns.size - 1) "" else ","
+        sb.append(s"  ${column.scalaName}: $tpe$suffix\n")
       }
       sb.append(") derives DbCodec\n\n")
-      
-      sb.append(s"object ${t.scalaName}:\n")
-      val pkCols = cols.filter(_.db.isPartOfPrimaryKey)
-      val idTpe = if (pkCols.isEmpty) "Null" else pkCols.map(_.scalaType).mkString("(", ", ", ")")
-      sb.append(s"  type Id = $idTpe\n\n")
 
-      if (!t.isView) {
-        sb.append(s"  case class Creator(\n")
-        val creatorCols = cols.filter { c =>
-          val col = c.db
-          !col.isGenerated && !col.isAutoIncremented && !col.hasDefaultValue
+      sb.append(s"object ${table.scalaName}:\n")
+      val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
+      val idType =
+        if (primaryKeyColumns.isEmpty) "Unit"
+        else if (primaryKeyColumns.size == 1) renderColumnType(primaryKeyColumns.head, forceRequired = true)
+        else primaryKeyColumns.map(renderColumnType(_, forceRequired = true)).mkString("(", ", ", ")")
+      sb.append(s"  type Id = $idType\n\n")
+
+      if (!table.isView) {
+        val creatorColumns = columns.filter { column =>
+          val dbColumn = column.db
+          !dbColumn.isGenerated && !dbColumn.isAutoIncremented && !dbColumn.hasDefaultValue
         }
-        creatorCols.foreach { c =>
-          val ironType = mapToIronType(c)
-          sb.append(s"    ${c.scalaName}: $ironType,\n")
+
+        if (creatorColumns.nonEmpty) {
+          sb.append(s"  final case class Creator(\n")
+          creatorColumns.zipWithIndex.foreach { case (column, idx) =>
+            sb.append(s"    ${column.scalaName}: ${renderColumnType(column)}${if (idx == creatorColumns.size - 1) "" else ","}\n")
+          }
+          sb.append("  ) derives DbCodec\n\n")
+        } else {
+          sb.append("  type Creator = Unit\n\n")
         }
-        sb.append("  ) derives DbCodec\n\n")
       }
-      
-      if (t.isView)
-        sb.append(s"  val ${t.scalaName}Repo = ImmutableRepo[${t.scalaName}, ${t.scalaName}.Id]\n\n")
+
+      if (table.isView)
+        sb.append(s"  val repo = ImmutableRepo[${table.scalaName}, ${table.scalaName}.Id]\n\n")
       else
-        sb.append(s"  val ${t.scalaName}Repo = Repo[${t.scalaName}.Creator, ${t.scalaName}, ${t.scalaName}.Id]\n\n")
+        sb.append(s"  val repo = Repo[${table.scalaName}.Creator, ${table.scalaName}, ${table.scalaName}.Id]\n\n")
     }
-    
-    // Add ZIO Schema definitions
-    sb.append(generateZioSchema(schema))
-    
+
+    sb.append(renderZioSchemas(schema))
+
     sb.toString
   }
 
-  private def mapToIronType(column: DataColumn): String = {
-    val baseType = column.scalaType
-    val dbColumn = column.db
-    
-    // Check for common patterns that can be mapped to Iron types
-    val columnName = column.name.toLowerCase
-    val _ = dbColumn.getParent.getName.toLowerCase
-    
+  private def renderColumnType(column: DataColumn, forceRequired: Boolean = false): String = {
+    val base = baseColumnType(column)
+    val isOptional = !forceRequired && column.db.isNullable && !column.db.isPartOfPrimaryKey
+    if (isOptional) s"Option[$base]" else base
+  }
+
+  private def baseColumnType(column: DataColumn): String = {
+    val domainOverride = column.pgType.flatMap(info => domainTypeMapping.get(info.typname.toLowerCase(Locale.ROOT)))
+
+    val underlying =
+      if (column.scalaType.startsWith("Option["))
+        column.scalaType.stripPrefix("Option[").stripSuffix("]")
+      else column.scalaType
+
+    val byDomain = domainOverride.getOrElse {
+      val dbTypeName = Option(column.db.getColumnDataType.getName).map(_.toLowerCase(Locale.ROOT)).getOrElse("")
+      dbSpecificTypes.getOrElse(dbTypeName, underlying)
+    }
+
+    refineNumericTypes(byDomain, column)
+  }
+
+  private val domainTypeMapping: Map[String, String] = Map(
+    "store_key"         -> "StoreKey",
+    "hash_bytes"        -> "HashBytes",
+    "small_bytes"       -> "SmallBytes",
+    "store_status_t"    -> "StoreStatus",
+    "replica_status_t"  -> "ReplicaStatus",
+  )
+
+  private val dbSpecificTypes: Map[String, String] = Map(
+    "bytea"        -> "Chunk[Byte]",
+    "json"         -> "Json",
+    "jsonb"        -> "Json",
+    "uuid"         -> "java.util.UUID",
+    "timestamptz"  -> "java.time.OffsetDateTime",
+    "timestamp"    -> "java.time.OffsetDateTime",
+    "int8range"    -> "DbRange[Long]",
+  )
+
+  private def refineNumericTypes(baseType: String, column: DataColumn): String = {
+    val lowered = column.name.toLowerCase(Locale.ROOT)
     baseType match {
-      case "String" =>
-        // Check for common patterns
-        if (columnName.contains("email")) "EmailString"
-        else if (columnName.contains("uuid") || columnName.contains("id") && !dbColumn.isPartOfPrimaryKey) "UuidString"
-        else if (!dbColumn.isNullable && dbColumn.getSize > 0) s"String :| MinLength[1] & MaxLength[${dbColumn.getSize}]"
-        else if (!dbColumn.isNullable) "NonEmptyString"
-        else baseType
-        
-      case "Int" =>
-        if (!dbColumn.isNullable && columnName.contains("count") || columnName.contains("size") || columnName.contains("length")) "NonNegativeInt"
-        else if (!dbColumn.isNullable && (columnName.contains("id") && dbColumn.isPartOfPrimaryKey)) "PositiveInt"
-        else baseType
-        
-      case _ => baseType
+      case "Long" if lowered.contains("size") || lowered.contains("bytes") => "PosLong"
+      case "Long" if lowered.contains("offset")                             => "NonNegLong"
+      case "Long" if lowered.contains("version")                            => "NonNegLong"
+      case other                                                             => other
     }
   }
 
-  private def generateZioSchema(schema: DataSchema): String = {
+  private def renderZioSchemas(schema: DataSchema): String = {
     val sb = new StringBuilder
-    sb.append(s"\n// ZIO Schema definitions for ${schema.name}\n")
+    sb.append(s"// ZIO Schema definitions for ${schema.name}\n")
     sb.append("object Schemas {\n")
-    
+
     schema.tables.foreach { table =>
-      sb.append(s"  given Schema[${table.scalaName}] = DeriveSchema.gen[${table.scalaName}]\n")
+      val tableGiven = schemaGivenName(table.scalaName)
+      sb.append(s"  given $tableGiven: Schema[${table.scalaName}] = DeriveSchema.gen[${table.scalaName}]\n")
       if (!table.isView) {
-        sb.append(s"  given Schema[${table.scalaName}.Creator] = DeriveSchema.gen[${table.scalaName}.Creator]\n")
+        val creatorGiven = schemaGivenName(s"${table.scalaName}.Creator")
+        sb.append(s"  given $creatorGiven: Schema[${table.scalaName}.Creator] = DeriveSchema.gen[${table.scalaName}.Creator]\n")
       }
     }
-    
-    schema.enums.foreach { enumDef =>
-      sb.append(s"  given Schema[${enumDef.scalaName}] = DeriveSchema.gen[${enumDef.scalaName}]\n")
-    }
-    
+
     sb.append("}\n")
     sb.toString
+  }
+
+  private def schemaGivenName(typeName: String): String = {
+    val pascal = typeName
+      .split("\\.")
+      .filter(_.nonEmpty)
+      .map(_.capitalize)
+      .mkString
+
+    val camel =
+      if pascal.isEmpty then "schema"
+      else s"${pascal.head.toLower}${pascal.tail}"
+
+    s"${camel}Schema"
   }
 }

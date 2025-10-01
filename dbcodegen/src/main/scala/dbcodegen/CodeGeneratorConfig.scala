@@ -3,7 +3,6 @@ package dbcodegen
 import java.io.File
 import java.nio.file.Path
 import java.sql.SQLType
-import scala.util.chaining.given
 
 final case class CodeGeneratorConfig private[dbcodegen] (
   templateFiles: Seq[File],
@@ -29,7 +28,7 @@ object CodeGeneratorConfig {
     mode: CodeGenerator.Mode,
   ): CodeGeneratorConfig = new CodeGeneratorConfig(
     templateFiles, 
-    Path.of(outDir.toString.replaceAll("/scala/", s"/scala-${scalaVersion.split("\\/|\\.").take(1).mkString(".")}/")), 
+    Path.of(outDir.toString.replaceAll("/scala/", s"/scala-${scalaVersion.split("\\/|\\.").take(1).mkString(".")}/")),
     typeMapping, 
     schemaTableFilter, 
     scalafmt, 
@@ -38,11 +37,11 @@ object CodeGeneratorConfig {
     mode
   )
 
-  val defaultScalaVersion = "3.7.2".tap(v => println(s"defaultScalaVersion: $v"))
+  val defaultScalaVersion = "3.7.2"
 
   val default: CodeGeneratorConfig = CodeGeneratorConfig(
     templateFiles = Seq.empty,
-      outDir = Path.of(s"modules/pg/src/main/scala/graviton/pg/generated"),
+    outDir = Path.of("modules/pg/src/main/scala/graviton/pg/generated"),
     typeMapping = (_: SQLType, guess: Option[String]) => guess.orElse(Some("java.lang.Object")),
     schemaTableFilter = (_: String, _: String) => true,
     scalafmt = true,
