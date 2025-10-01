@@ -1,7 +1,8 @@
 package graviton
 
 import graviton.chunking.*
-import graviton.core.model.Block
+import graviton.chunking.AnchoredCdcPipeline.*
+import graviton.core.model.{Block, Limits}
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -50,5 +51,35 @@ object ChunkerSpec extends ZIOSpecDefault:
       yield assertTrue(
         c1.map(_.toChunk) == c2.map(_.toChunk) && c1.exists(_.toChunk == Chunk.fromArray(content))
       )
+    },
+    test("anchored CDC nudges boundaries to anchors") {
+      val part   = "a" * 60
+      val token  = "END!"
+      val tail   = "tail"
+      val input  = (part + token + part + token + tail).getBytes("UTF-8")
+      val stream = ZStream.fromChunk(Chunk.fromArray(input))
+      val pack   = TokenPack.fromStrings("test", List(token))
+      stream
+        .via(ZPipeline.anchoredCdc(pack, avgSize = 64, anchorBonus = 16))
+        .runCollect
+        .map { out =>
+          val expected = Chunk(
+            Block.unsafeFromChunk(Chunk.fromArray((part + token).getBytes("UTF-8"))),
+            Block.unsafeFromChunk(Chunk.fromArray((part + token).getBytes("UTF-8"))),
+            Block.unsafeFromChunk(Chunk.fromArray(tail.getBytes("UTF-8"))),
+          )
+          assertTrue(out.map(_.toChunk) == expected.map(_.toChunk))
+        }
+    },
+    test("anchored CDC enforces block size limits even without anchors") {
+      val bytes  = Array.fill(Limits.MAX_BLOCK_SIZE_IN_BYTES * 2 + 512)(0.toByte)
+      val stream = ZStream.fromChunk(Chunk.fromArray(bytes))
+      val pack   = TokenPack.fromStrings("none", List("zzz"))
+      stream
+        .via(ZPipeline.anchoredCdc(pack, avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2, anchorBonus = 0))
+        .runCollect
+        .map { chunks =>
+          assertTrue(chunks.forall(_.toChunk.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))
+        }
     },
   )
