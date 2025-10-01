@@ -4,8 +4,6 @@ title: "Getting Started with Graviton"
 sidebar_label: "Getting Started"
 ---
 
-@PROJECT_BADGES@
-
 Graviton is a ZIO‑native content‑addressable storage layer for immutable binary data. It ingests byte streams, deduplicates blocks, replicates them across backends, and streams them back with integrity guarantees so applications can build higher‑level document workflows.
 
 ## Getting Started
