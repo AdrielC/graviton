@@ -82,10 +82,15 @@ Save this key—it is your handle for future reads.
 
 ## Retrieve Data
 
-To fetch the bytes back, feed the blob key to the `get` subcommand:
 
-```bash
-graviton get BlobKey(algorithm = blake3, size = 16384, hash = 8e0d…) > README.copy.md
+```scala mdoc:silent
+import scala.annotation.nowarn
+
+@nowarn("msg=unused value of type zio.ZIO")
+val runDemo = for
+  store <- InMemoryBinaryStore.make()
+  data  <- storeAndFetch(store)
+yield data
 ```
 
 Graviton resolves the manifest, streams each block from the configured store, and reconstructs the file.
