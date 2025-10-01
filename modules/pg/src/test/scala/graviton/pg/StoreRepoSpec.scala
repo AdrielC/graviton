@@ -4,7 +4,8 @@ import graviton.db.{StoreRepo, StoreRow, StoreStatus, StoreKey}
 
 import zio.*
 import zio.json.ast.Json
-import zio.test.{Spec as ZSpec} 
+import zio.test.{Spec as ZSpec, *}
+
 import java.nio.file.Path
 
 object StoreRepoSpec extends ZIOSpecDefault {
