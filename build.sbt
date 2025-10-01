@@ -338,8 +338,7 @@ lazy val docs = project
     MdocKeys.mdocIn                            := baseDirectory.value / "src/main/mdoc",
     MdocKeys.mdocOut                           := baseDirectory.value / "target/mdoc",
     MdocKeys.mdocVariables                     := Map(
-      "VERSION"        -> version.value,
-      "PROJECT_BADGES" -> ""
+      "VERSION"        -> version.value
     ),
   )
   .settings(
