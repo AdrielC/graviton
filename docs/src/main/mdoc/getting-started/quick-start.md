@@ -84,6 +84,7 @@ Save this key—it is your handle for future reads.
 
 
 ```scala mdoc:silent
+import graviton.impl.InMemoryBinaryStore
 import scala.annotation.nowarn
 
 @nowarn("msg=unused value of type zio.ZIO")
