@@ -84,6 +84,9 @@ Save this key—it is your handle for future reads.
 
 
 ```scala mdoc:silent
+import zio.*
+import zio.stream.*
+import graviton.*
 import graviton.impl.InMemoryBinaryStore
 import scala.annotation.nowarn
 
