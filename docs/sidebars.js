@@ -5,7 +5,19 @@ const sidebars = {
       label: "graviton",
       collapsed: false,
       link: { type: "doc", id: "index" },
-      items: []
+      items: [
+        {
+          type: "category",
+          label: "Getting Started",
+          collapsed: false,
+          items: [
+            {
+              type: "doc",
+              id: "getting-started/quick-start"
+            }
+          ]
+        }
+      ]
     }
   ]
 };
