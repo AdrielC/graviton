@@ -148,9 +148,6 @@ final case class StoreRow(
 given DbCodec[Chunk[Byte]] =
   DbCodec[Array[Byte]].biMap(Chunk.fromArray, _.toArray)
 
-given DbCodec[java.util.UUID] =
-  DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
-
 final case class DbRange[+T](lower: Option[T], upper: Option[T]) derives DbCodec, Schema
 
 given JsonBDbCodec[Json] with

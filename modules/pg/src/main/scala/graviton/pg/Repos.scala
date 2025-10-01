@@ -53,18 +53,27 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
               (rows, newTotal, newOffset) <-
                 xa.transact {
                   val rows = sql"""
-                    SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-                    FROM store WHERE status = ${StoreStatus.Active}
+                    SELECT key,
+                           impl_id,
+                           build_fp,
+                           dv_schema_urn,
+                           dv_canonical_bin,
+                           dv_json_preview,
+                           status,
+                           version,
+                           count(*) OVER () AS total
+                    FROM store
+                    WHERE status = ${StoreStatus.Active}
                     ORDER BY updated_at DESC
-                    Limit $limit
+                    LIMIT $limit
                     OFFSET $offset
                   """
-                    .query[(Long, StoreRow)]
+                    .query[(StoreRow, Long)]
                     .run()
 
-                  val newTotal  = rows.headOption.map(_._1).orElse(totalNow.total).getOrElse(0L)
+                  val newTotal  = rows.headOption.map(_._2).orElse(totalNow.total).getOrElse(0L)
                   val newOffset = offset + rows.size
-                  (Chunk.fromIterable(rows.view.map(_._2)), newTotal, newOffset)
+                  (Chunk.fromIterable(rows.view.map(_._1)), newTotal, newOffset)
                 }
 
               current <- total.get
