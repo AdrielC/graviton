@@ -5,6 +5,7 @@ import schemacrawler.tools.utility.SchemaCrawlerUtility
 import us.fatehi.utility.datasource.DatabaseConnectionSource
 
 import java.sql.{JDBCType, SQLType, Types}
+import java.util.Locale
 import scala.jdk.CollectionConverters._
 import scala.reflect.{classTag, ClassTag}
 import scala.util.Try
@@ -161,32 +162,73 @@ object SchemaConverter {
     case Types.DATALINK                                                                                     => classTag[java.net.URL]
   }
 
-  def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = localTypeName.toUpperCase match {
-    // TODO: specific to Postgres
-    case "TEXT" | "UUID"  => Some(JDBCType.LONGVARCHAR)
-    case "JSON" | "JSONB" => Some(JDBCType.OTHER)
-    case "INT2"           => Some(JDBCType.SMALLINT)
-    case "INT" | "INT4"   => Some(JDBCType.INTEGER)
-    case "INT8"           => Some(JDBCType.BIGINT)
-    case "FLOAT4"         => Some(JDBCType.FLOAT)
-    case "FLOAT8"         => Some(JDBCType.DOUBLE)
-    case "MONEY"          => Some(JDBCType.DECIMAL)
-    case "BPCHAR"         => Some(JDBCType.CHAR)
-    case "VARCHAR"        => Some(JDBCType.VARCHAR)
-    case "NAME"           => Some(JDBCType.VARCHAR)
-    case "OID"            => Some(JDBCType.BIGINT)
-    case "REGCLASS"       => Some(JDBCType.BIGINT)
-    case "BYTEA"          => Some(JDBCType.BINARY)
-    case "TIMESTAMPTZ"    => Some(JDBCType.TIMESTAMP_WITH_TIMEZONE)
-    case "TIMESTAMP" | "TIMESTAMPTZ" => Some(JDBCType.TIMESTAMP)
-    case "TIME"           => Some(JDBCType.TIME)
-    case "TIMETZ"         => Some(JDBCType.TIME_WITH_TIMEZONE)
-    case "DATE"           => Some(JDBCType.DATE)
-    case "BOOL" | "BOOLEAN" => Some(JDBCType.BOOLEAN)
-    case "NUMERIC"        => Some(JDBCType.NUMERIC)
-    case "DECIMAL"        => Some(JDBCType.DECIMAL)
-    case "SERIAL" | "BIGSERIAL" => Some(JDBCType.BIGINT)
-    case t if t.startsWith("_") => Some(JDBCType.ARRAY)
-    case other            => Try(JDBCType.valueOf(other)).toOption
+  private val vendorSpecificTypeMappings: Map[String, SQLType] = Map(
+    // PostgreSQL-specific aliases
+    "TEXT"                 -> JDBCType.LONGVARCHAR,
+    "UUID"                 -> JDBCType.LONGVARCHAR,
+    "JSON"                 -> JDBCType.OTHER,
+    "JSONB"                -> JDBCType.OTHER,
+    "INT2"                 -> JDBCType.SMALLINT,
+    "INT"                  -> JDBCType.INTEGER,
+    "INT4"                 -> JDBCType.INTEGER,
+    "INT8"                 -> JDBCType.BIGINT,
+    "FLOAT4"               -> JDBCType.FLOAT,
+    "FLOAT8"               -> JDBCType.DOUBLE,
+    "MONEY"                -> JDBCType.DECIMAL,
+    "BPCHAR"               -> JDBCType.CHAR,
+    "NAME"                 -> JDBCType.VARCHAR,
+    "OID"                  -> JDBCType.BIGINT,
+    "REGCLASS"             -> JDBCType.BIGINT,
+    "BYTEA"                -> JDBCType.BINARY,
+    "TIMESTAMPTZ"          -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"               -> JDBCType.TIME_WITH_TIMEZONE,
+    "BOOL"                 -> JDBCType.BOOLEAN,
+    "SERIAL"               -> JDBCType.BIGINT,
+    "BIGSERIAL"            -> JDBCType.BIGINT,
+    "SMALLSERIAL"          -> JDBCType.INTEGER,
+    // MySQL variants
+    "TINYTEXT"             -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"           -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"             -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"             -> JDBCType.BINARY,
+    "MEDIUMBLOB"           -> JDBCType.BLOB,
+    "LONGBLOB"             -> JDBCType.BLOB,
+    "DATETIME"             -> JDBCType.TIMESTAMP,
+    "YEAR"                 -> JDBCType.SMALLINT,
+    // Oracle variants
+    "VARCHAR2"             -> JDBCType.VARCHAR,
+    "NVARCHAR2"            -> JDBCType.NVARCHAR,
+    "NUMBER"               -> JDBCType.NUMERIC,
+    "RAW"                  -> JDBCType.BINARY,
+    "TIMESTAMP WITH TIME ZONE"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMESTAMP WITH LOCAL TIME ZONE" -> JDBCType.TIMESTAMP,
+    // SQL Server variants
+    "UNIQUEIDENTIFIER"     -> JDBCType.OTHER,
+    "DATETIME2"            -> JDBCType.TIMESTAMP,
+    "SMALLDATETIME"        -> JDBCType.TIMESTAMP,
+    "DATETIMEOFFSET"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "NTEXT"                -> JDBCType.LONGNVARCHAR,
+    "NVARCHAR"             -> JDBCType.NVARCHAR,
+    "NCHAR"                -> JDBCType.NCHAR,
+    "IMAGE"                -> JDBCType.LONGVARBINARY,
+    // Generic aliases
+    "VARCHAR"              -> JDBCType.VARCHAR,
+    "DECIMAL"              -> JDBCType.DECIMAL,
+    "NUMERIC"              -> JDBCType.NUMERIC,
+    "BOOLEAN"              -> JDBCType.BOOLEAN,
+    "TIME"                 -> JDBCType.TIME,
+    "DATE"                 -> JDBCType.DATE,
+    "TIMESTAMP"            -> JDBCType.TIMESTAMP,
+  )
+
+  def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
+    val upper            = localTypeName.toUpperCase(Locale.ROOT)
+    lazy val normalized  = if (upper.startsWith("_")) upper.drop(1) else upper
+    if (upper.startsWith("_")) Some(JDBCType.ARRAY)
+    else
+      vendorSpecificTypeMappings
+        .get(upper)
+        .orElse(vendorSpecificTypeMappings.get(normalized))
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
   }
 }
