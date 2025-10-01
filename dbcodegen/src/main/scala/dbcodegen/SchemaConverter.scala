@@ -225,6 +225,48 @@ object SchemaConverter {
     "TIMESTAMP"            -> JDBCType.TIMESTAMP,
   )
 
+  def localTypeNameToSqlType(
+    connection: DatabaseConnectionSource,
+    localTypeName: String,
+  ): Option[SQLType] = {
+    val trimmed = Option(localTypeName).map(_.trim).filter(_.nonEmpty)
+    trimmed.flatMap { name =>
+      val upper = name.toUpperCase(Locale.ROOT)
+
+      vendorSpecificTypeNameToSqlType(upper)
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
+        .orElse(typeInfoSqlType(connection, name))
+    }
+  }
+
+  private def vendorSpecificTypeNameToSqlType(typeName: String): Option[SQLType] =
+    vendorSpecificOverrides.get(typeName).orElse {
+      if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
+    }
+
+  private def typeInfoSqlType(
+    connection: DatabaseConnectionSource,
+    typeName: String,
+  ): Option[SQLType] = {
+    val conn = connection.get()
+    try {
+      val typeInfo = conn.getMetaData.getTypeInfo
+      try {
+        Iterator
+          .continually(())
+          .takeWhile(_ => typeInfo.next())
+          .collectFirst { _ =>
+            Option(typeInfo.getString("TYPE_NAME"))
+              .filter(_.equalsIgnoreCase(typeName))
+              .flatMap(_ => Try(JDBCType.valueOf(typeInfo.getInt("DATA_TYPE"))).toOption)
+          }
+          .flatten
+      } finally typeInfo.close()
+    } finally {
+      val _ = connection.releaseConnection(conn)
+      ()
+    }
+  
   def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
     val upper            = localTypeName.toUpperCase(Locale.ROOT)
     lazy val normalized  = if (upper.startsWith("_")) upper.drop(1) else upper
