@@ -6,6 +6,8 @@ enablePlugins(
 
 import scala.sys.process.*
 import sbtunidoc.ScalaUnidocPlugin.autoImport._
+import sbt.io.Path
+import sbt.librarymanagement.Artifact
 
 ThisBuild / scalaVersion  := "3.7.2"
 ThisBuild / organization  := "io.quasar"
@@ -32,6 +34,25 @@ lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
 
 // Task to bootstrap local Postgres and stream output via sbt logger
 lazy val setUpPg = taskKey[Unit]("Bootstrap local Postgres (Podman) and stream logs")
+lazy val autoBootstrapPg = settingKey[Boolean](
+  "Run setUpPg automatically when sbt starts (controlled via GRAVITON_BOOTSTRAP_PG)"
+)
+
+lazy val docsSiteArchive = taskKey[java.io.File]("Bundle rendered documentation into a distributable zip")
+lazy val docsSiteArtifact = Artifact("graviton-docs", "zip", "zip")
+
+lazy val MdocKeys = _root_.mdoc.MdocPlugin.autoImport
+
+def envFlagEnabled(name: String): Boolean =
+  sys.env
+    .get(name)
+    .exists { raw =>
+      val normalized = raw.trim.toLowerCase(java.util.Locale.ROOT)
+      normalized match {
+        case "1" | "true" | "yes" | "on" => true
+        case _                              => false
+      }
+    }
 
 ThisBuild / setUpPg := {
   val log     = streams.value.log
@@ -78,12 +99,15 @@ ThisBuild / setUpPg := {
   }
 }
 
+ThisBuild / autoBootstrapPg := envFlagEnabled("GRAVITON_BOOTSTRAP_PG")
+
 // Run setUpPg automatically on sbt startup
 ThisBuild / onLoad := {
   val prev = (ThisBuild / onLoad).value
+  val shouldBootstrap = (ThisBuild / autoBootstrapPg).value
   (state: State) => {
     val s1 = prev(state)
-    "setUpPg" :: s1
+    if (shouldBootstrap) "setUpPg" :: s1 else s1
   }
 }
 
@@ -296,7 +320,12 @@ lazy val docs = project
   .in(file("docs"))
   .dependsOn(core, fs, s3, tika)
   .settings(
-    publish / skip                             := true,
+    publish / skip                             := false,
+    Compile / publishArtifact                  := false,
+    Compile / packageBin / publishArtifact     := false,
+    Compile / packageSrc / publishArtifact     := false,
+    Compile / packageDoc / publishArtifact     := false,
+    doc / skip                                 := true,
     moduleName                                 := "graviton-docs",
     scalacOptions -= "-Yno-imports",
     scalacOptions -= "-Xfatal-warnings",
@@ -304,9 +333,47 @@ lazy val docs = project
     mainModuleName                             := (core / moduleName).value,
     projectStage                               := ProjectStage.ProductionReady,
     ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, db, fs, s3, tika, metrics, pg),
-    mdocIn                                     := baseDirectory.value / "src/main/mdoc",
-    mdocOut                                    := baseDirectory.value / "target/mdoc",
-    mdocVariables                              := Map("VERSION" -> version.value),
+    MdocKeys.mdocIn                            := baseDirectory.value / "src/main/mdoc",
+    MdocKeys.mdocOut                           := baseDirectory.value / "target/mdoc",
+    MdocKeys.mdocVariables                     := Map(
+      "VERSION"        -> version.value,
+      "PROJECT_BADGES" -> ""
+    ),
+  )
+  .settings(
+    docsSiteArchive := {
+      MdocKeys.mdoc.toTask("").value
+
+      val log       = streams.value.log
+      val stageRoot = target.value / "site"
+      val docsOut   = MdocKeys.mdocOut.value
+
+      IO.delete(stageRoot)
+      IO.createDirectory(stageRoot)
+
+      val docsDir = stageRoot / "docs"
+      IO.createDirectory(docsDir)
+      IO.copyDirectory(docsOut, docsDir)
+
+      val sidebars = baseDirectory.value / "sidebars.js"
+      if (sidebars.exists()) IO.copyFile(sidebars, stageRoot / "sidebars.js")
+
+      val pkgJson = baseDirectory.value / "package.json"
+      if (pkgJson.exists()) IO.copyFile(pkgJson, stageRoot / "package.json")
+
+      val versionsJson = stageRoot / "versions.json"
+      IO.write(versionsJson, s"""[\"${version.value}\"]\n""")
+
+      val archive = target.value / s"${moduleName.value}-${version.value}-docs.zip"
+      IO.delete(archive)
+      IO.zip(_root_.sbt.io.Path.allSubpaths(stageRoot), archive)
+
+      log.info(s"Packaged documentation archive at ${archive.getName}")
+      archive
+    },
+    artifacts := artifacts.value.filterNot(_ == docsSiteArtifact) :+ docsSiteArtifact,
+    packagedArtifacts :=
+      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value),
   )
   .enablePlugins(MdocPlugin, WebsitePlugin)
 
@@ -316,6 +383,17 @@ addCommandAlias(
   "dbcodegen/runMain dbcodegen.DbMain " +
     "-Ddbcodegen.template=modules/pg/codegen/magnum.ssp " +
     "-Ddbcodegen.out=modules/pg/src/main/scala/graviton/db",
+)
+
+addCommandAlias("bootstrapPg", "setUpPg")
+
+Global / excludeLintKeys ++= Set(
+  ThisBuild / pgDatabase,
+  ThisBuild / pgPassword,
+  ThisBuild / pgUsername,
+  docs / Compile / publishArtifact,
+  docs / mainModuleName,
+  docs / projectStage,
 )
 
 addCommandAlias(
