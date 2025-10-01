@@ -274,6 +274,14 @@ lazy val pg = project
       "PG_PASSWORD" -> pgPassword.value,
     )
   )
+  .settings(
+    Test / resourceGenerators += Def.task {
+      val ddl     = baseDirectory.value / "ddl.sql"
+      val target  = (Test / resourceManaged).value / "ddl.sql"
+      IO.copyFile(ddl, target)
+      Seq(target)
+    }
+  )
 
 lazy val tika = project
   .in(file("modules/tika"))

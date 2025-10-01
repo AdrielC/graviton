@@ -6,6 +6,8 @@ Its goal is to provide a single source of truth for the vocabulary, invariants, 
 
 > **Scope reminder:** Higher-level concerns—documents, folders, user permissions, business workflows—live in application layers like Quasar and are **explicitly out of scope** for this glossary.
 
+> **Schema source of truth:** The relational catalog that persists these concepts lives in `modules/pg/ddl.sql`. The PostgreSQL DDL is copied into integration tests at build time so that migrations, docs, and code share the same definitions.
+
 ---
 
 ## What Graviton Is
@@ -91,6 +93,7 @@ Everything else—documents, cases, workflows, schema-specific parsing—lives *
 - Physical backend (S3, GCS, Azure Blob, Ceph, POSIX filesystem, or future drivers).
 - Configured with credentials, region/endpoint, durability class, and retention policy.
 - Stores surface availability and performance metrics that feed replica placement decisions.
+- Lifecycle states recorded in the catalog: `active`, `paused`, `retired`.
 
 ### Sector
 - Driver-specific address within a Store (e.g., S3 object key, filesystem path, database row ID).
@@ -110,6 +113,16 @@ Everything else—documents, cases, workflows, schema-specific parsing—lives *
 - Configured per namespace or workload.
 - Define the minimum number of `Active` replicas, geographic placement rules, and encryption requirements.
 - Enforcement happens asynchronously: ingest writes to a preferred store, while background workers fan out to additional stores until policy targets are met.
+
+### Catalog Tables
+
+The PostgreSQL catalog mirrors these concepts directly:
+
+- `store` keeps DV metadata and lifecycle state for each configured backend.
+- `block` records deduplicated content-addressable chunks.
+- `blob` stores blob-level fingerprints, while `manifest_entry` orders the block segments that make up each blob.
+- `replica` captures every placement of a block within a store, including sector identifiers and health checks.
+- Supporting tables such as `build_info` and `merkle_snapshot` provide operational context without redefining the core glossary.
 
 ---
 

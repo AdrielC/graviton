@@ -55,9 +55,14 @@
 ---
 
 ## Workflow Requirements
-- Always run:  
+- Always run:
   ```bash
   TESTCONTAINERS=0 ./sbt scalafmtAll test
   ```
+- Schema changes **must** be reflected in generated bindings:
+  1. Start a local PostgreSQL instance without Docker (e.g. `apt-get install postgresql` then `pg_ctlcluster 16 main start`).
+  2. Apply `modules/pg/ddl.sql` to an empty database (for example `psql -d graviton -f modules/pg/ddl.sql`).
+  3. Regenerate bindings with `PG_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/graviton PG_USERNAME=postgres PG_PASSWORD=postgres ./sbt "dbcodegen/run"`.
+  4. Commit the updated files in `modules/pg/src/main/resources/generated/` together with the DDL change.
 - Sync with latest main before commits (git fetch origin main && git merge origin/main or rebase).
 - Mark tasks as done with commit/date in this file.
