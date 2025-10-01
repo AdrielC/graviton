@@ -19,11 +19,13 @@ def storeAndFetch(store: BinaryStore): ZIO[Any, Throwable, Option[Bytes]] =
 The function above writes a stream of bytes to an existing `BinaryStore` and then retrieves the stored content.
 
 ```scala mdoc:silent
-def runDemo =
-  for
-    store <- InMemoryBinaryStore.make()
-    data  <- storeAndFetch(store)
-  yield data
+import scala.annotation.nowarn
+
+@nowarn("msg=unused value of type zio.ZIO")
+val runDemo = for
+  store <- InMemoryBinaryStore.make()
+  data  <- storeAndFetch(store)
+yield data
 ```
 
 The `runDemo` program creates an in-memory store, writes a greeting, and reads it back.

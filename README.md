@@ -71,7 +71,7 @@ curl -X POST --data-binary @README.md http://localhost:8080/blobs
 curl http://localhost:8080/blobs/<blobKey> -o README.copy.md
 ```
 
-Documentation lives under the [docs](docs/index.md) directory and is published as part of the project site. Start with:
+Documentation lives under the [docs](docs/src/main/mdoc/index.md) directory and is published as part of the project site. Start with:
 
 * [Installation](docs/src/main/mdoc/getting-started/installation.md)
 * [Quick Start](docs/src/main/mdoc/getting-started/quick-start.md)
@@ -123,3 +123,20 @@ TESTCONTAINERS=1 ./sbt test
 ```
 
 This flag is enabled automatically in CI.
+
+To provision the local Postgres instance on demand run:
+
+```bash
+./sbt bootstrapPg
+```
+
+Automatic bootstrapping is disabled by default to keep sbt startup fast. Set `GRAVITON_BOOTSTRAP_PG=true` if you want sbt to run
+it on load.
+
+The documentation site is generated via mdoc and published as a zipped artifact. You can build it locally with:
+
+```bash
+./sbt docs/docsSiteArchive
+```
+
+The resulting archive is attached when running `publish` or `publishLocal`.

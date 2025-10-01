@@ -4,7 +4,7 @@
 scans fuse at compile time, while stateful ones keep tuple-based state that grows
 only when necessary.
 
-```scala mdoc
+```scala mdoc:silent
 import graviton.*
 import zio.Chunk
 
@@ -14,7 +14,10 @@ val runningSum =
     (sum, Chunk.single(sum))
   }(s => Chunk.single(s))
 
-val (_, totals) = runningSum.runAll(List(1, 2, 3))
+val totals = runningSum.runAll(List(1, 2, 3))._2
+```
+
+```scala mdoc
 totals
 ```
 

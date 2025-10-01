@@ -7,12 +7,23 @@ import zio.test.*
 import com.augustnagro.magnum.magzio.*
 import com.augustnagro.magnum.{DbCodec, sql}
 
-object StoreRepoSpec extends ZIOSpec[TestEnvironment & StoreRepo & TransactorZIO]:
+object StoreRepoSpec extends ZIOSpec[TestEnvironment]:
 
-  val bootstrap =
-    ((ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
-      StoreRepoLive.layer) ++
-      testEnvironment
+  override val bootstrap = testEnvironment
+
+  private val containersEnabled =
+    sys.env
+      .get("TESTCONTAINERS")
+      .exists { raw =>
+        val normalized = raw.trim.toLowerCase(java.util.Locale.ROOT)
+        normalized match
+          case "1" | "true" | "yes" | "on" => true
+          case _                           => false
+      }
+
+  private val pgLayer =
+    (ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
+      StoreRepoLive.layer
 
   private def sampleRow: StoreRow =
     val key: StoreKey = StoreKey.applyUnsafe(Chunk.fill(32)(1.toByte))
@@ -28,7 +39,7 @@ object StoreRepoSpec extends ZIOSpec[TestEnvironment & StoreRepo & TransactorZIO
       0L,
     )
 
-  def spec =
+  private val integrationSuite =
     suite("StoreRepo")(
       test("writes, reads, and deletes data") {
         for {
@@ -66,8 +77,13 @@ object StoreRepoSpec extends ZIOSpec[TestEnvironment & StoreRepo & TransactorZIO
           _    <- Console.printLine(got)
         yield assertTrue(got.exists(_.implId == "fs"))
       },
-    ) @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
-      value.trim match
-        case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
-        case _                                                                                       => false
-    }
+    ).provideSomeLayerShared(pgLayer)
+
+  def spec =
+    if containersEnabled then integrationSuite
+    else
+      suite("StoreRepo")(
+        test("Postgres integration disabled") {
+          assertTrue(true)
+        }
+      ) @@ TestAspect.ignore
