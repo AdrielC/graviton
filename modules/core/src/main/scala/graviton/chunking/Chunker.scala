@@ -3,6 +3,8 @@ package graviton.chunking
 import graviton.core.model.Block
 import zio.stream.*
 
+import AnchoredCdcPipeline.*
+
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
@@ -23,6 +25,11 @@ object Chunker:
     case FastCDC(bounds: Bounds, normalization: Int = 2, window: Int = 64)
     case Rolling(bounds: Bounds, window: Int = 48)
     case TokenAware(tokens: Set[String], maxChunkSize: Int)
+    case AnchoredCdc(
+      pack: AnchoredCdcPipeline.TokenPack,
+      avgSize: Int,
+      anchorBonus: Int,
+    )
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])
 
@@ -58,17 +65,21 @@ object Chunker:
 
   /** Build a [[Chunker]] from a strategy. */
   def fromStrategy(s: Strategy): Chunker = s match
-    case Strategy.Fixed(sz)                 => FixedChunker(sz)
-    case Strategy.FastCDC(b, n, w)          =>
+    case Strategy.Fixed(sz)                               => FixedChunker(sz)
+    case Strategy.FastCDC(b, n, w)                        =>
       FastCDCChunker(FastCDCChunker.Config(b, n, w))
-    case Strategy.Rolling(b, w)             =>
+    case Strategy.Rolling(b, w)                           =>
       RollingHashChunker(RollingHashChunker.Config(b, w))
-    case Strategy.TokenAware(tokens, maxSz) =>
+    case Strategy.TokenAware(tokens, maxSz)               =>
       new Chunker:
         val name     = s"token-aware(max=$maxSz)"
         val pipeline = TokenAwareChunker.pipeline(tokens, maxSz)
-    case Strategy.Pdf                       => PdfChunker
-    case Strategy.Smart(default, overrides) =>
+    case Strategy.AnchoredCdc(pack, avgSize, anchorBonus) =>
+      new Chunker:
+        val name     = s"anchored-cdc(${pack.name},avg=$avgSize,bonus=$anchorBonus)"
+        val pipeline = ZPipeline.anchoredCdc(pack, avgSize, anchorBonus)
+    case Strategy.Pdf                                     => PdfChunker
+    case Strategy.Smart(default, overrides)               =>
       // if Smart is provided directly, fall back to default without hints
       select(
         SmartConfig(default, overrides),
