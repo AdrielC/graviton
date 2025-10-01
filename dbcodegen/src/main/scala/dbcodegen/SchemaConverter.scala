@@ -244,6 +244,55 @@ object SchemaConverter {
       if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
     }
 
+  private val vendorSpecificOverrides: Map[String, SQLType] = Map(
+    "TEXT"          -> JDBCType.LONGVARCHAR,
+    "UUID"          -> JDBCType.LONGVARCHAR,
+    "JSON"          -> JDBCType.OTHER,
+    "JSONB"         -> JDBCType.OTHER,
+    "INT2"          -> JDBCType.SMALLINT,
+    "INT"           -> JDBCType.INTEGER,
+    "INT4"          -> JDBCType.INTEGER,
+    "INT8"          -> JDBCType.BIGINT,
+    "FLOAT4"        -> JDBCType.FLOAT,
+    "FLOAT8"        -> JDBCType.DOUBLE,
+    "MONEY"         -> JDBCType.DECIMAL,
+    "BPCHAR"        -> JDBCType.CHAR,
+    "VARCHAR"       -> JDBCType.VARCHAR,
+    "NAME"          -> JDBCType.VARCHAR,
+    "OID"           -> JDBCType.BIGINT,
+    "REGCLASS"      -> JDBCType.BIGINT,
+    "BYTEA"         -> JDBCType.BINARY,
+    "TIMESTAMPTZ"   -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"        -> JDBCType.TIME_WITH_TIMEZONE,
+    "DATETIME"      -> JDBCType.TIMESTAMP,
+    "SMALLSERIAL"   -> JDBCType.INTEGER,
+    "SERIAL"        -> JDBCType.INTEGER,
+    "BIGSERIAL"     -> JDBCType.BIGINT,
+    "TINYTEXT"      -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"    -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"      -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"      -> JDBCType.BLOB,
+    "MEDIUMBLOB"    -> JDBCType.BLOB,
+    "LONGBLOB"      -> JDBCType.BLOB,
+    "NVARCHAR2"     -> JDBCType.NVARCHAR,
+    "NCHAR"         -> JDBCType.NCHAR,
+    "NCLOB"         -> JDBCType.NCLOB,
+    "BIT VARYING"   -> JDBCType.VARBINARY,
+    "CHARACTER"     -> JDBCType.CHAR,
+    "CHARACTER VARYING" -> JDBCType.VARCHAR,
+    "DOUBLE PRECISION" -> JDBCType.DOUBLE,
+    "BOOLEAN"       -> JDBCType.BOOLEAN,
+    "BOOL"          -> JDBCType.BOOLEAN,
+    "NUMERIC"       -> JDBCType.NUMERIC,
+    "DECIMAL"       -> JDBCType.DECIMAL,
+    "DATE"          -> JDBCType.DATE,
+    "TIME"          -> JDBCType.TIME,
+    "GEOGRAPHY"     -> JDBCType.OTHER,
+    "GEOMETRY"      -> JDBCType.OTHER,
+    "XML"           -> JDBCType.SQLXML,
+    "UUID[]"        -> JDBCType.ARRAY,
+  )
+
   private def typeInfoSqlType(
     connection: DatabaseConnectionSource,
     typeName: String,
@@ -266,6 +315,7 @@ object SchemaConverter {
       val _ = connection.releaseConnection(conn)
       ()
     }
+  }
   
   def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
     val upper            = localTypeName.toUpperCase(Locale.ROOT)
