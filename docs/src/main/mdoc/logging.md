@@ -6,12 +6,14 @@ operation fails. A correlation ID is attached to all log entries so actions can
 be traced across different layers of the system. Wrap any existing
 `BinaryStore` with `LoggingBinaryStore.layer` to opt-in.
 
-```scala mdoc:passthrough
+```scala mdoc:silent
 import graviton.BinaryStore
 import graviton.impl.InMemoryBinaryStore
 import graviton.logging.LoggingBinaryStore
 import zio.ZLayer
+import scala.annotation.nowarn
 
+@nowarn("msg=unused value")
 val loggingStore: ZLayer[Any, Nothing, BinaryStore] =
   ZLayer.fromZIO(InMemoryBinaryStore.make()) >>> LoggingBinaryStore.layer
 ```
@@ -44,10 +46,12 @@ Logging can be supplied in the same way.
 The built-in console logger can be configured to emit JSON for ingestion into
 structured pipelines such as Loki:
 
-```scala mdoc:passthrough
+```scala mdoc:silent
 import zio.Runtime
 import zio.logging.consoleJsonLogger
+import scala.annotation.nowarn
 
+@nowarn("msg=unused value")
 val jsonLogger = Runtime.removeDefaultLoggers >>> consoleJsonLogger()
 ```
 
