@@ -54,19 +54,18 @@ object Algo:
   enum Id derives CanEqual:
     case Blake3, Sha256, Sha1, Md5
 
-@SqlName("store_status")
+@SqlName("store_status_t")
 enum StoreStatus derives CanEqual, DbCodec:
   @SqlName("active") case Active
   @SqlName("paused") case Paused
   @SqlName("retired") case Retired
 
-@SqlName("location_status")
-enum LocationStatus derives CanEqual, DbCodec:
+@SqlName("replica_status_t")
+enum ReplicaStatus derives CanEqual, DbCodec:
   @SqlName("active") case Active
-  @SqlName("stale") case Stale
-  @SqlName("missing") case Missing
+  @SqlName("quarantined") case Quarantined
   @SqlName("deprecated") case Deprecated
-  @SqlName("error") case Error
+  @SqlName("lost") case Lost
 
 final case class BlockInsert(
   algoId: Short,
@@ -86,7 +85,7 @@ final case class BlobKey(
 ) derives DbCodec,
       Schema
 
-final case class BlobStoreRow(
+final case class StoreRow(
   key: StoreKey,
   implId: String,
   buildFp: Chunk[Byte],

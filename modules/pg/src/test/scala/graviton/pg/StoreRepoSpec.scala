@@ -1,23 +1,23 @@
 package graviton.pg
 
-import graviton.db.{BlobStoreRepo, BlobStoreRow, StoreKey, StoreStatus, given}
+import graviton.db.{StoreKey, StoreRepo, StoreRow, StoreStatus, given}
 
 import zio.*
 import zio.test.*
 import com.augustnagro.magnum.magzio.*
 import com.augustnagro.magnum.{DbCodec, sql}
 
-object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & TransactorZIO]:
+object StoreRepoSpec extends ZIOSpec[TestEnvironment & StoreRepo & TransactorZIO]:
 
   val bootstrap =
     ((ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
-      BlobStoreRepoLive.layer) ++
+      StoreRepoLive.layer) ++
       testEnvironment
 
-  private def sampleRow: BlobStoreRow =
+  private def sampleRow: StoreRow =
     val key: StoreKey = StoreKey.applyUnsafe(Chunk.fill(32)(1.toByte))
     val bytes         = Chunk.fromArray(Array[Byte](1, 2, 3))
-    BlobStoreRow(
+    StoreRow(
       key,
       "fs",
       bytes,
@@ -29,7 +29,7 @@ object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & Trans
     )
 
   def spec =
-    suite("BlobStoreRepo")(
+    suite("StoreRepo")(
       test("writes, reads, and deletes data") {
         for {
           xa       <- ZIO.service[TransactorZIO]
@@ -47,19 +47,19 @@ object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & Trans
           _        <- xa.transact {
                         Console.printLine("Inserting data") *>
                           ZIO.attempt(sql"""
-            INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
+            INSERT INTO store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
             VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
           """.query[Int].run()) *>
                           Console.printLine("Reading data") *>
                           ZIO.attempt(sql"""
-            SELECT * FROM blob_store WHERE key = ${sampleRow.key}
-          """.query[BlobStoreRow].run())
+            SELECT * FROM store WHERE key = ${sampleRow.key}
+          """.query[StoreRow].run())
                       }
         } yield assertTrue(true)
       },
       test("upsert and fetch") {
         for
-          repo <- ZIO.service[BlobStoreRepo]
+          repo <- ZIO.service[StoreRepo]
           row   = sampleRow
           _    <- repo.upsert(row)
           got  <- repo.get(row.key)
