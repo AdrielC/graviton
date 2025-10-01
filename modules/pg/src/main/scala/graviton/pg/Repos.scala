@@ -2,9 +2,7 @@ package graviton.pg
 
 import com.augustnagro.magnum.*
 import com.augustnagro.magnum.magzio.*
-import graviton.db.*
-import io.github.iltotore.iron.constraint.all.*
-import io.github.iltotore.iron.{zio as _, *}
+import graviton.db.{*, given}
 import zio.*
 import zio.Chunk
 import zio.stream.*
@@ -30,7 +28,7 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
       """.query[BlobStoreRow].run().headOption
     }
 
-  def listActive(cursor: Option[Cursor] = None): ZStream[Any, Throwable, BlobStoreRow] =
+  def listActive(cursor: Option[Cursor] = None): Stream[Throwable, BlobStoreRow] =
     ZStream.unwrapScoped {
       for
         total       <- Ref.make(cursor.getOrElse(Cursor.initial))
@@ -42,34 +40,33 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
             .value
             .min(cursor.map(_.offset).getOrElse(firstCursor.pageSize))
             .min(firstCursor.pageSize)
-        rows         = ZStream.paginateChunkZIO(0) { offset =>
-                         for
-                           totalNow <- total.get
-                           rows     <- xa.transact {
-                                         val rows = sql"""
-              SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-              FROM blob_store WHERE status = ${StoreStatus.Active}
-              ORDER BY updated_at DESC
-              Limit $limit
-              OFFSET $offset
-            """.query[(Long, BlobStoreRow)].run()
+        rows         = {
+          ZStream.paginateChunkZIO(0) { offset =>
+            for {
+              totalNow                    <- total.get
+              (rows, newTotal, newOffset) <-
+                xa.transact {
+                  val rows = sql"""
+                    SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
+                    FROM blob_store WHERE status = ${StoreStatus.Active}
+                    ORDER BY updated_at DESC
+                    Limit $limit
+                    OFFSET $offset
+                  """
+                    .query[(Long, BlobStoreRow)]
+                    .run()
 
-                                         val newTotal  = rows.headOption.map(_._1).orElse(totalNow.total).getOrElse(0L)
-                                         val newOffset = offset + rows.size
+                  val newTotal  = rows.headOption.map(_._1).orElse(totalNow.total).getOrElse(0L)
+                  val newOffset = offset + rows.size
+                  (Chunk.fromIterable(rows.view.map(_._2)), newTotal, newOffset)
+                }
 
-                                         Chunk.fromIterable(rows.view.map(_._2)) -> (newTotal, newOffset)
+              current <- total.get
+              _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
 
-                                       }.flatMap { case (rows, (newTotal, newOffset)) =>
-                                         for
-                                           current <- total.get
-                                           _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
-                                         yield (
-                                           rows,
-                                           Some(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)),
-                                         )
-                                       }
-                         yield rows
-                       }
+            } yield (rows, Option(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
+          }
+        }
       yield rows
     }
 
@@ -80,6 +77,7 @@ object BlobStoreRepoLive:
 // ---- Block repository -------------------------------------------------------
 
 final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
+
   def upsertBlock(
     key: BlockKey,
     size: PosLong,
@@ -99,7 +97,7 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
         SELECT size_bytes, (inline_bytes IS NOT NULL) AS has_inline
         FROM block WHERE algo_id = ${key.algoId} AND hash = ${key.hash}
       """.query[(Long, Boolean)].run().headOption.map { case (s, b) =>
-        (s.refineUnsafe[Positive], b)
+        (PosLong.applyUnsafe(s), b)
       }
     }
 
@@ -150,11 +148,11 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
     ZPipeline.fromFunction((s: ZStream[Any, Throwable, BlockInsert]) =>
       s.zipWithIndex.mapChunksZIO { case chunk =>
         chunk
-          .mapZIO { case ((bk, offset, len), idx) =>
+          .mapZIO { case (BlockInsert(algoId, hash, len, offset), idx) =>
             xa.transact {
               sql"""
                   INSERT INTO blob_block (blob_id, seq, block_algo_id, block_hash, offset_bytes, length_bytes)
-                  VALUES ($blobId, $idx, ${bk.algoId}, ${bk.hash}, $offset, $len)
+                  VALUES ($blobId, $idx, $algoId, $hash, $offset, $len)
                 """.returning[BlockKey].run()
             }.map(Chunk.fromIterable)
           }

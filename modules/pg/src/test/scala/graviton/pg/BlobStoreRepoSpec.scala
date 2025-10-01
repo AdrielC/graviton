@@ -1,24 +1,18 @@
 package graviton.pg
 
+import graviton.db.{BlobStoreRepo, BlobStoreRow, StoreKey, StoreStatus, given}
+
 import zio.*
 import zio.test.*
 import com.augustnagro.magnum.magzio.*
 import com.augustnagro.magnum.{DbCodec, sql}
 
-case object BlobStoreRepoSpec extends ZIOSpecDefault:
+object BlobStoreRepoSpec extends ZIOSpec[TestEnvironment & BlobStoreRepo & TransactorZIO]:
 
-  private val testcontainersEnabled: Boolean =
-    sys.env.get("TESTCONTAINERS") match
-      case Some(value) =>
-        value.trim match
-          case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
-          case _                                                                                       => false
-      case None        => false
-
-  private val integrationLayer: ZLayer[Any, Throwable, TestEnvironment & BlobStoreRepo & TransactorZIO] =
-    testEnvironment ++
-      ((ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
-        BlobStoreRepoLive.layer)
+  val bootstrap =
+    ((ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
+      BlobStoreRepoLive.layer) ++
+      testEnvironment
 
   private def sampleRow: BlobStoreRow =
     val key: StoreKey = StoreKey.applyUnsafe(Chunk.fill(32)(1.toByte))
@@ -35,55 +29,44 @@ case object BlobStoreRepoSpec extends ZIOSpecDefault:
     )
 
   def spec =
-    val suiteWithEnv =
-      if testcontainersEnabled then
-        suite("BlobStoreRepo")(
-          test("writes, reads, and deletes data") {
-            for {
-              xa       <- ZIO.service[TransactorZIO]
-              _        <- Console.printLine("Writing data")
-              sampleRow = (
-                            key = Chunk.fill(32)(1.toByte),
-                            implId = "fs",
-                            buildFp = "build_fp",
-                            dvSchemaUrn = "dv_schema_urn",
-                            dvCanonical = "dv_canonical",
-                            dvJsonPreview = "dv_json_preview",
-                            status = "active",
-                          )
-              _        <- Console.printLine("Reading data")
-              _        <- xa.transact {
-                            Console.printLine("Inserting data") *>
-                              ZIO.attempt(sql"""
-                INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
-                VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
-              """.query[Int].run()) *>
-                              Console.printLine("Reading data") *>
-                              ZIO.attempt(sql"""
-                SELECT * FROM blob_store WHERE key = ${sampleRow.key}
-              """.query[BlobStoreRow].run())
-                          }
-            } yield assertTrue(true)
-          },
-          test("upsert and fetch") {
-            for
-              repo <- ZIO.service[BlobStoreRepo]
-              row   = sampleRow
-              _    <- repo.upsert(row)
-              got  <- repo.get(row.key)
-            yield assertTrue(got.exists(_.implId == "fs"))
-          },
-        ).provideLayerShared(integrationLayer)
-      else
-        suite("BlobStoreRepo")(
-          test("writes, reads, and deletes data") {
-            assertTrue(true)
-          },
-          test("upsert and fetch") {
-            assertTrue(true)
-          },
-        ) @@ TestAspect.ignore
-    suiteWithEnv @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
+    suite("BlobStoreRepo")(
+      test("writes, reads, and deletes data") {
+        for {
+          xa       <- ZIO.service[TransactorZIO]
+          _        <- Console.printLine("Writing data")
+          sampleRow = (
+                        key = Chunk.fill(32)(1.toByte),
+                        implId = "fs",
+                        buildFp = "build_fp",
+                        dvSchemaUrn = "dv_schema_urn",
+                        dvCanonical = "dv_canonical",
+                        dvJsonPreview = "dv_json_preview",
+                        status = "active",
+                      )
+          _        <- Console.printLine("Reading data")
+          _        <- xa.transact {
+                        Console.printLine("Inserting data") *>
+                          ZIO.attempt(sql"""
+            INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
+            VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
+          """.query[Int].run()) *>
+                          Console.printLine("Reading data") *>
+                          ZIO.attempt(sql"""
+            SELECT * FROM blob_store WHERE key = ${sampleRow.key}
+          """.query[BlobStoreRow].run())
+                      }
+        } yield assertTrue(true)
+      },
+      test("upsert and fetch") {
+        for
+          repo <- ZIO.service[BlobStoreRepo]
+          row   = sampleRow
+          _    <- repo.upsert(row)
+          got  <- repo.get(row.key)
+          _    <- Console.printLine(got)
+        yield assertTrue(got.exists(_.implId == "fs"))
+      },
+    ) @@ TestAspect.ifEnv("TESTCONTAINERS") { value =>
       value.trim match
         case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
         case _                                                                                       => false

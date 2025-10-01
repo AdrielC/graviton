@@ -17,6 +17,9 @@ import io.github.iltotore.iron.constraint.all.*
  */
 sealed trait Scan[-I, +O]:
   type State <: Tuple
+  type Size = scala.Tuple.Size[State]
+
+  inline def size: Size = scala.compiletime.summonInline[Size]
 
   def initial: State
   def step(state: State, in: I): (State, Chunk[O])
