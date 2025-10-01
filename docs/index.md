@@ -12,6 +12,7 @@ Graviton is a ZIO‑native content‑addressable storage layer for immutable bin
 
 - [Installation](getting-started/installation.md)
 - [Quick Start](getting-started/quick-start.md)
+- [Backend configuration](getting-started/backends.md)
 
 ## Core Concepts
 
