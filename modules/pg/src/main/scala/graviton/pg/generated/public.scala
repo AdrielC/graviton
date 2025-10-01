@@ -18,7 +18,11 @@ final case class HashAlgorithm(
 ) derives DbCodec
 
 object HashAlgorithm:
-  type Id = Short
+  final case class Id(
+    id: Short
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   final case class Creator(
     name: String
@@ -50,7 +54,11 @@ final case class BuildInfo(
 ) derives DbCodec
 
 object BuildInfo:
-  type Id = Long
+  final case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   final case class Creator(
     appName: String,
@@ -92,7 +100,9 @@ final case class Store(
 ) derives DbCodec
 
 object Store:
-  type Id = StoreKey
+  final case class Id(
+    key: StoreKey
+  ) derives DbCodec
 
   final case class Creator(
     key: StoreKey,
@@ -123,7 +133,11 @@ final case class Blob(
 ) derives DbCodec
 
 object Blob:
-  type Id = java.util.UUID
+  final case class Id(
+    id: java.util.UUID
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   final case class Creator(
     algoId: Short,
@@ -151,7 +165,10 @@ final case class Block(
 ) derives DbCodec
 
 object Block:
-  type Id = (Short, HashBytes)
+  final case class Id(
+    algoId: Short,
+    hash: HashBytes,
+  ) derives DbCodec
 
   final case class Creator(
     algoId: Short,
@@ -183,7 +200,10 @@ final case class ManifestEntry(
 ) derives DbCodec
 
 object ManifestEntry:
-  type Id = (java.util.UUID, Int)
+  final case class Id(
+    blobId: java.util.UUID,
+    seq: Int,
+  ) derives DbCodec
 
   final case class Creator(
     blobId: java.util.UUID,
@@ -224,7 +244,11 @@ final case class Replica(
 ) derives DbCodec
 
 object Replica:
-  type Id = Long
+  final case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   final case class Creator(
     algoId: Short,
@@ -257,7 +281,11 @@ final case class MerkleSnapshot(
 ) derives DbCodec
 
 object MerkleSnapshot:
-  type Id = Long
+  final case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   final case class Creator(
     queryFingerprint: Chunk[Byte],
@@ -270,19 +298,27 @@ object MerkleSnapshot:
 
 object Schemas {
   given hashAlgorithmSchema: Schema[HashAlgorithm]                  = DeriveSchema.gen[HashAlgorithm]
+  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id]             = DeriveSchema.gen[HashAlgorithm.Id]
   given hashAlgorithmCreatorSchema: Schema[HashAlgorithm.Creator]   = DeriveSchema.gen[HashAlgorithm.Creator]
   given buildInfoSchema: Schema[BuildInfo]                          = DeriveSchema.gen[BuildInfo]
+  given buildInfoIdSchema: Schema[BuildInfo.Id]                     = DeriveSchema.gen[BuildInfo.Id]
   given buildInfoCreatorSchema: Schema[BuildInfo.Creator]           = DeriveSchema.gen[BuildInfo.Creator]
   given storeSchema: Schema[Store]                                  = DeriveSchema.gen[Store]
+  given storeIdSchema: Schema[Store.Id]                             = DeriveSchema.gen[Store.Id]
   given storeCreatorSchema: Schema[Store.Creator]                   = DeriveSchema.gen[Store.Creator]
   given blobSchema: Schema[Blob]                                    = DeriveSchema.gen[Blob]
+  given blobIdSchema: Schema[Blob.Id]                               = DeriveSchema.gen[Blob.Id]
   given blobCreatorSchema: Schema[Blob.Creator]                     = DeriveSchema.gen[Blob.Creator]
   given blockSchema: Schema[Block]                                  = DeriveSchema.gen[Block]
+  given blockIdSchema: Schema[Block.Id]                             = DeriveSchema.gen[Block.Id]
   given blockCreatorSchema: Schema[Block.Creator]                   = DeriveSchema.gen[Block.Creator]
   given manifestEntrySchema: Schema[ManifestEntry]                  = DeriveSchema.gen[ManifestEntry]
+  given manifestEntryIdSchema: Schema[ManifestEntry.Id]             = DeriveSchema.gen[ManifestEntry.Id]
   given manifestEntryCreatorSchema: Schema[ManifestEntry.Creator]   = DeriveSchema.gen[ManifestEntry.Creator]
   given replicaSchema: Schema[Replica]                              = DeriveSchema.gen[Replica]
+  given replicaIdSchema: Schema[Replica.Id]                         = DeriveSchema.gen[Replica.Id]
   given replicaCreatorSchema: Schema[Replica.Creator]               = DeriveSchema.gen[Replica.Creator]
   given merkleSnapshotSchema: Schema[MerkleSnapshot]                = DeriveSchema.gen[MerkleSnapshot]
+  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id]           = DeriveSchema.gen[MerkleSnapshot.Id]
   given merkleSnapshotCreatorSchema: Schema[MerkleSnapshot.Creator] = DeriveSchema.gen[MerkleSnapshot.Creator]
 }

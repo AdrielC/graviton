@@ -40,7 +40,11 @@ case class BuildInfo(
 ) derives DbCodec
 
 object BuildInfo:
-  type Id = (Long)
+  case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   case class Creator(
     appName: String :| MinLength[1] & MaxLength[2147483647],
@@ -66,7 +70,11 @@ case class HashAlgorithm(
 ) derives DbCodec
 
 object HashAlgorithm:
-  type Id = (Short)
+  case class Id(
+    id: Short
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   case class Creator(
     name: String :| MinLength[1] & MaxLength[2147483647],
@@ -102,7 +110,9 @@ case class Store(
 ) derives DbCodec
 
 object Store:
-  type Id = (java.sql.Blob)
+  case class Id(
+    key: java.sql.Blob
+  ) derives DbCodec
 
   case class Creator(
     key: java.sql.Blob,
@@ -133,7 +143,11 @@ case class Blob(
 ) derives DbCodec
 
 object Blob:
-  type Id = (String)
+  case class Id(
+    id: String :| MinLength[1] & MaxLength[2147483647]
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   case class Creator(
     algoId: Short,
@@ -161,7 +175,10 @@ case class Block(
 ) derives DbCodec
 
 object Block:
-  type Id = (Short, java.sql.Blob)
+  case class Id(
+    algoId: Short,
+    hash: java.sql.Blob
+  ) derives DbCodec
 
   case class Creator(
     algoId: Short,
@@ -190,7 +207,11 @@ case class MerkleSnapshot(
 ) derives DbCodec
 
 object MerkleSnapshot:
-  type Id = (Long)
+  case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   case class Creator(
     queryFingerprint: java.sql.Blob,
@@ -222,7 +243,10 @@ case class ManifestEntry(
 ) derives DbCodec
 
 object ManifestEntry:
-  type Id = (String, Int)
+  case class Id(
+    blobId: String :| MinLength[1] & MaxLength[2147483647],
+    seq: Int
+  ) derives DbCodec
 
   case class Creator(
     blobId: String :| MinLength[1] & MaxLength[2147483647],
@@ -263,7 +287,11 @@ case class Replica(
 ) derives DbCodec
 
 object Replica:
-  type Id = (Long)
+  case class Id(
+    id: Long
+  ) derives DbCodec
+
+  type OptionalId = Option[Id]
 
   case class Creator(
     algoId: Short,
@@ -282,19 +310,27 @@ object Replica:
 // ZIO Schema definitions for public
 object Schemas {
   given Schema[BuildInfo] = DeriveSchema.gen[BuildInfo]
+  given Schema[BuildInfo.Id] = DeriveSchema.gen[BuildInfo.Id]
   given Schema[BuildInfo.Creator] = DeriveSchema.gen[BuildInfo.Creator]
   given Schema[HashAlgorithm] = DeriveSchema.gen[HashAlgorithm]
+  given Schema[HashAlgorithm.Id] = DeriveSchema.gen[HashAlgorithm.Id]
   given Schema[HashAlgorithm.Creator] = DeriveSchema.gen[HashAlgorithm.Creator]
   given Schema[Store] = DeriveSchema.gen[Store]
+  given Schema[Store.Id] = DeriveSchema.gen[Store.Id]
   given Schema[Store.Creator] = DeriveSchema.gen[Store.Creator]
   given Schema[Blob] = DeriveSchema.gen[Blob]
+  given Schema[Blob.Id] = DeriveSchema.gen[Blob.Id]
   given Schema[Blob.Creator] = DeriveSchema.gen[Blob.Creator]
   given Schema[Block] = DeriveSchema.gen[Block]
+  given Schema[Block.Id] = DeriveSchema.gen[Block.Id]
   given Schema[Block.Creator] = DeriveSchema.gen[Block.Creator]
   given Schema[MerkleSnapshot] = DeriveSchema.gen[MerkleSnapshot]
+  given Schema[MerkleSnapshot.Id] = DeriveSchema.gen[MerkleSnapshot.Id]
   given Schema[MerkleSnapshot.Creator] = DeriveSchema.gen[MerkleSnapshot.Creator]
   given Schema[ManifestEntry] = DeriveSchema.gen[ManifestEntry]
+  given Schema[ManifestEntry.Id] = DeriveSchema.gen[ManifestEntry.Id]
   given Schema[ManifestEntry.Creator] = DeriveSchema.gen[ManifestEntry.Creator]
   given Schema[Replica] = DeriveSchema.gen[Replica]
+  given Schema[Replica.Id] = DeriveSchema.gen[Replica.Id]
   given Schema[Replica.Creator] = DeriveSchema.gen[Replica.Creator]
 }
