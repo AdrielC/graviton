@@ -78,7 +78,7 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
               current <- total.get
               _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
 
-            } yield (rows, Option(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
+            } yield (rows, Option(newOffset).filter(_ => newOffset <= limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
           }
         }
       yield rows
