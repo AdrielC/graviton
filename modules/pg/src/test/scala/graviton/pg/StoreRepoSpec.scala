@@ -78,7 +78,5 @@ object StoreRepoSpec extends ZIOSpecDefault {
           rows  <- repo.listActive(Some(cursor)).take(3).runCollect
         } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
       }
-    ).provideShared(storeRepoLayer ++ testEnvironment) @@ 
-  onlyIfTestcontainers @@ 
-  TestAspect.sequential
+    ).provideShared(storeRepoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }
