@@ -9,7 +9,7 @@ import zio.test.*
 import java.util.zip.{Deflater, DeflaterOutputStream}
 import java.io.ByteArrayOutputStream
 
-object ChunkerSpec extends ZIOSpecDefault:
+case object ChunkerSpec extends ZIOSpecDefault:
 
   private def compress(data: Array[Byte], level: Int): Array[Byte] =
     val bos  = new ByteArrayOutputStream()

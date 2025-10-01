@@ -95,7 +95,8 @@ object SchemaConverter {
             (scalaT, Some(dataEnum))
           case None =>
             val typeName = info.arrayElemType.orElse(info.rangeSubType).getOrElse(info.typname)
-            val targetType = localTypeNameToSqlType(typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
+            val targetType =
+              localTypeNameToSqlType(connection, typeName).getOrElse(column.getColumnDataType.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeString       =
@@ -120,7 +121,10 @@ object SchemaConverter {
         val (baseScalaType, dataEnum) = enumValues match {
           case enumValues if enumValues.isEmpty =>
             val targetType =
-              arrayElementType.flatMap(localTypeNameToSqlType).orElse(localTypeNameToSqlType(tpe.getName)).getOrElse(tpe.getJavaSqlType)
+              arrayElementType
+                .flatMap(localTypeNameToSqlType(connection, _))
+                .orElse(localTypeNameToSqlType(connection, tpe.getName))
+                .getOrElse(tpe.getJavaSqlType)
             val scalaTypeClassGuess   = sqlToScalaType(targetType)
             val scalaTypeStringGuess  = scalaTypeClassGuess.map(_.toString.replaceFirst("java\\.lang\\.", ""))
             val scalaTypeStringMapped = config.typeMapping(targetType, scalaTypeStringGuess)
