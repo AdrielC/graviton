@@ -166,6 +166,65 @@ object SchemaConverter {
     case Types.DATALINK                                                                                     => classTag[java.net.URL]
   }
 
+  private val vendorSpecificTypeMappings: Map[String, SQLType] = Map(
+    // PostgreSQL-specific aliases
+    "TEXT"                 -> JDBCType.LONGVARCHAR,
+    "UUID"                 -> JDBCType.LONGVARCHAR,
+    "JSON"                 -> JDBCType.OTHER,
+    "JSONB"                -> JDBCType.OTHER,
+    "INT2"                 -> JDBCType.SMALLINT,
+    "INT"                  -> JDBCType.INTEGER,
+    "INT4"                 -> JDBCType.INTEGER,
+    "INT8"                 -> JDBCType.BIGINT,
+    "FLOAT4"               -> JDBCType.FLOAT,
+    "FLOAT8"               -> JDBCType.DOUBLE,
+    "MONEY"                -> JDBCType.DECIMAL,
+    "BPCHAR"               -> JDBCType.CHAR,
+    "NAME"                 -> JDBCType.VARCHAR,
+    "OID"                  -> JDBCType.BIGINT,
+    "REGCLASS"             -> JDBCType.BIGINT,
+    "BYTEA"                -> JDBCType.BINARY,
+    "TIMESTAMPTZ"          -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMETZ"               -> JDBCType.TIME_WITH_TIMEZONE,
+    "BOOL"                 -> JDBCType.BOOLEAN,
+    "SERIAL"               -> JDBCType.BIGINT,
+    "BIGSERIAL"            -> JDBCType.BIGINT,
+    "SMALLSERIAL"          -> JDBCType.INTEGER,
+    // MySQL variants
+    "TINYTEXT"             -> JDBCType.LONGVARCHAR,
+    "MEDIUMTEXT"           -> JDBCType.LONGVARCHAR,
+    "LONGTEXT"             -> JDBCType.LONGVARCHAR,
+    "TINYBLOB"             -> JDBCType.BINARY,
+    "MEDIUMBLOB"           -> JDBCType.BLOB,
+    "LONGBLOB"             -> JDBCType.BLOB,
+    "DATETIME"             -> JDBCType.TIMESTAMP,
+    "YEAR"                 -> JDBCType.SMALLINT,
+    // Oracle variants
+    "VARCHAR2"             -> JDBCType.VARCHAR,
+    "NVARCHAR2"            -> JDBCType.NVARCHAR,
+    "NUMBER"               -> JDBCType.NUMERIC,
+    "RAW"                  -> JDBCType.BINARY,
+    "TIMESTAMP WITH TIME ZONE"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "TIMESTAMP WITH LOCAL TIME ZONE" -> JDBCType.TIMESTAMP,
+    // SQL Server variants
+    "UNIQUEIDENTIFIER"     -> JDBCType.OTHER,
+    "DATETIME2"            -> JDBCType.TIMESTAMP,
+    "SMALLDATETIME"        -> JDBCType.TIMESTAMP,
+    "DATETIMEOFFSET"       -> JDBCType.TIMESTAMP_WITH_TIMEZONE,
+    "NTEXT"                -> JDBCType.LONGNVARCHAR,
+    "NVARCHAR"             -> JDBCType.NVARCHAR,
+    "NCHAR"                -> JDBCType.NCHAR,
+    "IMAGE"                -> JDBCType.LONGVARBINARY,
+    // Generic aliases
+    "VARCHAR"              -> JDBCType.VARCHAR,
+    "DECIMAL"              -> JDBCType.DECIMAL,
+    "NUMERIC"              -> JDBCType.NUMERIC,
+    "BOOLEAN"              -> JDBCType.BOOLEAN,
+    "TIME"                 -> JDBCType.TIME,
+    "DATE"                 -> JDBCType.DATE,
+    "TIMESTAMP"            -> JDBCType.TIMESTAMP,
+  )
+
   def localTypeNameToSqlType(
     connection: DatabaseConnectionSource,
     localTypeName: String,
@@ -179,6 +238,11 @@ object SchemaConverter {
         .orElse(typeInfoSqlType(connection, name))
     }
   }
+
+  private def vendorSpecificTypeNameToSqlType(typeName: String): Option[SQLType] =
+    vendorSpecificOverrides.get(typeName).orElse {
+      if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
+    }
 
   private val vendorSpecificOverrides: Map[String, SQLType] = Map(
     "TEXT"          -> JDBCType.LONGVARCHAR,
@@ -229,11 +293,6 @@ object SchemaConverter {
     "UUID[]"        -> JDBCType.ARRAY,
   )
 
-  private def vendorSpecificTypeNameToSqlType(typeName: String): Option[SQLType] =
-    vendorSpecificOverrides.get(typeName).orElse {
-      if (typeName.startsWith("_")) Some(JDBCType.ARRAY) else None
-    }
-
   private def typeInfoSqlType(
     connection: DatabaseConnectionSource,
     typeName: String,
@@ -256,5 +315,16 @@ object SchemaConverter {
       val _ = connection.releaseConnection(conn)
       ()
     }
+  }
+  
+  def localTypeNameToSqlType(localTypeName: String): Option[SQLType] = {
+    val upper            = localTypeName.toUpperCase(Locale.ROOT)
+    lazy val normalized  = if (upper.startsWith("_")) upper.drop(1) else upper
+    if (upper.startsWith("_")) Some(JDBCType.ARRAY)
+    else
+      vendorSpecificTypeMappings
+        .get(upper)
+        .orElse(vendorSpecificTypeMappings.get(normalized))
+        .orElse(Try(JDBCType.valueOf(upper)).toOption)
   }
 }
