@@ -9,7 +9,7 @@ import sbtunidoc.ScalaUnidocPlugin.autoImport._
 import sbt.io.Path
 import sbt.librarymanagement.Artifact
 
-ThisBuild / scalaVersion  := "3.7.2"
+ThisBuild / scalaVersion  := "3.7.3"
 ThisBuild / organization  := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 ThisBuild / name          := "graviton"
