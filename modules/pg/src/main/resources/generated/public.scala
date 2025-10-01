@@ -2,10 +2,12 @@ package graviton.pg.generated
 
 import com.augustnagro.magnum.*
 import com.augustnagro.magnum.pg.enums.*
+import graviton.db.{*, given}
 import graviton.pg.given
 import graviton.pg.PgRange
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
+import zio.Chunk
 import zio.schema.*
 import zio.schema.annotation.*
 
@@ -78,19 +80,19 @@ object HashAlgorithm:
 case class Store(
   @Id
   @SqlName("key")
-  key: java.sql.Blob,
+  key: StoreKey,
   @SqlName("impl_id")
   implId: UuidString,
   @SqlName("build_fp")
-  buildFp: java.sql.Blob,
+  buildFp: Chunk[Byte],
   @SqlName("dv_schema_urn")
   dvSchemaUrn: String :| MinLength[1] & MaxLength[2147483647],
   @SqlName("dv_canonical_bin")
-  dvCanonicalBin: java.sql.Blob,
+  dvCanonicalBin: Chunk[Byte],
   @SqlName("dv_json_preview")
   dvJsonPreview: Option[String],
   @SqlName("status")
-  status: String :| MinLength[1] & MaxLength[2147483647],
+  status: ReplicaStatus,
   @SqlName("version")
   version: Long,
   @SqlName("created_at")
@@ -98,18 +100,18 @@ case class Store(
   @SqlName("updated_at")
   updatedAt: java.time.OffsetDateTime,
   @SqlName("dv_hash")
-  dvHash: Option[java.sql.Blob],
+  dvHash: Option[Chunk[Byte]],
 ) derives DbCodec
 
 object Store:
-  type Id = (java.sql.Blob)
+  type Id = (StoreKey)
 
   case class Creator(
-    key: java.sql.Blob,
+    key: StoreKey,
     implId: UuidString,
-    buildFp: java.sql.Blob,
+    buildFp: Chunk[Byte],
     dvSchemaUrn: String :| MinLength[1] & MaxLength[2147483647],
-    dvCanonicalBin: java.sql.Blob,
+    dvCanonicalBin: Chunk[Byte],
     dvJsonPreview: Option[String],
   ) derives DbCodec
 
@@ -123,7 +125,7 @@ case class Blob(
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("size_bytes")
   sizeBytes: Long,
   @SqlName("media_type_hint")
@@ -137,7 +139,7 @@ object Blob:
 
   case class Creator(
     algoId: Short,
-    hash: java.sql.Blob,
+    hash: HashBytes,
     sizeBytes: Long,
     mediaTypeHint: Option[String],
   ) derives DbCodec
@@ -151,23 +153,23 @@ case class Block(
   algoId: Short,
   @Id
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("size_bytes")
   sizeBytes: Long,
   @SqlName("created_at")
   createdAt: java.time.OffsetDateTime,
   @SqlName("inline_bytes")
-  inlineBytes: Option[java.sql.Blob],
+  inlineBytes: Option[SmallBytes],
 ) derives DbCodec
 
 object Block:
-  type Id = (Short, java.sql.Blob)
+  type Id = (Short, HashBytes)
 
   case class Creator(
     algoId: Short,
-    hash: java.sql.Blob,
+    hash: HashBytes,
     sizeBytes: Long,
-    inlineBytes: Option[java.sql.Blob],
+    inlineBytes: Option[SmallBytes],
   ) derives DbCodec
 
   val BlockRepo = Repo[Block.Creator, Block, Block.Id]
@@ -178,11 +180,11 @@ case class MerkleSnapshot(
   @SqlName("id")
   id: Long,
   @SqlName("query_fingerprint")
-  queryFingerprint: java.sql.Blob,
+  queryFingerprint: Chunk[Byte],
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("root_hash")
-  rootHash: java.sql.Blob,
+  rootHash: HashBytes,
   @SqlName("at_time")
   atTime: java.time.OffsetDateTime,
   @SqlName("note")
@@ -193,9 +195,9 @@ object MerkleSnapshot:
   type Id = (Long)
 
   case class Creator(
-    queryFingerprint: java.sql.Blob,
+    queryFingerprint: Chunk[Byte],
     algoId: Short,
-    rootHash: java.sql.Blob,
+    rootHash: HashBytes,
     note: Option[String],
   ) derives DbCodec
 
@@ -212,7 +214,7 @@ case class ManifestEntry(
   @SqlName("block_algo_id")
   blockAlgoId: Short,
   @SqlName("block_hash")
-  blockHash: java.sql.Blob,
+  blockHash: HashBytes,
   @SqlName("offset_bytes")
   offsetBytes: Long,
   @SqlName("size_bytes")
@@ -228,7 +230,7 @@ object ManifestEntry:
     blobId: String :| MinLength[1] & MaxLength[2147483647],
     seq: Int,
     blockAlgoId: Short,
-    blockHash: java.sql.Blob,
+    blockHash: HashBytes,
     offsetBytes: Long,
     sizeBytes: Long,
   ) derives DbCodec
@@ -243,13 +245,13 @@ case class Replica(
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("store_key")
-  storeKey: java.sql.Blob,
+  storeKey: StoreKey,
   @SqlName("sector")
   sector: Option[String],
   @SqlName("status")
-  status: String :| MinLength[1] & MaxLength[2147483647],
+  status: ReplicaStatus,
   @SqlName("size_bytes")
   sizeBytes: Long,
   @SqlName("etag")
@@ -267,8 +269,8 @@ object Replica:
 
   case class Creator(
     algoId: Short,
-    hash: java.sql.Blob,
-    storeKey: java.sql.Blob,
+    hash: HashBytes,
+    storeKey: StoreKey,
     sector: Option[String],
     sizeBytes: Long,
     etag: Option[String],

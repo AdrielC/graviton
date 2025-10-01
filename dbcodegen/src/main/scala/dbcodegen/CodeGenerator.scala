@@ -79,7 +79,7 @@ object CodeGenerator {
       schema -> tables
     }.toMap
 
-    println("ℹ️  Note: Using direct code generation instead of template processing due to Scalate/Scala 3.7.2 incompatibility")
+    println("ℹ️  Note: Using direct code generation instead of template processing due to Scalate/Scala 3.7.3 incompatibility")
 
     // Generate code for each schema (one file per schema)
     val results = for {
@@ -298,7 +298,11 @@ object CodeGenerator {
       dbSpecificTypes.getOrElse(dbTypeName, underlying)
     }
 
-    refineNumericTypes(byDomain, column)
+    val normalized = byDomain match
+      case "java.sql.Blob" | "Blob" => "Chunk[Byte]"
+      case other                     => other
+
+    refineNumericTypes(normalized, column)
   }
 
   private val domainTypeMapping: Map[String, String] = Map(
@@ -311,6 +315,9 @@ object CodeGenerator {
 
   private val dbSpecificTypes: Map[String, String] = Map(
     "bytea"        -> "Chunk[Byte]",
+    "store_key"    -> "StoreKey",
+    "hash_bytes"   -> "HashBytes",
+    "small_bytes"  -> "SmallBytes",
     "json"         -> "Json",
     "jsonb"        -> "Json",
     "uuid"         -> "java.util.UUID",

@@ -30,7 +30,7 @@ final case class BuildInfo(
   @SqlName("launched_at")
   launchedAt: java.time.OffsetDateTime,
   @SqlName("is_current")
-  isCurrent: Boolean
+  isCurrent: Boolean,
 ) derives DbCodec
 
 object BuildInfo:
@@ -38,8 +38,7 @@ object BuildInfo:
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[BuildInfo.Id]]
 
-  extension (tuple: Id)
-    def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
 
   final case class Creator(
     id: Option[BuildInfo.Id] = None,
@@ -50,7 +49,7 @@ object BuildInfo:
     zioVersion: String,
     builtAt: java.time.OffsetDateTime,
     launchedAt: java.time.OffsetDateTime,
-    isCurrent: Option[Boolean] = None
+    isCurrent: Option[Boolean] = None,
   ) derives DbCodec
 
   val repo = Repo[BuildInfo.Creator, BuildInfo, BuildInfo.Id]
@@ -63,7 +62,7 @@ final case class HashAlgorithm(
   @SqlName("name")
   name: String,
   @SqlName("is_fips")
-  isFips: Boolean
+  isFips: Boolean,
 ) derives DbCodec
 
 object HashAlgorithm:
@@ -71,13 +70,12 @@ object HashAlgorithm:
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Short]].asInstanceOf[DbCodec[HashAlgorithm.Id]]
 
-  extension (tuple: Id)
-    def id: Short = tuple.asInstanceOf[Tuple1[Short]]._1
+  extension (tuple: Id) def id: Short = tuple.asInstanceOf[Tuple1[Short]]._1
 
   final case class Creator(
     id: Option[HashAlgorithm.Id] = None,
     name: String,
-    isFips: Option[Boolean] = None
+    isFips: Option[Boolean] = None,
   ) derives DbCodec
 
   val repo = Repo[HashAlgorithm.Creator, HashAlgorithm, HashAlgorithm.Id]
@@ -86,7 +84,7 @@ object HashAlgorithm:
 final case class Store(
   @Id
   @SqlName("key")
-  key: java.sql.Blob,
+  key: StoreKey,
   @SqlName("impl_id")
   implId: String,
   @SqlName("build_fp")
@@ -98,7 +96,7 @@ final case class Store(
   @SqlName("dv_json_preview")
   dvJsonPreview: Option[Json],
   @SqlName("status")
-  status: String,
+  status: StoreStatus,
   @SqlName("version")
   version: NonNegLong,
   @SqlName("created_at")
@@ -106,29 +104,28 @@ final case class Store(
   @SqlName("updated_at")
   updatedAt: java.time.OffsetDateTime,
   @SqlName("dv_hash")
-  dvHash: Option[Chunk[Byte]]
+  dvHash: Option[Chunk[Byte]],
 ) derives DbCodec
 
 object Store:
-  type Id = (key: java.sql.Blob)
+  type Id = (key: StoreKey)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[java.sql.Blob]].asInstanceOf[DbCodec[Store.Id]]
+  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[StoreKey]].asInstanceOf[DbCodec[Store.Id]]
 
-  extension (tuple: Id)
-    def key: java.sql.Blob = tuple.asInstanceOf[Tuple1[java.sql.Blob]]._1
+  extension (tuple: Id) def key: StoreKey = tuple.asInstanceOf[Tuple1[StoreKey]]._1
 
   final case class Creator(
-    key: java.sql.Blob,
+    key: StoreKey,
     implId: String,
     buildFp: Chunk[Byte],
     dvSchemaUrn: String,
     dvCanonicalBin: Chunk[Byte],
     dvJsonPreview: Option[Json] = None,
-    status: Option[String] = None,
+    status: Option[StoreStatus] = None,
     version: Option[NonNegLong] = None,
     createdAt: Option[java.time.OffsetDateTime] = None,
     updatedAt: Option[java.time.OffsetDateTime] = None,
-    dvHash: Option[Chunk[Byte]] = None
+    dvHash: Option[Chunk[Byte]] = None,
   ) derives DbCodec
 
   val repo = Repo[Store.Creator, Store, Store.Id]
@@ -141,13 +138,13 @@ final case class Blob(
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("media_type_hint")
   mediaTypeHint: Option[String],
   @SqlName("created_at")
-  createdAt: java.time.OffsetDateTime
+  createdAt: java.time.OffsetDateTime,
 ) derives DbCodec
 
 object Blob:
@@ -155,16 +152,15 @@ object Blob:
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[java.util.UUID]].asInstanceOf[DbCodec[Blob.Id]]
 
-  extension (tuple: Id)
-    def id: java.util.UUID = tuple.asInstanceOf[Tuple1[java.util.UUID]]._1
+  extension (tuple: Id) def id: java.util.UUID = tuple.asInstanceOf[Tuple1[java.util.UUID]]._1
 
   final case class Creator(
     id: Option[Blob.Id] = None,
     algoId: Short,
-    hash: java.sql.Blob,
+    hash: HashBytes,
     sizeBytes: PosLong,
     mediaTypeHint: Option[String] = None,
-    createdAt: Option[java.time.OffsetDateTime] = None
+    createdAt: Option[java.time.OffsetDateTime] = None,
   ) derives DbCodec
 
   val repo = Repo[Blob.Creator, Blob, Blob.Id]
@@ -176,33 +172,33 @@ final case class Block(
   algoId: Short,
   @Id
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("created_at")
   createdAt: java.time.OffsetDateTime,
   @SqlName("inline_bytes")
-  inlineBytes: Option[java.sql.Blob]
+  inlineBytes: Option[SmallBytes],
 ) derives DbCodec
 
 object Block:
   type Id = (
     algoId: Short,
-    hash: java.sql.Blob
+    hash: HashBytes,
   )
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[(Short, java.sql.Blob)]].asInstanceOf[DbCodec[Block.Id]]
+  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[(Short, HashBytes)]].asInstanceOf[DbCodec[Block.Id]]
 
   extension (tuple: Id)
-    def algoId: Short = tuple.asInstanceOf[Tuple2[Short, java.sql.Blob]]._1
-    def hash: java.sql.Blob = tuple.asInstanceOf[Tuple2[Short, java.sql.Blob]]._2
+    def algoId: Short   = tuple.asInstanceOf[Tuple2[Short, HashBytes]]._1
+    def hash: HashBytes = tuple.asInstanceOf[Tuple2[Short, HashBytes]]._2
 
   final case class Creator(
     algoId: Short,
-    hash: java.sql.Blob,
+    hash: HashBytes,
     sizeBytes: PosLong,
     createdAt: Option[java.time.OffsetDateTime] = None,
-    inlineBytes: Option[java.sql.Blob] = None
+    inlineBytes: Option[SmallBytes] = None,
   ) derives DbCodec
 
   val repo = Repo[Block.Creator, Block, Block.Id]
@@ -217,11 +213,11 @@ final case class MerkleSnapshot(
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("root_hash")
-  rootHash: java.sql.Blob,
+  rootHash: HashBytes,
   @SqlName("at_time")
   atTime: java.time.OffsetDateTime,
   @SqlName("note")
-  note: Option[String]
+  note: Option[String],
 ) derives DbCodec
 
 object MerkleSnapshot:
@@ -229,16 +225,15 @@ object MerkleSnapshot:
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[MerkleSnapshot.Id]]
 
-  extension (tuple: Id)
-    def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
 
   final case class Creator(
     id: Option[MerkleSnapshot.Id] = None,
     queryFingerprint: Chunk[Byte],
     algoId: Short,
-    rootHash: java.sql.Blob,
+    rootHash: HashBytes,
     atTime: Option[java.time.OffsetDateTime] = None,
-    note: Option[String] = None
+    note: Option[String] = None,
   ) derives DbCodec
 
   val repo = Repo[MerkleSnapshot.Creator, MerkleSnapshot, MerkleSnapshot.Id]
@@ -254,35 +249,35 @@ final case class ManifestEntry(
   @SqlName("block_algo_id")
   blockAlgoId: Short,
   @SqlName("block_hash")
-  blockHash: java.sql.Blob,
+  blockHash: HashBytes,
   @SqlName("offset_bytes")
   offsetBytes: PosLong,
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("span")
-  span: Option[DbRange[Long]]
+  span: Option[DbRange[Long]],
 ) derives DbCodec
 
 object ManifestEntry:
   type Id = (
     blobId: java.util.UUID,
-    seq: Int
+    seq: Int,
   )
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[(java.util.UUID, Int)]].asInstanceOf[DbCodec[ManifestEntry.Id]]
 
   extension (tuple: Id)
     def blobId: java.util.UUID = tuple.asInstanceOf[Tuple2[java.util.UUID, Int]]._1
-    def seq: Int = tuple.asInstanceOf[Tuple2[java.util.UUID, Int]]._2
+    def seq: Int               = tuple.asInstanceOf[Tuple2[java.util.UUID, Int]]._2
 
   final case class Creator(
     blobId: java.util.UUID,
     seq: Int,
     blockAlgoId: Short,
-    blockHash: java.sql.Blob,
+    blockHash: HashBytes,
     offsetBytes: PosLong,
     sizeBytes: PosLong,
-    span: Option[DbRange[Long]] = None
+    span: Option[DbRange[Long]] = None,
   ) derives DbCodec
 
   val repo = Repo[ManifestEntry.Creator, ManifestEntry, ManifestEntry.Id]
@@ -295,13 +290,13 @@ final case class Replica(
   @SqlName("algo_id")
   algoId: Short,
   @SqlName("hash")
-  hash: java.sql.Blob,
+  hash: HashBytes,
   @SqlName("store_key")
-  storeKey: java.sql.Blob,
+  storeKey: StoreKey,
   @SqlName("sector")
   sector: Option[String],
   @SqlName("status")
-  status: String,
+  status: ReplicaStatus,
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("etag")
@@ -311,7 +306,7 @@ final case class Replica(
   @SqlName("first_seen_at")
   firstSeenAt: java.time.OffsetDateTime,
   @SqlName("last_verified_at")
-  lastVerifiedAt: Option[java.time.OffsetDateTime]
+  lastVerifiedAt: Option[java.time.OffsetDateTime],
 ) derives DbCodec
 
 object Replica:
@@ -319,21 +314,20 @@ object Replica:
 
   inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[Replica.Id]]
 
-  extension (tuple: Id)
-    def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
 
   final case class Creator(
     id: Option[Replica.Id] = None,
     algoId: Short,
-    hash: java.sql.Blob,
-    storeKey: java.sql.Blob,
+    hash: HashBytes,
+    storeKey: StoreKey,
     sector: Option[String] = None,
-    status: Option[String] = None,
+    status: Option[ReplicaStatus] = None,
     sizeBytes: PosLong,
     etag: Option[String] = None,
     storageClass: Option[String] = None,
     firstSeenAt: Option[java.time.OffsetDateTime] = None,
-    lastVerifiedAt: Option[java.time.OffsetDateTime] = None
+    lastVerifiedAt: Option[java.time.OffsetDateTime] = None,
   ) derives DbCodec
 
   val repo = Repo[Replica.Creator, Replica, Replica.Id]
@@ -343,7 +337,7 @@ final case class VBlobManifest(
   @SqlName("id")
   id: Option[java.util.UUID],
   @SqlName("hash")
-  hash: Option[java.sql.Blob],
+  hash: Option[HashBytes],
   @SqlName("size_bytes")
   sizeBytes: Option[PosLong],
   @SqlName("media_type_hint")
@@ -351,20 +345,18 @@ final case class VBlobManifest(
   @SqlName("created_at")
   createdAt: Option[java.time.OffsetDateTime],
   @SqlName("manifest")
-  manifest: Option[Json]
+  manifest: Option[Json],
 ) derives DbCodec
 
 object VBlobManifest:
   type Id = Unit
-
-  val repo = ImmutableRepo[VBlobManifest, VBlobManifest.Id]
 
 @Table(PostgresDbType)
 final case class VBlockReplicaHealth(
   @SqlName("algo_id")
   algoId: Option[Short],
   @SqlName("hash")
-  hash: Option[java.sql.Blob],
+  hash: Option[HashBytes],
   @SqlName("size_bytes")
   sizeBytes: Option[PosLong],
   @SqlName("created_at")
@@ -384,22 +376,20 @@ final case class VBlockReplicaHealth(
   @SqlName("has_active")
   hasActive: Option[Boolean],
   @SqlName("has_lost")
-  hasLost: Option[Boolean]
+  hasLost: Option[Boolean],
 ) derives DbCodec
 
 object VBlockReplicaHealth:
   type Id = Unit
 
-  val repo = ImmutableRepo[VBlockReplicaHealth, VBlockReplicaHealth.Id]
-
 @Table(PostgresDbType)
 final case class VStoreInventory(
   @SqlName("key")
-  key: Option[java.sql.Blob],
+  key: Option[StoreKey],
   @SqlName("impl_id")
   implId: Option[String],
   @SqlName("status")
-  status: Option[String],
+  status: Option[StoreStatus],
   @SqlName("updated_at")
   updatedAt: Option[java.time.OffsetDateTime],
   @SqlName("total_replicas")
@@ -415,33 +405,31 @@ final case class VStoreInventory(
   @SqlName("first_replica_seen_at")
   firstReplicaSeenAt: Option[java.time.OffsetDateTime],
   @SqlName("last_replica_verified_at")
-  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime]
+  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime],
 ) derives DbCodec
 
 object VStoreInventory:
   type Id = Unit
 
-  val repo = ImmutableRepo[VStoreInventory, VStoreInventory.Id]
-
 // ZIO Schema definitions for public
 object Schemas {
-  given buildInfoSchema: Schema[BuildInfo] = DeriveSchema.gen[BuildInfo]
-  given buildInfoIdSchema: Schema[BuildInfo.Id] = summonInline[Schema[Long]].asInstanceOf[Schema[BuildInfo.Id]]
-  given hashAlgorithmSchema: Schema[HashAlgorithm] = DeriveSchema.gen[HashAlgorithm]
-  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id] = summonInline[Schema[Short]].asInstanceOf[Schema[HashAlgorithm.Id]]
-  given storeSchema: Schema[Store] = DeriveSchema.gen[Store]
-  given storeIdSchema: Schema[Store.Id] = summonInline[Schema[java.sql.Blob]].asInstanceOf[Schema[Store.Id]]
-  given blobSchema: Schema[Blob] = DeriveSchema.gen[Blob]
-  given blobIdSchema: Schema[Blob.Id] = summonInline[Schema[java.util.UUID]].asInstanceOf[Schema[Blob.Id]]
-  given blockSchema: Schema[Block] = DeriveSchema.gen[Block]
-  given blockIdSchema: Schema[Block.Id] = summonInline[Schema[(Short, java.sql.Blob)]].asInstanceOf[Schema[Block.Id]]
-  given merkleSnapshotSchema: Schema[MerkleSnapshot] = DeriveSchema.gen[MerkleSnapshot]
-  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id] = summonInline[Schema[Long]].asInstanceOf[Schema[MerkleSnapshot.Id]]
-  given manifestEntrySchema: Schema[ManifestEntry] = DeriveSchema.gen[ManifestEntry]
-  given manifestEntryIdSchema: Schema[ManifestEntry.Id] = summonInline[Schema[(java.util.UUID, Int)]].asInstanceOf[Schema[ManifestEntry.Id]]
-  given replicaSchema: Schema[Replica] = DeriveSchema.gen[Replica]
-  given replicaIdSchema: Schema[Replica.Id] = summonInline[Schema[Long]].asInstanceOf[Schema[Replica.Id]]
-  given vBlobManifestSchema: Schema[VBlobManifest] = DeriveSchema.gen[VBlobManifest]
+  given buildInfoSchema: Schema[BuildInfo]                     = DeriveSchema.gen[BuildInfo]
+  given buildInfoIdSchema: Schema[BuildInfo.Id]                = summonInline[Schema[Long]].asInstanceOf[Schema[BuildInfo.Id]]
+  given hashAlgorithmSchema: Schema[HashAlgorithm]             = DeriveSchema.gen[HashAlgorithm]
+  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id]        = summonInline[Schema[Short]].asInstanceOf[Schema[HashAlgorithm.Id]]
+  given storeSchema: Schema[Store]                             = DeriveSchema.gen[Store]
+  given storeIdSchema: Schema[Store.Id]                        = summonInline[Schema[StoreKey]].asInstanceOf[Schema[Store.Id]]
+  given blobSchema: Schema[Blob]                               = DeriveSchema.gen[Blob]
+  given blobIdSchema: Schema[Blob.Id]                          = summonInline[Schema[java.util.UUID]].asInstanceOf[Schema[Blob.Id]]
+  given blockSchema: Schema[Block]                             = DeriveSchema.gen[Block]
+  given blockIdSchema: Schema[Block.Id]                        = summonInline[Schema[(Short, HashBytes)]].asInstanceOf[Schema[Block.Id]]
+  given merkleSnapshotSchema: Schema[MerkleSnapshot]           = DeriveSchema.gen[MerkleSnapshot]
+  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id]      = summonInline[Schema[Long]].asInstanceOf[Schema[MerkleSnapshot.Id]]
+  given manifestEntrySchema: Schema[ManifestEntry]             = DeriveSchema.gen[ManifestEntry]
+  given manifestEntryIdSchema: Schema[ManifestEntry.Id]        = summonInline[Schema[(java.util.UUID, Int)]].asInstanceOf[Schema[ManifestEntry.Id]]
+  given replicaSchema: Schema[Replica]                         = DeriveSchema.gen[Replica]
+  given replicaIdSchema: Schema[Replica.Id]                    = summonInline[Schema[Long]].asInstanceOf[Schema[Replica.Id]]
+  given vBlobManifestSchema: Schema[VBlobManifest]             = DeriveSchema.gen[VBlobManifest]
   given vBlockReplicaHealthSchema: Schema[VBlockReplicaHealth] = DeriveSchema.gen[VBlockReplicaHealth]
-  given vStoreInventorySchema: Schema[VStoreInventory] = DeriveSchema.gen[VStoreInventory]
+  given vStoreInventorySchema: Schema[VStoreInventory]         = DeriveSchema.gen[VStoreInventory]
 }
