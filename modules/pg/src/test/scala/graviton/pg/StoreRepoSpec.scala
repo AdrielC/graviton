@@ -5,7 +5,6 @@ import graviton.db.{StoreRepo, StoreRow, StoreStatus, StoreKey}
 import zio.*
 import zio.json.ast.Json
 import zio.test.{Spec as ZSpec, *}
-
 import java.nio.file.Path
 
 object StoreRepoSpec extends ZIOSpecDefault {
@@ -78,6 +77,8 @@ object StoreRepoSpec extends ZIOSpecDefault {
           cursor = graviton.db.Cursor.initial.copy(pageSize = 2L)
           rows  <- repo.listActive(Some(cursor)).take(3).runCollect
         } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
-      },
-    ).provideShared(storeRepoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
+      }
+    ).provideShared(storeRepoLayer ++ testEnvironment) @@ 
+  onlyIfTestcontainers @@ 
+  TestAspect.sequential
 }
