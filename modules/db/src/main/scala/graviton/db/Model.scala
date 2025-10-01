@@ -54,18 +54,64 @@ object Algo:
   enum Id derives CanEqual:
     case Blake3, Sha256, Sha1, Md5
 
-@SqlName("store_status_t")
-enum StoreStatus derives CanEqual, DbCodec:
-  @SqlName("active") case Active
-  @SqlName("paused") case Paused
-  @SqlName("retired") case Retired
+enum StoreStatus derives CanEqual:
+  case Active, Paused, Retired
 
-@SqlName("replica_status_t")
-enum ReplicaStatus derives CanEqual, DbCodec:
-  @SqlName("active") case Active
-  @SqlName("quarantined") case Quarantined
-  @SqlName("deprecated") case Deprecated
-  @SqlName("lost") case Lost
+object StoreStatus:
+  private val toPg: Map[StoreStatus, String] = Map(
+    Active  -> "active",
+    Paused  -> "paused",
+    Retired -> "retired",
+  )
+
+  private val fromPg: Map[String, StoreStatus] = toPg.map(_.swap)
+
+  given DbCodec[StoreStatus] =
+    DbCodec[String].biMap(
+      str =>
+        fromPg.getOrElse(
+          str,
+          throw IllegalArgumentException(s"Unknown store_status_t value '$str'"),
+        ),
+      status => toPg(status),
+    )
+
+  given Schema[StoreStatus] =
+    Schema[String]
+      .transform(
+        str => fromPg.getOrElse(str, throw IllegalArgumentException("Unknown store_status_t value")),
+        toPg,
+      )
+
+enum ReplicaStatus derives CanEqual:
+  case Active, Quarantined, Deprecated, Lost
+
+object ReplicaStatus:
+  private val toPg: Map[ReplicaStatus, String] = Map(
+    Active      -> "active",
+    Quarantined -> "quarantined",
+    Deprecated  -> "deprecated",
+    Lost        -> "lost",
+  )
+
+  private val fromPg: Map[String, ReplicaStatus] = toPg.map(_.swap)
+
+  given DbCodec[ReplicaStatus] =
+    DbCodec[String].biMap(
+      str =>
+        fromPg.getOrElse(
+          str,
+          throw IllegalArgumentException(s"Unknown replica_status_t value '$str'"),
+        ),
+      status => toPg(status),
+    )
+
+  given Schema[ReplicaStatus] =
+    Schema[String]
+      .transform(
+        str => fromPg.getOrElse(str, throw IllegalArgumentException("Unknown replica_status_t value")),
+        toPg,
+      )
 
 final case class BlockInsert(
   algoId: Short,
@@ -101,9 +147,6 @@ final case class StoreRow(
 
 given DbCodec[Chunk[Byte]] =
   DbCodec[Array[Byte]].biMap(Chunk.fromArray, _.toArray)
-
-given DbCodec[java.util.UUID] =
-  DbCodec[String].biMap(java.util.UUID.fromString, _.toString)
 
 final case class DbRange[+T](lower: Option[T], upper: Option[T]) derives DbCodec, Schema
 
