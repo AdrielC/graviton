@@ -13,6 +13,7 @@ ThisBuild / scalaVersion  := "3.7.2"
 ThisBuild / organization  := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 ThisBuild / name          := "graviton"
+ThisBuild / turbo         := true
 
 lazy val zioV            = "2.1.20"
 lazy val zioPreludeV     = "1.0.0-RC41"
@@ -23,6 +24,7 @@ lazy val zioMetricsV     = "2.4.3"
 lazy val zioCacheV       = "0.2.4"
 lazy val zioRocksdbV     = "0.4.4"
 lazy val zioConfigV      = "4.0.4"
+lazy val zioHttpV        = "3.0.0"
 lazy val testContainersV = "1.19.7"
 lazy val zioLoggingV     = "2.2.4"
 lazy val magnumV         = "2.0.0-M2"
@@ -318,7 +320,7 @@ lazy val tika = project
 
 lazy val docs = project
   .in(file("docs"))
-  .dependsOn(core, fs, s3, tika)
+  .dependsOn(core, fs, s3, tika, metrics)
   .settings(
     publish / skip                             := false,
     Compile / publishArtifact                  := false,
@@ -373,7 +375,14 @@ lazy val docs = project
     },
     artifacts := artifacts.value.filterNot(_ == docsSiteArtifact) :+ docsSiteArtifact,
     packagedArtifacts :=
-      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value),
+      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value)
+    mdocIn                                     := baseDirectory.value / "src/main/mdoc",
+    mdocOut                                    := baseDirectory.value / "target/mdoc",
+    mdocVariables                              := Map("VERSION" -> version.value),
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-http"                          % zioHttpV,
+      "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV,
+    ),
   )
   .enablePlugins(MdocPlugin, WebsitePlugin)
 

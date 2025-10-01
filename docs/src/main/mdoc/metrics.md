@@ -35,12 +35,14 @@ Prometheus text format and can be mounted on any HTTP server:
 import zio.*
 import zio.http.*
 import zio.metrics.connectors.prometheus.PrometheusPublisher
+import graviton.metrics.Metrics
 
-val app = Routes(
+def metricsApp = Routes(
   Method.GET / "metrics" -> handler(ZIO.serviceWithZIO[PrometheusPublisher](_ => Metrics.scrape))
 )
 
-val server = Server.serve(app).provide(Server.default, Metrics.prometheus, Metrics.prometheusUpdater)
+def metricsServer =
+  Server.serve(metricsApp).provide(Server.default, Metrics.prometheus, Metrics.prometheusUpdater)
 ```
 
 Configure Prometheus to scrape the endpoint:
@@ -82,9 +84,11 @@ you want slower scrapes, replace it with a custom layer:
 import zio.metrics.connectors.prometheus.{PrometheusPublisher, prometheusLayer, publisherLayer}
 import zio.metrics.connectors.MetricsConfig
 import zio.ZLayer
+import graviton.metrics.Metrics
+import java.time.Duration
 
 val customPrometheus =
-  ZLayer.succeed(MetricsConfig(updateInterval = 30.seconds)) >>>
+  ZLayer.succeed(MetricsConfig(Duration.ofSeconds(30))) >>>
     (Metrics.prometheus ++ prometheusLayer)
 ```
 
