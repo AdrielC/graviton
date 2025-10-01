@@ -375,7 +375,7 @@ lazy val docs = project
     },
     artifacts := artifacts.value.filterNot(_ == docsSiteArtifact) :+ docsSiteArtifact,
     packagedArtifacts :=
-      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value)
+      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value),
     mdocIn                                     := baseDirectory.value / "src/main/mdoc",
     mdocOut                                    := baseDirectory.value / "target/mdoc",
     mdocVariables                              := Map("VERSION" -> version.value),
