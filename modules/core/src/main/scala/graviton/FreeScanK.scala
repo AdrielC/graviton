@@ -2,7 +2,6 @@ package graviton
 
 import zio.*
 import zio.schema.Schema
-import scala.annotation.unchecked.uncheckedVariance
 
 import scala.<:<
 
@@ -23,11 +22,6 @@ sealed trait FreeScanK[F[_, _], -I, +O]:
   inline def size: Size = scala.compiletime.summonInline[Size]
   type Types
   def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
-  def compileTo[K[_, _, _]](using ArrowK[K], FreeScanK.ArrowInterpreter[F, K]): K[
-    I @uncheckedVariance,
-    O @uncheckedVariance,
-    State,
-  ]
   inline def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
   def labelsFromType(using FreeScanK.Interpreter[F]): Chunk[String]
@@ -42,17 +36,12 @@ object FreeScanK:
     def stateSchema[I, O, S <: Tuple](op: F[I, O] { type State = S }): Schema[S]
     def stateLabels[I, O, S <: Tuple](op: F[I, O] { type State = S }): Chunk[String]
 
-  // Generic interpreter to any ArrowK target
-  trait ArrowInterpreter[F[_, _], K[_, _, _]]:
-    def toArrow[I, O, S <: Tuple](op: F[I, O] { type State = S }): K[I, O, S]
-
   // Constructors
   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
     type State = EmptyTuple
     type Types = Any
-    inline def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple]                                  = Scan.identity[A]
-    inline def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[A, A, EmptyTuple] = K.id[A]
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                      = Chunk.empty
+    inline def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple] = Scan.identity[A]
+    override def labelsFromType(using Interpreter[F]): Chunk[String]     = Chunk.empty
 
   final case class Op[F[
     _,
@@ -63,11 +52,10 @@ object FreeScanK:
     type State = S
 
     type Types = Any
-    def compile(using i: Interpreter[F]): Scan.Aux[I, O, S]                               = i.toScan(fab)
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[I, O, S] = AI.toArrow(fab)
-    inline def schema(using i: Interpreter[F]): Schema[S]                                 = i.stateSchema(fab)
-    inline def labels(using i: Interpreter[F]): Chunk[String]                             = i.stateLabels(fab)
-    override def labelsFromType(using i: Interpreter[F]): Chunk[String]                   = i.stateLabels(fab)
+    def compile(using i: Interpreter[F]): Scan.Aux[I, O, S]             = i.toScan(fab)
+    inline def schema(using i: Interpreter[F]): Schema[S]               = i.stateSchema(fab)
+    inline def labels(using i: Interpreter[F]): Chunk[String]           = i.stateLabels(fab)
+    override def labelsFromType(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
 
   final case class AndThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
     left: FreeScanK.Aux[F, A, B, S1],
@@ -75,10 +63,8 @@ object FreeScanK:
   ) extends FreeScanK[F, A, C]:
     type State = Tuple.Concat[S1, S2]
     type Types = Any
-    def compile(using Interpreter[F]): Scan.Aux[A, C, State]                                  = left.compile.andThen(right.compile)
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[A, C, State] =
-      K.andThen(left.compileTo[T], right.compileTo[T])
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                          = left.labelsFromType ++ right.labelsFromType
+    def compile(using Interpreter[F]): Scan.Aux[A, C, State]         = left.compile.andThen(right.compile)
+    override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
   def andThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
     left: FreeScanK.Aux[F, A, B, S1],
@@ -92,10 +78,8 @@ object FreeScanK:
   ) extends FreeScanK[F, I, (O1, O2)]:
     type State = Tuple.Concat[S1, S2]
     type Types = Any
-    inline def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State]                                  = left.compile.zip(right.compile)
-    inline def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[I, (O1, O2), State] =
-      K.zip(left.compileTo[T], right.compileTo[T])
-    inline override def labelsFromType(using Interpreter[F]): Chunk[String]                                 = left.labelsFromType ++ right.labelsFromType
+    inline def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State]  = left.compile.zip(right.compile)
+    inline override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
   end Zip
 
@@ -153,9 +137,7 @@ object FreeScanK:
         a.done(s1).zip(b.done(s2))
       }
 
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                        = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(I1, I2), (O1, O2), State] =
-      K.product(left.compileTo[T], right.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
   end Product
 
@@ -169,7 +151,7 @@ object FreeScanK:
     src: FreeScanK.Aux[F, I, O, S]
   ) extends FreeScanK[F, (I, C), (O, C)]:
     type State = Tuple.Concat[S, Tuple1[Option[C]]]
-    def compile(using Interpreter[F]): Scan.Aux[(I, C), (O, C), State]                                  =
+    def compile(using Interpreter[F]): Scan.Aux[(I, C), (O, C), State] =
       val a     = src.compile
       val sizeA = a.initial.productArity
       Scan.statefulTuple[(I, C), (O, C), Tuple.Concat[a.State, Tuple1[Option[C]]]](a.initial ++ Tuple1(None)) { (st, in) =>
@@ -184,9 +166,7 @@ object FreeScanK:
           case Some(c) => a.done(sA).map(o => (o, c))
           case None    => Chunk.empty
       }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                    = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(I, C), (O, C), State] =
-      K.first(src.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]   = src.labelsFromType
 
   def first[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
@@ -197,7 +177,7 @@ object FreeScanK:
     src: FreeScanK.Aux[F, I, O, S]
   ) extends FreeScanK[F, (C, I), (C, O)]:
     type State = Option[C] *: S
-    def compile(using Interpreter[F]): Scan.Aux[(C, I), (C, O), State]                                                   =
+    def compile(using Interpreter[F]): Scan.Aux[(C, I), (C, O), State] =
       val a     = src.compile
       val sizeA = 1 // Tuple1[Option[C]]
       Scan.statefulTuple[(C, I), (C, O), Option[C] *: a.State](Option.empty[C] *: a.initial) { (st, in) =>
@@ -212,9 +192,7 @@ object FreeScanK:
           case Some(c) => a.done(sA).map(o => (c, o))
           case None    => Chunk.empty
       }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                                     = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[(C, I), (C, O), Option[C] *: src.State] =
-      K.second[I, O, C, src.State](src.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]   = src.labelsFromType
 
   end Second
 
@@ -227,7 +205,7 @@ object FreeScanK:
     src: FreeScanK.Aux[F, I, O, S]
   ) extends FreeScanK[F, Either[I, C], Either[O, C]]:
     type State = S
-    def compile(using Interpreter[F]): Scan.Aux[Either[I, C], Either[O, C], S]                                  =
+    def compile(using Interpreter[F]): Scan.Aux[Either[I, C], Either[O, C], S] =
       val a = src.compile
       Scan.statefulTuple[Either[I, C], Either[O, C], a.State](a.initial) { (s, in) =>
         in match
@@ -236,15 +214,13 @@ object FreeScanK:
             (s2, out.map(Left(_)))
           case Right(c) => (s, Chunk.single(Right(c)))
       }(s => a.done(s).map(Left(_)))
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                            = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I, C], Either[O, C], S] =
-      K.left(src.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
 
   final case class RightChoice[F[_, _], I, O, C, S <: Tuple](
     src: FreeScanK.Aux[F, I, O, S]
   ) extends FreeScanK[F, Either[C, I], Either[C, O]]:
     type State = S
-    def compile(using Interpreter[F]): Scan.Aux[Either[C, I], Either[C, O], S]                                  =
+    def compile(using Interpreter[F]): Scan.Aux[Either[C, I], Either[C, O], S] =
       val a = src.compile
       Scan.statefulTuple[Either[C, I], Either[C, O], a.State](a.initial) { (s, in) =>
         in match
@@ -253,9 +229,7 @@ object FreeScanK:
             (s2, out.map(Right(_)))
           case Left(c)  => (s, Chunk.single(Left(c)))
       }(s => a.done(s).map(Right(_)))
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                            = src.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[C, I], Either[C, O], S] =
-      K.right(src.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
   end RightChoice
 
   def rightChoice[F[_, _], I, O, C, S <: Tuple](
@@ -274,7 +248,7 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I2, O2, S2],
   ) extends FreeScanK[F, Either[I1, I2], Either[O1, O2]]:
     type State = Tuple.Concat[S1, S2]
-    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], Either[O1, O2], State]                                  =
+    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], Either[O1, O2], State] =
       val a     = left.compile
       val b     = right.compile
       val sizeA = a.initial.productArity
@@ -293,9 +267,7 @@ object FreeScanK:
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
       }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                                    = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], Either[O1, O2], State] =
-      K.plusPlus(left.compileTo[T], right.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]                   = left.labelsFromType ++ right.labelsFromType
   end PlusPlus
 
   final case class FanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
@@ -303,7 +275,7 @@ object FreeScanK:
     right: FreeScanK.Aux[F, I2, O, S2],
   ) extends FreeScanK[F, Either[I1, I2], O]:
     type State = Tuple.Concat[S1, S2]
-    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], O, State]                                  =
+    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], O, State] =
       val a     = left.compile
       val b     = right.compile
       val sizeA = a.initial.productArity
@@ -322,9 +294,7 @@ object FreeScanK:
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         a.done(s1) ++ b.done(s2)
       }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                                       = left.labelsFromType ++ right.labelsFromType
-    def compileTo[T[_, _, _]](using K: ArrowK[T], AI: ArrowInterpreter[F, T]): T[Either[I1, I2], O, State] =
-      K.fanIn(left.compileTo[T], right.compileTo[T])
+    override def labelsFromType(using Interpreter[F]): Chunk[String]      = left.labelsFromType ++ right.labelsFromType
 
   end FanIn
 

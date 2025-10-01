@@ -1,56 +1,63 @@
-# AGENTS
+# AGENTS — Refined TODO (Graviton-focused, no BinaryStore)
 
-This file captures future work items discussed with the AI.
+## Documentation
 
-## Suggested Next Steps
+**Core for v0.1.0**
+- [ ] Replace lingering *Torrent* references with Graviton-centric language.
+- [ ] Write a **binary-streaming guide** (Blocks, Blobs, Manifests, Attributes) and link it from *Getting Started*.
+- [ ] Add **filesystem + S3 backend configuration guides** (credentials, paths, env vars, buckets).
+- [ ] Expand Prometheus metrics docs with a worked example (`MetricsBlobStore`, publisher/updater, scrape config).
+- [ ] Document logging: correlation-ID propagation, SLF4J backend setup.
+- [ ] Flesh out CLI usage pages: install, options, sample commands and responses.
+- [ ] Introduce a CONTRIBUTING guide (coding style, test commands, doc build).
 
-### Documentation
-1. Replace the lingering "Torrent" reference in the design goals with a Graviton-centric explanation of the prototype lessons.
-2. Write a dedicated binary-streaming guide and link it from the "Getting Started" section.
-3. Expand Prometheus metrics docs with a full example showing `MetricsBinaryStore`, Prometheus publisher/updater layers, and a sample scrape configuration.
-4. Flesh out logging guidance by documenting correlation-ID propagation and customizable backends such as SLF4J.
-5. Add a content-detection page for the Apache Tika module and link it under modules.
-6. Provide configuration guides for filesystem and S3 backends (credentials, paths, buckets, environment variables).
-7. Replace the CLI/HTTP examples with full usage pages that include installation, options, and response formats.
-8. Port performance/optimization notes and API reference material from Torrent; ensure new pages appear in the navigation index.
-9. Introduce a CONTRIBUTING guide describing coding style, test commands, and doc-building requirements.
-10. After each doc change, run `./sbt docs/mdoc test` and update any broken navigation links as noted in the TODO list.
+**Follow-ups**
+- [ ] Add Apache Tika module page under *Modules*.
+- [ ] Port performance notes + API reference from Torrent.
+- [ ] Ensure `./sbt docs/mdoc test` passes after each doc change; fix nav links.
+- [ ] Document replication model (Stores, Sectors, Replicas) with diagrams.
+- [ ] Document manifest format and forward-compatibility guarantees.
 
-### Implementation / Testing
-1. Finalize BlockStore and BlobStore APIs and stabilize S3/filesystem implementations.
-2. Build out a CLI and an HTTP gateway with end-to-end tests.
-3. Add configuration-driven integration tests (including TestContainers) for all storage backends.
-4. Set up CI workflows that run tests, publish docs, and push artifacts to Maven Central.
-5. Fold in the Cedar 2.0 storage refactor: adopt Iron refined types for block sizes and indices, split `BinaryAttributes` into advertised/confirmed maps keyed by `BinaryAttributeKey`, and ensure `BinaryAttributes.validate` gates ingest.
-6. Introduce a `Chunker` abstraction that exposes a name and `ZPipeline[Any, Throwable, Byte, Block]`, configurable through a `FiberRef`.
-7. Unify storage behind the new `BinaryStore` sinks: keep `insert`/`insertWith` as the single-sink operations that return a `BinaryKey` plus any leftover bytes, layer an `insertFile` helper that replays leftovers until the stream is exhausted, and support both block-deduplicated and direct file ingestion modes (the latter renamed simply "FileStore").
-8. Track ingestion context via `FiberRef`s for the active chunker, current attributes, and preferred store mode.
-9. Add attribute retrieval APIs and persist advertised/confirmed metadata alongside manifests.
-10. Build ZIO HTTP endpoints that use Iron validation and `BinaryAttributeKey` metadata, returning streaming downloads.
-11. Before opening a PR, run `./sbt scalafmtAll` to enforce the shared formatting rules.
-12. Implement the anchored ingest pipeline: transport decoding, 8–16 KiB sniffing, anchored tokenization, CDC within anchors, per-chunk hashing/compress/encrypt, frame emission, and manifest construction.
-13. Build the tokenizer and CDC pipeline with the DFA/Aho-Corasick matcher, `ZSink.foldWeightedDecompose` anchoring cost model, and 1 MiB staging rechunker exposed via `ZPipeline.anchoredCdc`.
-14. Define and implement the self-describing frame format (`"QUASAR"` magic, algorithm IDs, sizes, nonce, truncated hash, key ID, and optional metadata) with canonical AAD encoding and strict `Take.chunk`/`Take.fail` semantics.
-15. Extend deduplication support: store base blocks from anchored CDC, keep manifests mutable for future CDC tuning, and prototype a rolling-hash index for containment detection without sub-block slicing.
-16. Ship format-aware views that preserve canonical bytes while layering PDF object/page maps and ZIP central-directory access over manifest offsets.
-17. Add operational guardrails: bounded `Queue[Take]` backpressure, guaranteed `OutputStream` closure, ingestion bomb protection, and enforced `./sbt scalafmtAll` pre-commit checks.
+---
 
-## Upcoming Work Focus
+## Implementation / Testing
 
-### Documentation backlog
-- Translate the binary streaming and chunking guides from Torrent into Graviton’s docs and create a getting-started guide covering core concepts.
-- Update navigation links, remove residual Torrent references, and expand Prometheus metrics and structured logging docs, ensuring `./sbt docs/mdoc test` passes after each change.
-- Port API reference, performance, and core concept docs (content-addressable storage, binary streaming), and add a contributing guide.
+**Core for v0.1.0**
+- [ ] Finalize `BlockStore` and `BlobStore` APIs.
+- [ ] Stabilize filesystem and S3 implementations.
+- [ ] Ship a CLI with end-to-end ingest + retrieval tests.
+- [ ] Add configuration-driven integration tests (TestContainers for backends).
+- [ ] Set up CI: run tests, publish docs, push to Maven Central.
 
-### Roadmap items leading to v0.1.0
-- Finalize BlockStore and BlobStore APIs, provide filesystem and S3 implementations with configuration docs, and ship a CLI and HTTP gateway.
-- Publish basic metrics and structured logging, deliver getting-started and backend configuration guides, and ensure integration tests cover core storage paths, with CI workflows for artifact publishing.
+**Refactor / Storage API**
+- [ ] Adopt Iron refined types for sizes/indices.
+- [ ] Split `BinaryAttributes` into advertised/confirmed keyed by `BinaryAttributeKey`; enforce `validate` at ingest.
+- [ ] Introduce `Chunker` abstraction (`ZPipeline[Any, Throwable, Byte, Block]`), configurable via `FiberRef`.
+- [ ] Provide `insertFile` helper to replay leftovers until stream exhaustion (whole-file ingest mode).
+- [ ] Track ingestion context via `FiberRef` (chunker, attributes, store mode).
+- [ ] Persist advertised/confirmed attributes with manifests.
 
-### Additional enhancements
-- Document CLI/HTTP usage, configuration examples for filesystem and S3 backends, richer metrics/logging snippets, broader test coverage (including TestContainers), and CI workflows for publishing to Maven Central.
+---
+
+## Advanced Enhancements (post-v0.1.0)
+
+- [ ] Implement anchored ingest pipeline (transport decode → sniff → anchor tokenize → CDC → compress/encrypt → frame emit → manifest).
+- [ ] Build tokenizer + CDC pipeline (DFA/Aho-Corasick, `ZSink.foldWeightedDecompose`, 1 MiB rechunker via `ZPipeline.anchoredCdc`).
+- [ ] Define + implement **self-describing frame format** (magic `"QUASAR"`, algo IDs, sizes, nonce, truncated hash, key ID, AAD encoding, strict `Take` semantics).
+- [ ] Extend deduplication: store CDC base blocks, keep manifests mutable, prototype rolling-hash index for containment.
+- [ ] Add format-aware views (PDF object/page maps, ZIP central directory) layered over manifest offsets.
+- [ ] Add operational guardrails: bounded `Queue[Take]`, guaranteed `OutputStream` closure, ingestion bomb protection, enforced pre-commit checks.
+- [ ] Add repair jobs for missing or quarantined replicas.
+- [ ] Implement cold-storage tiering (configurable store policies for “active” vs “archival”).
+- [ ] Add background compaction (repack small blocks, drop deprecated replicas).
+- [ ] Expose metrics for deduplication ratio, replication health, and ingest latency.
+
+---
 
 ## Workflow Requirements
-
-- Always run `./sbt scalafmtAll && ./sbt test` before committing or opening a pull request.
-- Sync with the latest `main` branch (e.g., `git fetch origin main` followed by `git merge origin/main` or an equivalent rebase) before creating commits so conflict resolution happens early.
-- When a task from this file is completed, update the relevant entry to mark it as done and record the completion commit or date.
+- Always run:  
+  ```bash
+  TESTCONTAINERS=0 ./sbt scalafmtAll test
+  ```
+- Sync with latest main before commits (git fetch origin main && git merge origin/main or rebase).
+- Mark tasks as done with commit/date in this file.
