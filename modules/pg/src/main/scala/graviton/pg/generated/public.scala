@@ -8,7 +8,6 @@ import graviton.db.{*, given}
 import zio.Chunk
 import zio.json.ast.Json
 import zio.schema.{DeriveSchema, Schema}
-import scala.compiletime.summonInline
 
 @Table(PostgresDbType)
 final case class BuildInfo(
@@ -34,11 +33,18 @@ final case class BuildInfo(
 ) derives DbCodec
 
 object BuildInfo:
-  type Id = (id: Long)
+  opaque type Id <: Tuple = Tuple1[Long]
+  type Tupled             = (id: Long)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[BuildInfo.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
+    def apply(id: Long): Id          = fromTuple((id = id))
 
-  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[Long]].biMap(value => BuildInfo.Id.fromTuple((id = value)), id => BuildInfo.Id.toTuple(id).id)
+
+  extension (id: Id) def id: Long = BuildInfo.Id.toTuple(id).id
 
   final case class Creator(
     id: Option[BuildInfo.Id] = None,
@@ -66,11 +72,19 @@ final case class HashAlgorithm(
 ) derives DbCodec
 
 object HashAlgorithm:
-  type Id = (id: Short)
+  opaque type Id <: Tuple = Tuple1[Short]
+  type Tupled             = (id: Short)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Short]].asInstanceOf[DbCodec[HashAlgorithm.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
+    def apply(id: Short): Id         = fromTuple((id = id))
 
-  extension (tuple: Id) def id: Short = tuple.asInstanceOf[Tuple1[Short]]._1
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[Short]]
+    .biMap(value => HashAlgorithm.Id.fromTuple((id = value)), id => HashAlgorithm.Id.toTuple(id).id)
+
+  extension (id: Id) def id: Short = HashAlgorithm.Id.toTuple(id).id
 
   final case class Creator(
     id: Option[HashAlgorithm.Id] = None,
@@ -108,11 +122,18 @@ final case class Store(
 ) derives DbCodec
 
 object Store:
-  type Id = (key: StoreKey)
+  opaque type Id <: Tuple = Tuple1[StoreKey]
+  type Tupled             = (key: StoreKey)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[StoreKey]].asInstanceOf[DbCodec[Store.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
+    def apply(key: StoreKey): Id     = fromTuple((key = key))
 
-  extension (tuple: Id) def key: StoreKey = tuple.asInstanceOf[Tuple1[StoreKey]]._1
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => Store.Id.fromTuple((key = value)), id => Store.Id.toTuple(id).key)
+
+  extension (id: Id) def key: StoreKey = Store.Id.toTuple(id).key
 
   final case class Creator(
     key: StoreKey,
@@ -148,11 +169,18 @@ final case class Blob(
 ) derives DbCodec
 
 object Blob:
-  type Id = (id: java.util.UUID)
+  opaque type Id <: Tuple = Tuple1[java.util.UUID]
+  type Tupled             = (id: java.util.UUID)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[java.util.UUID]].asInstanceOf[DbCodec[Blob.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id  = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled       = id.asInstanceOf[Tupled]
+    def apply(id: java.util.UUID): Id = fromTuple((id = id))
 
-  extension (tuple: Id) def id: java.util.UUID = tuple.asInstanceOf[Tuple1[java.util.UUID]]._1
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Blob.Id.fromTuple((id = value)), id => Blob.Id.toTuple(id).id)
+
+  extension (id: Id) def id: java.util.UUID = Blob.Id.toTuple(id).id
 
   final case class Creator(
     id: Option[Blob.Id] = None,
@@ -182,16 +210,27 @@ final case class Block(
 ) derives DbCodec
 
 object Block:
-  type Id = (
+  opaque type Id <: Tuple = (Short, HashBytes)
+  type Tupled             = (
     algoId: Short,
     hash: HashBytes,
   )
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[(Short, HashBytes)]].asInstanceOf[DbCodec[Block.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id              = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled                   = id.asInstanceOf[Tupled]
+    def apply(algoId: Short, hash: HashBytes): Id = fromTuple((algoId = algoId, hash = hash))
 
-  extension (tuple: Id)
-    def algoId: Short   = tuple.asInstanceOf[Tuple2[Short, HashBytes]]._1
-    def hash: HashBytes = tuple.asInstanceOf[Tuple2[Short, HashBytes]]._2
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(Short, HashBytes)]]
+    .biMap(
+      value => Block.Id.fromTuple((algoId = value._1, hash = value._2)),
+      id => (Block.Id.toTuple(id).algoId, Block.Id.toTuple(id).hash),
+    )
+
+  extension (id: Id)
+    def algoId: Short   = Block.Id.toTuple(id).algoId
+    def hash: HashBytes = Block.Id.toTuple(id).hash
 
   final case class Creator(
     algoId: Short,
@@ -221,11 +260,19 @@ final case class MerkleSnapshot(
 ) derives DbCodec
 
 object MerkleSnapshot:
-  type Id = (id: Long)
+  opaque type Id <: Tuple = Tuple1[Long]
+  type Tupled             = (id: Long)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[MerkleSnapshot.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
+    def apply(id: Long): Id          = fromTuple((id = id))
 
-  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[Long]]
+    .biMap(value => MerkleSnapshot.Id.fromTuple((id = value)), id => MerkleSnapshot.Id.toTuple(id).id)
+
+  extension (id: Id) def id: Long = MerkleSnapshot.Id.toTuple(id).id
 
   final case class Creator(
     id: Option[MerkleSnapshot.Id] = None,
@@ -259,16 +306,27 @@ final case class ManifestEntry(
 ) derives DbCodec
 
 object ManifestEntry:
-  type Id = (
+  opaque type Id <: Tuple = (java.util.UUID, Int)
+  type Tupled             = (
     blobId: java.util.UUID,
     seq: Int,
   )
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[(java.util.UUID, Int)]].asInstanceOf[DbCodec[ManifestEntry.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id                = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled                     = id.asInstanceOf[Tupled]
+    def apply(blobId: java.util.UUID, seq: Int): Id = fromTuple((blobId = blobId, seq = seq))
 
-  extension (tuple: Id)
-    def blobId: java.util.UUID = tuple.asInstanceOf[Tuple2[java.util.UUID, Int]]._1
-    def seq: Int               = tuple.asInstanceOf[Tuple2[java.util.UUID, Int]]._2
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, Int)]]
+    .biMap(
+      value => ManifestEntry.Id.fromTuple((blobId = value._1, seq = value._2)),
+      id => (ManifestEntry.Id.toTuple(id).blobId, ManifestEntry.Id.toTuple(id).seq),
+    )
+
+  extension (id: Id)
+    def blobId: java.util.UUID = ManifestEntry.Id.toTuple(id).blobId
+    def seq: Int               = ManifestEntry.Id.toTuple(id).seq
 
   final case class Creator(
     blobId: java.util.UUID,
@@ -310,11 +368,18 @@ final case class Replica(
 ) derives DbCodec
 
 object Replica:
-  type Id = (id: Long)
+  opaque type Id <: Tuple = Tuple1[Long]
+  type Tupled             = (id: Long)
 
-  inline given given_DbCodec_Id: DbCodec[Id] = summonInline[DbCodec[Long]].asInstanceOf[DbCodec[Replica.Id]]
+  object Id:
+    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
+    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
+    def apply(id: Long): Id          = fromTuple((id = id))
 
-  extension (tuple: Id) def id: Long = tuple.asInstanceOf[Tuple1[Long]]._1
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Replica.Id.fromTuple((id = value)), id => Replica.Id.toTuple(id).id)
+
+  extension (id: Id) def id: Long = Replica.Id.toTuple(id).id
 
   final case class Creator(
     id: Option[Replica.Id] = None,
@@ -349,7 +414,9 @@ final case class VBlobManifest(
 ) derives DbCodec
 
 object VBlobManifest:
-  type Id = Unit
+  type Id = Null
+
+  val repo = ImmutableRepo[VBlobManifest, VBlobManifest.Id]
 
 @Table(PostgresDbType)
 final case class VBlockReplicaHealth(
@@ -380,7 +447,9 @@ final case class VBlockReplicaHealth(
 ) derives DbCodec
 
 object VBlockReplicaHealth:
-  type Id = Unit
+  type Id = Null
+
+  val repo = ImmutableRepo[VBlockReplicaHealth, VBlockReplicaHealth.Id]
 
 @Table(PostgresDbType)
 final case class VStoreInventory(
@@ -409,26 +478,46 @@ final case class VStoreInventory(
 ) derives DbCodec
 
 object VStoreInventory:
-  type Id = Unit
+  type Id = Null
+
+  val repo = ImmutableRepo[VStoreInventory, VStoreInventory.Id]
 
 // ZIO Schema definitions for public
 object Schemas {
   given buildInfoSchema: Schema[BuildInfo]                     = DeriveSchema.gen[BuildInfo]
-  given buildInfoIdSchema: Schema[BuildInfo.Id]                = summonInline[Schema[Long]].asInstanceOf[Schema[BuildInfo.Id]]
+  given buildInfoIdSchema: Schema[BuildInfo.Id]                =
+    scala.compiletime.summonInline[Schema[Long]].transform(value => BuildInfo.Id.fromTuple((id = value)), id => BuildInfo.Id.toTuple(id).id)
   given hashAlgorithmSchema: Schema[HashAlgorithm]             = DeriveSchema.gen[HashAlgorithm]
-  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id]        = summonInline[Schema[Short]].asInstanceOf[Schema[HashAlgorithm.Id]]
+  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id]        = scala.compiletime
+    .summonInline[Schema[Short]]
+    .transform(value => HashAlgorithm.Id.fromTuple((id = value)), id => HashAlgorithm.Id.toTuple(id).id)
   given storeSchema: Schema[Store]                             = DeriveSchema.gen[Store]
-  given storeIdSchema: Schema[Store.Id]                        = summonInline[Schema[StoreKey]].asInstanceOf[Schema[Store.Id]]
+  given storeIdSchema: Schema[Store.Id]                        =
+    scala.compiletime.summonInline[Schema[StoreKey]].transform(value => Store.Id.fromTuple((key = value)), id => Store.Id.toTuple(id).key)
   given blobSchema: Schema[Blob]                               = DeriveSchema.gen[Blob]
-  given blobIdSchema: Schema[Blob.Id]                          = summonInline[Schema[java.util.UUID]].asInstanceOf[Schema[Blob.Id]]
+  given blobIdSchema: Schema[Blob.Id]                          =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Blob.Id.fromTuple((id = value)), id => Blob.Id.toTuple(id).id)
   given blockSchema: Schema[Block]                             = DeriveSchema.gen[Block]
-  given blockIdSchema: Schema[Block.Id]                        = summonInline[Schema[(Short, HashBytes)]].asInstanceOf[Schema[Block.Id]]
+  given blockIdSchema: Schema[Block.Id]                        = scala.compiletime
+    .summonInline[Schema[(Short, HashBytes)]]
+    .transform(
+      value => Block.Id.fromTuple((algoId = value._1, hash = value._2)),
+      id => (Block.Id.toTuple(id).algoId, Block.Id.toTuple(id).hash),
+    )
   given merkleSnapshotSchema: Schema[MerkleSnapshot]           = DeriveSchema.gen[MerkleSnapshot]
-  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id]      = summonInline[Schema[Long]].asInstanceOf[Schema[MerkleSnapshot.Id]]
+  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id]      = scala.compiletime
+    .summonInline[Schema[Long]]
+    .transform(value => MerkleSnapshot.Id.fromTuple((id = value)), id => MerkleSnapshot.Id.toTuple(id).id)
   given manifestEntrySchema: Schema[ManifestEntry]             = DeriveSchema.gen[ManifestEntry]
-  given manifestEntryIdSchema: Schema[ManifestEntry.Id]        = summonInline[Schema[(java.util.UUID, Int)]].asInstanceOf[Schema[ManifestEntry.Id]]
+  given manifestEntryIdSchema: Schema[ManifestEntry.Id]        = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, Int)]]
+    .transform(
+      value => ManifestEntry.Id.fromTuple((blobId = value._1, seq = value._2)),
+      id => (ManifestEntry.Id.toTuple(id).blobId, ManifestEntry.Id.toTuple(id).seq),
+    )
   given replicaSchema: Schema[Replica]                         = DeriveSchema.gen[Replica]
-  given replicaIdSchema: Schema[Replica.Id]                    = summonInline[Schema[Long]].asInstanceOf[Schema[Replica.Id]]
+  given replicaIdSchema: Schema[Replica.Id]                    =
+    scala.compiletime.summonInline[Schema[Long]].transform(value => Replica.Id.fromTuple((id = value)), id => Replica.Id.toTuple(id).id)
   given vBlobManifestSchema: Schema[VBlobManifest]             = DeriveSchema.gen[VBlobManifest]
   given vBlockReplicaHealthSchema: Schema[VBlockReplicaHealth] = DeriveSchema.gen[VBlockReplicaHealth]
   given vStoreInventorySchema: Schema[VStoreInventory]         = DeriveSchema.gen[VStoreInventory]

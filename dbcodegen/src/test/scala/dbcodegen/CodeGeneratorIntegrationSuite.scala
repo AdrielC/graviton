@@ -10,7 +10,7 @@ final class CodeGeneratorIntegrationSuite extends FunSuite {
 
   override def afterAll(): Unit = {
     super.afterAll()
-    System.clearProperty("PG_JDBC_URL")
+    val _ = System.clearProperty("PG_JDBC_URL")
   }
 
   test("code generation matches checked-in snapshot") {

@@ -162,8 +162,7 @@ object CodeGenerator {
     sb.append("import graviton.db.{*, given}\n")
     sb.append("import zio.Chunk\n")
     sb.append("import zio.json.ast.Json\n")
-    sb.append("import zio.schema.{DeriveSchema, Schema}\n")
-    sb.append("import scala.compiletime.summonInline\n\n")
+    sb.append("import zio.schema.{DeriveSchema, Schema}\n\n")
 
     schema.tables.foreach { table =>
       sb.append("@Table(PostgresDbType)\n")
@@ -182,19 +181,28 @@ object CodeGenerator {
       val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
 
       if (primaryKeyColumns.isEmpty) then
-        sb.append("  type Id = Unit\n\n")
+        sb.append("  type Id = Null\n\n")
       else
-        sb.append(s"  type Id = ${renderNamedTuple(primaryKeyColumns)}\n\n")
+        val namedTuple  = renderNamedTuple(primaryKeyColumns)
+        val tupleType   = renderTupleType(primaryKeyColumns)
+        val tupleCtor   = renderTupleCtor(primaryKeyColumns)
+        val idCodecName = "given_DbCodec_Id"
 
-        val idCodecName  = "given_DbCodec_Id"
-        val tupleType    = renderTupleType(primaryKeyColumns)
-        val codecSource  = s"summonInline[DbCodec[$tupleType]].asInstanceOf[DbCodec[${table.scalaName}.Id]]"
-        sb.append(s"  inline given $idCodecName: DbCodec[Id] = $codecSource\n\n")
+        sb.append(s"  opaque type Id <: Tuple = $tupleType\n")
+        sb.append(s"  type Tupled = $namedTuple\n\n")
 
-        sb.append("  extension (tuple: Id)\n")
-        primaryKeyColumns.zipWithIndex.foreach { case (column, idx) =>
+        sb.append("  object Id:\n")
+        sb.append(s"    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]\n")
+        sb.append(s"    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]\n")
+        sb.append(s"    def apply($tupleCtor): Id        = fromTuple(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n\n")
+
+        val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
+        sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
+
+        sb.append("  extension (id: Id)\n")
+        primaryKeyColumns.foreach { column =>
           val accessor = column.scalaName
-          val body     = tupleProjection(primaryKeyColumns, idx)
+          val body     = renderIdComponentAccessor(table.scalaName, column, "id")
           sb.append(s"    def $accessor: ${renderColumnType(column, forceRequired = true)} = $body\n")
         }
         sb.append("\n")
@@ -271,22 +279,25 @@ object CodeGenerator {
 
   private def renderTupleType(columns: Seq[DataColumn]): String = {
     columns.toList match
-      case Nil => "Unit"
-      case single :: Nil => renderColumnType(single, forceRequired = true)
+      case Nil => "EmptyTuple"
+      case single :: Nil => s"Tuple1[${renderColumnType(single, forceRequired = true)}]"
       case many => many.map(column => renderColumnType(column, forceRequired = true)).mkString("(", ", ", ")")
   }
 
-  private def tupleProjection(columns: Seq[DataColumn], index: Int): String = {
-    val types = columns.map(column => renderColumnType(column, forceRequired = true))
-    val tupleSize = types.size
-    val tupleType =
-      if tupleSize == 1 then s"Tuple1[${types.head}]"
-      else s"Tuple$tupleSize[${types.mkString(", ")}]"
-    s"tuple.asInstanceOf[$tupleType]._${index + 1}"
-  }
+  private def renderTupleCtor(columns: Seq[DataColumn]): String =
+    columns
+      .map(column => s"${column.scalaName}: ${renderColumnType(column, forceRequired = true)}")
+      .mkString(", ")
 
   private def baseColumnType(column: DataColumn): String = {
-    val domainOverride = column.pgType.flatMap(info => domainTypeMapping.get(info.typname.toLowerCase(Locale.ROOT)))
+    val domainOverride =
+      column.pgType
+        .flatMap(info => domainTypeMapping.get(info.typname.toLowerCase(Locale.ROOT)))
+        .orElse(
+          Option(column.db.getColumnDataType.getName)
+            .map(_.toLowerCase(Locale.ROOT))
+            .flatMap(domainTypeMapping.get)
+        )
 
     val underlying =
       if (column.scalaType.startsWith("Option["))
@@ -336,6 +347,75 @@ object CodeGenerator {
     }
   }
 
+  private def renderNamedTupleLiteralFromParams(columns: Seq[DataColumn]): String =
+    renderNamedTupleLiteral(columns, _.scalaName)
+
+  private def renderNamedTupleLiteral(columns: Seq[DataColumn], valueFor: DataColumn => String): String =
+    columns.toList match
+      case Nil => "EmptyTuple"
+      case single :: Nil => s"(${single.scalaName} = ${valueFor(single)})"
+      case many =>
+        many
+          .map(column => s"${column.scalaName} = ${valueFor(column)}")
+          .mkString("(", ", ", ")")
+
+  private def renderIdCodecSource(tableName: String, columns: Seq[DataColumn]): String = {
+    val codecType = renderCodecPlainType(columns)
+    val toId      = renderCodecToId(tableName, columns, "value")
+    val fromId    = renderCodecFromId(tableName, columns, "id")
+    s"scala.compiletime.summonInline[DbCodec[$codecType]].biMap(value => $toId, id => $fromId)"
+  }
+
+  private def renderCodecPlainType(columns: Seq[DataColumn]): String =
+    columns.toList match
+      case Nil => "Unit"
+      case single :: Nil => renderColumnType(single, forceRequired = true)
+      case _ => renderTupleType(columns)
+
+  private def renderCodecToId(tableName: String, columns: Seq[DataColumn], valueExpr: String): String =
+    columns.toList match
+      case Nil => s"$tableName.Id.fromTuple(EmptyTuple)"
+      case single :: Nil =>
+        val literal = renderNamedTupleLiteral(columns, _ => valueExpr)
+        s"$tableName.Id.fromTuple($literal)"
+      case _ =>
+        val literal = renderNamedTupleLiteralFromTuple(columns, valueExpr)
+        s"$tableName.Id.fromTuple($literal)"
+
+  private def renderCodecFromId(tableName: String, columns: Seq[DataColumn], idExpr: String): String =
+    columns.toList match
+      case Nil => "EmptyTuple"
+      case single :: Nil => s"$tableName.Id.toTuple($idExpr).${single.scalaName}"
+      case _ =>
+        val namedExpr = s"$tableName.Id.toTuple($idExpr)"
+        renderPlainTupleFromNamed(namedExpr, columns)
+
+  private def renderIdSchemaSource(tableName: String, columns: Seq[DataColumn]): String = {
+    val schemaType = renderCodecPlainType(columns)
+    val toId       = renderCodecToId(tableName, columns, "value")
+    val fromId     = renderCodecFromId(tableName, columns, "id")
+    s"scala.compiletime.summonInline[Schema[$schemaType]].transform(value => $toId, id => $fromId)"
+  }
+
+  private def renderNamedTupleLiteralFromTuple(columns: Seq[DataColumn], tupleExpr: String): String =
+    columns.toList match
+      case Nil => "EmptyTuple"
+      case single :: Nil => s"(${single.scalaName} = $tupleExpr)"
+      case many =>
+        many
+          .zipWithIndex
+          .map { case (column, idx) => s"${column.scalaName} = $tupleExpr._${idx + 1}" }
+          .mkString("(", ", ", ")")
+
+  private def renderPlainTupleFromNamed(namedExpr: String, columns: Seq[DataColumn]): String =
+    columns.toList match
+      case Nil => "EmptyTuple"
+      case single :: Nil => s"$namedExpr.${single.scalaName}"
+      case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
+
+  private def renderIdComponentAccessor(tableName: String, column: DataColumn, idExpr: String): String =
+    s"$tableName.Id.toTuple($idExpr).${column.scalaName}"
+
   private def renderZioSchemas(schema: DataSchema): String = {
     val sb = new StringBuilder
     sb.append(s"// ZIO Schema definitions for ${schema.name}\n")
@@ -348,8 +428,7 @@ object CodeGenerator {
       val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)
       if (primaryKeyColumns.nonEmpty) then
         val idGiven      = schemaGivenName(s"${table.scalaName}.Id")
-        val tupleType    = renderTupleType(primaryKeyColumns)
-        val schemaSource = s"summonInline[Schema[$tupleType]].asInstanceOf[Schema[${table.scalaName}.Id]]"
+        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
         sb.append(s"  given $idGiven: Schema[${table.scalaName}.Id] = $schemaSource\n")
 
       if (!table.isView) {}
