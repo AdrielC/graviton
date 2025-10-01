@@ -1,5 +1,5 @@
 -- ================================================================
--- Graviton Schema (PostgreSQL 17)
+-- Graviton Catalog Schema (PostgreSQL 17)
 -- ================================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;         -- digest(...), gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;          -- trigram search on text
@@ -11,8 +11,8 @@ CREATE DOMAIN small_bytes AS bytea CHECK (octet_length(VALUE) <= 1048576);   -- 
 CREATE DOMAIN store_key   AS bytea CHECK (octet_length(VALUE) = 32);         -- 256-bit digest
 
 -- future-proof over enums (no painful ALTER TYPE ADD VALUE):
-CREATE DOMAIN location_status_t AS text
-  CHECK (VALUE IN ('active','stale','missing','deprecated','error'));
+CREATE DOMAIN replica_status_t AS text
+  CHECK (VALUE IN ('active','quarantined','deprecated','lost'));
 CREATE DOMAIN store_status_t AS text
   CHECK (VALUE IN ('active','paused','retired'));
 
@@ -36,8 +36,8 @@ CREATE TABLE build_info (
 );
 CREATE UNIQUE INDEX build_info_one_current ON build_info (is_current) WHERE is_current;
 
--- ----------------------- Blob Store ----------------------------
-CREATE TABLE blob_store (
+-- ----------------------- Stores --------------------------------
+CREATE TABLE store (
   key               store_key       PRIMARY KEY,        -- digest(impl_id || 0x00 || dv || 0x00 || build_fp)
   impl_id           TEXT            NOT NULL,           -- 's3','fs','minio','ceph',...
   build_fp          bytea           NOT NULL,           -- empty/zero if build-agnostic
@@ -52,25 +52,25 @@ CREATE TABLE blob_store (
 );
 
 -- HOT paths
-CREATE INDEX blob_store_status_idx            ON blob_store (status);
-CREATE INDEX blob_store_status_updated_idx    ON blob_store (status, updated_at DESC);
-CREATE UNIQUE INDEX blob_store_uniqueness     ON blob_store (impl_id, build_fp, dv_hash);
+CREATE INDEX store_status_idx            ON store (status);
+CREATE INDEX store_status_updated_idx    ON store (status, updated_at DESC);
+CREATE UNIQUE INDEX store_uniqueness     ON store (impl_id, build_fp, dv_hash);
 -- searchy fields (gitops/ops browsing)
-CREATE INDEX blob_store_schema_trgm           ON blob_store USING GIN (dv_schema_urn gin_trgm_ops);
-CREATE INDEX blob_store_impl_trgm             ON blob_store USING GIN (impl_id gin_trgm_ops);
+CREATE INDEX store_schema_trgm           ON store USING GIN (dv_schema_urn gin_trgm_ops);
+CREATE INDEX store_impl_trgm             ON store USING GIN (impl_id gin_trgm_ops);
 -- age sweeps (cheap & tiny)
-CREATE INDEX blob_store_updated_brin          ON blob_store USING BRIN (updated_at);
+CREATE INDEX store_updated_brin          ON store USING BRIN (updated_at);
 
 -- auto version/updated_at
-CREATE OR REPLACE FUNCTION blob_store_touch() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION store_touch() RETURNS trigger AS $$
 BEGIN
   NEW.updated_at := now();
   NEW.version    := COALESCE(OLD.version, 0) + 1;
   RETURN NEW;
 END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER blob_store_touch_trg
-BEFORE UPDATE ON blob_store
-FOR EACH ROW EXECUTE FUNCTION blob_store_touch();
+CREATE TRIGGER store_touch_trg
+BEFORE UPDATE ON store
+FOR EACH ROW EXECUTE FUNCTION store_touch();
 
 -- ------------------------ Block (CAS) --------------------------
 CREATE TABLE block (
@@ -89,106 +89,65 @@ ALTER TABLE block
 CREATE INDEX block_size_idx   ON block (size_bytes);
 CREATE INDEX block_created_br ON block USING BRIN (created_at);
 
--- -------------------- Block Locations --------------------------
-CREATE TABLE block_location (
-  id                 BIGSERIAL PRIMARY KEY,
-  algo_id            SMALLINT      NOT NULL,
-  hash               hash_bytes    NOT NULL,
-  blob_store_key     store_key     NOT NULL REFERENCES blob_store(key),
-  uri                TEXT,
-  status             location_status_t NOT NULL DEFAULT 'active',
-  bytes_length       BIGINT        NOT NULL CHECK (bytes_length >= 0),
-  etag               TEXT,
-  storage_class      TEXT,
-  first_seen_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  last_verified_at   TIMESTAMPTZ,
-  UNIQUE (algo_id, hash, blob_store_key),
+-- -------------------- Replicas ---------------------------------
+CREATE TABLE replica (
+  id               BIGSERIAL PRIMARY KEY,
+  algo_id          SMALLINT      NOT NULL,
+  hash             hash_bytes    NOT NULL,
+  store_key        store_key     NOT NULL REFERENCES store(key),
+  sector           TEXT,
+  status           replica_status_t NOT NULL DEFAULT 'active',
+  size_bytes       BIGINT        NOT NULL CHECK (size_bytes > 0),
+  etag             TEXT,
+  storage_class    TEXT,
+  first_seen_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  last_verified_at TIMESTAMPTZ,
+  UNIQUE (algo_id, hash, store_key),
   FOREIGN KEY (algo_id, hash) REFERENCES block(algo_id, hash) ON DELETE CASCADE
 );
--- Optional: forbid zero-length locations
-ALTER TABLE block_location ADD CONSTRAINT block_location_nonzero CHECK (bytes_length > 0);
 -- accelerate common probes
-CREATE INDEX block_location_by_block            ON block_location (algo_id, hash);
-CREATE INDEX block_location_block_status_idx    ON block_location (algo_id, hash, status);
-CREATE INDEX block_location_by_store_status     ON block_location (blob_store_key, status);
--- Only one "active" location per store+block? (toggle if desired)
--- CREATE UNIQUE INDEX block_location_one_active_per_store
---   ON block_location (algo_id, hash, blob_store_key)
+CREATE INDEX replica_by_block            ON replica (algo_id, hash);
+CREATE INDEX replica_block_status_idx    ON replica (algo_id, hash, status);
+CREATE INDEX replica_by_store_status     ON replica (store_key, status);
+-- Only one "active" replica per store+block? (toggle if desired)
+-- CREATE UNIQUE INDEX replica_one_active_per_store
+--   ON replica (algo_id, hash, store_key)
 --   WHERE status = 'active';
 
--- ------------------------- Files -------------------------------
-CREATE TABLE file (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  algo_id     SMALLINT    NOT NULL REFERENCES hash_algorithm(id),
-  hash        hash_bytes  NOT NULL,
-  size_bytes  BIGINT      NOT NULL,
-  media_type  TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+-- ------------------------- Blobs --------------------------------
+CREATE TABLE blob (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  algo_id        SMALLINT    NOT NULL REFERENCES hash_algorithm(id),
+  hash           hash_bytes  NOT NULL,
+  size_bytes     BIGINT      NOT NULL,
+  media_type_hint TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (algo_id, hash, size_bytes)
 );
 -- Accelerate GC/age scans
-CREATE INDEX file_created_brin ON file USING BRIN (created_at);
+CREATE INDEX blob_created_brin ON blob USING BRIN (created_at);
 
-CREATE TABLE file_block (
-  file_id        UUID        NOT NULL REFERENCES file(id) ON DELETE CASCADE,
+CREATE TABLE manifest_entry (
+  blob_id        UUID        NOT NULL REFERENCES blob(id) ON DELETE CASCADE,
   seq            INT         NOT NULL,
   block_algo_id  SMALLINT    NOT NULL,
   block_hash     hash_bytes  NOT NULL,
   offset_bytes   BIGINT      NOT NULL,
-  length_bytes   BIGINT      NOT NULL CHECK (length_bytes > 0),
-  PRIMARY KEY (file_id, seq),
+  size_bytes     BIGINT      NOT NULL CHECK (size_bytes > 0),
+  PRIMARY KEY (blob_id, seq),
   FOREIGN KEY (block_algo_id, block_hash) REFERENCES block(algo_id, hash)
 );
-CREATE INDEX file_block_by_block      ON file_block (block_algo_id, block_hash);
-CREATE INDEX file_block_file_seq_idx  ON file_block (file_id, seq);
+CREATE INDEX manifest_entry_by_block      ON manifest_entry (block_algo_id, block_hash);
+CREATE INDEX manifest_entry_blob_seq_idx  ON manifest_entry (blob_id, seq);
 
--- 🍒 Sicko bit: forbid overlapping block spans per file using an exclusion constraint
+-- 🍒 Sicko bit: forbid overlapping block spans per blob using an exclusion constraint
 -- uses range types + GiST to ensure [offset, offset+len) segments never overlap
-ALTER TABLE file_block
-  ADD COLUMN span int8range GENERATED ALWAYS AS (int8range(offset_bytes, offset_bytes + length_bytes, '[)')) STORED;
+ALTER TABLE manifest_entry
+  ADD COLUMN span int8range GENERATED ALWAYS AS (int8range(offset_bytes, offset_bytes + size_bytes, '[)')) STORED;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
-ALTER TABLE file_block
-  ADD CONSTRAINT file_block_non_overlapping
-  EXCLUDE USING gist (file_id WITH =, span WITH &&);
-
--- ---------------------- CAS-aligned Views ----------------------
--- View: blob (alias for immutable byte streams)
-CREATE OR REPLACE VIEW blob AS
-SELECT
-  f.id                         AS blob_id,
-  f.algo_id                    AS algo_id,
-  f.hash                       AS hash,
-  f.size_bytes                 AS total_size,
-  f.media_type                 AS media_type_hint,
-  f.created_at                 AS created_at
-FROM file f;
-
--- View: manifest_entry (ordered entries describing block placement in a blob)
-CREATE OR REPLACE VIEW manifest_entry AS
-SELECT
-  fb.file_id                   AS blob_id,
-  fb.seq                       AS seq,
-  fb.offset_bytes              AS offset,
-  fb.length_bytes              AS size,
-  fb.block_algo_id             AS algo_id,
-  fb.block_hash                AS hash
-FROM file_block fb
-ORDER BY fb.file_id, fb.seq;
-
--- View: replica (placement records for blocks across stores)
-CREATE OR REPLACE VIEW replica AS
-SELECT
-  bl.algo_id                   AS algo_id,
-  bl.hash                      AS hash,
-  bl.blob_store_key            AS store_key,
-  bl.uri                       AS sector,
-  bl.status                    AS status,
-  bl.bytes_length              AS size_bytes,
-  bl.etag                      AS etag,
-  bl.storage_class             AS storage_class,
-  bl.first_seen_at             AS first_seen_at,
-  bl.last_verified_at          AS last_verified_at
-FROM block_location bl;
+ALTER TABLE manifest_entry
+  ADD CONSTRAINT manifest_entry_non_overlapping
+  EXCLUDE USING gist (blob_id WITH =, span WITH &&);
 
 -- ---------------------- Merkle Snapshots -----------------------
 CREATE TABLE merkle_snapshot (
@@ -217,24 +176,28 @@ BEGIN
   RETURN COALESCE(NEW, OLD);
 END; $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER blob_store_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON blob_store
+CREATE TRIGGER store_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON store
 FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
 
 CREATE TRIGGER block_inval_trg
 AFTER INSERT OR UPDATE OR DELETE ON block
 FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
 
-CREATE TRIGGER file_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON file
+CREATE TRIGGER blob_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON blob
+FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
+
+CREATE TRIGGER replica_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON replica
 FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
 
 -- ------------------ (Optional) RLS Scaffolding -----------------
 -- flip this on if you need per-tenant isolation later; policies are examples
--- ALTER TABLE blob_store ENABLE ROW LEVEL SECURITY;
--- CREATE POLICY bs_read_all  ON blob_store FOR SELECT USING (true);
--- CREATE POLICY bs_write_app ON blob_store FOR INSERT WITH CHECK (current_setting('graviton.app_role', true) = 'writer');
--- CREATE POLICY bs_upd_app   ON blob_store FOR UPDATE USING (current_setting('graviton.app_role', true) = 'writer');
+-- ALTER TABLE store ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY store_read_all  ON store FOR SELECT USING (true);
+-- CREATE POLICY store_write_app ON store FOR INSERT WITH CHECK (current_setting('graviton.app_role', true) = 'writer');
+-- CREATE POLICY store_upd_app   ON store FOR UPDATE USING (current_setting('graviton.app_role', true) = 'writer');
 
 -- ------------------ Seed hash algorithms -----------------------
 INSERT INTO hash_algorithm (name, is_fips) VALUES
