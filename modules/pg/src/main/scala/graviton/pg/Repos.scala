@@ -7,28 +7,28 @@ import zio.*
 import zio.Chunk
 import zio.stream.*
 
-final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
+final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
 
-  def upsert(row: BlobStoreRow): Task[Int] =
+  def upsert(row: StoreRow): Task[Int] =
     xa.transact {
       sql"""
-        INSERT INTO blob_store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
+        INSERT INTO store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
         VALUES (${row.key}, ${row.implId}, ${row.buildFp}, ${row.dvSchemaUrn}, ${row.dvCanonical}, ${row.dvJsonPreview}, ${row.status})
         ON CONFLICT (key) DO UPDATE
         SET updated_at = now(),
-            version    = blob_store.version + 1
+            version    = store.version + 1
       """.update.run()
     }
 
-  def get(key: StoreKey): Task[Option[BlobStoreRow]] =
+  def get(key: StoreKey): Task[Option[StoreRow]] =
     xa.transact {
       sql"""
         SELECT key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-        FROM blob_store WHERE key = $key
-      """.query[BlobStoreRow].run().headOption
+        FROM store WHERE key = $key
+      """.query[StoreRow].run().headOption
     }
 
-  def listActive(cursor: Option[Cursor] = None): Stream[Throwable, BlobStoreRow] =
+  def listActive(cursor: Option[Cursor] = None): Stream[Throwable, StoreRow] =
     ZStream.unwrapScoped {
       for
         total       <- Ref.make(cursor.getOrElse(Cursor.initial))
@@ -48,12 +48,12 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
                 xa.transact {
                   val rows = sql"""
                     SELECT count(*) as total, key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status, version
-                    FROM blob_store WHERE status = ${StoreStatus.Active}
+                    FROM store WHERE status = ${StoreStatus.Active}
                     ORDER BY updated_at DESC
                     Limit $limit
                     OFFSET $offset
                   """
-                    .query[(Long, BlobStoreRow)]
+                    .query[(Long, StoreRow)]
                     .run()
 
                   val newTotal  = rows.headOption.map(_._1).orElse(totalNow.total).getOrElse(0L)
@@ -70,9 +70,9 @@ final class BlobStoreRepoLive(xa: TransactorZIO) extends BlobStoreRepo:
       yield rows
     }
 
-object BlobStoreRepoLive:
-  val layer: ZLayer[TransactorZIO, Nothing, BlobStoreRepo] =
-    ZLayer.fromFunction(new BlobStoreRepoLive(_))
+object StoreRepoLive:
+  val layer: ZLayer[TransactorZIO, Nothing, StoreRepo] =
+    ZLayer.fromFunction(new StoreRepoLive(_))
 
 // ---- Block repository -------------------------------------------------------
 
@@ -101,21 +101,21 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
       }
     }
 
-  def linkLocation(
+  def linkReplica(
     key: BlockKey,
     storeKey: StoreKey,
-    uri: Option[String],
-    len: PosLong,
+    sector: Option[String],
+    size: PosLong,
     etag: Option[String],
     storageClass: Option[String],
   ): Task[Int] =
     xa.transact {
       sql"""
-        INSERT INTO block_location (algo_id, hash, blob_store_key, uri, status, bytes_length, etag, storage_class)
-        VALUES (${key.algoId}, ${key.hash}, $storeKey, $uri, ${LocationStatus.Active}, $len, $etag, $storageClass)
-        ON CONFLICT (algo_id, hash, blob_store_key) DO UPDATE
+        INSERT INTO replica (algo_id, hash, store_key, sector, status, size_bytes, etag, storage_class)
+        VALUES (${key.algoId}, ${key.hash}, $storeKey, $sector, ${ReplicaStatus.Active}, $size, $etag, $storageClass)
+        ON CONFLICT (algo_id, hash, store_key) DO UPDATE
         SET status = EXCLUDED.status,
-            bytes_length = EXCLUDED.bytes_length,
+            size_bytes = EXCLUDED.size_bytes,
             etag = EXCLUDED.etag,
             storage_class = EXCLUDED.storage_class,
             last_verified_at = now()
@@ -151,7 +151,7 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
           .mapZIO { case (BlockInsert(algoId, hash, len, offset), idx) =>
             xa.transact {
               sql"""
-                  INSERT INTO blob_block (blob_id, seq, block_algo_id, block_hash, offset_bytes, length_bytes)
+                  INSERT INTO manifest_entry (blob_id, seq, block_algo_id, block_hash, offset_bytes, size_bytes)
                   VALUES ($blobId, $idx, $algoId, $hash, $offset, $len)
                 """.returning[BlockKey].run()
             }.map(Chunk.fromIterable)
