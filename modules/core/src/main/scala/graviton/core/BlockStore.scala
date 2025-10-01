@@ -3,8 +3,8 @@ package graviton.core
 import zio.*
 import zio.stream.*
 
-trait BlockStore extends CasStore:
+trait BlockStore extends FileStore:
   def ingestBlocks(
-    chunker: ZSink[Any, Throwable, Byte, Byte, Chunk[BinaryKey.CasKey]]
-  ): ZSink[Any, Throwable, Byte, Byte, Chunk[BinaryKey.CasKey]]
-  def readBlock(key: BinaryKey.CasKey): IO[Throwable, Option[Bytes]]
+    chunker: ZSink[Any, Throwable, Byte, Byte, Chunk[FileKey.CasKey]]
+  ): ZSink[Any, Throwable, Byte, Byte, Chunk[FileKey.CasKey]]
+  def readBlock(key: FileKey.CasKey): IO[Throwable, Option[Bytes]]
