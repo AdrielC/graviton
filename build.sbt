@@ -108,7 +108,7 @@ ThisBuild / onLoad := {
   val prev = (ThisBuild / onLoad).value
   val shouldBootstrap = (ThisBuild / autoBootstrapPg).value
   (state: State) => {
-    val s1 = prev(state
+    val s1 = prev(state)
     if (shouldBootstrap) "setUpPg" :: s1 else s1
   }
 }
