@@ -90,6 +90,12 @@ import graviton.*
 import graviton.impl.InMemoryBinaryStore
 import scala.annotation.nowarn
 
+def storeAndFetch(store: BinaryStore): Task[Option[Bytes]] =
+  for
+    id <- ZStream.fromIterable("Hello".getBytes).run(store.put)
+    data <- store.get(id)
+  yield data
+
 @nowarn("msg=unused value of type zio.ZIO")
 val runDemo = for
   store <- InMemoryBinaryStore.make()
