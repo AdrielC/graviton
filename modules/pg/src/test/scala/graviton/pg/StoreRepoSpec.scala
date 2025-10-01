@@ -1,89 +1,82 @@
 package graviton.pg
 
-import graviton.db.{StoreKey, StoreRepo, StoreRow, StoreStatus, given}
+import graviton.db.{StoreRepo, StoreRow, StoreStatus, StoreKey}
 
 import zio.*
-import zio.test.*
-import com.augustnagro.magnum.magzio.*
-import com.augustnagro.magnum.{DbCodec, sql}
+import zio.json.ast.Json
+import zio.test.{Spec as ZSpec, *}
+import java.nio.file.Path
 
-object StoreRepoSpec extends ZIOSpec[TestEnvironment]:
+object StoreRepoSpec extends ZIOSpecDefault {
 
-  override val bootstrap = testEnvironment
+  private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
+    value.trim match
+      case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
+      case _                                                                                       => false
+  }
 
-  private val containersEnabled =
-    sys.env
-      .get("TESTCONTAINERS")
-      .exists { raw =>
-        val normalized = raw.trim.toLowerCase(java.util.Locale.ROOT)
-        normalized match
-          case "1" | "true" | "yes" | "on" => true
-          case _                           => false
-      }
-
-  private val pgLayer =
-    (ZLayer.fromZIO(ZIO.config[PgTestLayers.PgTestConfig]) >>> PgTestLayers.layer) >+>
-      StoreRepoLive.layer
-
-  private def sampleRow: StoreRow =
-    val key: StoreKey = StoreKey.applyUnsafe(Chunk.fill(32)(1.toByte))
-    val bytes         = Chunk.fromArray(Array[Byte](1, 2, 3))
-    StoreRow(
-      key,
-      "fs",
-      bytes,
-      "urn:test",
-      bytes,
-      None,
-      StoreStatus.Active,
-      0L,
+  private val pgConfigLayer: ZLayer[Any, Nothing, PgTestLayers.PgTestConfig] =
+    ZLayer.succeed(
+      PgTestLayers.PgTestConfig(
+        image = "postgres",
+        tag = "17-alpine",
+        registry = None,
+        repository = None,
+        username = "postgres",
+        password = "postgres",
+        database = "postgres",
+        initScript = Some(Path.of("ddl.sql")),
+        startupAttempts = 3,
+        startupTimeout = 90L,
+      )
     )
 
-  private val integrationSuite =
-    suite("StoreRepo")(
-      test("writes, reads, and deletes data") {
-        for {
-          xa       <- ZIO.service[TransactorZIO]
-          _        <- Console.printLine("Writing data")
-          sampleRow = (
-                        key = Chunk.fill(32)(1.toByte),
-                        implId = "fs",
-                        buildFp = "build_fp",
-                        dvSchemaUrn = "dv_schema_urn",
-                        dvCanonical = "dv_canonical",
-                        dvJsonPreview = "dv_json_preview",
-                        status = "active",
-                      )
-          _        <- Console.printLine("Reading data")
-          _        <- xa.transact {
-                        Console.printLine("Inserting data") *>
-                          ZIO.attempt(sql"""
-            INSERT INTO store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
-            VALUES (${sampleRow.key}, ${sampleRow.implId}, ${sampleRow.buildFp}, ${sampleRow.dvSchemaUrn}, ${sampleRow.dvCanonical}, ${sampleRow.dvJsonPreview}, ${sampleRow.status})
-          """.query[Int].run()) *>
-                          Console.printLine("Reading data") *>
-                          ZIO.attempt(sql"""
-            SELECT * FROM store WHERE key = ${sampleRow.key}
-          """.query[StoreRow].run())
-                      }
-        } yield assertTrue(true)
-      },
-      test("upsert and fetch") {
-        for
-          repo <- ZIO.service[StoreRepo]
-          row   = sampleRow
-          _    <- repo.upsert(row)
-          got  <- repo.get(row.key)
-          _    <- Console.printLine(got)
-        yield assertTrue(got.exists(_.implId == "fs"))
-      },
-    ).provideSomeLayerShared(pgLayer)
+  private val storeRepoLayer: ZLayer[Any, Throwable, StoreRepo] =
+    pgConfigLayer >>> PgTestLayers.layer >>> StoreRepoLive.layer
 
-  def spec =
-    if containersEnabled then integrationSuite
-    else
-      suite("StoreRepo")(
-        test("Postgres integration disabled") {
-          assertTrue(true)
-        }
-      ) @@ TestAspect.ignore
+  private def sampleRow(
+    status: StoreStatus,
+    seed: Int,
+  ): StoreRow = {
+    val keyBytes = Chunk.fill(32)((seed + 1).toByte)
+    StoreRow(
+      key = StoreKey.applyUnsafe(keyBytes),
+      implId = s"impl-$seed",
+      buildFp = Chunk.fromArray(Array.fill(8)((seed * 2).toByte)),
+      dvSchemaUrn = s"urn:test:$seed",
+      dvCanonical = Chunk.fromArray(Array.fill(8)((seed * 3).toByte)),
+      dvJsonPreview = Some(Json.Obj("seed" -> Json.Num(seed))),
+      status = status,
+      version = 0L,
+    )
+  }
+  
+  override def spec: ZSpec[TestEnvironment & Scope, Any] =
+    suite("StoreRepo")(
+      test("upsert inserts and updates existing records") {
+        for {
+          repo   <- ZIO.service[StoreRepo]
+          row     = sampleRow(StoreStatus.Active, seed = 1)
+          _      <- repo.upsert(row)
+          first  <- repo.get(row.key)
+          _      <- repo.upsert(row.copy(status = StoreStatus.Paused))
+          second <- repo.get(row.key)
+        } yield assertTrue(
+          first.exists(_.status == StoreStatus.Active),
+          second.exists(_.status == StoreStatus.Paused),
+          second.exists(_.version == first.fold(0L)(_.version + 1)),
+        )
+      },
+      test("listActive returns only active stores respecting cursor page size") {
+        for {
+          repo  <- ZIO.service[StoreRepo]
+          _     <- repo.upsert(sampleRow(StoreStatus.Active, 1))
+          _     <- repo.upsert(sampleRow(StoreStatus.Active, 2))
+          _     <- repo.upsert(sampleRow(StoreStatus.Active, 3))
+          _     <- repo.upsert(sampleRow(StoreStatus.Paused, 99))
+          cursor = graviton.db.Cursor.initial.copy(pageSize = 2L)
+          rows  <- repo.listActive(Some(cursor)).take(3).runCollect
+        } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
+      }
+    ).provideShared(storeRepoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
+}

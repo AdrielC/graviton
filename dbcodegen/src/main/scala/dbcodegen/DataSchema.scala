@@ -6,6 +6,7 @@ case class DataColumn(
   name: String,
   scalaType: String,
   db: Column,
+  pgType: Option[PgTypeResolver.ColumnInfo],
 ) {
   def scalaName = NameFormat.sanitizeScalaName(NameFormat.toCamelCase(name))
 }
