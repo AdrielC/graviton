@@ -15,8 +15,14 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
         INSERT INTO store (key, impl_id, build_fp, dv_schema_urn, dv_canonical_bin, dv_json_preview, status)
         VALUES (${row.key}, ${row.implId}, ${row.buildFp}, ${row.dvSchemaUrn}, ${row.dvCanonical}, ${row.dvJsonPreview}, ${row.status})
         ON CONFLICT (key) DO UPDATE
-        SET updated_at = now(),
-            version    = store.version + 1
+        SET impl_id         = EXCLUDED.impl_id,
+            build_fp       = EXCLUDED.build_fp,
+            dv_schema_urn  = EXCLUDED.dv_schema_urn,
+            dv_canonical_bin = EXCLUDED.dv_canonical_bin,
+            dv_json_preview  = EXCLUDED.dv_json_preview,
+            status          = EXCLUDED.status,
+            updated_at      = now(),
+            version         = store.version + 1
       """.update.run()
     }
 

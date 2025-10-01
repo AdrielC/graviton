@@ -40,6 +40,7 @@ object SchemaConverter {
             column.getName,
             scalaType,
             column,
+            pgInfo,
           )
 
           (dataColumn, dataEnum)

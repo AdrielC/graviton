@@ -1,8 +1,10 @@
 name := "dbcodegen"
 
-lazy val scalateV = "1.10.1"
-lazy val postgresV = "42.7.1"
-lazy val schemacrawlerV = "16.27.1"
+lazy val scalateV        = "1.10.1"
+lazy val postgresV       = "42.7.1"
+lazy val schemacrawlerV  = "16.27.1"
+lazy val embeddedPgV     = "2.0.4"
+lazy val munitV          = "1.0.0"
 
 libraryDependencies ++= Seq(
   "us.fatehi" % "schemacrawler-tools"       % schemacrawlerV,
@@ -18,6 +20,11 @@ libraryDependencies ++= Seq(
   "org.slf4j" % "slf4j-simple" % "2.0.16", // Better logging output control
   "org.scalatra.scalate" %% "scalate-core" % scalateV exclude("org.scala-lang.modules", "scala-collection-compat_2.13"),
   "org.scalatra.scalate" %% "scalate-util" % scalateV exclude("org.scala-lang.modules", "scala-collection-compat_2.13")
+)
+
+libraryDependencies ++= Seq(
+  "io.zonky.test"       % "embedded-postgres" % embeddedPgV % Test,
+  "org.scalameta"      %% "munit"             % munitV       % Test,
 )
 
 // Exclude conflicting cross-version dependencies globally for this module
@@ -40,3 +47,8 @@ Compile / run / javaOptions ++= Seq(
 
 // local to tool module: allow warnings
 ThisBuild / scalacOptions --= Seq("-Werror", "-Xfatal-warnings")
+
+Test / fork := true
+Test / parallelExecution := false
+
+testFrameworks += new TestFramework("munit.Framework")
