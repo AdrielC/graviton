@@ -13,10 +13,10 @@ object Max:
     def identity: Max[A]                            = Max(Identity[A].identity)
     def combine(a: => Max[A], b: => Max[A]): Max[A] = a.maximum(b)
 
-  extension [A](a: Max[A])
-    def value: A                                            = a
-    def maximum(other: Max[A])(using PartialOrd[A]): Max[A] =
-      if a > other then a else other
+extension [A](a: Max[A])
+  def value: A                                            = a
+  def maximum(other: Max[A])(using PartialOrd[A]): Max[A] =
+    if a > other then a else other
 
 /** Tracks pagination state for blob-store listings. */
 final case class Cursor(

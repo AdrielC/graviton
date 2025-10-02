@@ -9,6 +9,7 @@ import schemacrawler.tools.utility.SchemaCrawlerUtility
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder
 import scala.jdk.CollectionConverters.given
 
+
 extension (file: File)
   def toOption: Option[File] = Option(file)
 
@@ -162,6 +163,7 @@ object CodeGenerator {
     sb.append("import graviton.db.{*, given}\n")
     sb.append("import zio.Chunk\n")
     sb.append("import zio.json.ast.Json\n")
+
     // ZIO Schema imports disabled; schema emission is turned off to avoid derivation issues
     // sb.append("import zio.schema.{DeriveSchema, Schema}\n\n")
 
@@ -213,18 +215,15 @@ object CodeGenerator {
       else if (primaryKeyColumns.size == 1) then
         val col       = primaryKeyColumns.head
         val baseType  = renderColumnType(col, forceRequired = true)
-        val paramName = col.scalaName
         sb.append(s"  opaque type Id <: $baseType = $baseType\n")
         sb.append("  object Id:\n")
+
         if (ironTypeNames.contains(baseType)) then
-          sb.append(s"    def apply($paramName: $baseType): Id = $paramName\n")
-          sb.append(s"    def from(value: $baseType): Id = value\n")
-          
+          sb.append(s"    def apply(value: $baseType): Id = value\n")
         else
-          sb.append(s"    def make($paramName: $baseType): Either[String, Id] = Right($paramName)\n")
-          sb.append(s"    def from(value: $baseType): Id = value\n")
+          sb.append(s"    def apply(value: $baseType): Id = value\n")
           
-        sb.append(s"    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => from(value), id => value(id))\n\n")
+        sb.append(s"  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => Id(value), id => value(id))\n\n")
         sb.append("  export Id.given\n")
         sb.append("  extension (id: Id)\n")
         sb.append(s"    def value: $baseType = id\n\n")
@@ -235,16 +234,18 @@ object CodeGenerator {
         sb.append("  object Id:\n")
         if (primaryKeyColumns.forall(c => ironTypeNames.contains(renderColumnType(c, forceRequired = true)))) then
           sb.append(s"    def apply($tupleCtor): Id = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n")
-          sb.append(s"    def from(value: $tupleType): Id = value\n")
+          sb.append(s"    def apply(value: $tupleType): Id = value\n")
+          sb.append(s"    def apply($tupleCtor): $tupleType = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n")
         else
-          sb.append(s"    def make($tupleCtor): Either[String, Id] = Right(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n")
-          sb.append(s"    def from(value: $tupleType): Id = value\n")
+          sb.append(s"    def either($tupleCtor): Either[String, Id] = Right(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n")
+          sb.append(s"    def apply(value: $tupleType): Id = value\n")
+          sb.append(s"    def apply($tupleCtor): $tupleType = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
         sb.append("  export Id.given\n")
         sb.append("  extension (id: Id)\n")
         sb.append(s"    def value: $tupleType = id\n\n")
-        sb.append(s"  def apply($tupleCtor): $tupleType = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
+        
         val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"    given DbCodec[Id] = $codecSource\n\n")
+        sb.append(s"  given DbCodec[Id] = $codecSource\n\n")
         sb.append("\n")
 
       if (!table.isView) {
@@ -409,34 +410,35 @@ object CodeGenerator {
           .mkString("(", ", ", ")")
 
   private def renderIdCodecSource(tableName: String, columns: Seq[DataColumn]): String = {
+    val _ = tableName
     val codecType = renderCodecPlainType(columns)
-    val toId      = renderCodecToId(tableName, columns, "value")
-    val fromId    = renderCodecFromId(tableName, columns, "id")
-    s"scala.compiletime.summonInline[DbCodec[$codecType]].biMap(value => $toId, id => $fromId)"
+    val toId      = renderCodecToId(columns, "v")
+    val fromId    = renderCodecFromId(columns, "i")
+    s"scala.compiletime.summonInline[DbCodec[$codecType]].biMap(v => $toId, i => $fromId)"
   }
 
   private def renderCodecPlainType(columns: Seq[DataColumn]): String =
     columns.toList match
-      case Nil => "Null"
+      case Nil => "EmptyTuple"
       case single :: Nil => renderColumnType(single, forceRequired = true)
       case _ => renderTupleType(columns)
 
-  private def renderCodecToId(tableName: String, columns: Seq[DataColumn], valueExpr: String): String =
+  private def renderCodecToId(columns: Seq[DataColumn], valueExpr: String): String =
     columns.toList match
-      case Nil => s"$tableName.Id(null)"
+      case Nil => s"EmptyTuple"
       case single :: Nil =>
         val literal = renderNamedTupleLiteral(columns, _ => valueExpr)
-        s"$tableName.Id($literal)"
+        s"Id($literal)"
       case _ =>
         val literal = renderNamedTupleLiteralFromTuple(columns, valueExpr)
-        s"$tableName.Id($literal)"
+        s"Id($literal)"
 
-  private def renderCodecFromId(tableName: String, columns: Seq[DataColumn], idExpr: String): String =
+  private def renderCodecFromId(columns: Seq[DataColumn], idExpr: String): String =
     columns.toList match
       case Nil => "EmptyTuple"
-      case single :: Nil => s"$tableName.Id($idExpr).${single.scalaName}"
+      case single :: Nil => s"$idExpr.value"
       case _ =>
-        val namedExpr = s"($idExpr.value)"
+        val namedExpr = s"$idExpr"
         renderPlainTupleFromNamed(namedExpr, columns)
 
   // private def renderIdSchemaSource(tableName: String, columns: Seq[DataColumn]): String = {
@@ -448,7 +450,7 @@ object CodeGenerator {
 
   private def renderNamedTupleLiteralFromTuple(columns: Seq[DataColumn], tupleExpr: String): String =
     columns.toList match
-      case Nil => "Null"
+      case Nil => "EmptyTuple"
       case single :: Nil => s"(${single.scalaName} = $tupleExpr)"
       case many =>
         many
@@ -458,7 +460,7 @@ object CodeGenerator {
 
   private def renderPlainTupleFromNamed(namedExpr: String, columns: Seq[DataColumn]): String =
     columns.toList match
-      case Nil => "Null"
+      case Nil => "EmptyTuple"
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
 

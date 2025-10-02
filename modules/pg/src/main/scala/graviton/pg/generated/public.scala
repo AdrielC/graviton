@@ -33,9 +33,8 @@ final case class BuildInfo(
 object BuildInfo:
   opaque type Id <: Long = Long
   object Id:
-    def make(id: Long): Either[String, Id] = Right(id)
-    def from(value: Long): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
+    def apply(value: Long): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
@@ -69,9 +68,8 @@ final case class HashAlgorithm(
 object HashAlgorithm:
   opaque type Id <: Short = Short
   object Id:
-    def make(id: Short): Either[String, Id] = Right(id)
-    def from(value: Short): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Short]].biMap(value => from(value), id => value(id))
+    def apply(value: Short): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Short]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
@@ -115,9 +113,8 @@ final case class Store(
 object Store:
   opaque type Id <: StoreKey = StoreKey
   object Id:
-    def apply(key: StoreKey): Id = key
-    def from(value: StoreKey): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => from(value), id => value(id))
+    def apply(value: StoreKey): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
@@ -159,9 +156,8 @@ final case class Blob(
 object Blob:
   opaque type Id <: java.util.UUID = java.util.UUID
   object Id:
-    def make(id: java.util.UUID): Either[String, Id] = Right(id)
-    def from(value: java.util.UUID): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => from(value), id => value(id))
+    def apply(value: java.util.UUID): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
@@ -203,11 +199,16 @@ object Block:
     hash: HashBytes
   )
   object Id:
-    def make(algoId: Short, hash: HashBytes): Either[String, Id] = Right((algoId = algoId, hash = hash))
-    def from(value: (
+    def either(algoId: Short, hash: HashBytes): Either[String, Id] = Right((algoId = algoId, hash = hash))
+    def apply(value: (
     algoId: Short,
     hash: HashBytes
   )): Id = value
+    def apply(algoId: Short, hash: HashBytes): (
+    algoId: Short,
+    hash: HashBytes
+  ) = (algoId = algoId, hash = hash)
+
   export Id.given
   extension (id: Id)
     def value: (
@@ -215,12 +216,7 @@ object Block:
     hash: HashBytes
   ) = id
 
-  def apply(algoId: Short, hash: HashBytes): (
-    algoId: Short,
-    hash: HashBytes
-  ) = (algoId = algoId, hash = hash)
-
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Short, HashBytes)]].biMap(value => Block.Id((algoId = value._1, hash = value._2)), id => ((id.value).algoId, (id.value).hash))
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Short, HashBytes)]].biMap(v => Id((algoId = v._1, hash = v._2)), i => (i.algoId, i.hash))
 
 
   final case class Creator(
@@ -253,9 +249,8 @@ final case class MerkleSnapshot(
 object MerkleSnapshot:
   opaque type Id <: Long = Long
   object Id:
-    def make(id: Long): Either[String, Id] = Right(id)
-    def from(value: Long): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
+    def apply(value: Long): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
@@ -301,11 +296,16 @@ object ManifestEntry:
     seq: Int
   )
   object Id:
-    def make(blobId: java.util.UUID, seq: Int): Either[String, Id] = Right((blobId = blobId, seq = seq))
-    def from(value: (
+    def either(blobId: java.util.UUID, seq: Int): Either[String, Id] = Right((blobId = blobId, seq = seq))
+    def apply(value: (
     blobId: java.util.UUID,
     seq: Int
   )): Id = value
+    def apply(blobId: java.util.UUID, seq: Int): (
+    blobId: java.util.UUID,
+    seq: Int
+  ) = (blobId = blobId, seq = seq)
+
   export Id.given
   extension (id: Id)
     def value: (
@@ -313,12 +313,7 @@ object ManifestEntry:
     seq: Int
   ) = id
 
-  def apply(blobId: java.util.UUID, seq: Int): (
-    blobId: java.util.UUID,
-    seq: Int
-  ) = (blobId = blobId, seq = seq)
-
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(java.util.UUID, Int)]].biMap(value => ManifestEntry.Id((blobId = value._1, seq = value._2)), id => ((id.value).blobId, (id.value).seq))
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(java.util.UUID, Int)]].biMap(v => Id((blobId = v._1, seq = v._2)), i => (i.blobId, i.seq))
 
 
   final case class Creator(
@@ -363,9 +358,8 @@ final case class Replica(
 object Replica:
   opaque type Id <: Long = Long
   object Id:
-    def make(id: Long): Either[String, Id] = Right(id)
-    def from(value: Long): Id = value
-    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
+    def apply(value: Long): Id = value
+  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
   extension (id: Id)
