@@ -7,6 +7,7 @@ enablePlugins(
 import scala.sys.process.*
 import sbtunidoc.ScalaUnidocPlugin.autoImport._
 import sbt.io.Path
+
 import sbt.librarymanagement.Artifact
 
 ThisBuild / scalaVersion  := "3.7.3"
@@ -338,11 +339,13 @@ lazy val docs = project
   .enablePlugins(MdocPlugin, WebsitePlugin)
   .dependsOn(core, fs, s3, tika, metrics, pg)
   .settings(
+    websiteDir := (target.value / "website").toPath,
+  )
+  .settings(
     projectName := "Graviton",
     mainModuleName := "graviton",
     projectHomePage := "https://github.com/AdrielC/graviton",
     projectStage := ProjectStage.Development,
-    websiteDir := (target.value / "website").toPath,
     docsVersioningScheme := WebsitePlugin.VersioningScheme.SemanticVersioning,
     MdocKeys.mdocIn := baseDirectory.value / "src" / "main" / "mdoc",
     MdocKeys.mdocVariables := Map(
@@ -355,17 +358,18 @@ lazy val docs = project
     // Docs build pipeline
     installDocs := {
       val log = streams.value.log
-      val websiteDir = (target.value / "website")
       
-      if (!websiteDir.exists()) {
+      val webDir = websiteDir.value.toFile()
+
+      {
         log.info("Creating new website scaffold...")
         Process(
           s"""npm init docusaurus@latest website classic --package-manager npm --skip-install""",
-          target.value
+          webDir
         ).!
         
-        Process("npm install", websiteDir).!
-        Process("npm install prism-react-renderer@next prismjs @mdx-js/react d3 react-force-graph", websiteDir).!
+        Process("npm install", webDir).!
+        Process("npm install prism-react-renderer@next prismjs @mdx-js/react d3 react-force-graph", webDir).!
         
         log.info("✓ Website dependencies installed")
       }
@@ -373,34 +377,43 @@ lazy val docs = project
     
     buildDocs := {
       val log = streams.value.log
-      val websiteDir = target.value / "website"
       
+      val webDir = websiteDir.value
       // 1. Install if needed
-      if (!websiteDir.exists()) {
+      if (!webDir.toFile.exists()) {
+        installDocs.value
+      } else {
+        log.info("✓ Website dependencies already installed")
         installDocs.value
       }
       
       // 2. Copy Matrix theme CSS
-      val cssSrc = baseDirectory.value / "css" / "custom.css"
-      val cssDst = websiteDir / "src" / "css" / "custom.css"
-      if (cssSrc.exists()) {
-        IO.createDirectory(cssDst.getParentFile)
-        IO.copyFile(cssSrc, cssDst)
+      val cssSrc = baseDirectory.value / "css"
+      val cssDst = (webDir / "src" / "css")
+      if ((cssSrc / "custom.css").exists()) {
+        IO.copyDirectory(cssSrc, cssDst.toFile())
         log.info("✓ Copied Matrix theme CSS")
       }
       
-      // 3. Copy sidebars.js
+      // 3. Copy sidebars.js and package.json
       val sidebarsSrc = baseDirectory.value / "sidebars.js"
-      val sidebarsDst = websiteDir / "sidebars.js"
+      val sidebarsDst = (webDir / "sidebars.js").toFile
       if (sidebarsSrc.exists()) {
         IO.copyFile(sidebarsSrc, sidebarsDst)
         log.info("✓ Copied sidebars.js")
+      }
+
+      val packageJsonSrc = baseDirectory.value / "package.json"
+      val packageJsonDst = (webDir / "package.json").toFile
+      if (packageJsonSrc.exists()) {
+        IO.copyFile(packageJsonSrc, packageJsonDst)
+        log.info("✓ Copied package.json")
       }
       
       // 4. Generate ScalaDoc
       (ScalaUnidoc / doc).value
       val apiSrc = (ScalaUnidoc / unidoc / target).value
-      val apiDst = websiteDir / "static" / "api"
+      val apiDst = (webDir / "static" / "api").toFile
       if (apiSrc.exists()) {
         IO.delete(apiDst)
         IO.copyDirectory(apiSrc, apiDst)
@@ -408,7 +421,7 @@ lazy val docs = project
       }
       
       // 5. Write docusaurus.config.js
-      val configFile = websiteDir / "docusaurus.config.js"
+      val configFile = (webDir / "docusaurus.config.js").toFile
       val configContents =
         s"""const lightCodeTheme = require('prism-react-renderer/themes/github');
            |const darkCodeTheme = require('prism-react-renderer/themes/vsDark');
@@ -461,9 +474,9 @@ lazy val docs = project
       log.info("✓ Wrote docusaurus.config.js")
       
       // 6. Write Prism Scala language support
-      val prismDir = websiteDir / "src" / "theme"
-      IO.createDirectory(prismDir)
-      val prismFile = prismDir / "prism-include-languages.js"
+      val prismDir = (webDir / "src" / "theme")
+      java.nio.file.Files.createDirectories(prismDir)
+      val prismFile = (prismDir / "prism-include-languages.js").toFile
       val prismJs =
         """module.exports = function prismIncludeLanguages(PrismObject) {
           |  // Scala language definition
@@ -489,9 +502,9 @@ lazy val docs = project
       log.info("✓ Added Scala syntax highlighting")
       
       // 7. Create interactive visualization component
-      val componentsDir = websiteDir / "src" / "components"
-      IO.createDirectory(componentsDir)
-      val visFile = componentsDir / "BinaryStorageVis.js"
+      val componentsDir = webDir / "src" / "components"
+      IO.createDirectory(componentsDir.toFile)
+      val visFile = (componentsDir / "BinaryStorageVis.js").toFile
       val visJs =
         """import React, { useEffect, useRef } from 'react';
           |
@@ -559,11 +572,11 @@ lazy val docs = project
           |}""".stripMargin
       IO.write(visFile, visJs)
       log.info("✓ Added interactive visualization component")
-      
+
       // 7.5. Ensure homepage redirects to /docs/
-      val pagesDir = websiteDir / "src" / "pages"
-      IO.createDirectory(pagesDir)
-      val indexPage = pagesDir / "index.js"
+      val pagesDir = (webDir / "src" / "pages")
+      java.nio.file.Files.createDirectories(pagesDir)
+      val indexPage = (pagesDir / "index.js").toFile
       val indexJs =
         """import React, { useEffect } from 'react';
           |import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
@@ -585,20 +598,20 @@ lazy val docs = project
       log.info("✓ Generated mdoc content")
       
       // 9. Build website
-      Process("npm run build", websiteDir).!
+      Process("npm run build", Some(webDir.toFile)).!
       log.info("✓ Built website")
       
-      log.info(s"Website built at: ${websiteDir}/build")
+      log.info(s"Website built at: ${webDir}/build")
     },
     
     previewDocs := {
       val log = streams.value.log
-      val websiteDir = target.value / "website"
+      val webDir = websiteDir.value
       
       buildDocs.value
       
       log.info("Starting preview server...")
-      Process("npm run serve", websiteDir).!
+      Process("npm run serve", Some((webDir).toFile)).!
     }
   )
   
