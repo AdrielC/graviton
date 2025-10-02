@@ -17,7 +17,7 @@ module.exports = {
       title: 'Graviton',
       items: [
         { to: '/docs/', label: 'Docs', position: 'left' },
-        { href: '/graviton/api/', label: 'API', position: 'left' },
+        { to: '/api', label: 'API', position: 'left' },
         { to: '/vis', label: 'Visualize', position: 'left' },
         { href: 'https://github.com/AdrielC/graviton', label: 'GitHub', position: 'right' }
       ]
@@ -34,7 +34,7 @@ module.exports = {
       {
         docs: {
           routeBasePath: 'docs',
-          path: 'docs',
+          path: 'src/docs',
           sidebarPath: './sidebars.js'
         },
         blog: false,

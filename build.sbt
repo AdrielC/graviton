@@ -282,20 +282,6 @@ lazy val pg = project
       val username = pgUsername.value
       val password = pgPassword.value
 
-      val props = Seq(
-        s"-Ddbcodegen.out=${targetGen}",
-        s"-Ddbcodegen.template=${template}",
-        s"-Ddbcodegen.jdbcUrl=${jdbcUrl}",
-        s"-Ddbcodegen.username=${username}",
-        s"-Ddbcodegen.password=${password}",
-        s"-Ddbcodegen.password=${pgPassword.value}"
-      )
-      // Delegate to the dbcodegen subproject's runMain so the class is on classpath
-      val args = " dbcodegen.DbMain " + props
-
-      println(s"Running dbcodegen with args: $args")
-      println(s"Classpath: ${((dbcodegen / Compile / target).value / s"scala-${scalaVersion.value}").listFiles().toList}")
-
       (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
     }
   ) 
@@ -425,10 +411,17 @@ lazy val docs = project
       
       val webDir = websiteDir.value.toFile()
 
-      
+      // Ensure target website directory exists
+      IO.createDirectory(webDir)
+
+      // Clean up any stray scaffold directories from prior failed runs
+      val strayFalse = new java.io.File(webDir, "false")
+      if (strayFalse.exists()) IO.delete(strayFalse)
+
       log.info("Creating new website scaffold...")
+      // Scaffold directly into the target directory (non-interactive)
       Process(
-          s"""npm init docusaurus@latest website classic --package-manager npm --skip-install""",
+          s"""npx create-docusaurus@latest . classic --yes --package-manager npm --skip-install""",
           webDir
       ).!
         
@@ -448,12 +441,9 @@ lazy val docs = project
       initDocsDeps.value
       
       // 2. Copy Matrix theme CSS
-      val cssSrc = baseDirectory.value / "css"
-      val cssDst = (webDir / "src" / "css")
-      if ((cssSrc / "custom.css").exists()) {
-        IO.copyDirectory(cssSrc, cssDst.toFile())
-        log.info("✓ Copied Matrix theme CSS")
-      }
+      val srcDir = baseDirectory.value / "src"
+      val dstDir = (webDir / "src")
+      IO.copyDirectory(srcDir, dstDir.toFile())
       
       // 3. Copy sidebars.js and package.json
       val sidebarsSrc = baseDirectory.value / "sidebars.js"
@@ -472,12 +462,12 @@ lazy val docs = project
       
       // 4. Generate ScalaDoc
       (ScalaUnidoc / doc).value
-      val apiSrc = (ScalaUnidoc / unidoc / target).value
-      val apiDst = (webDir / "static" / "api").toFile
+      val apiSrc      = (ScalaUnidoc / unidoc / target).value
+      val apiDocsDst  = (webDir / "static" / "api").toFile
       if (apiSrc.exists()) {
-        IO.delete(apiDst)
-        IO.copyDirectory(apiSrc, apiDst)
-        log.info("✓ Copied ScalaDoc to static/api/")
+        IO.delete(apiDocsDst)
+        IO.copyDirectory(apiSrc, apiDocsDst)
+        log.info("✓ Copied ScalaDoc to static/api-docs/")
       }
       
       // 5. Copy docusaurus.config.js from docs/
@@ -490,135 +480,14 @@ lazy val docs = project
         log.warn(s"⚠ docusaurus.config.js not found at: ${configSrc}")
       }
       
-      // 6. Write Prism Scala language support
-      val prismDir = (webDir / "src" / "theme")
-      java.nio.file.Files.createDirectories(prismDir)
-      val prismFile = (prismDir / "prism-include-languages.js").toFile
-      val prismJs =
-        """module.exports = function prismIncludeLanguages(PrismObject) {
-          |  // Scala language definition
-          |  PrismObject.languages.scala = {
-          |    'triple-quoted-string': {
-          |      pattern: /\"\"\"[\\s\\S]*?\"\"\"/,
-          |      alias: 'string'
-          |    },
-          |    'string': {
-          |      pattern: /("|')(?:\\.|(?!\1)[^\\\r\n])*\1/,
-          |      greedy: true
-          |    },
-          |    'keyword': /\b(?:abstract|case|catch|class|def|do|else|extends|final|finally|for|forSome|if|implicit|import|lazy|match|new|null|object|override|package|private|protected|return|sealed|self|super|this|throw|trait|try|type|val|var|while|with|yield)\b/,
-          |    'builtin': /\b(?:String|Int|Long|Short|Byte|Boolean|Double|Float|Char|Any|AnyRef|AnyVal|Unit|Nothing)\b/,
-          |    'number': /\b0x(?:[\da-f]*\.)?[\da-f]+|(?:\d+\.?\d*|\.\d+)(?:e\d+)?[dfl]?/i,
-          |    'symbol': /'[^\d\s\\]\w*/,
-          |    'function': /\b(?!(?:if|while|for|return|else)\b)[a-z_]\w*(?=\s*[({])/i,
-          |    'punctuation': /[{}[\];(),.:]/,
-          |    'operator': /<-|=>|\b(?:->|<-|<:|>:|\|)\b|[+\-*/%&|^!=<>]=?|\b(?:and|or)\b/
-          |  };
-          |};""".stripMargin
-      val prismSrc = baseDirectory.value / "src" / "theme" / "prism-include-languages.js"
-      if (prismSrc.exists()) IO.copyFile(prismSrc, prismFile) else IO.write(prismFile, prismJs)
-      log.info("✓ Added Scala syntax highlighting (copied if available)")
-      
-      // 7. Create interactive visualization component
-      val componentsDir = webDir / "src" / "components"
-      IO.createDirectory(componentsDir.toFile)
-      val visFile = (componentsDir / "BinaryStorageVis.js").toFile
-      val visJs =
-        """import React, { useEffect, useRef } from 'react';
-          |
-          |export default function BinaryStorageVis() {
-          |  const canvasRef = useRef(null);
-          |
-          |  useEffect(() => {
-          |    const canvas = canvasRef.current;
-          |    if (!canvas) return;
-          |    const ctx = canvas.getContext('2d');
-          |    const W = canvas.width;
-          |    const H = canvas.height;
-          |
-          |    const nodes = [
-          |      { id: 'manifest', group: 1, x: W * 0.2, y: H * 0.5 },
-          |      { id: 'block1', group: 2, x: W * 0.45, y: H * 0.3 },
-          |      { id: 'block2', group: 2, x: W * 0.45, y: H * 0.5 },
-          |      { id: 'block3', group: 2, x: W * 0.45, y: H * 0.7 },
-          |      { id: 'store1', group: 3, x: W * 0.75, y: H * 0.35 },
-          |      { id: 'store2', group: 3, x: W * 0.75, y: H * 0.65 },
-          |    ];
-          |    const links = [
-          |      ['manifest', 'block1'],
-          |      ['manifest', 'block2'],
-          |      ['manifest', 'block3'],
-          |      ['block1', 'store1'],
-          |      ['block2', 'store1'],
-          |      ['block2', 'store2'],
-          |      ['block3', 'store2'],
-          |    ];
-          |
-          |    const colorFor = g => (g === 1 ? '#00ff41' : g === 2 ? '#3fb950' : '#58d46e');
-          |
-          |    function draw() {
-          |      ctx.clearRect(0, 0, W, H);
-          |      ctx.strokeStyle = '#21262d';
-          |      ctx.lineWidth = 2;
-          |      links.forEach(([a, b]) => {
-          |        const na = nodes.find(n => n.id === a);
-          |        const nb = nodes.find(n => n.id === b);
-          |        ctx.beginPath();
-          |        ctx.moveTo(na.x, na.y);
-          |        ctx.lineTo(nb.x, nb.y);
-          |        ctx.stroke();
-          |      });
-          |      nodes.forEach(n => {
-          |        ctx.fillStyle = colorFor(n.group);
-          |        ctx.beginPath();
-          |        ctx.arc(n.x, n.y, 10, 0, Math.PI * 2);
-          |        ctx.fill();
-          |        ctx.fillStyle = '#e6edf3';
-          |        ctx.font = '12px sans-serif';
-          |        ctx.fillText(n.id, n.x + 12, n.y + 4);
-          |      });
-          |    }
-          |
-          |    draw();
-          |  }, []);
-          |
-          |  return (
-          |    <div style={{ height: 520, background: '#0d1117', padding: '10px', border: '1px solid #21262d' }}>
-          |      <canvas ref={canvasRef} width={900} height={500} style={{ width: '100%', maxWidth: '100%' }} />
-          |    </div>
-          |  );
-          |}""".stripMargin
-      val visSrc = baseDirectory.value / "src" / "components" / "BinaryStorageVis.js"
-      if (visSrc.exists()) IO.copyFile(visSrc, visFile) else IO.write(visFile, visJs)
-      log.info("✓ Added interactive visualization component (copied if available)")
-
-      // 7.5. Ensure homepage redirects to /docs/
-      val pagesDir = (webDir / "src" / "pages")
-      java.nio.file.Files.createDirectories(pagesDir)
-      val indexPage = (pagesDir / "index.js").toFile
-      val indexJs =
-        """import React, { useEffect } from 'react';
-          |import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-          |
-          |export default function Home() {
-          |  const { siteConfig } = useDocusaurusContext();
-          |  useEffect(() => {
-          |    const base = (siteConfig && siteConfig.baseUrl) ? siteConfig.baseUrl : '/';
-          |    window.location.replace(base + 'docs/');
-          |  }, []);
-          |  return null;
-          |}
-          |""".stripMargin
-      val indexSrc = baseDirectory.value / "src" / "pages" / "index.js"
-      if (indexSrc.exists()) IO.copyFile(indexSrc, indexPage) else IO.write(indexPage, indexJs)
-      log.info("✓ Added homepage redirect to /docs/ (copied if available)")
       
       // 8. Run mdoc
       (Compile / mdoc).toTask("").value
       log.info("✓ Generated mdoc content")
       
       // 9. Build website
-      Process("npm run build", Some(webDir.toFile)).!
+      Process("npm run build", Some(webDir.toFile)).!!
+      
       log.info("✓ Built website")
       
       log.info(s"Website built at: ${webDir}/build")

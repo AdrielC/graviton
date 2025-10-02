@@ -54,11 +54,7 @@ const sidebars = {
         'roadmap',
         'file-descriptor-schema',
         'orthogonal-ranges',
-        {
-          type: 'link',
-          label: 'API Reference (ScalaDoc)',
-          href: '/api',
-        },
+        { type: 'link', label: 'API Reference (ScalaDoc)', href: '/graviton/api' },
       ],
     },
   ],
