@@ -50,7 +50,7 @@ object StoreRepoSpec extends ZIOSpecDefault {
       version = 0L,
     )
   }
-  
+
   override def spec: ZSpec[TestEnvironment & Scope, Any] =
     suite("StoreRepo")(
       test("upsert inserts and updates existing records") {
@@ -77,6 +77,6 @@ object StoreRepoSpec extends ZIOSpecDefault {
           cursor = graviton.db.Cursor.initial.copy(pageSize = 2L)
           rows  <- repo.listActive(Some(cursor)).take(3).runCollect
         } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
-      }
+      },
     ).provideShared(storeRepoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }
