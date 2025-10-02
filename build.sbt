@@ -32,6 +32,7 @@ lazy val magnumV           = "2.0.0-M2"
 lazy val postgresV         = "42.7.3"
 lazy val diffsonV          = "4.6.1"
 lazy val scalaJsonSchemaV  = "0.7.2"
+lazy val catsCollectionsV  = "0.9.10"
 
 lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
   "Generate DB schemas and snapshot into modules/pg/src/main/scala/graviton/db"
@@ -151,6 +152,7 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "org.gnieh"           %% "diffson-core" % diffsonV,
       ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
+      "org.typelevel"       %% "cats-collections-core"   % catsCollectionsV,
     ),
   )
   .settings(commonSettings)
