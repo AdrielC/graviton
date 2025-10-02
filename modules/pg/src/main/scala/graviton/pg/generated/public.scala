@@ -7,8 +7,6 @@ import com.augustnagro.magnum.*
 import graviton.db.{*, given}
 import zio.Chunk
 import zio.json.ast.Json
-import zio.schema.{DeriveSchema, Schema}
-
 @Table(PostgresDbType)
 final case class BuildInfo(
   @Id
@@ -29,22 +27,19 @@ final case class BuildInfo(
   @SqlName("launched_at")
   launchedAt: java.time.OffsetDateTime,
   @SqlName("is_current")
-  isCurrent: Boolean,
+  isCurrent: Boolean
 ) derives DbCodec
 
 object BuildInfo:
-  opaque type Id <: Tuple = Tuple1[Long]
-  type Tupled             = (id: Long)
-
+  opaque type Id <: Long = Long
   object Id:
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
-    def apply(id: Long): Id          = fromTuple((id = id))
+    def make(id: Long): Either[String, Id] = Right(id)
+    def from(value: Long): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[Long]].biMap(value => BuildInfo.Id.fromTuple((id = value)), id => BuildInfo.Id.toTuple(id).id)
-
-  extension (id: Id) def id: Long = BuildInfo.Id.toTuple(id).id
+  export Id.given
+  extension (id: Id)
+    def value: Long = id
 
   final case class Creator(
     id: Option[BuildInfo.Id] = None,
@@ -55,7 +50,7 @@ object BuildInfo:
     zioVersion: String,
     builtAt: java.time.OffsetDateTime,
     launchedAt: java.time.OffsetDateTime,
-    isCurrent: Option[Boolean] = None,
+    isCurrent: Option[Boolean] = None
   ) derives DbCodec
 
   val repo = Repo[BuildInfo.Creator, BuildInfo, BuildInfo.Id]
@@ -68,28 +63,24 @@ final case class HashAlgorithm(
   @SqlName("name")
   name: String,
   @SqlName("is_fips")
-  isFips: Boolean,
+  isFips: Boolean
 ) derives DbCodec
 
 object HashAlgorithm:
-  opaque type Id <: Tuple = Tuple1[Short]
-  type Tupled             = (id: Short)
-
+  opaque type Id <: Short = Short
   object Id:
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
-    def apply(id: Short): Id         = fromTuple((id = id))
+    def make(id: Short): Either[String, Id] = Right(id)
+    def from(value: Short): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Short]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
-    .summonInline[DbCodec[Short]]
-    .biMap(value => HashAlgorithm.Id.fromTuple((id = value)), id => HashAlgorithm.Id.toTuple(id).id)
-
-  extension (id: Id) def id: Short = HashAlgorithm.Id.toTuple(id).id
+  export Id.given
+  extension (id: Id)
+    def value: Short = id
 
   final case class Creator(
     id: Option[HashAlgorithm.Id] = None,
     name: String,
-    isFips: Option[Boolean] = None,
+    isFips: Option[Boolean] = None
   ) derives DbCodec
 
   val repo = Repo[HashAlgorithm.Creator, HashAlgorithm, HashAlgorithm.Id]
@@ -118,22 +109,19 @@ final case class Store(
   @SqlName("updated_at")
   updatedAt: java.time.OffsetDateTime,
   @SqlName("dv_hash")
-  dvHash: Option[Chunk[Byte]],
+  dvHash: Option[Chunk[Byte]]
 ) derives DbCodec
 
 object Store:
-  opaque type Id <: Tuple = Tuple1[StoreKey]
-  type Tupled             = (key: StoreKey)
-
+  opaque type Id <: StoreKey = StoreKey
   object Id:
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
-    def apply(key: StoreKey): Id     = fromTuple((key = key))
+    def apply(key: StoreKey): Id = key
+    def from(value: StoreKey): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => Store.Id.fromTuple((key = value)), id => Store.Id.toTuple(id).key)
-
-  extension (id: Id) def key: StoreKey = Store.Id.toTuple(id).key
+  export Id.given
+  extension (id: Id)
+    def value: StoreKey = id
 
   final case class Creator(
     key: StoreKey,
@@ -146,7 +134,7 @@ object Store:
     version: Option[NonNegLong] = None,
     createdAt: Option[java.time.OffsetDateTime] = None,
     updatedAt: Option[java.time.OffsetDateTime] = None,
-    dvHash: Option[Chunk[Byte]] = None,
+    dvHash: Option[Chunk[Byte]] = None
   ) derives DbCodec
 
   val repo = Repo[Store.Creator, Store, Store.Id]
@@ -157,7 +145,7 @@ final case class Blob(
   @SqlName("id")
   id: java.util.UUID,
   @SqlName("algo_id")
-  algoId: Short,
+  algoId: HashAlgorithm.Id,
   @SqlName("hash")
   hash: HashBytes,
   @SqlName("size_bytes")
@@ -165,22 +153,19 @@ final case class Blob(
   @SqlName("media_type_hint")
   mediaTypeHint: Option[String],
   @SqlName("created_at")
-  createdAt: java.time.OffsetDateTime,
+  createdAt: java.time.OffsetDateTime
 ) derives DbCodec
 
 object Blob:
-  opaque type Id <: Tuple = Tuple1[java.util.UUID]
-  type Tupled             = (id: java.util.UUID)
-
+  opaque type Id <: java.util.UUID = java.util.UUID
   object Id:
-    def fromTuple(tuple: Tupled): Id  = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled       = id.asInstanceOf[Tupled]
-    def apply(id: java.util.UUID): Id = fromTuple((id = id))
+    def make(id: java.util.UUID): Either[String, Id] = Right(id)
+    def from(value: java.util.UUID): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Blob.Id.fromTuple((id = value)), id => Blob.Id.toTuple(id).id)
-
-  extension (id: Id) def id: java.util.UUID = Blob.Id.toTuple(id).id
+  export Id.given
+  extension (id: Id)
+    def value: java.util.UUID = id
 
   final case class Creator(
     id: Option[Blob.Id] = None,
@@ -188,7 +173,7 @@ object Blob:
     hash: HashBytes,
     sizeBytes: PosLong,
     mediaTypeHint: Option[String] = None,
-    createdAt: Option[java.time.OffsetDateTime] = None,
+    createdAt: Option[java.time.OffsetDateTime] = None
   ) derives DbCodec
 
   val repo = Repo[Blob.Creator, Blob, Blob.Id]
@@ -197,7 +182,7 @@ object Blob:
 final case class Block(
   @Id
   @SqlName("algo_id")
-  algoId: Short,
+  algoId: HashAlgorithm.Id,
   @Id
   @SqlName("hash")
   hash: HashBytes,
@@ -206,38 +191,44 @@ final case class Block(
   @SqlName("created_at")
   createdAt: java.time.OffsetDateTime,
   @SqlName("inline_bytes")
-  inlineBytes: Option[SmallBytes],
+  inlineBytes: Option[SmallBytes]
 ) derives DbCodec
 
 object Block:
-  opaque type Id <: Tuple = (Short, HashBytes)
-  type Tupled             = (
+  opaque type Id <: (
     algoId: Short,
-    hash: HashBytes,
+    hash: HashBytes
+  ) = (
+    algoId: Short,
+    hash: HashBytes
   )
-
   object Id:
-    def fromTuple(tuple: Tupled): Id              = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled                   = id.asInstanceOf[Tupled]
-    def apply(algoId: Short, hash: HashBytes): Id = fromTuple((algoId = algoId, hash = hash))
-
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
-    .summonInline[DbCodec[(Short, HashBytes)]]
-    .biMap(
-      value => Block.Id.fromTuple((algoId = value._1, hash = value._2)),
-      id => (Block.Id.toTuple(id).algoId, Block.Id.toTuple(id).hash),
-    )
-
+    def make(algoId: Short, hash: HashBytes): Either[String, Id] = Right((algoId = algoId, hash = hash))
+    def from(value: (
+    algoId: Short,
+    hash: HashBytes
+  )): Id = value
+  export Id.given
   extension (id: Id)
-    def algoId: Short   = Block.Id.toTuple(id).algoId
-    def hash: HashBytes = Block.Id.toTuple(id).hash
+    def value: (
+    algoId: Short,
+    hash: HashBytes
+  ) = id
+
+  def apply(algoId: Short, hash: HashBytes): (
+    algoId: Short,
+    hash: HashBytes
+  ) = (algoId = algoId, hash = hash)
+
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Short, HashBytes)]].biMap(value => Block.Id((algoId = value._1, hash = value._2)), id => ((id.value).algoId, (id.value).hash))
+
 
   final case class Creator(
     algoId: Short,
     hash: HashBytes,
     sizeBytes: PosLong,
     createdAt: Option[java.time.OffsetDateTime] = None,
-    inlineBytes: Option[SmallBytes] = None,
+    inlineBytes: Option[SmallBytes] = None
   ) derives DbCodec
 
   val repo = Repo[Block.Creator, Block, Block.Id]
@@ -250,29 +241,25 @@ final case class MerkleSnapshot(
   @SqlName("query_fingerprint")
   queryFingerprint: Chunk[Byte],
   @SqlName("algo_id")
-  algoId: Short,
+  algoId: HashAlgorithm.Id,
   @SqlName("root_hash")
   rootHash: HashBytes,
   @SqlName("at_time")
   atTime: java.time.OffsetDateTime,
   @SqlName("note")
-  note: Option[String],
+  note: Option[String]
 ) derives DbCodec
 
 object MerkleSnapshot:
-  opaque type Id <: Tuple = Tuple1[Long]
-  type Tupled             = (id: Long)
-
+  opaque type Id <: Long = Long
   object Id:
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
-    def apply(id: Long): Id          = fromTuple((id = id))
+    def make(id: Long): Either[String, Id] = Right(id)
+    def from(value: Long): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
-    .summonInline[DbCodec[Long]]
-    .biMap(value => MerkleSnapshot.Id.fromTuple((id = value)), id => MerkleSnapshot.Id.toTuple(id).id)
-
-  extension (id: Id) def id: Long = MerkleSnapshot.Id.toTuple(id).id
+  export Id.given
+  extension (id: Id)
+    def value: Long = id
 
   final case class Creator(
     id: Option[MerkleSnapshot.Id] = None,
@@ -280,7 +267,7 @@ object MerkleSnapshot:
     algoId: Short,
     rootHash: HashBytes,
     atTime: Option[java.time.OffsetDateTime] = None,
-    note: Option[String] = None,
+    note: Option[String] = None
   ) derives DbCodec
 
   val repo = Repo[MerkleSnapshot.Creator, MerkleSnapshot, MerkleSnapshot.Id]
@@ -289,7 +276,7 @@ object MerkleSnapshot:
 final case class ManifestEntry(
   @Id
   @SqlName("blob_id")
-  blobId: java.util.UUID,
+  blobId: Blob.Id,
   @Id
   @SqlName("seq")
   seq: Int,
@@ -302,31 +289,37 @@ final case class ManifestEntry(
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("span")
-  span: Option[DbRange[Long]],
+  span: Option[DbRange[Long]]
 ) derives DbCodec
 
 object ManifestEntry:
-  opaque type Id <: Tuple = (java.util.UUID, Int)
-  type Tupled             = (
+  opaque type Id <: (
     blobId: java.util.UUID,
-    seq: Int,
+    seq: Int
+  ) = (
+    blobId: java.util.UUID,
+    seq: Int
   )
-
   object Id:
-    def fromTuple(tuple: Tupled): Id                = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled                     = id.asInstanceOf[Tupled]
-    def apply(blobId: java.util.UUID, seq: Int): Id = fromTuple((blobId = blobId, seq = seq))
-
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
-    .summonInline[DbCodec[(java.util.UUID, Int)]]
-    .biMap(
-      value => ManifestEntry.Id.fromTuple((blobId = value._1, seq = value._2)),
-      id => (ManifestEntry.Id.toTuple(id).blobId, ManifestEntry.Id.toTuple(id).seq),
-    )
-
+    def make(blobId: java.util.UUID, seq: Int): Either[String, Id] = Right((blobId = blobId, seq = seq))
+    def from(value: (
+    blobId: java.util.UUID,
+    seq: Int
+  )): Id = value
+  export Id.given
   extension (id: Id)
-    def blobId: java.util.UUID = ManifestEntry.Id.toTuple(id).blobId
-    def seq: Int               = ManifestEntry.Id.toTuple(id).seq
+    def value: (
+    blobId: java.util.UUID,
+    seq: Int
+  ) = id
+
+  def apply(blobId: java.util.UUID, seq: Int): (
+    blobId: java.util.UUID,
+    seq: Int
+  ) = (blobId = blobId, seq = seq)
+
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(java.util.UUID, Int)]].biMap(value => ManifestEntry.Id((blobId = value._1, seq = value._2)), id => ((id.value).blobId, (id.value).seq))
+
 
   final case class Creator(
     blobId: java.util.UUID,
@@ -335,7 +328,7 @@ object ManifestEntry:
     blockHash: HashBytes,
     offsetBytes: PosLong,
     sizeBytes: PosLong,
-    span: Option[DbRange[Long]] = None,
+    span: Option[DbRange[Long]] = None
   ) derives DbCodec
 
   val repo = Repo[ManifestEntry.Creator, ManifestEntry, ManifestEntry.Id]
@@ -350,7 +343,7 @@ final case class Replica(
   @SqlName("hash")
   hash: HashBytes,
   @SqlName("store_key")
-  storeKey: StoreKey,
+  storeKey: Store.Id,
   @SqlName("sector")
   sector: Option[String],
   @SqlName("status")
@@ -364,22 +357,19 @@ final case class Replica(
   @SqlName("first_seen_at")
   firstSeenAt: java.time.OffsetDateTime,
   @SqlName("last_verified_at")
-  lastVerifiedAt: Option[java.time.OffsetDateTime],
+  lastVerifiedAt: Option[java.time.OffsetDateTime]
 ) derives DbCodec
 
 object Replica:
-  opaque type Id <: Tuple = Tuple1[Long]
-  type Tupled             = (id: Long)
-
+  opaque type Id <: Long = Long
   object Id:
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]
-    def apply(id: Long): Id          = fromTuple((id = id))
+    def make(id: Long): Either[String, Id] = Right(id)
+    def from(value: Long): Id = value
+    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => from(value), id => value(id))
 
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Replica.Id.fromTuple((id = value)), id => Replica.Id.toTuple(id).id)
-
-  extension (id: Id) def id: Long = Replica.Id.toTuple(id).id
+  export Id.given
+  extension (id: Id)
+    def value: Long = id
 
   final case class Creator(
     id: Option[Replica.Id] = None,
@@ -392,7 +382,7 @@ object Replica:
     etag: Option[String] = None,
     storageClass: Option[String] = None,
     firstSeenAt: Option[java.time.OffsetDateTime] = None,
-    lastVerifiedAt: Option[java.time.OffsetDateTime] = None,
+    lastVerifiedAt: Option[java.time.OffsetDateTime] = None
   ) derives DbCodec
 
   val repo = Repo[Replica.Creator, Replica, Replica.Id]
@@ -410,7 +400,7 @@ final case class VBlobManifest(
   @SqlName("created_at")
   createdAt: Option[java.time.OffsetDateTime],
   @SqlName("manifest")
-  manifest: Option[Json],
+  manifest: Option[Json]
 ) derives DbCodec
 
 object VBlobManifest:
@@ -443,7 +433,7 @@ final case class VBlockReplicaHealth(
   @SqlName("has_active")
   hasActive: Option[Boolean],
   @SqlName("has_lost")
-  hasLost: Option[Boolean],
+  hasLost: Option[Boolean]
 ) derives DbCodec
 
 object VBlockReplicaHealth:
@@ -474,7 +464,7 @@ final case class VStoreInventory(
   @SqlName("first_replica_seen_at")
   firstReplicaSeenAt: Option[java.time.OffsetDateTime],
   @SqlName("last_replica_verified_at")
-  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime],
+  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime]
 ) derives DbCodec
 
 object VStoreInventory:
@@ -482,43 +472,3 @@ object VStoreInventory:
 
   val repo = ImmutableRepo[VStoreInventory, VStoreInventory.Id]
 
-// ZIO Schema definitions for public
-object Schemas {
-  given buildInfoSchema: Schema[BuildInfo]                     = DeriveSchema.gen[BuildInfo]
-  given buildInfoIdSchema: Schema[BuildInfo.Id]                =
-    scala.compiletime.summonInline[Schema[Long]].transform(value => BuildInfo.Id.fromTuple((id = value)), id => BuildInfo.Id.toTuple(id).id)
-  given hashAlgorithmSchema: Schema[HashAlgorithm]             = DeriveSchema.gen[HashAlgorithm]
-  given hashAlgorithmIdSchema: Schema[HashAlgorithm.Id]        = scala.compiletime
-    .summonInline[Schema[Short]]
-    .transform(value => HashAlgorithm.Id.fromTuple((id = value)), id => HashAlgorithm.Id.toTuple(id).id)
-  given storeSchema: Schema[Store]                             = DeriveSchema.gen[Store]
-  given storeIdSchema: Schema[Store.Id]                        =
-    scala.compiletime.summonInline[Schema[StoreKey]].transform(value => Store.Id.fromTuple((key = value)), id => Store.Id.toTuple(id).key)
-  given blobSchema: Schema[Blob]                               = DeriveSchema.gen[Blob]
-  given blobIdSchema: Schema[Blob.Id]                          =
-    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Blob.Id.fromTuple((id = value)), id => Blob.Id.toTuple(id).id)
-  given blockSchema: Schema[Block]                             = DeriveSchema.gen[Block]
-  given blockIdSchema: Schema[Block.Id]                        = scala.compiletime
-    .summonInline[Schema[(Short, HashBytes)]]
-    .transform(
-      value => Block.Id.fromTuple((algoId = value._1, hash = value._2)),
-      id => (Block.Id.toTuple(id).algoId, Block.Id.toTuple(id).hash),
-    )
-  given merkleSnapshotSchema: Schema[MerkleSnapshot]           = DeriveSchema.gen[MerkleSnapshot]
-  given merkleSnapshotIdSchema: Schema[MerkleSnapshot.Id]      = scala.compiletime
-    .summonInline[Schema[Long]]
-    .transform(value => MerkleSnapshot.Id.fromTuple((id = value)), id => MerkleSnapshot.Id.toTuple(id).id)
-  given manifestEntrySchema: Schema[ManifestEntry]             = DeriveSchema.gen[ManifestEntry]
-  given manifestEntryIdSchema: Schema[ManifestEntry.Id]        = scala.compiletime
-    .summonInline[Schema[(java.util.UUID, Int)]]
-    .transform(
-      value => ManifestEntry.Id.fromTuple((blobId = value._1, seq = value._2)),
-      id => (ManifestEntry.Id.toTuple(id).blobId, ManifestEntry.Id.toTuple(id).seq),
-    )
-  given replicaSchema: Schema[Replica]                         = DeriveSchema.gen[Replica]
-  given replicaIdSchema: Schema[Replica.Id]                    =
-    scala.compiletime.summonInline[Schema[Long]].transform(value => Replica.Id.fromTuple((id = value)), id => Replica.Id.toTuple(id).id)
-  given vBlobManifestSchema: Schema[VBlobManifest]             = DeriveSchema.gen[VBlobManifest]
-  given vBlockReplicaHealthSchema: Schema[VBlockReplicaHealth] = DeriveSchema.gen[VBlockReplicaHealth]
-  given vStoreInventorySchema: Schema[VStoreInventory]         = DeriveSchema.gen[VStoreInventory]
-}

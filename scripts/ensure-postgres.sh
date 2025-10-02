@@ -35,7 +35,7 @@ set -euo pipefail
 
 ENGINE="auto"                      # auto | docker | podman | native
 PG_VERSION="${PG_VERSION:-17}"
-NAME="${PG_NAME:-graviton-pg}"
+NAME="${PG_NAME:-graviton}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
 PG_DATABASE="${PG_DATABASE:-graviton}"

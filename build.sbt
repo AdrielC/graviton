@@ -7,36 +7,32 @@ enablePlugins(
 import scala.sys.process.*
 import sbtunidoc.ScalaUnidocPlugin.autoImport._
 import sbt.io.Path
-
 import sbt.librarymanagement.Artifact
+import scala.jdk.CollectionConverters.*
+
+import Dependencies.V.*
+
 
 ThisBuild / scalaVersion  := "3.7.3"
+
+
 ThisBuild / organization  := "io.quasar"
 ThisBuild / versionScheme := Some("semver-spec")
 ThisBuild / name          := "graviton"
 ThisBuild / turbo         := true
 
-lazy val zioV            = "2.1.20"
-lazy val zioPreludeV     = "1.0.0-RC41"
-lazy val ironV           = "3.2.0"
-lazy val zioSchemaV      = "1.7.4"
-lazy val zioJsonV        = "0.6.2"
-lazy val zioMetricsV     = "2.4.3"
-lazy val zioCacheV       = "0.2.4"
-lazy val zioRocksdbV     = "0.4.4"
-lazy val zioConfigV      = "4.0.4"
-lazy val zioHttpV        = "3.0.0"
-lazy val testContainersV = "1.19.7"
-lazy val zioLoggingV     = "2.2.4"
-lazy val magnumV         = "2.0.0-M2"
-lazy val postgresV       = "42.7.3"
 
-lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
+
+lazy val generatePgSchemas = taskKey[Seq[File]](
   "Generate DB schemas and snapshot into modules/pg/src/main/scala/graviton/db"
 )
 
+val targetGenerated = settingKey[File]("The target directory for generated schemas")
+
+
 // Task to bootstrap local Postgres and stream output via sbt logger
 lazy val setUpPg = taskKey[Unit]("Bootstrap local Postgres (Podman) and stream logs")
+
 lazy val autoBootstrapPg = settingKey[Boolean](
   "Run setUpPg automatically when sbt starts (controlled via GRAVITON_BOOTSTRAP_PG)"
 )
@@ -48,6 +44,7 @@ lazy val serveDocs = taskKey[Unit]("Serve documentation site locally")
 lazy val buildDocs = taskKey[Unit]("Build complete documentation site")
 lazy val previewDocs = taskKey[Unit]("Preview documentation site")
 lazy val installDocs = taskKey[Unit]("Install documentation dependencies")
+
 
 lazy val MdocKeys = _root_.mdoc.MdocPlugin.autoImport
 
@@ -63,7 +60,11 @@ def envFlagEnabled(name: String): Boolean =
     }
 
 ThisBuild / setUpPg := {
+  println("Setting up Postgres...")
   val log     = streams.value.log
+
+  log.info("Setting up Postgres...")
+
   val workDir = (ThisBuild / baseDirectory).value
 
   val host       = (ThisBuild / pgHost).value
@@ -80,8 +81,12 @@ ThisBuild / setUpPg := {
   }
 
   if (pgReachable()) {
+
     log.info(s"Postgres already reachable at $host:$port")
-  } else {
+
+  }
+  
+  {
     log.info("Postgres not reachable, running ensure-postgres.sh...")
     
     val cmd = Seq(
@@ -102,6 +107,27 @@ ThisBuild / setUpPg := {
       if (line.startsWith("export ")) {
         val parts = line.stripPrefix("export ").split("=", 2)
         if (parts.length == 2) {
+          
+          if (parts(0) == "PG_DATABASE") {
+            ThisBuild / pgDatabase := parts(1)
+          }
+
+          if (parts(0) == "PG_USERNAME") {
+            ThisBuild / pgUsername := parts(1)
+          }
+
+          if (parts(0) == "PG_PASSWORD") {
+            ThisBuild / pgPassword := parts(1)
+          }
+
+          if (parts(0) == "PG_HOST") {
+            ThisBuild / pgHost := parts(1)
+          }
+
+          if (parts(0) == "PG_PORT") {
+            ThisBuild / pgPort := parts(1)
+          }
+
           System.setProperty(parts(0), parts(1))
           log.info(s"Set ${parts(0)}=${parts(1)}")
         }
@@ -127,6 +153,7 @@ ThisBuild / onLoad := {
     if (shouldBootstrap) "setUpPg" :: s1 else s1
   }
 }
+
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(
@@ -216,61 +243,95 @@ lazy val dbcodegen = project
     runMain := Some("dbcodegen.DbMain"),
   )
 
+lazy val runGen = taskKey[Unit]("Run dbcodegen")
+
 lazy val pg = project
   .in(file("modules/pg"))
   .dependsOn(core, db, dbcodegen)
   .settings(
+    dbcodegen / Compile / run / mainClass := Some("dbcodegen.DbMain"),
+  )
+  
+  .settings(
     name              := "graviton-pg",
+    targetGenerated   := (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated"),
+    javaOptions ++= Seq(
+      s"-Ddbcodegen.out=${(targetGenerated).value.getAbsolutePath}",
+      s"-Ddbcodegen.template=${(baseDirectory.value / "codegen" / "magnum.ssp")}",
+      s"-Ddbcodegen.jdbcUrl=jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}",
+      s"-Ddbcodegen.username=${pgUsername.value}",
+      s"-Ddbcodegen.password=${pgPassword.value}"
+    ),
+    dbcodegen / Compile / run / javaOptions ++= Seq(
+      s"-Ddbcodegen.out=${(targetGenerated).value.getAbsolutePath}",
+      s"-Ddbcodegen.template=${(baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath}",
+      s"-Ddbcodegen.jdbcUrl=jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}?sslmode=disable",
+      s"-Ddbcodegen.username=${pgUsername.value}",
+      s"-Ddbcodegen.password=${pgPassword.value}"
+    ),
+    runGen := {
+      val log = streams.value.log
+      log.info("Running dbcodegen...")
+
+      val targetGen = (targetGenerated).value.getAbsolutePath
+      val template = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
+      val pg_host = pgHost.value
+      val pg_port = pgPort.value
+      val pg_database = pgDatabase.value
+      val jdbcUrl = s"jdbc:postgresql://${pg_host}:${pg_port}/${pg_database}"
+      val username = pgUsername.value
+      val password = pgPassword.value
+
+      val props = Seq(
+        s"-Ddbcodegen.out=${targetGen}",
+        s"-Ddbcodegen.template=${template}",
+        s"-Ddbcodegen.jdbcUrl=${jdbcUrl}",
+        s"-Ddbcodegen.username=${username}",
+        s"-Ddbcodegen.password=${password}",
+        s"-Ddbcodegen.password=${pgPassword.value}"
+      )
+      // Delegate to the dbcodegen subproject's runMain so the class is on classpath
+      val args = " dbcodegen.DbMain " + props
+
+      println(s"Running dbcodegen with args: $args")
+      println(s"Classpath: ${((dbcodegen / Compile / target).value / s"scala-${scalaVersion.value}").listFiles().toList}")
+
+      (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
+    }
+  ) 
+  .settings(
+    
     // on-demand schema generation snapshot directory (checked into VCS)
     Compile / unmanagedSourceDirectories += (
-      baseDirectory.value / "src" / "main" / "scala" / "graviton" / "db"
+      targetGenerated.value
     ),
     generatePgSchemas := {
+      val genPath = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated")
+
       val log = streams.value.log
       log.info("Generating PG schemas...")
 
       val templatePath = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
-      val outputPath   = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated").getAbsolutePath
+      
+      val outputPath   = targetGenerated.value.getAbsolutePath
 
       log.info(s"Template: $templatePath")
       log.info(s"Output: $outputPath")
 
-      // Set system properties before running
-      val oldTemplate = System.getProperty("dbcodegen.template")
-      val oldOut      = System.getProperty("dbcodegen.out")
-      val oldJdbcUrl  = System.getProperty("dbcodegen.jdbcUrl")
-      val oldUsername = System.getProperty("dbcodegen.username")
-      val oldPassword = System.getProperty("dbcodegen.password")
+      val targetGeneratedPath = targetGenerated.value.toString()
 
-      try {
-        System.setProperty("dbcodegen.template", templatePath)
-        System.setProperty("dbcodegen.out", outputPath)
-        System.setProperty("dbcodegen.jdbcUrl", s"jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}")
-        System.setProperty("dbcodegen.username", pgUsername.value)
-        System.setProperty("dbcodegen.password", pgPassword.value)
+      val host = pgHost.value
+      val port = pgPort.value
+      val database = pgDatabase.value
+      val username = pgUsername.value
+      val password = pgPassword.value
 
-        // Run the main class
-        (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
-
-        log.info("Schema generation completed successfully")
-        Seq(file(outputPath))
-      } finally {
-        // Restore old system properties
-        if (oldTemplate != null) System.setProperty("dbcodegen.template", oldTemplate)
-        else System.clearProperty("dbcodegen.template")
-
-        if (oldOut != null) System.setProperty("dbcodegen.out", oldOut)
-        else System.clearProperty("dbcodegen.out")
-
-        if (oldJdbcUrl != null) System.setProperty("dbcodegen.jdbcUrl", oldJdbcUrl)
-        else System.clearProperty("dbcodegen.jdbcUrl")
-
-        if (oldUsername != null) System.setProperty("dbcodegen.username", oldUsername)
-        else System.clearProperty("dbcodegen.username")
-
-        if (oldPassword != null) System.setProperty("dbcodegen.password", oldPassword)
-        else System.clearProperty("dbcodegen.password")
-      }
+      // Run the main class
+      runGen.value
+      
+      log.info("Schema generation completed successfully")
+      
+      file(outputPath).listFiles().toList
     },
     // keep your existing deps:
     libraryDependencies ++= Seq(
@@ -316,7 +377,7 @@ lazy val pg = project
     )
   )
   .settings(
-    Test / resourceGenerators += Def.task {
+    Test / resourceGenerators += task {
       val ddl     = baseDirectory.value / "ddl.sql"
       val target  = (Test / resourceManaged).value / "ddl.sql"
       IO.copyFile(ddl, target)
@@ -333,6 +394,9 @@ lazy val tika = project
   )
   .settings(commonSettings)
 
+val initDocsDeps = Def.ifS(Def.task(!websiteDir.value.toFile.exists()))(
+        installDocs
+)(Def.task(streams.value.log.info("✓ Website dependencies already installed")))
 
 lazy val docs = project
   .in(file("docs"))
@@ -347,7 +411,7 @@ lazy val docs = project
     projectHomePage := "https://github.com/AdrielC/graviton",
     projectStage := ProjectStage.Development,
     docsVersioningScheme := WebsitePlugin.VersioningScheme.SemanticVersioning,
-    MdocKeys.mdocIn := baseDirectory.value / "src" / "main" / "mdoc",
+    MdocKeys.mdocIn := baseDirectory.value / "src" / "docs",
     MdocKeys.mdocVariables := Map(
       "VERSION" -> version.value,
       "SCALA_VERSION" -> scalaVersion.value,
@@ -361,31 +425,27 @@ lazy val docs = project
       
       val webDir = websiteDir.value.toFile()
 
-      {
-        log.info("Creating new website scaffold...")
-        Process(
+      
+      log.info("Creating new website scaffold...")
+      Process(
           s"""npm init docusaurus@latest website classic --package-manager npm --skip-install""",
           webDir
-        ).!
+      ).!
         
-        Process("npm install", webDir).!
-        Process("npm install prism-react-renderer@next prismjs @mdx-js/react d3 react-force-graph", webDir).!
+      Process("npm install", webDir).!
+      Process("npm install prism-react-renderer@next prismjs @mdx-js/react d3 react-force-graph", webDir).!
         
-        log.info("✓ Website dependencies installed")
-      }
+      log.info("✓ Website dependencies installed")
     },
     
     buildDocs := {
       val log = streams.value.log
       
       val webDir = websiteDir.value
+      
       // 1. Install if needed
-      if (!webDir.toFile.exists()) {
-        installDocs.value
-      } else {
-        log.info("✓ Website dependencies already installed")
-        installDocs.value
-      }
+      
+      initDocsDeps.value
       
       // 2. Copy Matrix theme CSS
       val cssSrc = baseDirectory.value / "css"
@@ -420,58 +480,15 @@ lazy val docs = project
         log.info("✓ Copied ScalaDoc to static/api/")
       }
       
-      // 5. Write docusaurus.config.js
-      val configFile = (webDir / "docusaurus.config.js").toFile
-      val configContents =
-        s"""const lightCodeTheme = require('prism-react-renderer/themes/github');
-           |const darkCodeTheme = require('prism-react-renderer/themes/vsDark');
-           |
-           |module.exports = {
-           |  title: 'Graviton',
-           |  url: 'https://adrielc.github.io',
-           |  baseUrl: '/graviton/',
-           |  organizationName: 'io.quasar',
-           |  projectName: 'graviton',
-           |  onBrokenLinks: 'ignore',
-           |  onBrokenMarkdownLinks: 'warn',
-           |  favicon: 'img/favicon.ico',
-           |  i18n: { defaultLocale: 'en', locales: ['en'] },
-           |  themeConfig: {
-           |    colorMode: { defaultMode: 'dark', respectPrefersColorScheme: false },
-           |    navbar: {
-           |      title: 'Graviton',
-           |      items: [
-           |        { to: '/docs/', label: 'Docs', position: 'left' },
-           |        { href: '/graviton/api/', label: 'API', position: 'left' },
-           |        { to: '/vis', label: 'Visualize', position: 'left' },
-           |        { href: 'https://github.com/AdrielC/graviton', label: 'GitHub', position: 'right' }
-           |      ]
-           |    },
-           |    prism: {
-           |      additionalLanguages: ['scala'],
-           |      theme: lightCodeTheme,
-           |      darkTheme: darkCodeTheme
-           |    }
-           |  },
-           |  presets: [
-           |    [
-           |      'classic',
-           |      {
-           |        docs: {
-           |          routeBasePath: 'docs',
-           |          path: 'docs',
-           |          sidebarPath: './sidebars.js'
-           |        },
-           |        blog: false,
-           |        theme: {
-           |          customCss: './src/css/custom.css'
-           |        }
-           |      }
-           |    ]
-           |  ]
-           |};""".stripMargin
-      IO.write(configFile, configContents)
-      log.info("✓ Wrote docusaurus.config.js")
+      // 5. Copy docusaurus.config.js from docs/
+      val configSrc = baseDirectory.value / "docusaurus.config.js"
+      val configDst = (webDir / "docusaurus.config.js").toFile
+      if (configSrc.exists()) {
+        IO.copyFile(configSrc, configDst)
+        log.info("✓ Copied docusaurus.config.js")
+      } else {
+        log.warn(s"⚠ docusaurus.config.js not found at: ${configSrc}")
+      }
       
       // 6. Write Prism Scala language support
       val prismDir = (webDir / "src" / "theme")
@@ -498,8 +515,9 @@ lazy val docs = project
           |    'operator': /<-|=>|\b(?:->|<-|<:|>:|\|)\b|[+\-*/%&|^!=<>]=?|\b(?:and|or)\b/
           |  };
           |};""".stripMargin
-      IO.write(prismFile, prismJs)
-      log.info("✓ Added Scala syntax highlighting")
+      val prismSrc = baseDirectory.value / "src" / "theme" / "prism-include-languages.js"
+      if (prismSrc.exists()) IO.copyFile(prismSrc, prismFile) else IO.write(prismFile, prismJs)
+      log.info("✓ Added Scala syntax highlighting (copied if available)")
       
       // 7. Create interactive visualization component
       val componentsDir = webDir / "src" / "components"
@@ -570,8 +588,9 @@ lazy val docs = project
           |    </div>
           |  );
           |}""".stripMargin
-      IO.write(visFile, visJs)
-      log.info("✓ Added interactive visualization component")
+      val visSrc = baseDirectory.value / "src" / "components" / "BinaryStorageVis.js"
+      if (visSrc.exists()) IO.copyFile(visSrc, visFile) else IO.write(visFile, visJs)
+      log.info("✓ Added interactive visualization component (copied if available)")
 
       // 7.5. Ensure homepage redirects to /docs/
       val pagesDir = (webDir / "src" / "pages")
@@ -590,8 +609,9 @@ lazy val docs = project
           |  return null;
           |}
           |""".stripMargin
-      IO.write(indexPage, indexJs)
-      log.info("✓ Added homepage redirect to /docs/")
+      val indexSrc = baseDirectory.value / "src" / "pages" / "index.js"
+      if (indexSrc.exists()) IO.copyFile(indexSrc, indexPage) else IO.write(indexPage, indexJs)
+      log.info("✓ Added homepage redirect to /docs/ (copied if available)")
       
       // 8. Run mdoc
       (Compile / mdoc).toTask("").value
@@ -620,9 +640,13 @@ lazy val docs = project
 // Convenience aliases for database operations
 addCommandAlias(
   "genPg",
-  "dbcodegen/runMain dbcodegen.DbMain " +
-    "-Ddbcodegen.template=modules/pg/codegen/magnum.ssp " +
-    "-Ddbcodegen.out=modules/pg/src/main/scala/graviton/db",
+  "pg/runGen"
+)
+
+addCommandAlias(
+  "pgInit",
+  "setUpPg; "+
+  "pg/runGen"
 )
 
 addCommandAlias("bootstrapPg", "setUpPg")
@@ -638,8 +662,7 @@ Global / excludeLintKeys ++= Set(
 
 addCommandAlias(
   "inspectPgConstraints",
-  "dbcodegen/runMain dbcodegen.DbMain " +
-    "-Ddbcodegen.inspect-only=true",
+  "pg/generatePgSchemas",
 )
 
 lazy val pgHost = settingKey[String]("PG_HOST")
@@ -652,7 +675,7 @@ lazy val pgPassword = settingKey[String]("PG_PASSWORD")
 ThisBuild / pgPassword := sys.env.get("PG_PASSWORD").getOrElse("postgres")
 
 lazy val pgDatabase = settingKey[String]("PG_DATABASE")
-ThisBuild / pgDatabase := sys.env.get("PG_DATABASE").getOrElse("postgres")
+ThisBuild / pgDatabase := sys.env.get("PG_DATABASE").getOrElse((ThisBuild / name).value.toLowerCase)
 
 lazy val pgUsername = settingKey[String]("PG_USERNAME")
 ThisBuild / pgUsername := sys.env.get("PG_USERNAME").getOrElse("postgres")

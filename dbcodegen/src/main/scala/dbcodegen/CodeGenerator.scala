@@ -162,16 +162,44 @@ object CodeGenerator {
     sb.append("import graviton.db.{*, given}\n")
     sb.append("import zio.Chunk\n")
     sb.append("import zio.json.ast.Json\n")
-    sb.append("import zio.schema.{DeriveSchema, Schema}\n\n")
+    // ZIO Schema imports disabled; schema emission is turned off to avoid derivation issues
+    // sb.append("import zio.schema.{DeriveSchema, Schema}\n\n")
 
     schema.tables.foreach { table =>
+      // Build FK → referenced Id type overrides for this table
+      val fkIdTypeByLocalCol: Map[String, String] = {
+        val t       = table.db
+        val pkByRef = Option(t.getForeignKeys).toSeq.flatMap(_.asScala).flatMap { fk =>
+          fk.getColumnReferences.asScala.flatMap { ref =>
+            val localCol  = Option(ref.getForeignKeyColumn).map(_.getName)
+            val pkColOpt  = Option(ref.getPrimaryKeyColumn)
+            val targetTbl = pkColOpt.map(_.getParent)
+            (localCol, pkColOpt, targetTbl) match {
+              case (Some(local), Some(pkCol), Some(target: schemacrawler.schema.Table)) =>
+                val targetPkCols = Option(target.getPrimaryKey)
+                  .map(_.getConstrainedColumns.asScala.map(_.getName).toSet)
+                  .getOrElse(Set.empty)
+                // Only map when target has a single-column PK and this FK points to it
+                if (targetPkCols.size == 1 && targetPkCols.contains(pkCol.getName)) {
+                  val targetType = dbcodegen.NameFormat.sanitizeScalaName(dbcodegen.NameFormat.toPascalCase(target.getName))
+                  Some(local -> s"${targetType}.Id")
+                } else None
+              case _ => None
+            }
+          }
+        }
+        pkByRef.toMap
+      }
       sb.append("@Table(PostgresDbType)\n")
       sb.append(s"final case class ${table.scalaName}(\n")
       val columns = table.columns
       columns.zipWithIndex.foreach { case (column, idx) =>
         if (column.db.isPartOfPrimaryKey) sb.append("  @Id\n")
         sb.append(s"  @SqlName(\"${column.name}\")\n")
-        val tpe = renderColumnType(column)
+        val tpe = fkIdTypeByLocalCol
+          .get(column.name)
+          .map { base => if (!column.db.isPartOfPrimaryKey && column.db.isNullable) s"Option[$base]" else base }
+          .getOrElse(renderColumnType(column))
         val suffix = if (idx == columns.size - 1) "" else ","
         sb.append(s"  ${column.scalaName}: $tpe$suffix\n")
       }
@@ -182,27 +210,41 @@ object CodeGenerator {
 
       if (primaryKeyColumns.isEmpty) then
         sb.append("  type Id = Null\n\n")
-      else
-        
-        val tupleType   = if primaryKeyColumns.size == 1 then primaryKeyColumns.head.scalaType else renderNamedTuple(primaryKeyColumns)
-        val tupleCtor   = renderTupleCtor(primaryKeyColumns)
-        val idCodecName = "given_DbCodec_Id"
-
-        sb.append(s"  opaque type Id <: $tupleType = $tupleType\n")
-
+      else if (primaryKeyColumns.size == 1) then
+        val col       = primaryKeyColumns.head
+        val baseType  = renderColumnType(col, forceRequired = true)
+        val paramName = col.scalaName
+        sb.append(s"  opaque type Id <: $baseType = $baseType\n")
         sb.append("  object Id:\n")
-        sb.append(s"    given DbCodec[Id] = DbCodec.derived[$tupleType].asInstanceOf[DbCodec[Id]]\n")
-        sb.append(s"    def apply($tupleCtor): Id        = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}")
-
-        val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
-
+        if (ironTypeNames.contains(baseType)) then
+          sb.append(s"    def apply($paramName: $baseType): Id = $paramName\n")
+          sb.append(s"    def from(value: $baseType): Id = value\n")
+          
+        else
+          sb.append(s"    def make($paramName: $baseType): Either[String, Id] = Right($paramName)\n")
+          sb.append(s"    def from(value: $baseType): Id = value\n")
+          
+        sb.append(s"    given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => from(value), id => value(id))\n\n")
+        sb.append("  export Id.given\n")
         sb.append("  extension (id: Id)\n")
-        primaryKeyColumns.foreach { column =>
-          val accessor = column.scalaName
-          val body     = renderIdComponentAccessor(table.scalaName, column, "id")
-          sb.append(s"    def $accessor: ${renderColumnType(column, forceRequired = true)} = $body\n")
-        }
+        sb.append(s"    def value: $baseType = id\n\n")
+      else
+        val tupleType = renderNamedTuple(primaryKeyColumns)
+        val tupleCtor = renderTupleCtor(primaryKeyColumns)
+        sb.append(s"  opaque type Id <: $tupleType = $tupleType\n")
+        sb.append("  object Id:\n")
+        if (primaryKeyColumns.forall(c => ironTypeNames.contains(renderColumnType(c, forceRequired = true)))) then
+          sb.append(s"    def apply($tupleCtor): Id = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n")
+          sb.append(s"    def from(value: $tupleType): Id = value\n")
+        else
+          sb.append(s"    def make($tupleCtor): Either[String, Id] = Right(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n")
+          sb.append(s"    def from(value: $tupleType): Id = value\n")
+        sb.append("  export Id.given\n")
+        sb.append("  extension (id: Id)\n")
+        sb.append(s"    def value: $tupleType = id\n\n")
+        sb.append(s"  def apply($tupleCtor): $tupleType = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
+        val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
+        sb.append(s"    given DbCodec[Id] = $codecSource\n\n")
         sb.append("\n")
 
       if (!table.isView) {
@@ -240,7 +282,8 @@ object CodeGenerator {
         sb.append(s"  val repo = Repo[${table.scalaName}.Creator, ${table.scalaName}, ${table.scalaName}.Id]\n\n")
     }
 
-    sb.append(renderZioSchemas(schema))
+    // ZIO Schema emission disabled by default to avoid derivation issues for external/primitive types
+    // sb.append(renderZioSchemas(schema))
 
     sb.toString
   }
@@ -314,6 +357,14 @@ object CodeGenerator {
     refineNumericTypes(normalized, column)
   }
 
+  private val ironTypeNames: Set[String] = Set(
+    "StoreKey",
+    "HashBytes",
+    "SmallBytes",
+    "PosLong",
+    "NonNegLong",
+  )
+
   private val domainTypeMapping: Map[String, String] = Map(
     "store_key"         -> "StoreKey",
     "hash_bytes"        -> "HashBytes",
@@ -366,34 +417,34 @@ object CodeGenerator {
 
   private def renderCodecPlainType(columns: Seq[DataColumn]): String =
     columns.toList match
-      case Nil => "Unit"
+      case Nil => "Null"
       case single :: Nil => renderColumnType(single, forceRequired = true)
       case _ => renderTupleType(columns)
 
   private def renderCodecToId(tableName: String, columns: Seq[DataColumn], valueExpr: String): String =
     columns.toList match
-      case Nil => s"$tableName.Id.fromTuple(EmptyTuple)"
+      case Nil => s"$tableName.Id(null)"
       case single :: Nil =>
         val literal = renderNamedTupleLiteral(columns, _ => valueExpr)
-        s"$tableName.Id.fromTuple($literal)"
+        s"$tableName.Id($literal)"
       case _ =>
         val literal = renderNamedTupleLiteralFromTuple(columns, valueExpr)
-        s"$tableName.Id.fromTuple($literal)"
+        s"$tableName.Id($literal)"
 
   private def renderCodecFromId(tableName: String, columns: Seq[DataColumn], idExpr: String): String =
     columns.toList match
       case Nil => "EmptyTuple"
-      case single :: Nil => s"$tableName.Id.toTuple($idExpr).${single.scalaName}"
+      case single :: Nil => s"$tableName.Id($idExpr).${single.scalaName}"
       case _ =>
-        val namedExpr = s"$tableName.Id.toTuple($idExpr)"
+        val namedExpr = s"($idExpr.value)"
         renderPlainTupleFromNamed(namedExpr, columns)
 
-  private def renderIdSchemaSource(tableName: String, columns: Seq[DataColumn]): String = {
-    val schemaType = renderCodecPlainType(columns)
-    val toId       = renderCodecToId(tableName, columns, "value")
-    val fromId     = renderCodecFromId(tableName, columns, "id")
-    s"scala.compiletime.summonInline[Schema[$schemaType]].transform(value => $toId, id => $fromId)"
-  }
+  // private def renderIdSchemaSource(tableName: String, columns: Seq[DataColumn]): String = {
+  //   val schemaType = renderCodecPlainType(columns)
+  //   val toId       = renderCodecToId(tableName, columns, "value")
+  //   val fromId     = renderCodecFromId(tableName, columns, "id")
+  //   s"scala.compiletime.summonInline[Schema[$schemaType]].transform(value => $toId, id => $fromId)"
+  // }
 
   private def renderNamedTupleLiteralFromTuple(columns: Seq[DataColumn], tupleExpr: String): String =
     columns.toList match
@@ -411,42 +462,22 @@ object CodeGenerator {
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
 
-  private def renderIdComponentAccessor(tableName: String, column: DataColumn, idExpr: String): String =
-    s"$tableName.Id.toTuple($idExpr).${column.scalaName}"
+  // private def renderIdComponentAccessor(tableName: String, column: DataColumn, idExpr: String): String =
+  //   s"$tableName.Id.toTuple($idExpr).${column.scalaName}"
 
-  private def renderZioSchemas(schema: DataSchema): String = {
-    val sb = new StringBuilder
-    sb.append(s"// ZIO Schema definitions for ${schema.name}\n")
-    sb.append("object Schemas {\n")
+  // ZIO Schema emission disabled
 
-    schema.tables.foreach { table =>
-      val tableGiven = schemaGivenName(table.scalaName)
-      sb.append(s"  given $tableGiven: Schema[${table.scalaName}] = DeriveSchema.gen[${table.scalaName}]\n")
+  // private def schemaGivenName(typeName: String): String = {
+  //   val pascal = typeName
+  //     .split("\\.")
+  //     .filter(_.nonEmpty)
+  //     .map(_.capitalize)
+  //     .mkString
 
-      val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)
-      if (primaryKeyColumns.nonEmpty) then
-        val idGiven      = schemaGivenName(s"${table.scalaName}.Id")
-        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idGiven: Schema[${table.scalaName}.Id] = $schemaSource\n")
+  //   val camel =
+  //     if pascal.isEmpty then "schema"
+  //     else s"${pascal.head.toLower}${pascal.tail}"
 
-      if (!table.isView) {}
-    }
-
-    sb.append("}\n")
-    sb.toString
-  }
-
-  private def schemaGivenName(typeName: String): String = {
-    val pascal = typeName
-      .split("\\.")
-      .filter(_.nonEmpty)
-      .map(_.capitalize)
-      .mkString
-
-    val camel =
-      if pascal.isEmpty then "schema"
-      else s"${pascal.head.toLower}${pascal.tail}"
-
-    s"${camel}Schema"
-  }
+  //   s"${camel}Schema"
+  // }
 }

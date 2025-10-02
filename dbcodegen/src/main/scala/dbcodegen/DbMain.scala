@@ -2,18 +2,27 @@ package dbcodegen
 
 import java.io.File
 import java.util.logging.Level
+// import zio.*
 
 import scala.util.chaining.scalaUtilChainingOps
 
 object DbMain {
-
+  
   private lazy val log = java.util.logging.Logger.getGlobal.tap(_.setLevel(Level.WARNING))
 
   def main(args: Array[String]): Unit = {
+
     val jdbcUrl = sys.props
       .get("dbcodegen.jdbcUrl")
       .orElse(sys.env.get("PG_JDBC_URL"))
-      .getOrElse("jdbc:postgresql://127.0.0.1:5432/postgres")
+      .getOrElse {
+        
+        val PG_HOST = sys.env.get("PG_HOST").getOrElse("127.0.0.1")
+        val PG_PORT = sys.env.get("PG_PORT").getOrElse("5432")
+        val PG_DATABASE = sys.env.get("PG_DATABASE").getOrElse("graviton")
+        
+        s"jdbc:postgresql://${PG_HOST}:${PG_PORT}/${PG_DATABASE}" 
+      }
 
     val username = sys.props
       .get("dbcodegen.username")
@@ -34,14 +43,15 @@ object DbMain {
       }
     }
 
-    log.info(
+    println(
       s"""
-         |=== Database Code Generation ===
-         |  JDBC URL: $jdbcUrl
-         |  Username: ${username.getOrElse("<anonymous>")}
-         |  Output:   ${outDir.getAbsolutePath}
-         |================================
-         |""".stripMargin,
+          |=== Database Code Generation ===
+          |  JDBC URL: $jdbcUrl
+          |  Username: ${username.getOrElse("<anonymous>")}
+          |  Password: ${password.getOrElse("<anonymous>")}
+          |  Output:   ${outDir.getAbsolutePath}
+          |================================
+          |""".stripMargin,
     )
 
     val config = CodeGeneratorConfig.default.copy(
@@ -59,7 +69,7 @@ object DbMain {
     if (inspectOnly)
       log.info("Inspect-only mode complete")
     else
-      log.info(s"🎉 Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
+        log.info(s"🎉 Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
   }
 
   private def resolvePath(path: String): File = {
@@ -70,5 +80,6 @@ object DbMain {
       val parents = Iterator.iterate(Option(cwd))(_.flatMap(p => Option(p.getParentFile))).flatten.take(3).toSeq
       parents.map(new File(_, path)).find(_.exists()).getOrElse(new File(cwd, path))
     }
+    
   }
 }
