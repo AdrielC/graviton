@@ -29,7 +29,7 @@ final class FileSystemBlobStore private (root: Path, val id: BlobStoreId) extend
             .flatMap { ch =>
               val size         = ch.size()
               val (start, end) =
-                range.map(r => (r.start, r.endExclusive)).getOrElse((0L, size))
+                range.map(r => (r.startLong, r.endExclusiveLong)).getOrElse((0L, size))
               val len          = (end - start).toInt
               val buf          = java.nio.ByteBuffer.allocate(len)
               ZIO.attempt {

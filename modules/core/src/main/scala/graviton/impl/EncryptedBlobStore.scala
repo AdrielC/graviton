@@ -19,10 +19,11 @@ final class EncryptedBlobStore(delegate: BlobStore, encryption: Encryption) exte
       case Some(bytes) =>
         bytes.runCollect.flatMap { encrypted =>
           encryption.decrypt(key.hash, encrypted).map { plain =>
-            val sliced = range match
-              case Some(ByteRange(start, end)) =>
-                plain.drop(start.toInt).take((end - start).toInt)
-              case None                        => plain
+            val sliced = range.fold(plain) { r =>
+              val start = r.startLong.toInt
+              val end   = math.min(r.endExclusiveLong.toInt, plain.size)
+              plain.slice(start, end)
+            }
             Some(Bytes(ZStream.fromChunk(sliced)))
           }
         }

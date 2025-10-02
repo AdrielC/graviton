@@ -21,8 +21,8 @@ final class S3BlobStore(
     range: Option[ByteRange] = None,
   ): IO[Throwable, Option[Bytes]] =
     val builder = GetObjectArgs.builder.bucket(bucket).`object`(keyPath(key))
-    range.foreach { case ByteRange(start, end) =>
-      builder.offset(start).length(end - start)
+    range.foreach { r =>
+      builder.offset(r.startLong).length(r.lengthValue)
     }
     ZIO
       .attemptBlocking(client.getObject(builder.build()))

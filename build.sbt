@@ -21,6 +21,7 @@ lazy val zioPreludeV     = "1.0.0-RC41"
 lazy val ironV           = "3.2.0"
 lazy val zioSchemaV      = "1.7.4"
 lazy val zioJsonV        = "0.6.2"
+lazy val catsCollectionsV = "0.9.7"
 lazy val zioMetricsV       = "2.4.3"
 lazy val zioCacheV         = "0.2.4"
 lazy val zioRocksdbV       = "0.4.4"
@@ -148,10 +149,11 @@ lazy val core = project
   .in(file("modules/core"))
   .settings(
     name := "graviton-core",
-    libraryDependencies ++= Seq(
-      "org.gnieh"           %% "diffson-core" % diffsonV,
-      ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
-    ),
+      libraryDependencies ++= Seq(
+        "org.gnieh"           %% "diffson-core" % diffsonV,
+        ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
+        "org.typelevel"       %% "cats-collections-core" % catsCollectionsV,
+      ),
   )
   .settings(commonSettings)
 

@@ -16,10 +16,11 @@ final class InMemoryBlobStore private (
     range: Option[ByteRange] = None,
   ): IO[Throwable, Option[Bytes]] =
     ref.get.map(_.get(key).map { ch =>
-      val sliced = range match
-        case Some(ByteRange(start, end)) =>
-          ch.drop(start.toInt).take((end - start).toInt)
-        case None                        => ch
+      val sliced = range.fold(ch) { r =>
+        val start = r.startLong.toInt
+        val end   = math.min(r.endExclusiveLong.toInt, ch.size)
+        ch.slice(start, end)
+      }
       Bytes(ZStream.fromChunk(sliced))
     })
 

@@ -19,12 +19,11 @@ final class InMemoryBinaryStore private (ref: Ref[Map[BinaryId, Chunk[Byte]]]) e
     ref.get
       .map(_.get(id))
       .map(_.map { bytes =>
-        val sliced = range match
-          case Some(ByteRange(start, endExclusive)) =>
-            val s = start.toInt
-            val e = math.min(endExclusive.toInt, bytes.size)
-            bytes.slice(s, e)
-          case None                                 => bytes
+        val sliced = range.fold(bytes) { r =>
+          val start = r.startLong.toInt
+          val end   = math.min(r.endExclusiveLong.toInt, bytes.size)
+          bytes.slice(start, end)
+        }
         Bytes(ZStream.fromChunk(sliced))
       })
 
