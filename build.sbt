@@ -130,6 +130,7 @@ lazy val commonSettings = Seq(
     "dev.zio"            %% "zio-config-magnolia"   % zioConfigV,
     "io.github.iltotore" %% "iron"                  % ironV,
     "io.github.iltotore" %% "iron-zio"              % ironV,
+    "io.github.iltotore" %% "iron-zio-json"         % ironV,
     "io.github.rctcwyvrn" % "blake3"                % "1.3",
     "dev.zio"            %% "zio-logging"           % zioLoggingV,
     "dev.zio"            %% "zio-test"              % zioV % Test,

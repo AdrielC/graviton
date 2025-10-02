@@ -1,0 +1,16 @@
+package graviton.blob
+
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.zioJson.given
+import _root_.zio.json.{DeriveJsonCodec, JsonCodec}
+
+final case class BlobLocator(
+  scheme: String :| Match["[a-z0-9+.-]+"],
+  bucket: String,
+  path: String,
+):
+  def render: String = s"$scheme://$bucket/$path"
+
+object BlobLocator:
+  given JsonCodec[BlobLocator] = DeriveJsonCodec.gen[BlobLocator]
