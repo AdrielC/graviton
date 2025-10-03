@@ -143,19 +143,83 @@ lazy val commonSettings = Seq(
 )
 
 lazy val root = (project in file("."))
-  .aggregate(core, db, fs, s3, tika, metrics, pg, docs)
+  .aggregate(
+    gravitonCore,
+    gravitonRanges,
+    gravitonStreams,
+    objectStore,
+    objectStoreFilesystem,
+    objectStoreS3,
+    blobStoreLive,
+    db,
+    metrics,
+    pg,
+    tika,
+    docs,
+  )
   .settings(name := "graviton")
 
-lazy val core = project
-  .in(file("modules/core"))
+lazy val gravitonRanges = project
+  .in(file("modules/graviton-ranges"))
+  .settings(
+    name := "graviton-ranges",
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-collections-core" % catsCollectionsV,
+      "org.scodec"    %% "scodec-core"           % scodecV,
+    ),
+  )
+  .settings(commonSettings)
+
+lazy val gravitonStreams = project
+  .in(file("modules/graviton-streams"))
+  .dependsOn(gravitonCore, gravitonRanges)
+  .settings(
+    name := "graviton-streams",
+  )
+  .settings(commonSettings)
+
+lazy val gravitonCore = project
+  .in(file("modules/graviton-core"))
+  .dependsOn(gravitonRanges)
   .settings(
     name := "graviton-core",
     libraryDependencies ++= Seq(
       "org.gnieh"           %% "diffson-core" % diffsonV,
       ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
-    "org.typelevel"       %% "cats-collections-core"   % catsCollectionsV,
-    "org.scodec"          %% "scodec-core"             % scodecV,
     ),
+  )
+  .settings(commonSettings)
+
+lazy val objectStore = project
+  .in(file("modules/object-store"))
+  .dependsOn(gravitonRanges)
+  .settings(
+    name := "graviton-object-store",
+  )
+  .settings(commonSettings)
+
+lazy val objectStoreFilesystem = project
+  .in(file("modules/object-store-filesystem"))
+  .dependsOn(objectStore)
+  .settings(
+    name := "graviton-object-store-filesystem",
+  )
+  .settings(commonSettings)
+
+lazy val objectStoreS3 = project
+  .in(file("modules/object-store-s3"))
+  .dependsOn(objectStore)
+  .settings(
+    name := "graviton-object-store-s3",
+    libraryDependencies += "io.minio" % "minio" % "8.5.9",
+  )
+  .settings(commonSettings)
+
+lazy val blobStoreLive = project
+  .in(file("modules/blob-store-live"))
+  .dependsOn(gravitonCore, gravitonRanges, gravitonStreams, objectStore)
+  .settings(
+    name := "graviton-blob-store-live",
   )
   .settings(commonSettings)
 
@@ -173,33 +237,9 @@ lazy val db = project
     )
   )
 
-lazy val fs = project
-  .in(file("modules/fs"))
-  .dependsOn(core)
-  .settings(
-    name := "graviton-fs",
-    libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio-rocksdb"    % zioRocksdbV,
-      "org.testcontainers" % "testcontainers" % testContainersV % Test,
-    ),
-  )
-  .settings(commonSettings)
-
-lazy val s3 = project
-  .in(file("modules/s3"))
-  .dependsOn(core)
-  .settings(
-    name := "graviton-s3",
-    libraryDependencies ++= Seq(
-      "io.minio"           % "minio" % "8.5.9",
-      "org.testcontainers" % "minio" % testContainersV % Test,
-    ),
-  )
-  .settings(commonSettings)
-
 lazy val metrics = project
   .in(file("modules/metrics"))
-  .dependsOn(core)
+  .dependsOn(gravitonCore)
   .settings(
     name                             := "graviton-metrics",
     libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV,
@@ -215,7 +255,7 @@ lazy val dbcodegen = project
 
 lazy val pg = project
   .in(file("modules/pg"))
-  .dependsOn(core, db, dbcodegen)
+  .dependsOn(gravitonCore, db, dbcodegen)
   .settings(
     name              := "graviton-pg",
     // on-demand schema generation snapshot directory (checked into VCS)
@@ -323,7 +363,7 @@ lazy val pg = project
 
 lazy val tika = project
   .in(file("modules/tika"))
-  .dependsOn(core)
+  .dependsOn(gravitonCore)
   .settings(
     name                                    := "graviton-tika",
     libraryDependencies += "org.apache.tika" % "tika-core" % "2.9.1",
@@ -332,7 +372,7 @@ lazy val tika = project
 
 lazy val docs = project
   .in(file("docs"))
-  .dependsOn(core, fs, s3, tika, metrics)
+  .dependsOn(gravitonCore, objectStoreFilesystem, objectStoreS3, tika, metrics, blobStoreLive)
   .settings(
     publish / skip                             := false,
     Compile / publishArtifact                  := false,
@@ -344,9 +384,21 @@ lazy val docs = project
     scalacOptions -= "-Yno-imports",
     scalacOptions -= "-Xfatal-warnings",
     projectName                                := "graviton",
-    mainModuleName                             := (core / moduleName).value,
+    mainModuleName                             := (gravitonCore / moduleName).value,
     projectStage                               := ProjectStage.ProductionReady,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, db, fs, s3, tika, metrics, pg),
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(
+      gravitonCore,
+      gravitonRanges,
+      gravitonStreams,
+      objectStore,
+      objectStoreFilesystem,
+      objectStoreS3,
+      blobStoreLive,
+      db,
+      tika,
+      metrics,
+      pg,
+    ),
     MdocKeys.mdocIn                            := baseDirectory.value / "src/main/mdoc",
     MdocKeys.mdocOut                           := baseDirectory.value / "target/mdoc",
     MdocKeys.mdocVariables                     := Map(

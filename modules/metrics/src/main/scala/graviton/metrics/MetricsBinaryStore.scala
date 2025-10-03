@@ -1,6 +1,7 @@
 package graviton.metrics
 
-import graviton.{BinaryId, BinaryStore, ByteRange}
+import graviton.{BinaryId, BinaryStore}
+import graviton.ranges.ByteRange
 import zio.*
 import zio.stream.*
 import Metrics.*
