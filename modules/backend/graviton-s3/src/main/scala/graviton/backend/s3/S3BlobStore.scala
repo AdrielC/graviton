@@ -7,8 +7,8 @@ import zio.stream.{ZSink, ZStream}
 import zio.ZIO
 
 class S3BlobStore extends BlobStore:
-  override def put: ZSink[Any, Throwable, Byte, Nothing, BlobWriteResult] =
+  override def put: ZSink[Any, Throwable, Byte, Nothing, BlobWriteResult]  =
     ZSink.fail(new UnsupportedOperationException("S3BlobStore.put not implemented"))
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte]                             = ZStream.empty
-  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]]                    = ZIO.succeed(None)
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]                              = ZIO.unit
+  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte]          = ZStream.empty
+  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] = ZIO.succeed(None)
+  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]           = ZIO.unit
