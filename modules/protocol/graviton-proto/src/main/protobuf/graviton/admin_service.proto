@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package graviton;
+
+message HealthRequest {}
+message HealthResponse {
+  string status = 1;
+}
+
+service AdminService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+}

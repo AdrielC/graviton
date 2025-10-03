@@ -1,5 +1,12 @@
 {
-  "name": "@zio.dev/graviton",
-  "description": "graviton Documentation",
-  "license": "Apache-2.0"
+  "name": "graviton-docs",
+  "private": true,
+  "scripts": {
+    "docs:dev": "vitepress dev .",
+    "docs:build": "vitepress build .",
+    "docs:preview": "vitepress preview ."
+  },
+  "devDependencies": {
+    "vitepress": "1.2.2"
+  }
 }

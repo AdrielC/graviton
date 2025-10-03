@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package graviton;
+
+message UploadOpen {
+  string upload_id = 1;
+}
+
+message UploadChunk {
+  bytes payload = 1;
+}
+
+message UploadAck {
+  string upload_id = 1;
+  uint64 received_bytes = 2;
+}
+
+message UploadMessage {
+  oneof value {
+    UploadOpen open = 1;
+    UploadChunk chunk = 2;
+    UploadAck ack = 3;
+  }
+}
+
+service UploadService {
+  rpc Upload(stream UploadMessage) returns (stream UploadAck);
+}
