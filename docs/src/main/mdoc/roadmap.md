@@ -1,88 +1,86 @@
 # Roadmap
 
-## v0.1.0
+This roadmap captures the agreed-upon restructuring for the storage stack and
+tracks the sequencing needed to land the new module layout, type system, and
+protocol split.  The focus is on stabilising an Iron-first core while keeping
+all effectful integrations layered above it.
 
-### Release Deliverables
+## 0.1 Foundations
 
-- Finalize BlockStore and BlobStore APIs.
-- Provide filesystem and S3 implementations with configuration docs.
-- Ship CLI for ingesting and fetching files.
-- Expose HTTP gateway for remote access.
-- Publish basic metrics and structured logging.
-- Deliver getting-started and backend configuration guides.
-- Ensure integration tests cover core storage paths.
-- Set up CI workflows and artifact publishing.
+### Highlights of the Rewrite
 
-### Core Ingest Pipeline
+- **Iron-first type aliases.** Adopt opaque refined types and `refineEither`
+  smart constructors in place of value classes or throwing factories.
+- **Sealed binary keys.** Consolidate all binary addressing under the sealed
+  `BinaryKey` hierarchy with `BlockKey`, `BlobKey`, `ViewKey`, and
+  `FileKey` variants.
+- **Deterministic view scopes.** Represent `ViewKey.scope` as a
+  `ListMap[String, DynamicValue]` so that scopes stay ordered and
+  schema-agnostic.
+- **Canonical ranges.** Standardise every I/O surface on the existing
+  `ByteRange` type (usually wrapped in an `Option`) instead of ad-hoc tuples.
+- **zio-blocks integration.** Bring `zio-blocks` in as a submodule to supply
+  framing, Merkle, and helper utilities across projects.
+- **Pure object store algebras.** Split `ObjectStore` into `Immutable` and
+  `Mutable` traits that operate entirely in `IO`/`ZStream` without
+  side-channel throws.
 
-Build an anchored, format-aware ingest flow that processes each file in a
-single streaming pass:
+### Repository Layout
 
-1. **Transport decode** – strip content encodings such as gzip before
-   analysis.
-2. **Format sniffing** – inspect the first 8–16 KiB to detect the container
-   (PDF, ZIP, JPEG, text, etc.) and select the corresponding token pack.
-3. **Anchored tokenization** – inject format-aware markers (for example PDF
-   `stream`/`endstream`, ZIP headers, JPEG SOI/EOI, or newlines for text).
-4. **Content-defined chunking within anchors** – run FastCDC or Gear inside
-   each anchored span to pick stable boundaries.
-5. **Chunk handling** – for every plaintext chunk compute a
-   content-addressable hash, decide whether to compress, encrypt using AEAD
-   with per-chunk nonces, and emit a self-describing frame that records the
-   metadata required for replays.
-6. **Manifest generation** – maintain an ordered manifest of
-   `{hash_plain, size_plain, offsets}` referencing the stored chunks so that
-   random access remains trivial.
+```
+modules/
+  core/         // refined types, binary keys, ranges, manifests, schema derivations
+  streams/      // chunking, scans, time-series utilities (pure streaming logic)
+  runtime/      // effectful storage algebras (BlobStore, BlockStore, KV, metrics glue)
+  protocol/     // graviton-http (zio-http) and graviton-grpc (zio-grpc) front-doors
+  backends/     // filesystem, S3, Postgres KV, RocksDB cache, Tika integration
+  metrics/      // Prometheus adapters sitting on top of runtime algebras
+  server/       // application wiring, http+grpc, health endpoints, shard orchestration
+  zio-blocks/   // git submodule providing framing/Merkle helpers
+docs/           // mdoc sources (optionally skinned via VitePress)
+```
 
-### Tokenizer and CDC Implementation
+The `core` module remains pure and depends only on `zio-schema`, `iron`, and
+`zio-blocks` (where helpers are required).  `runtime` composes algebras without
+providing concrete drivers, while `backends` house the filesystem, S3, and
+Postgres implementations.  Server wiring, metrics adapters, and protocol
+modules depend on these layers but never on implementation details directly.
 
-- Implement a compact DFA/Aho-Corasick matcher to identify token packs over a
-  sliding window.
-- Provide a `ZPipeline.anchoredCdc(tokenPack, avgSize, anchorBonus)` built on
-  `ZSink.foldWeightedDecompose`, combining byte-growth cost with anchor
-  bonuses.
-- Introduce a fixed 1 MiB staging rechunker to cap memory usage before
-  handing data to the CDC pipeline.
+### Delivery Steps
 
-### Self-Describing Frame Format
+1. **Add `zio-blocks` submodule.** Bring in `AdrielC/zio-blocks` under
+   `modules/zio-blocks` and wire an `ProjectRef` into `build.sbt`.
+2. **Define refined aliases.** Introduce canonical types such as
+   `Size = Long :| Positive`, `Offset = Long :| NonNegative`, and
+   `HexLower = String :| Matches[...]`, surfacing `mk*` constructors that
+   return `Either`.
+3. **Consolidate keys.** Create `BinaryKey.scala` inside `modules/core` with
+   the sealed trait and variants.  Update call sites across runtime, protocol,
+   and backends.
+4. **Standardise ranges.** Replace tuple-based ranges in stores, backends, and
+   protocols with `ByteRange`.
+5. **Split object store traits.** Keep the pure `Immutable`/`Mutable` API in
+   `core/objectstore`, using refined types and `ByteRange` everywhere.
+6. **Update build graph.** Ensure `core`, `streams`, and `runtime` depend on
+   `zio-blocks` where framing or Merkle helpers are required.  Allow specific
+   backends to opt into the dependency as needed.
+7. **Propagate no-throw guarantees.** Replace `require`, `throw`, and
+   side-effecting constructors with `Either`/`ZIO`-based error channels.
+8. **Finish protocol split.** Keep REST endpoints in `graviton-http` and
+   gRPC services in `graviton-grpc`, each using the refined keys and
+   `ByteRange` parameters.
+9. **Server orchestration.** Wire Shardcake-based upload sessions, health,
+   and metrics endpoints in `graviton-server` using the refined algebras.
+10. **Regression guardrails.** Run `TESTCONTAINERS=0 ./sbt scalafmtAll test`
+    before merges; extend integration tests to cover the refined key and
+    range handling.
 
-- Define a little-endian header containing the `"QUASAR"` magic, version,
-  flags, algorithm identifiers, sizes, nonce, truncated plaintext hash,
-  key identifier, and optional fields (file ID, chunk index, dictionary ID).
-- Canonically encode these fields as Additional Authenticated Data so that
-  decrypt/verify operations can be plugged in without bespoke wiring.
-- Ensure each successful decode yields a single `Take.chunk` and that
-  failures surface through `Take.fail` without double terminals.
+## Beyond 0.1
 
-### Deduplication Strategy
-
-- Store only the base blocks generated by anchored CDC and use manifests to
-  rebuild files.
-- Support future CDC configuration changes by updating manifests while
-  reusing existing blocks.
-- Plan a rolling-hash index for cross-file containment detection without
-  slicing below the base block size.
-
-### Format-Aware Views
-
-- Preserve the canonical file bytes while generating asynchronous views that
-  produce format-specific fingerprints and seek maps.
-- Provide a `PDFView` capable of mapping objects/pages and hashing lossless
-  stream payloads for deduplication/search.
-- Extend `ZIPView` to surface central directory entries and enable lazy
-  retrieval through manifest offsets.
-
-### Operational Guardrails
-
-- Apply backpressure with bounded `Queue[Take]` instances.
-- Close wrapped `OutputStream`s on both success (`Take.end`) and failure
-  (`Take.fail` only).
-- Cap decode efforts during sniffing and format parsing to guard against
-  resource exhaustion.
-- Enforce `./sbt scalafmtAll` pre-commit checks to maintain formatting.
-
-## Future
-
-- Additional blob store backends.
-- Advanced caching and deduplication strategies.
-- High-level SDKs for common languages.
+- Expand view tooling with format-aware helpers that operate on
+  `DynamicValue` scopes.
+- Prototype CDC-aware repair jobs and replica reconciliation using the range
+  algebra retained in `modules/core/ranges`.
+- Layer optional SDKs and CLI ergonomics atop the refined core types.
+- Grow backend support (additional object stores, cold storage tiers) once the
+  sealed key hierarchy and policy layer have settled.
