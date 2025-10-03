@@ -38,6 +38,7 @@ lazy val core = (project in file("modules/graviton-core"))
     name := "graviton-core",
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-schema"  % V.zioSchema,
+      "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "io.github.iltotore" %% "iron" % V.iron
     )
@@ -51,8 +52,11 @@ lazy val streams = (project in file("modules/graviton-streams"))
   .settings(baseSettings,
     name := "graviton-streams",
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"         % V.zio,
-      "dev.zio" %% "zio-streams" % V.zio
+      "dev.zio" %% "zio"          % V.zio,
+      "dev.zio" %% "zio-streams"  % V.zio,
+      "org.scodec" %% "scodec-core" % "2.3.3",
+      "dev.zio" %% "zio-test"      % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"  % V.zio % Test
     )
   )
 
