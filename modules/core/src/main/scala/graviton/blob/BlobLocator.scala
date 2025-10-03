@@ -1,12 +1,11 @@
 package graviton.blob
 
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.all.*
+import graviton.blob.Types.*
 import io.github.iltotore.iron.zioJson.given
 import _root_.zio.json.{DeriveJsonCodec, JsonCodec}
 
 final case class BlobLocator(
-  scheme: String :| Match["[a-z0-9+.-]+"],
+  scheme: LocatorScheme,
   bucket: String,
   path: String,
 ):
