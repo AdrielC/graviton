@@ -31,6 +31,7 @@ lazy val zioLoggingV       = "2.2.4"
 lazy val magnumV           = "2.0.0-M2"
 lazy val postgresV         = "42.7.3"
 lazy val diffsonV          = "4.6.1"
+lazy val scodecV           = "2.3.3"
 lazy val scalaJsonSchemaV  = "0.7.2"
 lazy val catsCollectionsV  = "0.9.10"
 
@@ -152,7 +153,8 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "org.gnieh"           %% "diffson-core" % diffsonV,
       ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
-      "org.typelevel"       %% "cats-collections-core"   % catsCollectionsV,
+    "org.typelevel"       %% "cats-collections-core"   % catsCollectionsV,
+    "org.scodec"          %% "scodec-core"             % scodecV,
     ),
   )
   .settings(commonSettings)
