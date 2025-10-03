@@ -158,9 +158,9 @@ when the provider does not support virtual-hosted-style URLs.
 Both backends expose a ZLayer that can be swapped based on configuration:
 
 ```scala mdoc:passthrough
-import graviton.BlobStore
-import graviton.fs.FileSystemBlobStore
-import graviton.s3.S3BlobStore
+import graviton.objectstore.ObjectStore
+import graviton.objectstore.filesystem.FileSystemObjectStore
+import graviton.objectstore.s3.S3ObjectStore
 import io.minio.MinioClient
 import zio.ZLayer
 
@@ -171,12 +171,10 @@ final case class AppConfig(
   s3Bucket: String,
 )
 
-def blobStore(config: AppConfig): ZLayer[Any, Throwable, BlobStore] =
+def objectStore(config: AppConfig): ZLayer[Any, Throwable, ObjectStore] =
   config.defaultBackend match
-    case "fs" =>
-      ZLayer.fromZIO(FileSystemBlobStore.make(config.fsRoot))
-    case "s3" =>
-      S3BlobStore.layer(config.s3Client, config.s3Bucket)
+    case "fs" => ZLayer.fromZIO(FileSystemObjectStore.make(config.fsRoot))
+    case "s3" => S3ObjectStore.layer(config.s3Client, config.s3Bucket)
     case other =>
       ZLayer.fail(new IllegalArgumentException(s"Unknown backend: $other"))
 ```
