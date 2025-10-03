@@ -1,5 +1,7 @@
 package graviton.core.keys
 
+import zio.schema.{DeriveSchema, Schema}
+
 sealed trait BinaryKey derives CanEqual:
   def bits: KeyBits
 
@@ -24,3 +26,5 @@ object BinaryKey:
 
   def view(bits: KeyBits, transform: ViewTransform): Either[String, View] =
     blob(bits).map(_ => View(bits, transform))
+
+  given Schema[BinaryKey] = DeriveSchema.gen[BinaryKey]

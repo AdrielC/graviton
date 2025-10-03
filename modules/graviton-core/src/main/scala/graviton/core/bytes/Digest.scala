@@ -1,5 +1,7 @@
 package graviton.core.bytes
 
+import zio.schema.{DeriveSchema, Schema}
+
 final case class Digest private (algo: HashAlgo, value: String)
 
 object Digest:
@@ -12,3 +14,5 @@ object Digest:
 
   def make(algo: HashAlgo, value: String): Either[String, Digest] =
     validate(algo, value).map(valid => Digest(algo, valid))
+
+  given Schema[Digest] = DeriveSchema.gen[Digest]

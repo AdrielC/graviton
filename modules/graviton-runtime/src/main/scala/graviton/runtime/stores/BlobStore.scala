@@ -2,11 +2,11 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.runtime.model.{BlobStat, BlobWriteResult}
-import zio.stream.ZStream
 import zio.ZIO
+import zio.stream.{ZSink, ZStream}
 
 trait BlobStore:
-  def put(bytes: ZStream[Any, Throwable, Byte]): ZIO[Any, Throwable, BlobWriteResult]
+  def put: ZSink[Any, Throwable, Byte, Nothing, BlobWriteResult]
   def get(key: BinaryKey): ZStream[Any, Throwable, Byte]
   def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]]
   def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]

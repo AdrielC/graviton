@@ -7,4 +7,4 @@ import zio.ZIO
 
 final case class UploadServiceImpl(blobStore: BlobStore):
   def upload(stream: ZStream[Any, Throwable, Chunk[Byte]]): ZIO[Any, Throwable, Unit] =
-    blobStore.put(stream.flattenChunks).unit
+    stream.flattenChunks.run(blobStore.put).unit
