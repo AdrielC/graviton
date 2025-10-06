@@ -467,7 +467,7 @@ lazy val docs = project
       if (apiSrc.exists()) {
         IO.delete(apiDocsDst)
         IO.copyDirectory(apiSrc, apiDocsDst)
-        log.info("✓ Copied ScalaDoc to static/api-docs/")
+        log.info("✓ Copied ScalaDoc to static/api/")
       }
       
       // 5. Copy docusaurus.config.js from docs/
@@ -491,6 +491,13 @@ lazy val docs = project
       log.info("✓ Built website")
       
       log.info(s"Website built at: ${webDir}/build")
+
+      // 10. Ensure .nojekyll is present at build root (GitHub Pages compatibility)
+      val noJekyll = (webDir / "build" / ".nojekyll").toFile
+      if (!noJekyll.exists()) {
+        IO.touch(noJekyll)
+        log.info("✓ Wrote .nojekyll to build root")
+      }
     },
     
     previewDocs := {
