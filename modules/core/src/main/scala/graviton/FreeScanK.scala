@@ -10,7 +10,7 @@ import scala.<:<
  * Leaves are F[A, B] values that must encode their State type via a type member.
  * No lambdas or closures are stored in this structure; interpretation happens via Interpreter.
  */
-sealed trait FreeScanK[F[_, _], -I, +O]:
+sealed trait FreeScanK[:=>:[-?, +?], -I, +O]:
   type State <: Tuple
   type Size <: Int = State match {
     case NonEmptyTuple => Tuple.Size[State]
@@ -21,20 +21,20 @@ sealed trait FreeScanK[F[_, _], -I, +O]:
   }
   inline def size: Size = scala.compiletime.summonInline[Size]
   type Types
-  def compile(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State]
-  inline def compileOptimized(using FreeScanK.Interpreter[F]): Scan.Aux[I, O, State] =
+  def compile(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, State]
+  inline def compileOptimized(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, State] =
     FreeScanK.optimize(this).compile
-  def labelsFromType(using FreeScanK.Interpreter[F]): Chunk[String]
+  def labelsFromType(using FreeScanK.Interpreter[:=>:]): Chunk[String]
 
 object FreeScanK:
-  type Aux[F[_, _], -I, +O, S <: Tuple] = FreeScanK[F, I, O] { type State = S }
+  type Aux[:=>:[-?, +?], -I, +O, S <: Tuple] = FreeScanK[:=>:, I, O] { type State = S }
 
   // Interpreter from DSL to concrete Scan
-  trait Interpreter[F[_, _]]:
+  trait Interpreter[:=>:[-?, +?]]:
     type State
-    def toScan[I, O, S <: Tuple](op: F[I, O] { type State = S }): Scan.Aux[I, O, S]
-    def stateSchema[I, O, S <: Tuple](op: F[I, O] { type State = S }): Schema[S]
-    def stateLabels[I, O, S <: Tuple](op: F[I, O] { type State = S }): Chunk[String]
+    def toScan[I, O, S <: Tuple](op: I :=>: O): Scan.Aux[I, O, S]
+    def stateSchema[I, O, S <: Tuple](op: I :=>: O): Schema[S]
+    def stateLabels[I, O, S <: Tuple](op: I :=>: O): Chunk[String]
 
   // Constructors
   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
@@ -95,20 +95,21 @@ object FreeScanK:
 
   object SplitConcat:
 
-    given splitEmpty[A <: Tuple]: SplitConcat[A, EmptyTuple, A] with
+    given splitEmpty: [A <: Tuple] => SplitConcat[A, EmptyTuple, A]:
       def split(ab: A): (A, EmptyTuple) = (ab, EmptyTuple)
 
-    given splitNilRight[B <: Tuple]: SplitConcat[EmptyTuple, B, B] with
+    given splitNilRight: [B <: Tuple] => SplitConcat[EmptyTuple, B, B]:
       def split(ab: B): (EmptyTuple, B) = (EmptyTuple, ab)
 
-    given splitCons[AHead, ATail <: Tuple, B <: Tuple, ABTail <: Tuple](using tail: SplitConcat[ATail, B, ABTail]): SplitConcat[
+    given splitCons: [AHead, ATail <: Tuple, B <: Tuple, ABTail <: Tuple] => (tail: SplitConcat[ATail, B, ABTail]) => SplitConcat[
       AHead *: ATail,
       B,
       AHead *: ABTail,
-    ] with
+    ]: 
       def split(ab: AHead *: ABTail): (AHead *: ATail, B) =
         val (aTail, b) = tail.split(ab.tail)
         (ab.head *: aTail, b)
+
   end SplitConcat
 
   final case class Product[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](

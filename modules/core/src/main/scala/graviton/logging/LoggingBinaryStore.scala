@@ -87,7 +87,7 @@ final case class LoggingBinaryStore(underlying: BinaryStore) extends BinaryStore
 object LoggingBinaryStore:
   private val cidKey                   = "correlation-id"
   val loggingActive: FiberRef[Boolean] =
-    Unsafe.unsafe(implicit u => FiberRef.unsafe.make(false))
+    Unsafe.unsafe(u ?=> FiberRef.unsafe.make(false))
 
   val layer: ZLayer[BinaryStore, Nothing, BinaryStore] =
     ZLayer.fromFunction(LoggingBinaryStore(_))

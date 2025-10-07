@@ -161,6 +161,7 @@ lazy val commonSettings = Seq(
     "dev.zio"            %% "zio-streams"           % zioV,
     "dev.zio"            %% "zio-cache"             % zioCacheV,
     "dev.zio"            %% "zio-prelude"           % zioPreludeV,
+    "dev.zio"            %% "zio-prelude-experimental"           % zioPreludeV,
     "dev.zio"            %% "zio-schema"            % zioSchemaV,
     "dev.zio"            %% "zio-schema-derivation" % zioSchemaV,
     "dev.zio"            %% "zio-schema-json"       % zioSchemaV,
@@ -176,6 +177,10 @@ lazy val commonSettings = Seq(
     "dev.zio"            %% "zio-test-magnolia"     % zioV % Test,
   ),
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+  scalacOptions ++= Seq(
+    "-source:future",
+    "-language:experimental.modularity"
+  )
 )
 
 lazy val root = (project in file("."))

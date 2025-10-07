@@ -5,10 +5,12 @@ import zio.*
 import zio.schema.{DeriveSchema, Schema}
 
 // A tiny time-series DSL with pure-data ops and named state case classes
-sealed trait TSOp[I, O]:
+sealed trait TSOp[-I, +O]:
   type State <: Tuple
 
 object TSOp:
+  infix type :=>:[-I, +O] = TSOp[I, O]
+
   sealed trait State                                       extends Product
   // Named states (kept for schema derivation examples)
   final case class Prev[A](previous: Option[A])            extends State
@@ -41,8 +43,8 @@ object TSOp:
       schemaT.transform[Tuple1[T]](t => t *: EmptyTuple, { case h *: _ => h })
     def emptyTuple: Schema[EmptyTuple]                            = Schema[Unit].transform(_ => EmptyTuple, _ => ())
 
-    given prevSchema[A](using sa: Schema[A]): Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
-    given movAvgSchema[A](using sa: Schema[A]): Schema[MovAvgState[A]] = DeriveSchema.gen[MovAvgState[A]]
+    given prevSchema:  [A] => (sa: Schema[A]) => Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
+    given movAvgSchema: [A] => (sa: Schema[A]) => Schema[MovAvgState[A]] = DeriveSchema.gen[MovAvgState[A]]
     def prevSchemaFor[A](sa: Schema[A]): Schema[Prev[A]]               =
       given Schema[A] = sa
       DeriveSchema.gen[Prev[A]]
@@ -50,14 +52,14 @@ object TSOp:
       given Schema[A] = sa
       DeriveSchema.gen[MovAvgState[A]]
 
-  inline given FreeScanK.Interpreter[TSOp] with
-    type Flatten[A] <: Tuple | A = A match
+  inline given FreeScanK.Interpreter[:=>:]:
+
+    type Flatten[A] <: Tuple | A = A match  
       case a *: b => a *: Flatten[b]
       case _      => Tuple1[A]
-    end Flatten
 
     override type State = TSOp.State
-    def toScan[I, O, S <: Tuple](op: TSOp[I, O] { type State = S }): Scan.Aux[I, O, S] =
+    def toScan[I, O, S <: Tuple](op: I :=>: O): Scan.Aux[I, O, S] =
       op match
         case d: Delta[a]        =>
           given num: Numeric[a] = d.numeric
@@ -94,14 +96,14 @@ object TSOp:
             }
             .asInstanceOf[Scan.Aux[I, O, S]]
 
-    def stateSchema[I, O, S <: Tuple](op: TSOp[I, O] { type State = S }): Schema[S] =
+    def stateSchema[I, O, S <: Tuple](op: I :=>: O): Schema[S] =
       (op: TSOp[I, O]) match
         case d: Delta[a]        => Schemas.singleElemTuple(Schemas.prevSchemaFor[a](d.schemaA)).asInstanceOf[Schema[S]]
         case m: MovingAvg[a]    => Schemas.singleElemTuple(Schemas.movAvgSchemaFor[a](m.schemaA)).asInstanceOf[Schema[S]]
         case _: PairSub[?]      => Schemas.emptyTuple.asInstanceOf[Schema[S]]
         case _: RateFromPair[?] => Schemas.emptyTuple.asInstanceOf[Schema[S]]
 
-    def stateLabels[I, O, S <: Tuple](op: TSOp[I, O] { type State = S }): Chunk[String] =
+    def stateLabels[I, O, S <: Tuple](op: I :=>: O): Chunk[String] =
       (op: TSOp[I, O]) match
         case _: Delta[?]        => Chunk("previous")
         case _: MovingAvg[?]    => Chunk("buffer", "sum")

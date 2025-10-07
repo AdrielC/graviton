@@ -9,7 +9,7 @@ object Max:
   def apply[A](a: A): Max[A]           = a
   def unapply[A](a: Max[A]): Option[A] = Some(a)
 
-  given [A](using PartialOrd[A], Identity[A]): Monoid[Max[A]] with
+  given [A] => (PartialOrd[A], Identity[A]) => Monoid[Max[A]]:
     def identity: Max[A]                            = Max(Identity[A].identity)
     def combine(a: => Max[A], b: => Max[A]): Max[A] = a.maximum(b)
 
@@ -46,7 +46,7 @@ final case class Cursor(
 object Cursor:
   val emptyQueryId: java.util.UUID = java.util.UUID.fromString("00000000-0000-0000-0000-000000000000")
 
-  given Monoid[Cursor] with
+  given Monoid[Cursor]:
     def identity: Cursor                            = Cursor(None, 0L, None, 0L)
     def combine(a: => Cursor, b: => Cursor): Cursor =
       if a.queryId == b.queryId |
@@ -91,7 +91,7 @@ object Cursor:
         .withTotal(patch.total.getOrElse(oldValue.total.getOrElse(Max(0L))))
 
   object ref:
-    val cursorRef: FiberRef[Cursor] = Unsafe.unsafe { implicit u =>
+    val cursorRef: FiberRef[Cursor] = Unsafe.unsafe { u ?=> 
       FiberRef.unsafe.makePatch(
         initial,
         Cursor.differ,

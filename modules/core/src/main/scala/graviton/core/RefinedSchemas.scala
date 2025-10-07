@@ -1,12 +1,12 @@
 package graviton.core
 
-import io.github.iltotore.iron.{zio => _, *}
+import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.RuntimeConstraint
 import zio.schema.*
 import zio.schema.annotation.description
 
 object refined:
-  given [A, C](using schema: Schema[A], constraint: RuntimeConstraint[A, C]): Schema[A :| C] =
+  given [A, C] => (schema: Schema[A], constraint: RuntimeConstraint[A, C]) => Schema[A :| C] =
     schema
       .annotate(description(constraint.message))
       .transformOrFail(

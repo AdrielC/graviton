@@ -1,7 +1,7 @@
 package graviton.core.model
 
 import graviton.GravitonError
-import io.github.iltotore.iron.{zio => _, *}
+import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.numeric.*
 import zio.*
 import zio.stream.*

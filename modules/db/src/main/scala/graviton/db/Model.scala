@@ -126,7 +126,7 @@ given DbCodec[Chunk[Byte]] =
 
 final case class DbRange[+T](lower: Option[T], upper: Option[T]) derives DbCodec, Schema
 
-given JsonBDbCodec[Json] with
+given JsonBDbCodec[Json]:
   def encode(a: Json): String    = a.toJson
   def decode(json: String): Json = json
     .fromJson[Json]

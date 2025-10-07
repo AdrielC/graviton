@@ -36,7 +36,8 @@ sealed trait BinaryKey derives Schema:
       s"scoped:$encoded/$key"
 
 object BinaryKey:
-  given [K: Schema, A: Schema]: Schema[ListMap[K, A]] =
+
+  given [K: Schema, A: Schema] => Schema[ListMap[K, A]] =
     Schema[Chunk[(K, A)]].transform(ListMap.from, Chunk.fromIterable)
 
   /** Content addressed key – represents the digest of some content. */

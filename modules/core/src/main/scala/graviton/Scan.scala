@@ -6,7 +6,7 @@ import zio.ChunkBuilder
 import zio.stream.Take
 import zio.prelude.fx.ZPure
 // import scala.compiletime.{erasedValue, summonFrom}
-import io.github.iltotore.iron.{zio => _, *}
+import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
 
 /**

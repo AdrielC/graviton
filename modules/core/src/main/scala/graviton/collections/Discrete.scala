@@ -20,7 +20,7 @@ object Discrete:
 
   def inverse[A](d: Discrete[A]): Discrete[A] = d.inverse
 
-  given integralDiscrete[I](using I: Integral[I]): Discrete[I] with
+  given integralDiscrete: [I] => (I: Integral[I]) => Discrete[I]:
     import I.*
     def succ(x: I): I = x + I.one
     def pred(x: I): I = x - I.one
