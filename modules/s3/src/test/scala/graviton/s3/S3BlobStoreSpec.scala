@@ -4,7 +4,7 @@ import graviton.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import io.github.iltotore.iron.{zio => _, *}
+import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
 import io.minio.{MakeBucketArgs, MinioClient}
 import org.testcontainers.containers.MinIOContainer

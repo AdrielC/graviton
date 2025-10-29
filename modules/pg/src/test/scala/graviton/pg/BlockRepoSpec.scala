@@ -1,4 +1,5 @@
-package graviton.pg
+package graviton
+package pg
 
 import graviton.db.*
 
@@ -8,9 +9,10 @@ import zio.*
 import zio.json.ast.Json
 import zio.test.*
 
-import java.nio.file.Path
+object BlockRepoSpec extends ZIOSpec[ConfigProvider] {
 
-object BlockRepoSpec extends ZIOSpecDefault {
+  override def bootstrap: ZLayer[Any, Any, ConfigProvider] =
+    ZLayer.succeed(pg.PgTestConfig.provider)
 
   private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
     value.trim match
@@ -18,37 +20,14 @@ object BlockRepoSpec extends ZIOSpecDefault {
       case _                                                                                       => false
   }
 
-  private val configLayer: ZLayer[Any, Nothing, PgTestLayers.PgTestConfig] =
-    ZLayer.succeed(
-      PgTestLayers.PgTestConfig(
-        image = "postgres",
-        tag = "17-alpine",
-        registry = None,
-        repository = None,
-        username = "postgres",
-        password = "postgres",
-        database = "postgres",
-        initScript = Some(Path.of("ddl.sql")),
-        startupAttempts = 3,
-        startupTimeout = 90L,
-      )
+  private def repoLayer: ZLayer[Any, Throwable, TransactorZIO & StoreRepo & BlockRepo] =
+    ZLayer.make[TransactorZIO & StoreRepo & BlockRepo](
+      PgTestConfig.layer,
+      PgTestLayers.layer[TestContainer],
+      StoreRepoLive.layer,
+      BlockRepoLive.layer,
     )
-
-  private val repoLayer: ZLayer[Nothing, Any, TransactorZIO & StoreRepo & BlockRepo] =
-    configLayer >>> PgTestLayers.layer >>> {
-      val xa = ZLayer.environment[TransactorZIO]
-      xa ++ StoreRepoLive.layer ++ BlockRepoLive.layer
-    }
-
-  private def seedAlgorithm(xa: TransactorZIO): Task[Unit] =
-    xa.transact {
-      sql"""
-        INSERT INTO hash_algorithm (id, name, is_fips)
-        VALUES (1, 'sha-256', true)
-        ON CONFLICT (id) DO NOTHING
-      """.update.run()
-    }.unit
-
+    
   private def storeRow(seed: Int, status: StoreStatus): StoreRow =
     StoreRow(
       key = StoreKey.applyUnsafe(Chunk.fill(32)((seed + 1).toByte)),
@@ -64,7 +43,16 @@ object BlockRepoSpec extends ZIOSpecDefault {
   private def sampleHash(seed: Int): HashBytes =
     HashBytes.applyUnsafe(Chunk.fill(32)((seed + 42).toByte))
 
-  override def spec: Spec[TestEnvironment & Scope, Any] =
+  private def seedAlgorithm(xa: TransactorZIO): Task[Unit] =
+    xa.transact {
+      sql"""
+        INSERT INTO hash_algorithm (id, name, is_fips)
+        VALUES (1, 'sha-256', true)
+        ON CONFLICT (id) DO NOTHING
+      """.update.run()
+    }.unit
+
+  override def spec: Spec[Environment & Scope, Any] =
     suite("BlockRepo")(
       test("upsertBlock stores block metadata and head lookup succeeds") {
         for {
@@ -101,5 +89,5 @@ object BlockRepoSpec extends ZIOSpecDefault {
                        }
         } yield assertTrue(rows.nonEmpty, rows.head == ((ReplicaStatus.Active, Some("etag-2"), Some("glacier"))))
       },
-    ).provideShared(repoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
+    ).provideShared(repoLayer) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }

@@ -84,9 +84,36 @@ object StoreStatus:
       )
 end StoreStatus
 
-@Table(PostgresDbType)
-enum ReplicaStatus derives CanEqual, DbCodec, Schema:
+enum ReplicaStatus derives CanEqual:
   case Active, Quarantined, Deprecated, Lost
+end ReplicaStatus
+
+object ReplicaStatus:
+  private val toPg: Map[ReplicaStatus, String] = Map(
+    ReplicaStatus.Active      -> "active",
+    ReplicaStatus.Quarantined -> "quarantined",
+    ReplicaStatus.Deprecated  -> "deprecated",
+    ReplicaStatus.Lost        -> "lost",
+  )
+
+  private val fromPg: Map[String, ReplicaStatus] = toPg.map(_.swap)
+
+  given DbCodec[ReplicaStatus] =
+    DbCodec[String].biMap(
+      str =>
+        fromPg.getOrElse(
+          str,
+          throw IllegalArgumentException(s"Unknown replica_status_t value '$str'"),
+        ),
+      status => toPg(status),
+    )
+
+  given Schema[ReplicaStatus] =
+    Schema[String]
+      .transform(
+        str => fromPg.getOrElse(str, throw IllegalArgumentException("Unknown replica_status_t value")),
+        toPg,
+      )
 end ReplicaStatus
 
 final case class BlockInsert(

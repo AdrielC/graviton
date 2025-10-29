@@ -1,4 +1,5 @@
-package graviton.pg
+package graviton
+package pg
 
 import graviton.db.*
 
@@ -8,9 +9,7 @@ import zio.*
 import zio.stream.ZStream
 import zio.test.*
 
-import java.nio.file.Path
-
-object BlobRepoSpec extends ZIOSpecDefault {
+object BlobRepoSpec extends ZIOSpec[ConfigProvider] {
 
   private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
     value.trim match
@@ -18,27 +17,19 @@ object BlobRepoSpec extends ZIOSpecDefault {
       case _                                                                                       => false
   }
 
-  private val configLayer: ZLayer[Nothing, Nothing, PgTestLayers.PgTestConfig] =
-    ZLayer.succeed(
-      PgTestLayers.PgTestConfig(
-        image = "postgres",
-        tag = "17-alpine",
-        registry = None,
-        repository = None,
-        username = "postgres",
-        password = "postgres",
-        database = "postgres",
-        initScript = Some(Path.of("ddl.sql")),
-        startupAttempts = 3,
-        startupTimeout = 90L,
-      )
+  private def repoLayer: ZLayer[Any, Throwable, TransactorZIO & BlockRepoLive & BlobRepoLive] =
+    ZLayer.make[TransactorZIO & BlockRepoLive & BlobRepoLive](
+      PgTestConfig.layer,
+      PgTestLayers.layer[TestContainer],
+      BlockRepoLive.layer,
+      BlobRepoLive.layer,
     )
+  end repoLayer
 
-  private val repoLayer: ZLayer[Nothing, Any, TransactorZIO & BlockRepoLive & BlobRepoLive] =
-    configLayer >>> PgTestLayers.layer >>> {
-      val xa = ZLayer.environment[TransactorZIO]
-      xa ++ BlockRepoLive.layer ++ BlobRepoLive.layer
-    }
+
+  override def bootstrap: ZLayer[Any, Any, ConfigProvider] =
+    ZLayer.succeed(pg.PgTestConfig.provider)
+    
 
   private def seedAlgorithm(xa: TransactorZIO): Task[Unit] =
     xa.transact {
@@ -52,7 +43,7 @@ object BlobRepoSpec extends ZIOSpecDefault {
   private def sampleHash(seed: Int): HashBytes =
     HashBytes.applyUnsafe(Chunk.fill(32)((seed + 17).toByte))
 
-  override def spec =
+  override def spec: Spec[Environment & Scope, Any] =
     suite("BlobRepo")(
       test("upsertBlob registers blob and manifest entries are persisted") {
         for {
@@ -75,5 +66,5 @@ object BlobRepoSpec extends ZIOSpecDefault {
                        }
         } yield assertTrue(written.nonEmpty, found.contains(blobId), manifest.headOption.contains(1L))
       }
-    ).provideShared(repoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
+    ).provideShared(repoLayer) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }

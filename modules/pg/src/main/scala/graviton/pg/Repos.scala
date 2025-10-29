@@ -85,12 +85,12 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
     }
 
 object StoreRepoLive:
-  inline transparent def layer: ZLayer[Nothing, Any, StoreRepoLive] =
-    ZLayer.derive[StoreRepoLive]
+  lazy val layer: URLayer[TransactorZIO, StoreRepoLive] =
+    ZLayer.fromFunction(StoreRepoLive(_))
 
 // ---- Block repository -------------------------------------------------------
 
-final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
+final case class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
 
   def upsertBlock(
     key: BlockKey,
@@ -137,8 +137,8 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
     }
 
 object BlockRepoLive:
-  inline transparent def layer =
-    ZLayer.derive[BlockRepoLive]
+  lazy val layer: URLayer[TransactorZIO, BlockRepoLive] =
+    ZLayer.fromFunction(BlockRepoLive(_))
 
 // ---- File repository --------------------------------------------------------
 
@@ -183,5 +183,5 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
     }
 
 object BlobRepoLive:
-  inline transparent def layer =
-    ZLayer.derive[BlobRepoLive]
+  lazy val layer: URLayer[TransactorZIO, BlobRepoLive] =
+    ZLayer.fromFunction(BlobRepoLive(_))

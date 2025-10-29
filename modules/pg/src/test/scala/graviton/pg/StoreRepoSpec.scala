@@ -1,13 +1,16 @@
-package graviton.pg
+package graviton
+package pg
 
 import graviton.db.{StoreRepo, StoreRow, StoreStatus, StoreKey}
 
 import zio.*
 import zio.json.ast.Json
 import zio.test.{Spec as ZSpec, *}
-import java.nio.file.Path
 
-object StoreRepoSpec extends ZIOSpecDefault {
+object StoreRepoSpec extends ZIOSpec[ConfigProvider] {
+
+  override def bootstrap: ZLayer[Any, Any, ConfigProvider] =
+    ZLayer.succeed(pg.PgTestConfig.provider)
 
   private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
     value.trim match
@@ -15,24 +18,13 @@ object StoreRepoSpec extends ZIOSpecDefault {
       case _                                                                                       => false
   }
 
-  private val pgConfigLayer: ZLayer[Any, Nothing, PgTestLayers.PgTestConfig] =
-    ZLayer.succeed(
-      PgTestLayers.PgTestConfig(
-        image = "postgres",
-        tag = "17-alpine",
-        registry = None,
-        repository = None,
-        username = "postgres",
-        password = "postgres",
-        database = "postgres",
-        initScript = Some(Path.of("ddl.sql")),
-        startupAttempts = 3,
-        startupTimeout = 90L,
-      )
+  private def storeRepoLayer: ZLayer[Any, Throwable, StoreRepoLive] =
+    ZLayer.make[StoreRepoLive](
+      PgTestConfig.layer,
+      PgTestLayers.layer[TestContainer],
+      StoreRepoLive.layer,
     )
-
-  private val storeRepoLayer: ZLayer[Nothing, Any, StoreRepoLive] =
-    pgConfigLayer >>> PgTestLayers.layer >>> StoreRepoLive.layer
+  end storeRepoLayer
 
   private def sampleRow(
     status: StoreStatus,
@@ -78,5 +70,5 @@ object StoreRepoSpec extends ZIOSpecDefault {
           rows  <- repo.listActive(Some(cursor)).take(3).runCollect
         } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
       },
-    ).provideShared(storeRepoLayer ++ testEnvironment) @@ onlyIfTestcontainers @@ TestAspect.sequential
+    ).provideShared(storeRepoLayer) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }
