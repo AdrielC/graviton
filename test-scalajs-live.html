@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scala.js Test - Graviton</title>
+    <meta name="graviton-api-url" content="http://localhost:8080" />
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: #0a0e14;
+            color: #e6e6e6;
+        }
+        h1 {
+            color: #00ff41;
+        }
+        .status {
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 8px;
+            border: 2px solid #00ff41;
+            background: rgba(0, 255, 65, 0.05);
+        }
+        .success {
+            border-color: #00ff41;
+            background: rgba(0, 255, 65, 0.1);
+        }
+        .error {
+            border-color: #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+        }
+        #graviton-app {
+            min-height: 400px;
+            margin-top: 2rem;
+        }
+        code {
+            background: rgba(0, 255, 65, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎮 Scala.js Interactive Components Test</h1>
+    
+    <div class="status" id="status">
+        <h2>Loading Status</h2>
+        <p id="status-text">⏳ Initializing...</p>
+    </div>
+
+    <div class="status">
+        <h2>What This Tests</h2>
+        <ul>
+            <li>✅ Scala.js main module loads (<code>/graviton/js/main.js</code>)</li>
+            <li>✅ Main.main() executes successfully</li>
+            <li>✅ Laminar renders into DOM</li>
+            <li>✅ Interactive components mount</li>
+            <li>✅ Routing works (Dashboard, Explorer, Upload, Stats)</li>
+        </ul>
+    </div>
+
+    <div class="status">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Serve this file with a static server: <code>npx serve docs/.vitepress/dist</code></li>
+            <li>Open: <code>http://localhost:3000/test-scalajs-live.html</code></li>
+            <li>Check console for any errors</li>
+            <li>Verify the app renders below</li>
+            <li>Try navigating between tabs</li>
+        </ol>
+    </div>
+
+    <hr style="margin: 2rem 0; border-color: #00ff41;">
+
+    <div id="graviton-app">
+        <div style="text-align: center; padding: 3rem; color: #808080;">
+            <p style="font-size: 1.5rem;">⏳ Loading Scala.js...</p>
+            <p>If you see interactive components below, it's working!</p>
+        </div>
+    </div>
+
+    <script type="module">
+        const statusEl = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+        
+        function updateStatus(message, isSuccess = true) {
+            statusText.textContent = message;
+            statusEl.className = isSuccess ? 'status success' : 'status error';
+        }
+
+        async function loadScalaJs() {
+            try {
+                updateStatus('⏳ Loading main.js module...');
+                
+                // Try to import the Scala.js main module
+                await import('/graviton/js/main.js');
+                
+                updateStatus('✅ Scala.js loaded and initialized successfully!', true);
+                
+                // Wait a bit for Laminar to render
+                setTimeout(() => {
+                    const app = document.getElementById('graviton-app');
+                    if (app && app.children.length > 1) {
+                        updateStatus('🎉 SUCCESS! Scala.js components are rendering!', true);
+                        console.log('✅ Graviton app mounted:', app.children);
+                    } else {
+                        updateStatus('⚠️ Scala.js loaded but app may not have rendered yet', true);
+                    }
+                }, 1000);
+                
+            } catch (error) {
+                updateStatus(`❌ Error loading Scala.js: ${error.message}`, false);
+                console.error('Scala.js load error:', error);
+            }
+        }
+
+        // Load when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadScalaJs);
+        } else {
+            loadScalaJs();
+        }
+    </script>
+</body>
+</html>

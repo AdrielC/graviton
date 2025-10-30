@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build VitePress site
+    name: Build VitePress site with Scala.js
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,13 +32,10 @@ jobs:
           java-version: '21'
           cache: 'sbt'
       
-      - name: Generate Scaladoc
+      - name: Build all docs assets (Scaladoc + Scala.js Frontend)
         run: |
-          ./sbt generateDocs
-      
-      - name: Build Scala.js Frontend
-        run: |
-          ./sbt buildFrontend
+          # This compiles the Scala.js frontend and Scaladoc, then copies to docs/public/
+          ./sbt buildDocsAssets
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -50,8 +47,9 @@ jobs:
       - name: Install dependencies
         run: npm install --prefix docs
       
-      - name: Build docs
+      - name: Build VitePress site (includes Scala.js modules)
         run: npm run docs:build --prefix docs
+        # This bundles VitePress + copies public/js/* to dist/js/*
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
