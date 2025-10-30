@@ -44,10 +44,10 @@ generateDocs := {
   
   log.info("Generating Scaladoc for core modules...")
   
-  // Generate docs for key modules
-  val coreDoc = (core / Compile / doc).value
-  val streamsDoc = (streams / Compile / doc).value
-  val runtimeDoc = (runtime / Compile / doc).value
+  // Generate docs for key modules (use LocalProject to avoid ambiguity)
+  val coreDoc = (LocalProject("core") / Compile / doc).value
+  val streamsDoc = (LocalProject("streams") / Compile / doc).value
+  val runtimeDoc = (LocalProject("runtime") / Compile / doc).value
   
   log.info("Copying core module docs to docs folder...")
   IO.delete(targetDir)
