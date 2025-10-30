@@ -13,27 +13,32 @@ object GravitonApp {
   object Page {
     case object Dashboard extends Page
     case object Explorer  extends Page
+    case object Upload    extends Page
     case object Stats     extends Page
   }
 
   val dashboardRoute = Route.static(Page.Dashboard, root / endOfSegments)
   val explorerRoute  = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
+  val uploadRoute    = Route.static(Page.Upload, root / "upload" / endOfSegments)
   val statsRoute     = Route.static(Page.Stats, root / "stats" / endOfSegments)
 
   val router = new Router[Page](
-    routes = List(dashboardRoute, explorerRoute, statsRoute),
+    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute),
     getPageTitle = {
       case Page.Dashboard => "Graviton - Dashboard"
       case Page.Explorer  => "Graviton - Blob Explorer"
+      case Page.Upload    => "Graviton - File Upload"
       case Page.Stats     => "Graviton - Statistics"
     },
     serializePage = {
       case Page.Dashboard => "#/"
       case Page.Explorer  => "#/explorer"
+      case Page.Upload    => "#/upload"
       case Page.Stats     => "#/stats"
     },
     deserializePage = {
       case s if s.contains("explorer") => Page.Explorer
+      case s if s.contains("upload")   => Page.Upload
       case s if s.contains("stats")    => Page.Stats
       case _                           => Page.Dashboard
     },
@@ -56,6 +61,7 @@ object GravitonApp {
           cls   := "app-nav",
           navLink(Page.Dashboard, "🏠 Dashboard"),
           navLink(Page.Explorer, "🔍 Explorer"),
+          navLink(Page.Upload, "📤 Upload"),
           navLink(Page.Stats, "📊 Stats"),
         ),
 
@@ -137,6 +143,16 @@ object GravitonApp {
             ),
             a(
               cls  := "feature-card-link",
+              href := router.absoluteUrlForPage(Page.Upload),
+              onClick.preventDefault --> { _ => router.pushState(Page.Upload) },
+              div(
+                cls := "feature-card",
+                "📤 Upload Files",
+                p("See chunking in action and explore deduplication"),
+              ),
+            ),
+            a(
+              cls  := "feature-card-link",
               href := router.absoluteUrlForPage(Page.Stats),
               onClick.preventDefault --> { _ => router.pushState(Page.Stats) },
               div(
@@ -153,6 +169,12 @@ object GravitonApp {
       div(
         cls := "page-explorer",
         BlobExplorer(api),
+      )
+
+    case Page.Upload =>
+      div(
+        cls := "page-upload",
+        FileUpload(),
       )
 
     case Page.Stats =>
