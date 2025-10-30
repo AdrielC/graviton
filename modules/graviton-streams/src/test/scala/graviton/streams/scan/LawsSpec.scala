@@ -82,12 +82,13 @@ object LawsSpec extends ZIOSpecDefault {
         for {
           result <- runScan(composed, input)
         } yield {
-          // The composed scan should emit cumulative sums of cumulative counts
+          // The composed scan emits: initial from summer (0), then initial from counter through summer (0),
+          // then each count from counter through summer
           val expected =
-            if (input.isEmpty) Chunk(0L, 0L)
+            if (input.isEmpty) Chunk(0L, 0L) // summer initial, then counter initial through summer
             else {
-              val counts = (1L to input.length.toLong).toList
-              val sums   = counts.scanLeft(0L)(_ + _)
+              val counts = (0L to input.length.toLong).toList // counter emits 0, 1, 2, ...
+              val sums   = counts.scanLeft(0L)(_ + _)         // summer computes cumulative sums
               Chunk.fromIterable(sums)
             }
           assertTrue(result == expected)

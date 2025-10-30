@@ -66,8 +66,8 @@ object FlushSpec extends ZIOSpecDefault {
       val scan = Scan.stateful[Byte, List[Byte], Byte](
         initialState = List.empty[Byte],
         initialOutputs = Chunk.empty,
-        onEnd = state => Chunk.fromIterable(state.reverse), // Emit all buffered in reverse
-      )((state, b) => (b :: state, Chunk.empty)) // Buffer everything
+        onEnd = state => Chunk.fromIterable(state), // Emit all buffered (already reversed by construction)
+      )((state, b) => (b :: state, Chunk.empty)) // Buffer everything, building list in reverse
 
       check(TestGen.boundedBytes) { input =>
         for {
