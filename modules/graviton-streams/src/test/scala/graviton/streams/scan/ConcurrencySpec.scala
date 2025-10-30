@@ -73,7 +73,7 @@ object ConcurrencySpec extends ZIOSpecDefault {
         _      <- fiber.interrupt
         result <- fiber.await
       } yield assertTrue(result.isInterrupted)
-    },
+    } @@ TestAspect.withLiveClock,
     test("multiple scans can run in parallel on same input") {
       val scan1 = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
       val scan2 = Scan.foldLeft[Byte, Long](1L)((acc, _) => acc * 2)
@@ -197,6 +197,6 @@ object ConcurrencySpec extends ZIOSpecDefault {
                     .runCollect
                     .timeout(5.seconds)
       } yield assertTrue(result.isDefined)
-    },
+    } @@ TestAspect.withLiveClock,
   )
 }
