@@ -38,6 +38,7 @@ object InitF:
   
   /** Applicative instance */
   given Ap1[InitF] with
+    def map[A, B](fa: InitF[A])(f: A => B): InitF[B] = InitF.map(fa)(f)
     def pure[A](a: A): InitF[A] = InitF.pure(a)
     def ap[A, B](ff: InitF[A => B])(fa: InitF[A]): InitF[B] =
       InitF.map2(ff, fa)((f, a) => f(a))

@@ -39,16 +39,17 @@ type Get[A <: Rec, K <: String & Singleton] = A match
   case _ *: tail         => Get[tail, K]
   case EmptyTuple        => Nothing
 
-/** Value-level get */
-inline def get[A <: Rec, K <: String & Singleton](r: A, k: K): Get[A, K] =
-  inline r match
-    case (kk: String, v) *: _ =>
-      inline if constValue[K] == kk then
-        v.asInstanceOf[Get[A, K]]
+/** Value-level get - runtime implementation with type-safe interface */
+def get[A <: Rec, K <: String & Singleton](r: A, k: K): Get[A, K] =
+  r match
+    case r: NonEmptyTuple =>
+      val (key, value) = r.head.asInstanceOf[(String, Any)]
+      if (k == key) then
+        value.asInstanceOf[Get[A, K]]
       else
-        get[Tuple.Tail[A] & Rec, K](r.asInstanceOf[NonEmptyTuple].tail.asInstanceOf[Tuple.Tail[A] & Rec], k)
+        get[Tuple.Tail[A] & Rec, K](r.tail.asInstanceOf[Tuple.Tail[A] & Rec], k).asInstanceOf[Get[A, K]]
     case EmptyTuple =>
-      compiletime.error("Key not found in record")
+      throw new NoSuchElementException(s"Key $k not found in record")
 
 /** Insert a field if label not present, else replace. */
 type Put[A <: Rec, F <: Field[?, ?]] <: Rec = F match
@@ -71,25 +72,37 @@ object rec:
   inline def field[K <: String & Singleton, V](k: K, v: V): Field[K, V] = 
     (k, v).asInstanceOf[Field[K, V]]
   
-  inline def put[A <: Rec, K <: String & Singleton, V](a: A, k: K, v: V): Put[A, (K, V)] =
-    inline a match
+  def put[A <: Rec, K <: String & Singleton, V](a: A, k: K, v: V): Put[A, (K, V)] =
+    a match
       case EmptyTuple => 
-        (k, v) *: EmptyTuple
-      case (kk: String, _: Any) *: tail =>
-        inline if constValue[K] == kk then
-          (k, v) *: tail
+        ((k, v) *: EmptyTuple).asInstanceOf[Put[A, (K, V)]]
+      case a: NonEmptyTuple =>
+        val (key, value) = a.head.asInstanceOf[(String, Any)]
+        if (k == key) then
+          ((k, v) *: a.tail).asInstanceOf[Put[A, (K, V)]]
         else
-          val h = a.asInstanceOf[NonEmptyTuple].head
-          val t = put[Tuple.Tail[A] & Rec, K, V](tail.asInstanceOf[Tuple.Tail[A] & Rec], k, v)
+          val h = a.head
+          val t = put[Tuple.Tail[A] & Rec, K, V](a.tail.asInstanceOf[Tuple.Tail[A] & Rec], k, v)
           (h *: t).asInstanceOf[Put[A, (K, V)]]
   
   /** Merge two records, right-biased */
-  inline def merge[A <: Rec, B <: Rec](a: A, b: B): Merge[A, B] =
-    inline b match
+  def merge[A <: Rec, B <: Rec](a: A, b: B): Merge[A, B] =
+    b match
       case EmptyTuple => a.asInstanceOf[Merge[A, B]]
-      case (k: String, v: Any) *: tail =>
-        val updated = put[A, k.type & String & Singleton, v.type](a, k.asInstanceOf[k.type & String & Singleton], v.asInstanceOf[v.type])
-        merge[Put[A, (k.type, v.type)], Tuple.Tail[B] & Rec](
-          updated, 
-          tail.asInstanceOf[Tuple.Tail[B] & Rec]
-        ).asInstanceOf[Merge[A, B]]
+      case b: NonEmptyTuple =>
+        val (k, v) = b.head.asInstanceOf[(String, Any)]
+        // Runtime merge - type safety maintained by return type
+        val updated = putRaw(a, k, v)
+        merge[A, Tuple.Tail[B] & Rec](updated, b.tail.asInstanceOf[Tuple.Tail[B] & Rec]).asInstanceOf[Merge[A, B]]
+  
+  /** Runtime put helper */
+  private def putRaw[A <: Rec](a: A, k: String, v: Any): A =
+    a match
+      case EmptyTuple =>
+        ((k, v) *: EmptyTuple).asInstanceOf[A]
+      case a: NonEmptyTuple =>
+        val (key, value) = a.head.asInstanceOf[(String, Any)]
+        if (k == key) then
+          ((k, v) *: a.tail).asInstanceOf[A]
+        else
+          (a.head *: putRaw(a.tail.asInstanceOf[Rec], k, v)).asInstanceOf[A]
