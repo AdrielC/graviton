@@ -35,7 +35,6 @@ jobs:
       - name: Generate Scaladoc
         run: |
           ./sbt generateDocs
-        continue-on-error: true
       
       - name: Build Scala.js Frontend
         run: |
