@@ -37,10 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v3
+      - uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: 21
-          cache: sbt
-      - name: Docs build
-        run: ./sbt docs/mdoc
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install docs dependencies
+        run: npm install --prefix docs
+      - name: Build docs
+        run: npm run docs:build --prefix docs
