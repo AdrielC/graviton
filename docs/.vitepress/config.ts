@@ -1,6 +1,17 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  vite: {
+    build: {
+      rollupOptions: {
+        external: [
+          // Treat Scala.js modules as external to avoid bundling issues
+          /^\/graviton\/js\/.+\.js$/,
+          /^\/js\/.+\.js$/
+        ]
+      }
+    }
+  },
   title: 'Graviton',
   description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
   base: '/graviton/',
@@ -21,6 +32,9 @@ export default defineConfig({
     /^\/design\/.+/,
     // External module links
     /^\.\.\/\.\.\/modules\/.+/,
+    // Scala.js modules (dynamically loaded)
+    /^\/graviton\/js\/.+/,
+    /^\/js\/.+/,
   ],
   markdown: {
     theme: {
@@ -41,6 +55,7 @@ export default defineConfig({
       { text: '🚀 Guide', link: '/guide/getting-started' },
       { text: '🏗️ Architecture', link: '/architecture' },
       { text: '🔌 API', link: '/api' },
+      { text: '🎮 Demo', link: '/demo' },
       { text: '📚 Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
     ],
     sidebar: [
@@ -100,6 +115,12 @@ export default defineConfig({
           { text: 'Contributing', link: '/dev/contributing' },
           { text: 'Testing', link: '/dev/testing' },
           { text: 'Design Docs', link: '/design/' }
+        ]
+      },
+      {
+        text: 'Interactive',
+        items: [
+          { text: '🎮 Live Demo', link: '/demo' }
         ]
       }
     ],
