@@ -73,22 +73,22 @@ Start with the [Getting Started Guide](/guide/getting-started) for a hands-on in
 :::
 
 <div class="grid-container">
-  <a href="/architecture" class="feature-card">
+  <a href="/graviton/architecture" class="feature-card">
     <h3>🏗️ Architecture</h3>
     <p>Understand the module-by-module breakdown and system design</p>
   </a>
   
-  <a href="/end-to-end-upload" class="feature-card">
+  <a href="/graviton/end-to-end-upload" class="feature-card">
     <h3>📤 Upload Flow</h3>
     <p>Follow a binary blob through the entire ingest pipeline</p>
   </a>
   
-  <a href="/api" class="feature-card">
+  <a href="/graviton/api" class="feature-card">
     <h3>🔌 API Reference</h3>
     <p>Explore gRPC and HTTP endpoints with examples</p>
   </a>
   
-  <a href="/dev/contributing" class="feature-card">
+  <a href="/graviton/dev/contributing" class="feature-card">
     <h3>🤝 Contributing</h3>
     <p>Join the community and help build the future of storage</p>
   </a>
