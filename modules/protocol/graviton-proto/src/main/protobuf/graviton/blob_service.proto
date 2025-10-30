@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package graviton;
+
+message BlobKey {
+  string value = 1;
+}
+
+message BlobStat {
+  uint64 size = 1;
+  string etag = 2;
+}
+
+service BlobService {
+  rpc GetBlob(BlobKey) returns (stream bytes);
+  rpc StatBlob(BlobKey) returns (BlobStat);
+}

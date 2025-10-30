@@ -1,438 +1,125 @@
-import cats.instances.set
-enablePlugins(
-  ZioSbtEcosystemPlugin,
-  ZioSbtCiPlugin,
-)
+import sbt._
+import Keys._
+import BuildHelper._
 
-import scala.sys.process.*
-import sbtunidoc.ScalaUnidocPlugin.autoImport._
-import sbt.CrossVersion
-import sbt.io.Path
-import sbt.librarymanagement.Artifact
-
-ThisBuild / scalaVersion  := "3.7.3"
-ThisBuild / organization  := "io.quasar"
-ThisBuild / versionScheme := Some("semver-spec")
-ThisBuild / name          := "graviton"
-ThisBuild / turbo         := true
-
-lazy val zioV            = "2.1.20"
-lazy val zioPreludeV     = "1.0.0-RC41"
-lazy val ironV           = "3.2.0"
-lazy val zioSchemaV      = "1.7.4"
-lazy val zioJsonV        = "0.6.2"
-lazy val zioMetricsV       = "2.4.3"
-lazy val zioCacheV         = "0.2.4"
-lazy val zioRocksdbV       = "0.4.4"
-lazy val zioConfigV        = "4.0.4"
-lazy val zioHttpV          = "3.0.0"
-lazy val testContainersV   = "1.19.7"
-lazy val zioLoggingV       = "2.2.4"
-lazy val magnumV           = "2.0.0-M2"
-lazy val postgresV         = "42.7.3"
-lazy val diffsonV          = "4.6.1"
-lazy val scodecV           = "2.3.3"
-lazy val scalaJsonSchemaV  = "0.7.2"
-lazy val catsCollectionsV  = "0.9.10"
-
-lazy val generatePgSchemas = taskKey[Seq[java.io.File]](
-  "Generate DB schemas and snapshot into modules/pg/src/main/scala/graviton/db"
-)
-
-// Task to bootstrap local Postgres and stream output via sbt logger
-lazy val setUpPg = taskKey[Unit]("Bootstrap local Postgres (Podman) and stream logs")
-lazy val autoBootstrapPg = settingKey[Boolean](
-  "Run setUpPg automatically when sbt starts (controlled via GRAVITON_BOOTSTRAP_PG)"
-)
-
-lazy val docsSiteArchive = taskKey[java.io.File]("Bundle rendered documentation into a distributable zip")
-lazy val docsSiteArtifact = Artifact("graviton-docs", "zip", "zip")
-
-lazy val MdocKeys = _root_.mdoc.MdocPlugin.autoImport
-
-def envFlagEnabled(name: String): Boolean =
-  sys.env
-    .get(name)
-    .exists { raw =>
-      val normalized = raw.trim.toLowerCase(java.util.Locale.ROOT)
-      normalized match {
-        case "1" | "true" | "yes" | "on" => true
-        case _                              => false
-      }
-    }
-
-ThisBuild / setUpPg := {
-  val log     = streams.value.log
-  val workDir = (ThisBuild / baseDirectory).value
-
-  val host       = (ThisBuild / pgHost).value
-  val portString = (ThisBuild / pgPort).value
-  val port       = scala.util.Try(portString.toInt).getOrElse(5432)
-
-  def pgReachable(): Boolean = {
-    val socket = new java.net.Socket()
-    try {
-      socket.connect(new java.net.InetSocketAddress(host, port), 1500)
-      true
-    } catch {
-      case _: Throwable => false
-    } finally {
-      try socket.close()
-      catch { case _: Throwable => () }
-    }
-  }
-
-  def dockerAvailable(): Boolean =
-    // check if docker is present and responsive
-    Process(Seq("docker", "info"), workDir).!(ProcessLogger(_ => (), _ => ())) == 0
-
-  if (pgReachable()) {
-    log.info(s"Postgres detected at $host:$port. Skipping bootstrap.")
-  } else if (dockerAvailable()) {
-    log.warn(
-      "Docker is available but Postgres is not reachable. Skipping Podman bootstrap. " +
-        "Start your database with Docker or adjust PG_* settings if needed."
-    )
-  } else {
-    val cmd  = Seq("./scripts/bootstrap-podman-postgres.sh", "--fix-rootless")
-    log.info(s"Constrained environment detected (no Docker). Running: ${cmd.mkString(" ")} (cwd=${workDir.getAbsolutePath})")
-    val exit = Process(cmd, workDir).!(ProcessLogger(out => log.info(out), err => log.error(err)))
-    if (exit == 0) {
-      if (pgReachable()) log.info(s"Postgres is now reachable at $host:$port.")
-      else log.warn(s"Podman bootstrap completed but Postgres still not reachable at $host:$port.")
-    } else {
-      log.error(s"Podman Postgres bootstrap failed with exit code $exit")
-    }
-  }
+lazy val V = new {
+  val scala3     = "3.3.3"
+  val zio        = "2.1.9"
+  val zioSchema  = "1.5.0"
+  val zioPrelude = "1.0.0-RC23"
+  val zioGrpc    = "0.7.5"
+  val zioHttp    = "3.0.0-RC7"
+  val iron       = "2.6.0"
+  val awsV2      = "2.25.54"
+  val rocksdbJni = "8.11.3"
+  val pg         = "42.7.4"
 }
 
-ThisBuild / autoBootstrapPg := envFlagEnabled("GRAVITON_BOOTSTRAP_PG")
+ThisBuild / scalaVersion := V.scala3
+ThisBuild / organization := "io.graviton"
+ThisBuild / resolvers += Resolver.mavenCentral
 
-// Run setUpPg automatically on sbt startup
-ThisBuild / onLoad := {
-  val prev = (ThisBuild / onLoad).value
-  val shouldBootstrap = (ThisBuild / autoBootstrapPg).value
-  (state: State) => {
-    val s1 = prev(state)
-    if (shouldBootstrap) "setUpPg" :: s1 else s1
-  }
-}
+lazy val root = (project in file(".")).aggregate(
+  core,
+  zioBlocks,
+  streams,
+  runtime,
+  proto,
+  grpc,
+  http,
+  s3,
+  pg,
+  rocks,
+  server
+).settings(baseSettings, publish / skip := true, name := "graviton")
 
-lazy val commonSettings = Seq(
-  libraryDependencies ++= Seq(
-    "dev.zio"            %% "zio"                   % zioV,
-    "dev.zio"            %% "zio-streams"           % zioV,
-    "dev.zio"            %% "zio-cache"             % zioCacheV,
-    "dev.zio"            %% "zio-prelude"           % zioPreludeV,
-    "dev.zio"            %% "zio-schema"            % zioSchemaV,
-    "dev.zio"            %% "zio-schema-derivation" % zioSchemaV,
-    "dev.zio"            %% "zio-schema-json"       % zioSchemaV,
-    "dev.zio"            %% "zio-config"            % zioConfigV,
-    "dev.zio"            %% "zio-config-typesafe"   % zioConfigV,
-    "dev.zio"            %% "zio-config-magnolia"   % zioConfigV,
-    "io.github.iltotore" %% "iron"                  % ironV,
-    "io.github.iltotore" %% "iron-zio"              % ironV,
-    "io.github.iltotore" %% "iron-zio-json"         % ironV,
-    "io.github.rctcwyvrn" % "blake3"                % "1.3",
-    "dev.zio"            %% "zio-logging"           % zioLoggingV,
-    "dev.zio"            %% "zio-test"              % zioV % Test,
-    "dev.zio"            %% "zio-test-sbt"          % zioV % Test,
-    "dev.zio"            %% "zio-test-magnolia"     % zioV % Test,
-  ),
-  testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-)
-
-lazy val root = (project in file("."))
-  .aggregate(core, db, fs, s3, tika, metrics, pg, docs)
-  .settings(name := "graviton")
-
-lazy val core = project
-  .in(file("modules/core"))
-  .settings(
+lazy val core = (project in file("modules/graviton-core"))
+  .settings(baseSettings,
     name := "graviton-core",
     libraryDependencies ++= Seq(
-      "org.gnieh"           %% "diffson-core" % diffsonV,
-      ("com.github.andyglow" %% "scala-jsonschema-core" % scalaJsonSchemaV).cross(CrossVersion.for3Use2_13),
-    "org.typelevel"       %% "cats-collections-core"   % catsCollectionsV,
-    "org.scodec"          %% "scodec-core"             % scodecV,
-    ),
-  )
-  .settings(commonSettings)
-
-lazy val db = project
-  .in(file("modules/db"))
-  .settings(
-    name := "graviton-db"
-  )
-  .settings(commonSettings)
-  .settings(
-    libraryDependencies ++= Seq(
-      "com.augustnagro"   %% "magnum"     % magnumV,
-      "com.augustnagro"   %% "magnumpg"   % magnumV,
-      "com.augustnagro"   %% "magnumzio"  % magnumV,
+      "dev.zio" %% "zio-schema"  % V.zioSchema,
+      "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
+      "dev.zio" %% "zio-prelude" % V.zioPrelude,
+      "io.github.iltotore" %% "iron" % V.iron
     )
   )
 
-lazy val fs = project
-  .in(file("modules/fs"))
-  .dependsOn(core)
-  .settings(
-    name := "graviton-fs",
-    libraryDependencies ++= Seq(
-      "dev.zio"           %% "zio-rocksdb"    % zioRocksdbV,
-      "org.testcontainers" % "testcontainers" % testContainersV % Test,
-    ),
-  )
-  .settings(commonSettings)
+lazy val zioBlocks = (project in file("modules/zio-blocks"))
+  .settings(baseSettings, publish / skip := true, name := "zio-blocks")
 
-lazy val s3 = project
-  .in(file("modules/s3"))
-  .dependsOn(core)
-  .settings(
+lazy val streams = (project in file("modules/graviton-streams"))
+  .dependsOn(core, zioBlocks)
+  .settings(baseSettings,
+    name := "graviton-streams",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"          % V.zio,
+      "dev.zio" %% "zio-streams"  % V.zio,
+      "org.scodec" %% "scodec-core" % "2.3.3",
+      "dev.zio" %% "zio-test"      % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"  % V.zio % Test
+    )
+  )
+
+lazy val runtime = (project in file("modules/graviton-runtime"))
+  .dependsOn(core, streams)
+  .settings(baseSettings,
+    name := "graviton-runtime",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"         % V.zio,
+      "dev.zio" %% "zio-streams" % V.zio,
+      "dev.zio" %% "zio-metrics-connectors" % "2.2.1"
+    )
+  )
+
+lazy val proto = (project in file("modules/protocol/graviton-proto"))
+  .settings(baseSettings, name := "graviton-proto")
+
+lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
+  .dependsOn(runtime, proto)
+  .settings(baseSettings,
+    name := "graviton-grpc",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio
+    )
+  )
+
+lazy val http = (project in file("modules/protocol/graviton-http"))
+  .dependsOn(runtime)
+  .settings(baseSettings,
+    name := "graviton-http",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"      % V.zio,
+      "dev.zio" %% "zio-http" % V.zioHttp
+    )
+  )
+
+lazy val s3 = (project in file("modules/backend/graviton-s3"))
+  .dependsOn(runtime)
+  .settings(baseSettings,
     name := "graviton-s3",
     libraryDependencies ++= Seq(
-      "io.minio"           % "minio" % "8.5.9",
-      "org.testcontainers" % "minio" % testContainersV % Test,
-    ),
-  )
-  .settings(commonSettings)
-
-lazy val metrics = project
-  .in(file("modules/metrics"))
-  .dependsOn(core)
-  .settings(
-    name                             := "graviton-metrics",
-    libraryDependencies += "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV,
-  )
-  .settings(commonSettings)
-
-lazy val dbcodegen = project
-  .in(file("dbcodegen"))
-  .settings(
-    name    := "graviton-dbcodegen",
-    runMain := Some("dbcodegen.DbMain"),
+      "software.amazon.awssdk" % "s3" % V.awsV2
+    )
   )
 
-lazy val pg = project
-  .in(file("modules/pg"))
-  .dependsOn(core, db, dbcodegen)
-  .settings(
-    name              := "graviton-pg",
-    // on-demand schema generation snapshot directory (checked into VCS)
-    Compile / unmanagedSourceDirectories += (
-      baseDirectory.value / "src" / "main" / "scala" / "graviton" / "db"
-    ),
-    generatePgSchemas := {
-      val log = streams.value.log
-      log.info("Generating PG schemas...")
-
-      val templatePath = (baseDirectory.value / "codegen" / "magnum.ssp").getAbsolutePath
-      val outputPath   = (baseDirectory.value / "src" / "main" / "scala" / "graviton" / "pg" / "generated").getAbsolutePath
-
-      log.info(s"Template: $templatePath")
-      log.info(s"Output: $outputPath")
-
-      // Set system properties before running
-      val oldTemplate = System.getProperty("dbcodegen.template")
-      val oldOut      = System.getProperty("dbcodegen.out")
-      val oldJdbcUrl  = System.getProperty("dbcodegen.jdbcUrl")
-      val oldUsername = System.getProperty("dbcodegen.username")
-      val oldPassword = System.getProperty("dbcodegen.password")
-
-      try {
-        System.setProperty("dbcodegen.template", templatePath)
-        System.setProperty("dbcodegen.out", outputPath)
-        System.setProperty("dbcodegen.jdbcUrl", s"jdbc:postgresql://${pgHost.value}:${pgPort.value}/${pgDatabase.value}")
-        System.setProperty("dbcodegen.username", pgUsername.value)
-        System.setProperty("dbcodegen.password", pgPassword.value)
-
-        // Run the main class
-        (dbcodegen / Compile / runMain).toTask(" dbcodegen.DbMain").value
-
-        log.info("Schema generation completed successfully")
-        Seq(file(outputPath))
-      } finally {
-        // Restore old system properties
-        if (oldTemplate != null) System.setProperty("dbcodegen.template", oldTemplate)
-        else System.clearProperty("dbcodegen.template")
-
-        if (oldOut != null) System.setProperty("dbcodegen.out", oldOut)
-        else System.clearProperty("dbcodegen.out")
-
-        if (oldJdbcUrl != null) System.setProperty("dbcodegen.jdbcUrl", oldJdbcUrl)
-        else System.clearProperty("dbcodegen.jdbcUrl")
-
-        if (oldUsername != null) System.setProperty("dbcodegen.username", oldUsername)
-        else System.clearProperty("dbcodegen.username")
-
-        if (oldPassword != null) System.setProperty("dbcodegen.password", oldPassword)
-        else System.clearProperty("dbcodegen.password")
-      }
-    },
-    // keep your existing deps:
+lazy val pg = (project in file("modules/backend/graviton-pg"))
+  .dependsOn(runtime)
+  .settings(baseSettings,
+    name := "graviton-pg",
     libraryDependencies ++= Seq(
-      "com.augustnagro"   %% "magnum"     % magnumV,
-      "com.augustnagro"   %% "magnumpg"   % magnumV,
-      "com.augustnagro"   %% "magnumzio"  % magnumV,
-      "org.postgresql"     % "postgresql" % postgresV,
-      "com.zaxxer"         % "HikariCP"   % "5.1.0",
-      "org.testcontainers" % "postgresql" % testContainersV % Test,
-    ),
-  )
-  .settings(commonSettings)
-  .settings(Test / fork := true)
-  .settings(
-    Test / javaOptions ++= Seq(
-      "-DTESTCONTAINERS_RYUK_DISABLED=false",
-      "-DTESTCONTAINERS_CHECKS_DISABLE=false",
-      "-DTC_LOG_LEVEL=DEBUG",
-      "-Dcom.zaxxer.hikari.level=DEBUG", // optional: Hikari debug
+      "org.postgresql" % "postgresql" % V.pg
     )
   )
-  .settings(
-    Test / envVars ++= Map(
-      "TESTCONTAINERS_RYUK_DISABLED"  -> "false",
-      "TESTCONTAINERS_CHECKS_DISABLE" -> "false",
-      "TC_LOG_LEVEL"                  -> "DEBUG",
-    )
-  )
-  .settings(
-    pgHost     := sys.env.get("PG_HOST").getOrElse("127.0.0.1"),
-    pgPort     := sys.env.get("PG_PORT").getOrElse("5432"),
-    pgDatabase := sys.env.get("PG_DATABASE").getOrElse("postgres"),
-    pgUsername := sys.env.get("PG_USERNAME").getOrElse("postgres"),
-    pgPassword := sys.env.get("PG_PASSWORD").getOrElse("postgres"),
-  )
-  .settings(
-    Test / envVars ++= Map(
-      "PG_HOST"     -> pgHost.value,
-      "PG_PORT"     -> pgPort.value,
-      "PG_DATABASE" -> pgDatabase.value,
-      "PG_USERNAME" -> pgUsername.value,
-      "PG_PASSWORD" -> pgPassword.value,
-    )
-  )
-  .settings(
-    Test / resourceGenerators += Def.task {
-      val ddl     = baseDirectory.value / "ddl.sql"
-      val target  = (Test / resourceManaged).value / "ddl.sql"
-      IO.copyFile(ddl, target)
-      Seq(target)
-    }
-  )
 
-lazy val tika = project
-  .in(file("modules/tika"))
-  .dependsOn(core)
-  .settings(
-    name                                    := "graviton-tika",
-    libraryDependencies += "org.apache.tika" % "tika-core" % "2.9.1",
-  )
-  .settings(commonSettings)
-
-lazy val docs = project
-  .in(file("docs"))
-  .dependsOn(core, fs, s3, tika, metrics)
-  .settings(
-    publish / skip                             := false,
-    Compile / publishArtifact                  := false,
-    Compile / packageBin / publishArtifact     := false,
-    Compile / packageSrc / publishArtifact     := false,
-    Compile / packageDoc / publishArtifact     := false,
-    doc / skip                                 := true,
-    moduleName                                 := "graviton-docs",
-    scalacOptions -= "-Yno-imports",
-    scalacOptions -= "-Xfatal-warnings",
-    projectName                                := "graviton",
-    mainModuleName                             := (core / moduleName).value,
-    projectStage                               := ProjectStage.ProductionReady,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, db, fs, s3, tika, metrics, pg),
-    MdocKeys.mdocIn                            := baseDirectory.value / "src/main/mdoc",
-    MdocKeys.mdocOut                           := baseDirectory.value / "target/mdoc",
-    MdocKeys.mdocVariables                     := Map(
-      "VERSION"        -> version.value
-    ),
-  )
-  .settings(
-    docsSiteArchive := {
-      MdocKeys.mdoc.toTask("").value
-
-      val log       = streams.value.log
-      val stageRoot = target.value / "site"
-      val docsOut   = MdocKeys.mdocOut.value
-
-      IO.delete(stageRoot)
-      IO.createDirectory(stageRoot)
-
-      val docsDir = stageRoot / "docs"
-      IO.createDirectory(docsDir)
-      IO.copyDirectory(docsOut, docsDir)
-
-      val sidebars = baseDirectory.value / "sidebars.js"
-      if (sidebars.exists()) IO.copyFile(sidebars, stageRoot / "sidebars.js")
-
-      val pkgJson = baseDirectory.value / "package.json"
-      if (pkgJson.exists()) IO.copyFile(pkgJson, stageRoot / "package.json")
-
-      val versionsJson = stageRoot / "versions.json"
-      IO.write(versionsJson, s"""[\"${version.value}\"]\n""")
-
-      val archive = target.value / s"${moduleName.value}-${version.value}-docs.zip"
-      IO.delete(archive)
-      IO.zip(_root_.sbt.io.Path.allSubpaths(stageRoot), archive)
-
-      log.info(s"Packaged documentation archive at ${archive.getName}")
-      archive
-    },
-    artifacts := artifacts.value.filterNot(_ == docsSiteArtifact) :+ docsSiteArtifact,
-    packagedArtifacts :=
-      packagedArtifacts.value.filterNot(_._1 == docsSiteArtifact) + (docsSiteArtifact -> docsSiteArchive.value),
-    mdocIn                                     := baseDirectory.value / "src/main/mdoc",
-    mdocOut                                    := baseDirectory.value / "target/mdoc",
-    mdocVariables                              := Map("VERSION" -> version.value),
+lazy val rocks = (project in file("modules/backend/graviton-rocks"))
+  .dependsOn(runtime)
+  .settings(baseSettings,
+    name := "graviton-rocks",
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-http"                          % zioHttpV,
-      "dev.zio" %% "zio-metrics-connectors-prometheus" % zioMetricsV,
-    ),
+      "org.rocksdb" % "rocksdbjni" % V.rocksdbJni
+    )
   )
-  .enablePlugins(MdocPlugin, WebsitePlugin)
 
-// Convenience aliases for database operations
-addCommandAlias(
-  "genPg",
-  "dbcodegen/runMain dbcodegen.DbMain " +
-    "-Ddbcodegen.template=modules/pg/codegen/magnum.ssp " +
-    "-Ddbcodegen.out=modules/pg/src/main/scala/graviton/db",
-)
-
-addCommandAlias("bootstrapPg", "setUpPg")
-
-Global / excludeLintKeys ++= Set(
-  ThisBuild / pgDatabase,
-  ThisBuild / pgPassword,
-  ThisBuild / pgUsername,
-  docs / Compile / publishArtifact,
-  docs / mainModuleName,
-  docs / projectStage,
-)
-
-addCommandAlias(
-  "inspectPgConstraints",
-  "dbcodegen/runMain dbcodegen.DbMain " +
-    "-Ddbcodegen.inspect-only=true",
-)
-
-lazy val pgHost = settingKey[String]("PG_HOST")
-ThisBuild / pgHost := sys.env.get("PG_HOST").getOrElse("127.0.0.1")
-
-lazy val pgPort = settingKey[String]("PG_PORT")
-ThisBuild / pgPort := sys.env.get("PG_PORT").getOrElse("5432")
-
-lazy val pgPassword = settingKey[String]("PG_PASSWORD")
-ThisBuild / pgPassword := sys.env.get("PG_PASSWORD").getOrElse("postgres")
-
-lazy val pgDatabase = settingKey[String]("PG_DATABASE")
-ThisBuild / pgDatabase := sys.env.get("PG_DATABASE").getOrElse("postgres")
-
-lazy val pgUsername = settingKey[String]("PG_USERNAME")
-ThisBuild / pgUsername := sys.env.get("PG_USERNAME").getOrElse("postgres")
+lazy val server = (project in file("modules/server/graviton-server"))
+  .dependsOn(runtime, grpc, http, s3, pg, rocks)
+  .settings(baseSettings, name := "graviton-server")

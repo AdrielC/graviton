@@ -8,6 +8,8 @@ hs_err_pid*
 project/project/
 modules/*/target/
 docs/target/
+docs/.vitepress/dist/
+docs/node_modules/
 
 cs
 .bloop
