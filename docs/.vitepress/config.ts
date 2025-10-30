@@ -1,6 +1,17 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  vite: {
+    build: {
+      rollupOptions: {
+        external: [
+          // Treat Scala.js modules as external to avoid bundling issues
+          /^\/graviton\/js\/.+\.js$/,
+          /^\/js\/.+\.js$/
+        ]
+      }
+    }
+  },
   title: 'Graviton',
   description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
   base: '/graviton/',
@@ -21,6 +32,9 @@ export default defineConfig({
     /^\/design\/.+/,
     // External module links
     /^\.\.\/\.\.\/modules\/.+/,
+    // Scala.js modules (dynamically loaded)
+    /^\/graviton\/js\/.+/,
+    /^\/js\/.+/,
   ],
   markdown: {
     theme: {
