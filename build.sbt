@@ -3,7 +3,7 @@ import Keys._
 import BuildHelper._
 
 lazy val V = new {
-  val scala3     = "3.3.3"
+  val scala3     = "3.7.3"
   val zio        = "2.1.9"
   val zioSchema  = "1.5.0"
   val zioPrelude = "1.0.0-RC23"
@@ -64,7 +64,10 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-schema"  % V.zioSchema,
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
-      "io.github.iltotore" %% "iron" % V.iron
+      "io.github.iltotore" %% "iron" % V.iron,
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test
     )
   )
 
@@ -79,8 +82,9 @@ lazy val streams = (project in file("modules/graviton-streams"))
       "dev.zio" %% "zio"          % V.zio,
       "dev.zio" %% "zio-streams"  % V.zio,
       "org.scodec" %% "scodec-core" % "2.3.3",
-      "dev.zio" %% "zio-test"      % V.zio % Test,
-      "dev.zio" %% "zio-test-sbt"  % V.zio % Test
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test
     )
   )
 
