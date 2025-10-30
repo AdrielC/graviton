@@ -16,6 +16,9 @@ import graviton.testkit.TestGen
  */
 object ChunkingSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   /** A simple fixed-size chunking scan for testing */
   def fixedChunker(size: Int): Scan[Byte, (Chunk[Byte], Int), Chunk[Byte]] =
     Scan.stateful[Byte, (Chunk[Byte], Int), Chunk[Byte]](

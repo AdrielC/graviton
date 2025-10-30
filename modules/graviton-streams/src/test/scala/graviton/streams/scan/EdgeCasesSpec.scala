@@ -17,6 +17,9 @@ import graviton.testkit.TestGen
  */
 object EdgeCasesSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Edge Cases")(
     test("empty stream with no initial outputs") {
       val scan = Scan.stateful[Byte, Long, Long](

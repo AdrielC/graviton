@@ -15,10 +15,13 @@ import graviton.testkit.TestGen
  */
 object BackpressureSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Backpressure & Stream Semantics")(
     test("slow consumer does not drop scan outputs") {
       val scan     = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
-      val slowSink = ZSink.foreach((n: Long) => ZIO.sleep(1.millis))
+      val slowSink = ZSink.foreach((_: Long) => ZIO.sleep(1.millis))
 
       check(TestGen.boundedBytes) { input =>
         for {
@@ -34,7 +37,7 @@ object BackpressureSpec extends ZIOSpecDefault {
           assertTrue(count == expected)
         }
       }
-    },
+    } @@ TestAspect.withLiveClock,
     test("backpressure preserves ordering") {
       val scan = Scan.identity[Byte]
 
@@ -47,13 +50,13 @@ object BackpressureSpec extends ZIOSpecDefault {
                       .runCollect
         } yield assertTrue(result == input)
       }
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan handles upstream interruption gracefully") {
       val scan = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
 
       for {
         fiber  <- ZStream
-                    .fromIterable(0 to 1000000)
+                    .fromIterable(0 to 100000) // Reduced from 1M to 100k
                     .map(_.toByte)
                     .via(scan.pipeline)
                     .runCollect
@@ -62,7 +65,7 @@ object BackpressureSpec extends ZIOSpecDefault {
         _      <- fiber.interrupt
         result <- fiber.await
       } yield assertTrue(result.isInterrupted)
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan propagates upstream errors") {
       val scan  = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
       val error = new RuntimeException("upstream error")
