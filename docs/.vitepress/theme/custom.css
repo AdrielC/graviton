@@ -1,5 +1,392 @@
+/**
+ * Graviton - Vaporwave Matrix Theme
+ * Dark, green, cyberpunk aesthetic
+ */
+
 :root {
-  --vp-c-brand-1: #3b82f6;
-  --vp-c-brand-2: #2563eb;
-  --vp-c-brand-3: #1d4ed8;
+  /* Vaporwave Matrix Color Palette */
+  --vp-c-bg: #0a0e14;
+  --vp-c-bg-soft: #0f1419;
+  --vp-c-bg-mute: #14191f;
+  --vp-c-bg-alt: #1a1f26;
+
+  /* Matrix Green Primary */
+  --vp-c-brand-1: #00ff41;
+  --vp-c-brand-2: #00d936;
+  --vp-c-brand-3: #00b32d;
+  --vp-c-brand-soft: rgba(0, 255, 65, 0.14);
+  
+  /* Accent Colors - Vaporwave Palette */
+  --vp-c-green: #00ff41;
+  --vp-c-cyan: #00ffff;
+  --vp-c-purple: #b967ff;
+  --vp-c-pink: #ff6ac1;
+  --vp-c-yellow: #fffb96;
+  
+  /* Text */
+  --vp-c-text-1: #e6e6e6;
+  --vp-c-text-2: #b3b3b3;
+  --vp-c-text-3: #808080;
+  
+  /* Borders with glow effect */
+  --vp-c-divider: rgba(0, 255, 65, 0.12);
+  --vp-c-gutter: rgba(0, 255, 65, 0.08);
+  
+  /* Code blocks */
+  --vp-c-bg-code: #0a0e14;
+  --vp-code-bg: #0f1419;
+  --vp-code-block-bg: rgba(15, 20, 25, 0.8);
+  
+  /* Shadows with neon glow */
+  --vp-shadow-1: 0 1px 2px rgba(0, 255, 65, 0.04), 0 1px 2px rgba(0, 0, 0, 0.6);
+  --vp-shadow-2: 0 3px 12px rgba(0, 255, 65, 0.07), 0 1px 4px rgba(0, 0, 0, 0.7);
+  --vp-shadow-3: 0 12px 32px rgba(0, 255, 65, 0.1), 0 2px 6px rgba(0, 0, 0, 0.8);
+  --vp-shadow-4: 0 14px 44px rgba(0, 255, 65, 0.12), 0 3px 9px rgba(0, 0, 0, 0.85);
+  --vp-shadow-5: 0 18px 56px rgba(0, 255, 65, 0.16), 0 4px 12px rgba(0, 0, 0, 0.9);
+}
+
+.dark {
+  --vp-c-bg: #0a0e14;
+  --vp-c-bg-soft: #0f1419;
+  --vp-c-bg-mute: #14191f;
+  --vp-c-bg-alt: #1a1f26;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--vp-c-bg-soft);
+  border-left: 1px solid var(--vp-c-divider);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--vp-c-brand-1), var(--vp-c-brand-2));
+  border-radius: 6px;
+  border: 2px solid var(--vp-c-bg-soft);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vp-c-brand-1);
+  box-shadow: 0 0 8px var(--vp-c-brand-1);
+}
+
+/* Page background with subtle grid */
+.VPDoc {
+  background: 
+    linear-gradient(var(--vp-c-divider) 1px, transparent 1px),
+    linear-gradient(90deg, var(--vp-c-divider) 1px, transparent 1px);
+  background-size: 50px 50px;
+  background-position: -1px -1px;
+}
+
+/* Hero section enhancements */
+.VPHero .name {
+  background: linear-gradient(120deg, var(--vp-c-brand-1), var(--vp-c-cyan), var(--vp-c-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.5));
+  }
+  to {
+    filter: drop-shadow(0 0 20px rgba(0, 255, 65, 0.8));
+  }
+}
+
+.VPHero .tagline {
+  color: var(--vp-c-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+/* Links with neon effect */
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.vp-doc a:hover {
+  color: var(--vp-c-cyan);
+  text-shadow: 0 0 8px var(--vp-c-cyan);
+}
+
+.vp-doc a::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  bottom: -2px;
+  left: 0;
+  background: linear-gradient(90deg, transparent, var(--vp-c-brand-1), transparent);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.vp-doc a:hover::after {
+  transform: scaleX(1);
+}
+
+/* Code blocks with matrix styling */
+.vp-code-group,
+div[class*='language-'] {
+  border: 1px solid var(--vp-c-brand-soft);
+  border-radius: 8px;
+  box-shadow: 
+    0 0 20px rgba(0, 255, 65, 0.1),
+    inset 0 0 20px rgba(0, 255, 65, 0.02);
+  background: var(--vp-code-block-bg) !important;
+  backdrop-filter: blur(10px);
+}
+
+div[class*='language-']::before {
+  color: var(--vp-c-brand-1);
+  text-shadow: 0 0 5px var(--vp-c-brand-1);
+}
+
+div[class*='language-'] code {
+  color: var(--vp-c-text-1);
+}
+
+/* Inline code */
+.vp-doc :not(pre) > code {
+  background-color: rgba(0, 255, 65, 0.1);
+  color: var(--vp-c-brand-1);
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
+}
+
+/* Buttons */
+.VPButton {
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.VPButton.brand {
+  background: linear-gradient(135deg, var(--vp-c-brand-1), var(--vp-c-brand-2));
+  border: 1px solid var(--vp-c-brand-1);
+  color: #0a0e14;
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.3);
+}
+
+.VPButton.brand:hover {
+  background: var(--vp-c-brand-1);
+  box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);
+  transform: translateY(-2px);
+}
+
+.VPButton.alt {
+  background: rgba(0, 255, 65, 0.1);
+  border: 1px solid var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+.VPButton.alt:hover {
+  background: rgba(0, 255, 65, 0.2);
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+}
+
+/* Navigation bar */
+.VPNav {
+  background-color: rgba(10, 14, 20, 0.8) !important;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--vp-c-divider);
+  box-shadow: 0 2px 20px rgba(0, 255, 65, 0.1);
+}
+
+.VPNavBar {
+  background: transparent;
+}
+
+.VPNavBarTitle .title {
+  color: var(--vp-c-brand-1);
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+  font-weight: 700;
+  transition: all 0.3s ease;
+}
+
+.VPNavBarTitle .title:hover {
+  text-shadow: 0 0 20px rgba(0, 255, 65, 0.8);
+}
+
+/* Sidebar */
+.VPSidebar {
+  background-color: rgba(10, 14, 20, 0.95);
+  backdrop-filter: blur(10px);
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+.VPSidebarItem.is-active .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.VPSidebarItem.is-active .indicator {
+  background-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 10px var(--vp-c-brand-1);
+}
+
+/* Tables */
+.vp-doc table {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.vp-doc thead {
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.vp-doc th {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+  border-color: var(--vp-c-divider);
+}
+
+.vp-doc tr:hover {
+  background-color: rgba(0, 255, 65, 0.04);
+}
+
+/* Custom containers */
+.vp-doc .custom-block {
+  border-radius: 8px;
+  border-left-width: 3px;
+}
+
+.vp-doc .custom-block.tip {
+  border-color: var(--vp-c-brand-1);
+  background-color: rgba(0, 255, 65, 0.05);
+}
+
+.vp-doc .custom-block.warning {
+  border-color: var(--vp-c-yellow);
+  background-color: rgba(255, 251, 150, 0.05);
+}
+
+.vp-doc .custom-block.danger {
+  border-color: var(--vp-c-pink);
+  background-color: rgba(255, 106, 193, 0.05);
+}
+
+/* Search */
+.VPNavBarSearch {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.VPNavBarSearch:hover {
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+}
+
+/* Footer */
+.VPFooter {
+  border-top: 1px solid var(--vp-c-divider);
+  background: linear-gradient(180deg, transparent, rgba(0, 255, 65, 0.02));
+}
+
+/* Headings with underline glow */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  position: relative;
+  padding-bottom: 0.5em;
+}
+
+.vp-doc h1::after,
+.vp-doc h2::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--vp-c-brand-1), transparent);
+  box-shadow: 0 0 10px var(--vp-c-brand-1);
+}
+
+.vp-doc h1 {
+  background: linear-gradient(120deg, var(--vp-c-brand-1), var(--vp-c-cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Badges */
+.vp-doc .badge {
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.85em;
+  font-weight: 600;
+  border: 1px solid;
+  margin-left: 6px;
+}
+
+.vp-doc .badge.tip {
+  background: rgba(0, 255, 65, 0.1);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+
+/* Logo glow effect */
+.VPNavBarTitle .logo {
+  filter: drop-shadow(0 0 5px rgba(0, 255, 65, 0.5));
+  transition: all 0.3s ease;
+}
+
+.VPNavBarTitle:hover .logo {
+  filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.8));
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(0, 255, 65, 0.3);
+  color: var(--vp-c-text-1);
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.VPSidebarItem {
+  animation: slideIn 0.3s ease;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .VPNav {
+    backdrop-filter: blur(8px);
+  }
 }
