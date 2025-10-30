@@ -41,6 +41,7 @@ export default defineConfig({
       { text: '🚀 Guide', link: '/guide/getting-started' },
       { text: '🏗️ Architecture', link: '/architecture' },
       { text: '🔌 API', link: '/api' },
+      { text: '🎮 Demo', link: '/demo' },
       { text: '📚 Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
     ],
     sidebar: [
@@ -100,6 +101,12 @@ export default defineConfig({
           { text: 'Contributing', link: '/dev/contributing' },
           { text: 'Testing', link: '/dev/testing' },
           { text: 'Design Docs', link: '/design/' }
+        ]
+      },
+      {
+        text: 'Interactive',
+        items: [
+          { text: '🎮 Live Demo', link: '/demo' }
         ]
       }
     ],

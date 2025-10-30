@@ -12,6 +12,10 @@ addSbtPlugin("org.scalameta" % "sbt-scalafmt"  % "2.5.5")
 addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.3.1")
 addSbtPlugin("org.typelevel" % "sbt-tpolecat"  % "0.5.2")
 
+// Scala.js for frontend
+addSbtPlugin("org.scala-js"       % "sbt-scalajs"              % "1.17.0")
+addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.3.2")
+
 resolvers ++= Resolver.sonatypeOssRepos("public")
 
 // Resolve eviction between transitive plugin deps requiring different
