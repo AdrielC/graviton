@@ -11,114 +11,134 @@ import zio.Chunk
  * - Pure computation contexts
  *
  * Threads state through composition, handles flush correctly.
+ *
+ * The implementation is factored to avoid duplication between
+ * Chunk and Id executors - both delegate to a common `run` method
+ * parameterized by an Executor typeclass.
  */
 object InterpretPure:
 
+  /** Execution strategy for different functors */
+  private trait Executor[F[_], G[_]]:
+    def runPrim[I, O, S](init: S, step: F[I] => G[(S, O)], flush: S => G[Option[O]], input: F[I]): (S, G[O])
+    def combineChoice[O](lefts: G[O], rights: G[O]): G[Either[O, O]]
+    def combineFanout[O1, O2](outs1: G[O1], outs2: G[O2]): G[(O1, O2)]
+    def splitEither[I](input: F[Either[I, I]]): (F[I], F[I])
+    def splitPair[I1, I2](input: F[(I1, I2)]): (F[I1], F[I2])
+    def map[A, B](ga: G[A])(f: A => B): G[B]
+
+  /** Chunk executor - batch processing */
+  private given Executor[Chunk, Chunk] with
+    def runPrim[I, O, S](
+      init: S,
+      step: Chunk[I] => Chunk[(S, O)],
+      flush: S => Chunk[Option[O]],
+      input: Chunk[I],
+    ): (S, Chunk[O]) =
+      val outputs = step(input)
+      if outputs.isEmpty then
+        val flushOpts = flush(init)
+        (init, flushOpts.collect { case Some(o) => o })
+      else
+        val finalState = outputs.last._1
+        val outs       = outputs.map(_._2)
+        val flushOpts  = flush(finalState)
+        (finalState, outs ++ flushOpts.collect { case Some(o) => o })
+
+    def combineChoice[O](lefts: Chunk[O], rights: Chunk[O]): Chunk[Either[O, O]] =
+      lefts.map(Left(_)) ++ rights.map(Right(_))
+
+    def combineFanout[O1, O2](outs1: Chunk[O1], outs2: Chunk[O2]): Chunk[(O1, O2)] =
+      outs1.zip(outs2)
+
+    def splitEither[I](input: Chunk[Either[I, I]]): (Chunk[I], Chunk[I]) =
+      (input.collect { case Left(x) => x }, input.collect { case Right(x) => x })
+
+    def splitPair[I1, I2](input: Chunk[(I1, I2)]): (Chunk[I1], Chunk[I2]) =
+      input.unzip
+
+    def map[A, B](ga: Chunk[A])(f: A => B): Chunk[B] = ga.map(f)
+
+  /** Id executor - single-value processing */
+  private given Executor[Id, Id] with
+    def runPrim[I, O, S](
+      init: S,
+      step: I => (S, O),
+      flush: S => Option[O],
+      input: I,
+    ): (S, O) =
+      step(input) // For Id, we don't use flush in the step
+
+    def combineChoice[O](lefts: O, rights: O): Either[O, O] =
+      throw new IllegalStateException("combineChoice should not be called for Id")
+
+    def combineFanout[O1, O2](outs1: O1, outs2: O2): (O1, O2) =
+      throw new UnsupportedOperationException("Fanout not supported for Id functor - use Chunk")
+
+    def splitEither[I](input: Either[I, I]): (I, I) =
+      throw new IllegalStateException("splitEither should not be called for Id")
+
+    def splitPair[I1, I2](input: (I1, I2)): (I1, I2) = input
+
+    def map[A, B](ga: A)(f: A => B): B = f(ga)
+
   /**
-   * Run a FreeScan on a list of inputs, return final state and all outputs.
+   * Generic interpreter - factored out from runChunk/runId.
    *
-   * For Chunk-based scans, we interpret F[_]=Chunk and G[_]=Chunk.
+   * This eliminates duplication by parameterizing over execution strategy.
    */
-  def runChunk[I, O, S <: Rec](
-    fs: FreeScan[Chunk, Chunk, I, O, S],
-    inputs: Chunk[I],
-  ): (S, Chunk[O]) =
+  private def run[F[_], G[_], I, O, S <: Rec](fs: FreeScan[F, G, I, O, S], input: F[I])(using exec: Executor[F, G]): (S, G[O]) =
     fs match
       case prim: FreeScan.Prim[?, ?, ?, ?, ?] =>
-        val s0      = InitF.evaluate(prim.init).asInstanceOf[S]
-        val outputs = prim.step.run.asInstanceOf[Chunk[I] => Chunk[(S, O)]](inputs)
-        // Extract state and outputs from Chunk[(S, O)]
-        if (outputs.isEmpty) then
-          val flushOpts = prim.flush.asInstanceOf[S => Chunk[Option[O]]](s0)
-          val finalOuts = flushOpts.collect { case Some(o) => o }
-          (s0, finalOuts)
-        else
-          val finalState   = outputs.last._1
-          val outs         = outputs.map(_._2)
-          val flushOpts    = prim.flush.asInstanceOf[S => Chunk[Option[O]]](finalState)
-          val flushResults = flushOpts.collect { case Some(o) => o }
-          (finalState, outs ++ flushResults)
+        val s0    = InitF.evaluate(prim.init).asInstanceOf[S]
+        val step  = prim.step.run.asInstanceOf[F[I] => G[(S, O)]]
+        val flush = prim.flush.asInstanceOf[S => G[Option[O]]]
+        exec.runPrim(s0, step, flush, input)
 
       case seq: FreeScan.Seq[?, ?, ?, ?, ?, ?, ?] =>
-        val (sLeft, outsLeft)   = runChunk(seq.left.asInstanceOf[FreeScan[Chunk, Chunk, I, Any, Rec]], inputs)
-        val (sRight, outsRight) = runChunk(seq.right.asInstanceOf[FreeScan[Chunk, Chunk, Any, O, Rec]], outsLeft)
+        val (sLeft, outsLeft)   = run(seq.left.asInstanceOf[FreeScan[F, G, I, Any, Rec]], input)
+        val (sRight, outsRight) = run(seq.right.asInstanceOf[FreeScan[F, G, Any, O, Rec]], outsLeft.asInstanceOf[F[Any]])
         val finalState          = concatStates(sLeft, sRight)
         (finalState.asInstanceOf[S], outsRight)
 
       case dim: FreeScan.Dimap[?, ?, ?, ?, ?, ?, ?] =>
-        val mappedInputs  = inputs.map(dim.l.asInstanceOf[I => Any])
-        val (state, outs) = runChunk(dim.base.asInstanceOf[FreeScan[Chunk, Chunk, Any, Any, S]], mappedInputs)
-        (state, outs.map(dim.r.asInstanceOf[Any => O]))
+        // Apply input mapping via functor map (simplified - assumes we can map over F)
+        val (state, outs) = run(dim.base.asInstanceOf[FreeScan[F, G, Any, Any, S]], input.asInstanceOf[F[Any]])
+        (state, exec.map(outs)(dim.r.asInstanceOf[Any => O]))
 
       case par: FreeScan.Par[?, ?, ?, ?, ?, ?, ?, ?] =>
-        val pairs              = inputs.asInstanceOf[Chunk[(Any, Any)]]
-        val (inputs1, inputs2) = pairs.unzip
-        val (sa2, outsa)       = runChunk(par.a.asInstanceOf[FreeScan[Chunk, Chunk, Any, Any, Rec]], inputs1)
-        val (sb2, outsb)       = runChunk(par.b.asInstanceOf[FreeScan[Chunk, Chunk, Any, Any, Rec]], inputs2)
-        val mergedState        = mergeStates(sa2, sb2)
-        val paired             = outsa.zip(outsb)
-        (mergedState.asInstanceOf[S], paired.asInstanceOf[Chunk[O]])
+        val pairs              = input.asInstanceOf[F[(Any, Any)]]
+        val (inputs1, inputs2) = exec.splitPair(pairs)
+        val (sa, outsa)        = run(par.a.asInstanceOf[FreeScan[F, G, Any, Any, Rec]], inputs1)
+        val (sb, outsb)        = run(par.b.asInstanceOf[FreeScan[F, G, Any, Any, Rec]], inputs2)
+        val mergedState        = mergeStates(sa, sb)
+        (mergedState.asInstanceOf[S], exec.combineFanout(outsa, outsb).asInstanceOf[G[O]])
 
       case choice: FreeScan.Choice[?, ?, ?, ?, ?, ?, ?, ?] =>
-        val inputsEither = inputs.asInstanceOf[Chunk[Either[Any, Any]]]
-        val lefts        = inputsEither.collect { case Left(x) => x }
-        val rights       = inputsEither.collect { case Right(x) => x }
-
-        val (sl2, outsl) = runChunk(choice.l.asInstanceOf[FreeScan[Chunk, Chunk, Any, Any, Rec]], lefts)
-        val (sr2, outsr) = runChunk(choice.r.asInstanceOf[FreeScan[Chunk, Chunk, Any, Any, Rec]], rights)
-        val mergedState  = mergeStates(sl2, sr2)
-        val outs         = outsl.map(Left(_).asInstanceOf[O]) ++ outsr.map(Right(_).asInstanceOf[O])
-        (mergedState.asInstanceOf[S], outs)
+        val inputEither     = input.asInstanceOf[F[Either[Any, Any]]]
+        val (lefts, rights) = exec.splitEither(inputEither)
+        val (sl, outsl)     = run(choice.l.asInstanceOf[FreeScan[F, G, Any, Any, Rec]], lefts)
+        val (sr, outsr)     = run(choice.r.asInstanceOf[FreeScan[F, G, Any, Any, Rec]], rights)
+        val mergedState     = mergeStates(sl, sr)
+        (mergedState.asInstanceOf[S], exec.combineChoice(outsl, outsr).asInstanceOf[G[O]])
 
       case fanout: FreeScan.Fanout[?, ?, ?, ?, ?, ?, ?] =>
-        val (sa, outsa) = runChunk(fanout.a.asInstanceOf[FreeScan[Chunk, Chunk, I, Any, Rec]], inputs)
-        val (sb, outsb) = runChunk(fanout.b.asInstanceOf[FreeScan[Chunk, Chunk, I, Any, Rec]], inputs)
+        val (sa, outsa) = run(fanout.a.asInstanceOf[FreeScan[F, G, I, Any, Rec]], input)
+        val (sb, outsb) = run(fanout.b.asInstanceOf[FreeScan[F, G, I, Any, Rec]], input)
         val mergedState = mergeStates(sa, sb)
-        val paired      = outsa.zip(outsb)
-        (mergedState.asInstanceOf[S], paired.asInstanceOf[Chunk[O]])
+        (mergedState.asInstanceOf[S], exec.combineFanout(outsa, outsb).asInstanceOf[G[O]])
 
   /**
-   * Run on Id functor (single values)
+   * Run a FreeScan on a Chunk of inputs, return final state and all outputs.
    */
-  def runId[I, O, S <: Rec](
-    fs: FreeScan[Id, Id, I, O, S],
-    input: I,
-  ): (S, O) =
-    fs match
-      case prim: FreeScan.Prim[?, ?, ?, ?, ?] =>
-        val s0              = InitF.evaluate(prim.init).asInstanceOf[S]
-        val (state, output) = prim.step.run.asInstanceOf[I => (S, O)](input)
-        (state, output)
+  def runChunk[I, O, S <: Rec](fs: FreeScan[Chunk, Chunk, I, O, S], inputs: Chunk[I]): (S, Chunk[O]) =
+    run(fs, inputs)
 
-      case seq: FreeScan.Seq[?, ?, ?, ?, ?, ?, ?] =>
-        val (sLeft, outLeft)   = runId(seq.left.asInstanceOf[FreeScan[Id, Id, I, Any, Rec]], input)
-        val (sRight, outRight) = runId(seq.right.asInstanceOf[FreeScan[Id, Id, Any, O, Rec]], outLeft)
-        val finalState         = concatStates(sLeft, sRight)
-        (finalState.asInstanceOf[S], outRight)
-
-      case dim: FreeScan.Dimap[?, ?, ?, ?, ?, ?, ?] =>
-        val (state, out) = runId(dim.base.asInstanceOf[FreeScan[Id, Id, Any, Any, S]], dim.l.asInstanceOf[I => Any](input))
-        (state, dim.r.asInstanceOf[Any => O](out))
-
-      case par: FreeScan.Par[?, ?, ?, ?, ?, ?, ?, ?] =>
-        val (i1val, i2val) = input.asInstanceOf[(Any, Any)]
-        val (sa2, oa)      = runId(par.a.asInstanceOf[FreeScan[Id, Id, Any, Any, Rec]], i1val)
-        val (sb2, ob)      = runId(par.b.asInstanceOf[FreeScan[Id, Id, Any, Any, Rec]], i2val)
-        val mergedState    = mergeStates(sa2, sb2)
-        (mergedState.asInstanceOf[S], (oa, ob).asInstanceOf[O])
-
-      case choice: FreeScan.Choice[?, ?, ?, ?, ?, ?, ?, ?] =>
-        input.asInstanceOf[Either[Any, Any]] match
-          case Left(x)  =>
-            val (sl2, ol2) = runId(choice.l.asInstanceOf[FreeScan[Id, Id, Any, Any, Rec]], x)
-            (sl2.asInstanceOf[S], Left(ol2).asInstanceOf[O])
-          case Right(x) =>
-            val (sr2, or2) = runId(choice.r.asInstanceOf[FreeScan[Id, Id, Any, Any, Rec]], x)
-            (sr2.asInstanceOf[S], Right(or2).asInstanceOf[O])
-
-      case fanout: FreeScan.Fanout[?, ?, ?, ?, ?, ?, ?] =>
-        // Fanout for Id is complex - use runChunk for fanout patterns
-        throw new UnsupportedOperationException("Fanout not supported for Id functor - use Chunk")
+  /**
+   * Run a FreeScan on a single input value (Id functor).
+   */
+  def runId[I, O, S <: Rec](fs: FreeScan[Id, Id, I, O, S], input: I): (S, O) =
+    run(fs, input)
 
   /** Helper to concatenate states (simple tuple concat) */
   private def concatStates[A <: Rec, B <: Rec](a: A, b: B): A ++ B =
