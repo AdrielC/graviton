@@ -14,6 +14,9 @@ import zio.Chunk
  */
 object LawsSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   // Helper: run a scan through its pipeline
   private def runScan[In, State, Out](
     scan: Scan[In, State, Out],
