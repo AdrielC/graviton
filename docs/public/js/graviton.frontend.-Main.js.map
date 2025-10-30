@@ -1,8 +1,0 @@
-{
-"version": 3,
-"file": "graviton.frontend.-Main.js",
-"mappings": ";;;AAMO,SAAAA,uCAAA,CAAA,IAAA;EAAAC,2CAAA,CAAA,2BAAA,GAAA,WAAA,CAAA,IAAA;C;AAAA,SAAAD,uCAAA,8C;",
-"sources": ["file:///workspace/modules/frontend/src/main/scala/graviton/frontend/Main.scala"],
-"names": ["main", "graviton.frontend.-Main$"],
-"lineCount": 7
-}
