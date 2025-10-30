@@ -37,6 +37,10 @@ jobs:
           ./sbt generateDocs
         continue-on-error: true
       
+      - name: Build Scala.js Frontend
+        run: |
+          ./sbt buildFrontend
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
