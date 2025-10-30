@@ -201,13 +201,18 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-json" % "0.7.3"
     )
   )
+  .jsSettings(
+    Test / fork := false  // Scala.js tests cannot be forked
+  )
 
 // Frontend module with Scala.js
 lazy val frontend = (project in file("modules/frontend"))
   .enablePlugins(ScalaJSPlugin)
   .dependsOn(sharedProtocol.js)
-  .settings(baseSettings,
+  .settings(
+    baseSettings,
     name := "graviton-frontend",
+    Test / fork := false,  // Scala.js tests cannot be forked
     scalaJSUseMainModuleInitializer := true,
     scalaJSLinkerConfig ~= {
       _.withModuleKind(ModuleKind.ESModule)
