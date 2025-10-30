@@ -491,11 +491,350 @@ onMounted(() => {
     font-family: 'Courier New', monospace;
     font-size: 0.9em;
   }
+
+  /* File Upload Styles */
+  .file-upload {
+    padding: 2rem;
+  }
+
+  .file-upload h2 {
+    color: var(--vp-c-brand-1);
+    margin-top: 0;
+  }
+
+  .upload-intro {
+    color: var(--vp-c-text-2);
+    margin: 1rem 0 2rem;
+    text-align: center;
+  }
+
+  .chunker-selection {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: rgba(0, 255, 65, 0.03);
+    border: 1px solid var(--vp-c-brand-soft);
+    border-radius: 12px;
+  }
+
+  .chunker-selection h3 {
+    color: var(--vp-c-brand-1);
+    margin-top: 0;
+  }
+
+  .chunker-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .chunker-btn {
+    padding: 1rem;
+    background: rgba(0, 255, 65, 0.05);
+    border: 2px solid var(--vp-c-brand-soft);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: left;
+  }
+
+  .chunker-btn:hover {
+    background: rgba(0, 255, 65, 0.1);
+    border-color: var(--vp-c-brand-1);
+    transform: translateY(-2px);
+  }
+
+  .chunker-btn.active {
+    background: rgba(0, 255, 65, 0.15);
+    border-color: var(--vp-c-brand-1);
+    box-shadow: 0 0 0 3px rgba(0, 255, 65, 0.2);
+  }
+
+  .chunker-name {
+    font-weight: 700;
+    color: var(--vp-c-brand-1);
+    margin-bottom: 0.5rem;
+  }
+
+  .chunker-desc {
+    font-size: 0.85rem;
+    color: var(--vp-c-text-2);
+  }
+
+  .upload-area {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin: 2rem 0;
+    padding: 2rem;
+    background: rgba(0, 200, 255, 0.03);
+    border: 2px dashed var(--vp-c-brand-soft);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+  }
+
+  .upload-area:hover {
+    border-color: var(--vp-c-brand-1);
+    background: rgba(0, 200, 255, 0.08);
+  }
+
+  .file-input {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid var(--vp-c-border);
+    border-radius: 8px;
+    background: var(--vp-c-bg);
+    color: var(--vp-c-text-1);
+    cursor: pointer;
+  }
+
+  .clear-btn {
+    white-space: nowrap;
+  }
+
+  .global-stats {
+    margin: 2rem 0;
+    padding: 2rem;
+    background: linear-gradient(135deg, rgba(0, 255, 65, 0.1) 0%, rgba(0, 200, 255, 0.1) 100%);
+    border: 1px solid var(--vp-c-brand-1);
+    border-radius: 12px;
+  }
+
+  .global-stats h3 {
+    color: var(--vp-c-brand-1);
+    margin-top: 0;
+  }
+
+  .stats-grid-compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+  }
+
+  .stat-item .stat-label {
+    font-size: 0.85rem;
+    color: var(--vp-c-text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .stat-item .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--vp-c-brand-1);
+  }
+
+  .analyses-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: 2rem;
+  }
+
+  .file-analysis {
+    background: rgba(0, 255, 65, 0.03);
+    border: 1px solid var(--vp-c-brand-soft);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .file-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+
+  .file-header:hover {
+    background: rgba(0, 255, 65, 0.08);
+  }
+
+  .file-info {
+    flex: 1;
+  }
+
+  .file-name {
+    margin: 0 0 0.5rem 0;
+    color: var(--vp-c-text-1);
+  }
+
+  .file-meta {
+    font-size: 0.9rem;
+    color: var(--vp-c-text-2);
+  }
+
+  .expand-icon {
+    font-size: 1.2rem;
+    color: var(--vp-c-brand-1);
+    transition: transform 0.2s ease;
+  }
+
+  .file-details-expanded {
+    padding: 1.5rem;
+    border-top: 1px solid var(--vp-c-divider);
+  }
+
+  .validations-section,
+  .chunk-stats,
+  .chunks-section {
+    margin-bottom: 2rem;
+  }
+
+  .validations-section h5,
+  .chunk-stats h5,
+  .chunks-section h5 {
+    color: var(--vp-c-brand-1);
+    margin: 0 0 1rem 0;
+  }
+
+  .validations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .validation-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--vp-c-bg-soft);
+    border-radius: 6px;
+  }
+
+  .validation-item.error {
+    background: rgba(255, 0, 0, 0.05);
+    border-left: 3px solid #ff0000;
+  }
+
+  .validation-item.success {
+    background: rgba(0, 255, 0, 0.05);
+    border-left: 3px solid #00ff00;
+  }
+
+  .validation-icon {
+    font-size: 1.2rem;
+  }
+
+  .chunks-table-wrapper {
+    overflow-x: auto;
+  }
+
+  .chunks-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  .chunks-table th {
+    text-align: left;
+    padding: 0.75rem;
+    background: rgba(0, 255, 65, 0.1);
+    border-bottom: 2px solid var(--vp-c-brand-1);
+    color: var(--vp-c-text-1);
+    font-weight: 600;
+  }
+
+  .chunks-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--vp-c-divider);
+    color: var(--vp-c-text-2);
+  }
+
+  .chunks-table tr:hover {
+    background: rgba(0, 255, 65, 0.05);
+  }
+
+  .chunks-table tr.shared-chunk {
+    background: rgba(0, 200, 255, 0.05);
+  }
+
+  .chunks-table tr.shared-chunk:hover {
+    background: rgba(0, 200, 255, 0.1);
+  }
+
+  .hash-value {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: var(--vp-c-text-1);
+  }
+
+  .no-sharing {
+    color: var(--vp-c-text-3);
+    font-style: italic;
+  }
+
+  .shared-files {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+  }
+
+  .share-indicator {
+    padding: 0.25rem 0.5rem;
+    background: rgba(0, 200, 255, 0.2);
+    border: 1px solid rgba(0, 200, 255, 0.5);
+    border-radius: 4px;
+    color: #00c8ff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: help;
+  }
+
+  .share-tooltip {
+    display: none;
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--vp-c-bg);
+    border: 1px solid var(--vp-c-brand-1);
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 100;
+    font-size: 0.85rem;
+    color: var(--vp-c-text-1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+
+  .shared-files:hover .share-tooltip {
+    display: block;
+  }
+
+  .truncation-notice {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: rgba(255, 200, 0, 0.1);
+    border: 1px solid rgba(255, 200, 0, 0.3);
+    border-radius: 6px;
+    color: var(--vp-c-text-2);
+    text-align: center;
+    font-style: italic;
+  }
 </style>
 
 # 🎮 Interactive Demo
 
 Experience Graviton's capabilities through this interactive Scala.js application!
+
+::: info Implementation Note
+The chunking algorithms demonstrated here use the **same FastCDC implementation** as the server-side code in `graviton-streams`. Upload multiple files to see real content-defined chunking and block-level deduplication in action!
+:::
 
 <meta name="graviton-api-url" content="http://localhost:8080" />
 
@@ -511,6 +850,10 @@ This interactive demo showcases:
 
 - **🏠 Dashboard**: Overview of Graviton's capabilities
 - **🔍 Blob Explorer**: Search and inspect blob metadata and manifests
+- **📤 File Upload**: Interactive chunking visualization with multiple strategies
+  - Compare Fixed-size vs FastCDC (content-defined) chunking
+  - See block sharing and deduplication across files in real-time
+  - View validation results and chunk-level details
 - **📊 Statistics**: Real-time system metrics and deduplication ratios
 
 ## Try it yourself
