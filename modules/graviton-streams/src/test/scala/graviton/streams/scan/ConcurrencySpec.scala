@@ -148,8 +148,8 @@ object ConcurrencySpec extends ZIOSpecDefault {
                              )
           results         <- ZIO.collectAllPar(instances)
         } yield {
-          // Each instance should process the full input
-          assertTrue(results.forall(r => r.length == input.length + 1)) // +1 for initial
+          // Each instance should process the full input (one output per input element)
+          assertTrue(results.forall(r => r.length == input.length))
         }
       }
     },
