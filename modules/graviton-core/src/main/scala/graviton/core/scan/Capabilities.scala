@@ -31,6 +31,7 @@ given Map1[Id] with
   def map[A, B](a: A)(f: A => B): B = f(a)
 
 given Ap1[Id] with
+  def map[A, B](a: A)(f: A => B): B = f(a)
   def pure[A](a: A): A = a
   def ap[A, B](ff: A => B)(fa: A): B = ff(fa)
 
@@ -39,6 +40,7 @@ given Map1[Chunk] with
   def map[A, B](fa: Chunk[A])(f: A => B): Chunk[B] = fa.map(f)
 
 given Ap1[Chunk] with
+  def map[A, B](fa: Chunk[A])(f: A => B): Chunk[B] = fa.map(f)
   def pure[A](a: A): Chunk[A] = Chunk.single(a)
   def ap[A, B](ff: Chunk[A => B])(fa: Chunk[A]): Chunk[B] =
     ff.flatMap(f => fa.map(f))

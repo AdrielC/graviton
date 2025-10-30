@@ -51,22 +51,23 @@ object InterpretPure:
         val (state, outs) = runChunk(base, mappedInputs)
         (state.asInstanceOf[S], outs.map(r))
       
-      case par @ FreeScan.Par(a, b) =>
-        val (inputs1, inputs2) = inputs.map(_.asInstanceOf[(Any, Any)]).unzip
-        val (sa, outsa) = runChunk(a, inputs1.asInstanceOf[Chunk[Any]])
-        val (sb, outsb) = runChunk(b, inputs2.asInstanceOf[Chunk[Any]])
-        val mergedState = mergeStates(sa, sb)
+      case par: FreeScan.Par[Chunk, Chunk, i1, i2, o1, o2, sa, sb] =>
+        val pairs = inputs.asInstanceOf[Chunk[(i1, i2)]]
+        val (inputs1, inputs2) = pairs.unzip
+        val (sa2, outsa) = runChunk[i1, o1, sa](par.a, inputs1)
+        val (sb2, outsb) = runChunk[i2, o2, sb](par.b, inputs2)
+        val mergedState = mergeStates(sa2, sb2)
         val paired = outsa.zip(outsb)
         (mergedState.asInstanceOf[S], paired.asInstanceOf[Chunk[O]])
       
-      case choice @ FreeScan.Choice(l, r) =>
-        val inputsEither = inputs.asInstanceOf[Chunk[Either[Any, Any]]]
+      case choice: FreeScan.Choice[Chunk, Chunk, il, ir, ol, or, sl, sr] =>
+        val inputsEither = inputs.asInstanceOf[Chunk[Either[il, ir]]]
         val lefts = inputsEither.collect { case Left(x) => x }
         val rights = inputsEither.collect { case Right(x) => x }
         
-        val (sl, outsl) = runChunk(l, lefts)
-        val (sr, outsr) = runChunk(r, rights)
-        val mergedState = mergeStates(sl, sr)
+        val (sl2, outsl) = runChunk[il, ol, sl](choice.l, lefts)
+        val (sr2, outsr) = runChunk[ir, or, sr](choice.r, rights)
+        val mergedState = mergeStates(sl2, sr2)
         val outs = outsl.map(Left(_)) ++ outsr.map(Right(_))
         (mergedState.asInstanceOf[S], outs.asInstanceOf[Chunk[O]])
       
@@ -100,21 +101,21 @@ object InterpretPure:
         val (state, out) = runId(base, l(input))
         (state.asInstanceOf[S], r(out))
       
-      case par @ FreeScan.Par(a, b) =>
-        val (i1, i2) = input.asInstanceOf[(Any, Any)]
-        val (sa, oa) = runId(a, i1)
-        val (sb, ob) = runId(b, i2)
-        val mergedState = mergeStates(sa, sb)
+      case par: FreeScan.Par[Id, Id, i1, i2, o1, o2, sa, sb] =>
+        val (i1val, i2val) = input.asInstanceOf[(i1, i2)]
+        val (sa2, oa) = runId[i1, o1, sa](par.a, i1val)
+        val (sb2, ob) = runId[i2, o2, sb](par.b, i2val)
+        val mergedState = mergeStates(sa2, sb2)
         (mergedState.asInstanceOf[S], (oa, ob).asInstanceOf[O])
       
-      case choice @ FreeScan.Choice(l, r) =>
-        input.asInstanceOf[Either[Any, Any]] match
+      case choice: FreeScan.Choice[Id, Id, il, ir, ol, or, sl, sr] =>
+        input.asInstanceOf[Either[il, ir]] match
           case Left(x) =>
-            val (sl, ol) = runId(l, x)
-            (sl.asInstanceOf[S], Left(ol).asInstanceOf[O])
+            val (sl2, ol2) = runId[il, ol, sl](choice.l, x)
+            (sl2.asInstanceOf[S], Left(ol2).asInstanceOf[O])
           case Right(x) =>
-            val (sr, or) = runId(r, x)
-            (sr.asInstanceOf[S], Right(or).asInstanceOf[O])
+            val (sr2, or2) = runId[ir, or, sr](choice.r, x)
+            (sr2.asInstanceOf[S], Right(or2).asInstanceOf[O])
       
       case fanout @ FreeScan.Fanout(a, b) =>
         val (sa, oa) = runId(a, input)
