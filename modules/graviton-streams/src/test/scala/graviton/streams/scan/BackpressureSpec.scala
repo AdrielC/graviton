@@ -21,7 +21,7 @@ object BackpressureSpec extends ZIOSpecDefault {
   def spec = suite("Backpressure & Stream Semantics")(
     test("slow consumer does not drop scan outputs") {
       val scan     = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
-      val slowSink = ZSink.foreach((n: Long) => ZIO.sleep(1.millis))
+      val slowSink = ZSink.foreach((_: Long) => ZIO.sleep(1.millis))
 
       check(TestGen.boundedBytes) { input =>
         for {
@@ -37,7 +37,7 @@ object BackpressureSpec extends ZIOSpecDefault {
           assertTrue(count == expected)
         }
       }
-    },
+    } @@ TestAspect.withLiveClock,
     test("backpressure preserves ordering") {
       val scan = Scan.identity[Byte]
 
@@ -50,7 +50,7 @@ object BackpressureSpec extends ZIOSpecDefault {
                       .runCollect
         } yield assertTrue(result == input)
       }
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan handles upstream interruption gracefully") {
       val scan = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
 
@@ -65,7 +65,7 @@ object BackpressureSpec extends ZIOSpecDefault {
         _      <- fiber.interrupt
         result <- fiber.await
       } yield assertTrue(result.isInterrupted)
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan propagates upstream errors") {
       val scan  = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
       val error = new RuntimeException("upstream error")

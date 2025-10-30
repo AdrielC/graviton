@@ -46,7 +46,7 @@ object PerformancePropertiesSpec extends ZIOSpecDefault {
                     .runCollect
                     .timeout(10.seconds)
       } yield assertTrue(result.isDefined)
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan with many small chunks is efficient") {
       val scan  = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
       val input = Chunk.fromIterable(1 to 10000).map(_.toByte)
@@ -62,7 +62,7 @@ object PerformancePropertiesSpec extends ZIOSpecDefault {
         result.isDefined,
         result.get.last == 10000L,
       )
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan with very large chunks is efficient") {
       val scan  = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
       val input = Chunk.fill(50000)(0.toByte) // Reduced from 100k to 50k
@@ -78,7 +78,7 @@ object PerformancePropertiesSpec extends ZIOSpecDefault {
         result.isDefined,
         result.get.last == 50000L,
       )
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan doesn't build up unbounded queues") {
       // A scan that emits multiple outputs per input
       val scan = Scan.stateful[Byte, Unit, Byte](
@@ -99,7 +99,7 @@ object PerformancePropertiesSpec extends ZIOSpecDefault {
         result.isDefined,
         result.get.length == 50000,
       )
-    },
+    } @@ TestAspect.withLiveClock,
     test("repeatedly creating scan instances doesn't leak") {
       val input = Chunk.fromIterable(1 to 100).map(_.toByte)
 
@@ -147,7 +147,7 @@ object PerformancePropertiesSpec extends ZIOSpecDefault {
         result.last == 5000L
         // Note: removed timing assertion as it's flaky in test environments
       )
-    },
+    } @@ TestAspect.withLiveClock,
     test("scan handles rapid small stream creation") {
       val scan = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
 
