@@ -19,6 +19,30 @@ ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.graviton"
 ThisBuild / resolvers += Resolver.mavenCentral
 
+// Scaladoc settings
+ThisBuild / Compile / doc / scalacOptions ++= Seq(
+  "-project", "Graviton",
+  "-project-version", version.value,
+  "-project-logo", "docs/public/logo.svg",
+  "-social-links:github::https://github.com/AdrielC/graviton",
+  "-source-links:github://AdrielC/graviton",
+  "-revision", "main",
+  "-doc-root-content", "docs/scaladoc-root.md"
+)
+
+// Task to generate and copy scaladoc to docs
+lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
+generateDocs := {
+  val log = streams.value.log
+  val docDir = (Compile / doc).value
+  val targetDir = file("docs/public/scaladoc")
+  
+  log.info("Generating Scaladoc...")
+  IO.delete(targetDir)
+  IO.copyDirectory(docDir, targetDir)
+  log.info(s"Scaladoc copied to $targetDir")
+}
+
 lazy val root = (project in file(".")).aggregate(
   core,
   zioBlocks,
