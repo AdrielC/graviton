@@ -14,13 +14,19 @@ To execute the formatter and the unit suites:
 TESTCONTAINERS=0 ./sbt scalafmtAll test
 ```
 
-The documentation site is powered by VitePress. Run it locally with:
+The documentation site is powered by VitePress and includes an interactive Scala.js frontend. Run it locally with:
 
 ```bash
+# Build the interactive frontend
+sbt buildFrontend
+
+# Start the documentation server
 cd docs
 npm install
 npm run docs:dev
 ```
+
+Visit the [interactive demo](/demo) to explore Graviton's capabilities in your browser!
 
 ## Module map
 

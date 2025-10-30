@@ -11,6 +11,12 @@ docs/target/
 docs/.vitepress/dist/
 docs/node_modules/
 
+# Generated Scala.js output (built by CI)
+docs/public/js/
+
+# Generated Scaladoc (built by CI)
+docs/public/scaladoc/
+
 cs
 .bloop
 

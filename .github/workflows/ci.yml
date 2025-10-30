@@ -37,6 +37,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Build Scala.js Frontend
+        run: ./sbt buildFrontend
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

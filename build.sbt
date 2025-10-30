@@ -1,6 +1,9 @@
 import sbt._
 import Keys._
 import BuildHelper._
+import org.scalajs.linker.interface.ModuleSplitStyle
+import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
+import sbtcrossproject.CrossPlugin.autoImport._
 
 lazy val V = new {
   val scala3     = "3.7.3"
@@ -13,6 +16,9 @@ lazy val V = new {
   val awsV2      = "2.25.54"
   val rocksdbJni = "8.11.3"
   val pg         = "42.7.4"
+  val laminar    = "17.1.0"
+  val waypoint   = "8.0.0"
+  val scalajsDom = "2.8.0"
 }
 
 ThisBuild / scalaVersion := V.scala3
@@ -43,6 +49,34 @@ generateDocs := {
   log.info(s"Scaladoc copied to $targetDir")
 }
 
+// Task to build frontend and copy to docs
+lazy val buildFrontend = taskKey[Unit]("Build Scala.js frontend and copy to docs")
+buildFrontend := {
+  val log = Keys.streams.value.log
+  log.info("Building Scala.js frontend...")
+  
+  // Trigger fastLinkJS
+  val report = (frontend / Compile / fastLinkJS).value
+  val sourceDir = (frontend / Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/public/js")
+  
+  log.info(s"Copying Scala.js output from $sourceDir to $targetDir")
+  IO.delete(targetDir)
+  IO.createDirectory(targetDir)
+  
+  // Copy all JS files
+  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+  
+  log.info(s"Frontend built and copied to $targetDir")
+}
+
+// Combined task to build all docs assets
+lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
+buildDocsAssets := Def.sequential(
+  generateDocs,
+  buildFrontend
+).value
+
 lazy val root = (project in file(".")).aggregate(
   core,
   zioBlocks,
@@ -54,7 +88,10 @@ lazy val root = (project in file(".")).aggregate(
   s3,
   pg,
   rocks,
-  server
+  server,
+  sharedProtocol.jvm,
+  sharedProtocol.js,
+  frontend
 ).settings(baseSettings, publish / skip := true, name := "graviton")
 
 lazy val core = (project in file("modules/graviton-core"))
@@ -151,3 +188,41 @@ lazy val rocks = (project in file("modules/backend/graviton-rocks"))
 lazy val server = (project in file("modules/server/graviton-server"))
   .dependsOn(runtime, grpc, http, s3, pg, rocks)
   .settings(baseSettings, name := "graviton-server")
+
+// Shared protocol models for JVM and JS
+lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
+  .crossType(CrossType.Pure)
+  .in(file("modules/protocol/graviton-shared"))
+  .settings(
+    baseSettings,
+    name := "graviton-shared",
+    libraryDependencies ++= Seq(
+      "dev.zio" %%% "zio"      % V.zio,
+      "dev.zio" %%% "zio-json" % "0.7.3"
+    )
+  )
+  .jsSettings(
+    Test / fork := false  // Scala.js tests cannot be forked
+  )
+
+// Frontend module with Scala.js
+lazy val frontend = (project in file("modules/frontend"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(sharedProtocol.js)
+  .settings(
+    baseSettings,
+    name := "graviton-frontend",
+    Test / fork := false,  // Scala.js tests cannot be forked
+    scalaJSUseMainModuleInitializer := true,
+    scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("graviton.frontend")))
+    },
+    libraryDependencies ++= Seq(
+      "dev.zio"         %%% "zio"          % V.zio,
+      "dev.zio"         %%% "zio-json"     % "0.7.3",
+      "com.raquo"       %%% "laminar"      % V.laminar,
+      "com.raquo"       %%% "waypoint"     % V.waypoint,
+      "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
+    )
+  )
