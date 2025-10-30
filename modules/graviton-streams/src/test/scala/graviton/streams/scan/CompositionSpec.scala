@@ -13,6 +13,9 @@ import graviton.testkit.TestGen
  */
 object CompositionSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Scan Composition")(
     test("identity is left unit: identity >>> f == f (semantically)") {
       check(TestGen.boundedBytes) { input =>

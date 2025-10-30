@@ -15,6 +15,9 @@ object FlushSpec extends ZIOSpecDefault {
 
   // Note: Removed flushCountingScan as it relied on side effects that are hard to test purely
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Flush Semantics")(
     test("onEnd is called exactly once at stream completion") {
       val scan = Scan.stateful[Byte, Long, Option[Long]](

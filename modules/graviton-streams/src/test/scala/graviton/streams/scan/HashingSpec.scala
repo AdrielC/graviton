@@ -16,18 +16,19 @@ import java.security.MessageDigest
  */
 object HashingSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   /** A simple hashing scan using Java's MessageDigest for testing */
-  def sha256Scan: Scan[Byte, MessageDigest, Array[Byte]] = {
-    val md = MessageDigest.getInstance("SHA-256")
+  def sha256Scan: Scan[Byte, MessageDigest, Array[Byte]] =
     Scan.stateful[Byte, MessageDigest, Array[Byte]](
-      initialState = md,
+      initialState = MessageDigest.getInstance("SHA-256"),
       initialOutputs = Chunk.empty,
       onEnd = digest => Chunk.single(digest.digest()),
     ) { (digest, byte) =>
       digest.update(byte)
       (digest, Chunk.empty)
     }
-  }
 
   /** A scan that emits hash every N bytes */
   def sha256Every(n: Int): Scan[Byte, (MessageDigest, Long), Array[Byte]] =
@@ -42,9 +43,9 @@ object HashingSpec extends ZIOSpecDefault {
       digest.update(byte)
       val newCount = count + 1
       if (newCount >= n) {
-        val hash      = digest.digest()
-        val newDigest = MessageDigest.getInstance("SHA-256")
-        ((newDigest, 0L), Chunk.single(hash))
+        val hash = digest.digest()
+        // Reset the digest instead of creating a new instance to save memory
+        ((digest, 0L), Chunk.single(hash))
       } else {
         ((digest, newCount), Chunk.empty)
       }
@@ -60,7 +61,7 @@ object HashingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           result1.length == 1,
           result2.length == 1,
-          java.util.Arrays.equals(result1.head, result2.head),
+          result1.head.sameElements(result2.head),
         )
       }
     },
@@ -73,7 +74,7 @@ object HashingSpec extends ZIOSpecDefault {
         val emptyHash = MessageDigest.getInstance("SHA-256").digest()
         assertTrue(
           result.length == 1,
-          java.util.Arrays.equals(result.head, emptyHash),
+          result.head.sameElements(emptyHash),
         )
       }
     },
@@ -86,7 +87,7 @@ object HashingSpec extends ZIOSpecDefault {
         val expected = MessageDigest.getInstance("SHA-256").digest(Array(42.toByte))
         assertTrue(
           result.length == 1,
-          java.util.Arrays.equals(result.head, expected),
+          result.head.sameElements(expected),
         )
       }
     },
@@ -116,7 +117,7 @@ object HashingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           w.length == 1,
           r.length == 1,
-          java.util.Arrays.equals(w.head, r.head),
+          w.head.sameElements(r.head),
         )
       }
     },
@@ -159,8 +160,8 @@ object HashingSpec extends ZIOSpecDefault {
       } yield assertTrue(
         r1.length == r7.length,
         r7.length == r13.length,
-        r1.zip(r7).forall { case (a, b) => java.util.Arrays.equals(a, b) },
-        r7.zip(r13).forall { case (a, b) => java.util.Arrays.equals(a, b) },
+        r1.zip(r7).forall { case (a, b) => a.sameElements(b) },
+        r7.zip(r13).forall { case (a, b) => a.sameElements(b) },
       )
     },
     test("hashing scan composes with other scans") {

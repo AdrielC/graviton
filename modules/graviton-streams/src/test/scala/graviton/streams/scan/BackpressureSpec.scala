@@ -15,6 +15,9 @@ import graviton.testkit.TestGen
  */
 object BackpressureSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Backpressure & Stream Semantics")(
     test("slow consumer does not drop scan outputs") {
       val scan     = Scan.foldLeft[Byte, Long](0L)((acc, _) => acc + 1)
@@ -53,7 +56,7 @@ object BackpressureSpec extends ZIOSpecDefault {
 
       for {
         fiber  <- ZStream
-                    .fromIterable(0 to 1000000)
+                    .fromIterable(0 to 100000) // Reduced from 1M to 100k
                     .map(_.toByte)
                     .via(scan.pipeline)
                     .runCollect

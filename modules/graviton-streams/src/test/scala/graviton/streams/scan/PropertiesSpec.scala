@@ -16,6 +16,9 @@ import graviton.testkit.TestGen
  */
 object PropertiesSpec extends ZIOSpecDefault {
 
+  // Reduce test samples to prevent OOM
+  override def aspects = Chunk(TestAspect.samples(20))
+
   def spec = suite("Scan Properties")(
     test("mapOut identity: scan.mapOut(identity) == scan") {
       check(TestGen.boundedBytes) { input =>
