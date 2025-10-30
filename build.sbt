@@ -25,6 +25,19 @@ ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.graviton"
 ThisBuild / resolvers += Resolver.mavenCentral
 
+// Semantic versioning
+ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
+ThisBuild / licenses := List("MIT" -> url("https://github.com/AdrielC/graviton/blob/main/LICENSE"))
+ThisBuild / developers := List(
+  Developer(
+    "AdrielC",
+    "Adriel Cafiero",
+    "adriel.cafiero@gmail.com",
+    url("https://github.com/AdrielC")
+  )
+)
+
 // Scaladoc settings
 ThisBuild / Compile / doc / scalacOptions ++= Seq(
   "-project", "Graviton",
