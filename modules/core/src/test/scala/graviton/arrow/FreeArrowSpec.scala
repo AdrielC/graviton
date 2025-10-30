@@ -73,6 +73,13 @@ object FreeArrowSpec extends ZIOSpecDefault:
       val _         = summon[program.Caps =:= Tuple1[Capability.Emit]]
       assertTrue(program.compile(1) == 1)
     },
+    test("capabilities deduplicate repeated requirements") {
+      type EmitCap = Tuple1[Capability.Emit]
+      val emit    = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.Emit((i: Int) => i + 1))
+      val program = emit >>> emit
+      val _       = summon[program.Caps =:= EmitCap]
+      assertTrue(program.compile(1) == 3)
+    },
     test("parallel composition handles independent inputs") {
       val inc      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
       val dbl      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i * 2))
@@ -123,6 +130,15 @@ object FreeArrowSpec extends ZIOSpecDefault:
       summon[coproduct.Caps =:= Tuple.Concat[EmitCap, LogCap]]
       assertTrue(fanout.compile(3) == ((3, 3))) &&
       assertTrue(coproduct.compile(Left(3)) == Left(3))
+    },
+    test("iso nodes expose forward compilation while retaining union capabilities") {
+      type EmitCap = Tuple1[Capability.Emit]
+      type LogCap  = Tuple1[Capability.Log]
+      val forward  = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.WithCaps[Int, Int, EmitCap](identity))
+      val backward = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, LogCap](Prim.WithCaps[Int, Int, LogCap](identity))
+      val iso      = FreeArrow.iso(forward, backward)
+      val _        = summon[iso.Caps =:= Tuple.Concat[EmitCap, LogCap]]
+      assertTrue(iso.compile(7) == 7)
     },
     test("complex pipeline combining sums and products produces expected result") {
       val trim     = FreeArrow.embed[Prim, Tuple2, Either, String, String, EmptyTuple](Prim.Stateless(_.trim))
