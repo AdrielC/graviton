@@ -1,6 +1,7 @@
 package graviton.codec
 
 import zio.*
+import zio.stream.ZChannel
 import zio.test.*
 
 object StreamCodecSpec extends ZIOSpecDefault:
@@ -58,6 +59,17 @@ object StreamCodecSpec extends ZIOSpecDefault:
         assertTrue(fail.isDefined) &&
         assertTrue(end.isDefined) &&
         assertTrue(finalState.status == StreamStatus.Failed(StreamCodecError.UnexpectedEnd(2, 3)))
+      },
+      test("channel forwards all takes from a chunk") {
+        val codec    = StreamCodec.fixedSize[Int](3)(decodeInt24)
+        val upstream = (ZChannel.write(chunk(0x00, 0x01)) *> ZChannel.unit) >>> codec.toChannel
+
+        for
+          result  <- upstream.runCollect
+          (out, _) = result
+          fail     = out.find(_.isFailure)
+          end      = out.find(_.isDone)
+        yield assertTrue(fail.isDefined) && assertTrue(end.isDefined)
       },
     )
 

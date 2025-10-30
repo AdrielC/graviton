@@ -52,10 +52,7 @@ final class StreamCodec[+A](
   private def emitAll(takes: Chunk[Take[StreamCodecError, A]]): ZChannel[Any, Nothing, Any, Any, Nothing, Take[StreamCodecError, A], Any] =
     def emitAt(idx: Int): ZChannel[Any, Nothing, Any, Any, Nothing, Take[StreamCodecError, A], Any] =
       if idx >= takes.length then ZChannel.unit
-      else
-        val current = takes(idx)
-        if current.isDone || current.isFailure then ZChannel.write(current)
-        else ZChannel.write(current) *> emitAt(idx + 1)
+      else ZChannel.write(takes(idx)) *> emitAt(idx + 1)
     emitAt(0)
 
 object StreamCodec:
