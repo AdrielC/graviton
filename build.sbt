@@ -25,6 +25,19 @@ ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.graviton"
 ThisBuild / resolvers += Resolver.mavenCentral
 
+// Semantic versioning
+ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
+ThisBuild / licenses := List("MIT" -> url("https://github.com/AdrielC/graviton/blob/main/LICENSE"))
+ThisBuild / developers := List(
+  Developer(
+    "AdrielC",
+    "Adriel Cafiero",
+    "adriel.cafiero@gmail.com",
+    url("https://github.com/AdrielC")
+  )
+)
+
 // Scaladoc settings
 ThisBuild / Compile / doc / scalacOptions ++= Seq(
   "-project", "Graviton",
@@ -40,12 +53,19 @@ ThisBuild / Compile / doc / scalacOptions ++= Seq(
 lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
 generateDocs := {
   val log = Keys.streams.value.log
-  val docDir = (Compile / doc).value
   val targetDir = file("docs/public/scaladoc")
   
-  log.info("Generating Scaladoc...")
+  log.info("Generating Scaladoc for core modules...")
+  
+  // Generate docs for key modules (use LocalProject to avoid ambiguity)
+  val coreDoc = (LocalProject("core") / Compile / doc).value
+  val streamsDoc = (LocalProject("streams") / Compile / doc).value
+  val runtimeDoc = (LocalProject("runtime") / Compile / doc).value
+  
+  log.info("Copying core module docs to docs folder...")
   IO.delete(targetDir)
-  IO.copyDirectory(docDir, targetDir)
+  IO.copyDirectory(coreDoc, targetDir)
+  
   log.info(s"Scaladoc copied to $targetDir")
 }
 
