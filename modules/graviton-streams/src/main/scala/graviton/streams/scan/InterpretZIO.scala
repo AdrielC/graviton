@@ -22,7 +22,7 @@ object InterpretZIO:
   ): ZChannel[Any, ZNothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
     
     // Initialize state
-    val s0 = InitF.interpret(getInit(fs))
+    val s0 = InitF.evaluate(getInit(fs))
     
     def loop(state: S): ZChannel[Any, ZNothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
       ZChannel.readWithCause(
@@ -52,24 +52,41 @@ object InterpretZIO:
   /** Extract init from any FreeScan */
   private def getInit[F[_], G[_], I, O, S <: Rec](fs: FreeScan[F, G, I, O, S]): InitF[S] =
     fs match
-      case FreeScan.Prim(init, _, _) => init
-      case FreeScan.Seq(left, right) =>
-        val initLeft = getInit(left)
-        val initRight = getInit(right)
-        InitF.map2(initLeft, initRight)((a, b) => concatStates(a, b).asInstanceOf[S])
-      case FreeScan.Dimap(base, _, _) => getInit(base).asInstanceOf[InitF[S]]
-      case par @ FreeScan.Par(a, b) =>
-        val initA = getInit(a)
-        val initB = getInit(b)
-        InitF.map2(initA, initB)((sa, sb) => mergeStates(sa, sb).asInstanceOf[S])
-      case choice @ FreeScan.Choice(l, r) =>
-        val initL = getInit(l)
-        val initR = getInit(r)
-        InitF.map2(initL, initR)((sl, sr) => mergeStates(sl, sr).asInstanceOf[S])
-      case fanout @ FreeScan.Fanout(a, b) =>
-        val initA = getInit(a)
-        val initB = getInit(b)
-        InitF.map2(initA, initB)((sa, sb) => mergeStates(sa, sb).asInstanceOf[S])
+      case prim: FreeScan.Prim[?, ?, ?, ?, ?] => prim.init.asInstanceOf[InitF[S]]
+      case seq: FreeScan.Seq[?, ?, ?, ?, ?, ?, ?, ?] =>
+        val initLeft = getInit(seq.left)
+        val initRight = getInit(seq.right)
+        InitF.later {
+          val a = InitF.evaluate(initLeft)
+          val b = InitF.evaluate(initRight)
+          concatStates(a, b).asInstanceOf[S]
+        }
+      case dim: FreeScan.Dimap[?, ?, ?, ?, ?, ?, ?] => 
+        getInit(dim.base).asInstanceOf[InitF[S]]
+      case par: FreeScan.Par[?, ?, ?, ?, ?, ?, ?, ?] =>
+        val initA = getInit(par.a)
+        val initB = getInit(par.b)
+        InitF.later {
+          val sa = InitF.evaluate(initA)
+          val sb = InitF.evaluate(initB)
+          mergeStates(sa, sb).asInstanceOf[S]
+        }
+      case choice: FreeScan.Choice[?, ?, ?, ?, ?, ?, ?, ?] =>
+        val initL = getInit(choice.l)
+        val initR = getInit(choice.r)
+        InitF.later {
+          val sl = InitF.evaluate(initL)
+          val sr = InitF.evaluate(initR)
+          mergeStates(sl, sr).asInstanceOf[S]
+        }
+      case fanout: FreeScan.Fanout[?, ?, ?, ?, ?, ?, ?] =>
+        val initA = getInit(fanout.a)
+        val initB = getInit(fanout.b)
+        InitF.later {
+          val sa = InitF.evaluate(initA)
+          val sb = InitF.evaluate(initB)
+          mergeStates(sa, sb).asInstanceOf[S]
+        }
   
   /** Process a chunk of inputs, return new state and outputs */
   private def processChunk[I, O, S <: Rec](

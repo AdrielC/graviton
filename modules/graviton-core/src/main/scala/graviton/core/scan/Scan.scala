@@ -35,25 +35,25 @@ object Scan:
   def pure[I, O](f: I => O): Aux[Id, Id, I, O, Ø] =
     new Scan[Id, Id, I, O]:
       type S = Ø
-      val init = InitF.pure(EmptyTuple)
+      val init = InitF.now(EmptyTuple)
       val step = BiKleisli[Id, Id, I, (S, O)](i => (EmptyTuple, f(i)))
       def flush(finalS: S) = None
   
   /** Lift pure function into chunked scan */
-  def chunked[I, O](f: I => O)(using Map1[Chunk], Ap1[Chunk]): Aux[Chunk, Chunk, I, O, Ø] =
+  def chunked[I, O](f: I => O): Aux[Chunk, Chunk, I, O, Ø] =
     new Scan[Chunk, Chunk, I, O]:
       type S = Ø
-      val init = InitF.pure(EmptyTuple)
+      val init = InitF.now(EmptyTuple)
       val step = BiKleisli[Chunk, Chunk, I, (S, O)] { ci =>
         ci.map(i => (EmptyTuple, f(i)))
       }
       def flush(finalS: S) = Chunk.empty
   
   /** Identity scan */
-  def identity[F[_], A](using F: Map1[F], Ap: Ap1[F]): Aux[F, F, A, A, Ø] =
+  def identity[F[_], A](F: Map1[F], Ap: Ap1[F]): Aux[F, F, A, A, Ø] =
     new Scan[F, F, A, A]:
       type S = Ø
-      val init = InitF.pure(EmptyTuple)
+      val init = InitF.now(EmptyTuple)
       val step = BiKleisli[F, F, A, (S, A)] { fa =>
         F.map(fa)(a => (EmptyTuple, a))
       }

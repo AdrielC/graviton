@@ -64,11 +64,11 @@ object FreeScan:
     Prim(s.init, s.step, s.flush)
   
   /** Identity scan */
-  def id[F[_], A](using Map1[F], Ap1[F]): FreeScan[F, F, A, A, Ø] =
-    fromScan(Scan.identity[F, A])
+  def id[F[_], A](using F: Map1[F], Ap: Ap1[F]): FreeScan[F, F, A, A, Ø] =
+    fromScan(Scan.identity[F, A](F, Ap))
   
   /** Lift a pure function */
-  def arr[F[_], A, B](f: A => B)(using Map1[F], Ap1[F]): FreeScan[F, F, A, B, Ø] =
+  def arr[F[_], A, B](f: A => B)(using F: Map1[F], Ap: Ap1[F]): FreeScan[F, F, A, B, Ø] =
     fromScan(Scan.pure(f)).asInstanceOf[FreeScan[F, F, A, B, Ø]]
 
 /**
