@@ -390,3 +390,226 @@ div[class*='language-'] code {
     backdrop-filter: blur(8px);
   }
 }
+
+/* Scroll reveal animations */
+.reveal-element {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal-element.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Matrix background overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 65, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: -2;
+}
+
+/* Hero text animation */
+.VPHero .name {
+  animation: titlePulse 3s ease-in-out infinite;
+}
+
+@keyframes titlePulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+/* Feature cards with stagger animation */
+.VPFeature {
+  opacity: 0;
+  animation: fadeInUp 0.6s ease forwards;
+}
+
+.VPFeature:nth-child(1) { animation-delay: 0.1s; }
+.VPFeature:nth-child(2) { animation-delay: 0.2s; }
+.VPFeature:nth-child(3) { animation-delay: 0.3s; }
+.VPFeature:nth-child(4) { animation-delay: 0.4s; }
+.VPFeature:nth-child(5) { animation-delay: 0.5s; }
+.VPFeature:nth-child(6) { animation-delay: 0.6s; }
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Feature card hover effects */
+.VPFeature {
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-soft);
+  box-shadow: 0 8px 24px rgba(0, 255, 65, 0.15);
+  transform: translateY(-4px) scale(1.02);
+}
+
+/* Icon glow effect */
+.VPFeature .icon {
+  filter: drop-shadow(0 0 8px rgba(0, 255, 65, 0.4));
+  transition: all 0.3s ease;
+}
+
+.VPFeature:hover .icon {
+  filter: drop-shadow(0 0 16px rgba(0, 255, 65, 0.8));
+  transform: scale(1.1) rotate(5deg);
+}
+
+/* Code block typing effect on hover */
+div[class*='language-'] code {
+  position: relative;
+}
+
+div[class*='language-']:hover code {
+  animation: none;
+}
+
+/* Custom cursor for links */
+.vp-doc a {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="8" fill="%2300ff41" opacity="0.5"/></svg>'), pointer;
+}
+
+/* Glitch effect on hover for headings */
+.vp-doc h1:hover,
+.vp-doc h2:hover {
+  animation: glitch 0.3s ease;
+}
+
+@keyframes glitch {
+  0% {
+    transform: translate(0);
+  }
+  20% {
+    transform: translate(-2px, 2px);
+  }
+  40% {
+    transform: translate(-2px, -2px);
+  }
+  60% {
+    transform: translate(2px, 2px);
+  }
+  80% {
+    transform: translate(2px, -2px);
+  }
+  100% {
+    transform: translate(0);
+  }
+}
+
+/* Scanline effect */
+.VPDoc::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 50%,
+    rgba(0, 255, 65, 0.02) 50%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 9998;
+  animation: scanline 10s linear infinite;
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(4px);
+  }
+}
+
+/* Terminal-style command blocks */
+div[class*='language-bash']::before,
+div[class*='language-shell']::before {
+  content: '❯ ';
+  color: var(--vp-c-brand-1);
+  position: absolute;
+  left: 1rem;
+  top: 0.5rem;
+  font-weight: bold;
+}
+
+/* Neon border pulse for important containers */
+.custom-block.tip {
+  animation: borderPulse 2s ease-in-out infinite;
+}
+
+@keyframes borderPulse {
+  0%, 100% {
+    border-color: var(--vp-c-brand-1);
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+  }
+  50% {
+    border-color: var(--vp-c-cyan);
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
+  }
+}
+
+/* Loading bar animation for navigation */
+.VPNav::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: linear-gradient(90deg, transparent, var(--vp-c-brand-1), transparent);
+  animation: loadingBar 2s ease infinite;
+}
+
+@keyframes loadingBar {
+  0% {
+    width: 0;
+    left: 0;
+  }
+  50% {
+    width: 100%;
+    left: 0;
+  }
+  100% {
+    width: 0;
+    left: 100%;
+  }
+}
+
+/* Easter egg: Konami code style animation */
+@keyframes konami {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(5deg); }
+  20% { transform: rotate(-5deg); }
+  30% { transform: rotate(5deg); }
+  40% { transform: rotate(-5deg); }
+  50% { transform: rotate(0deg); }
+}
+
+.logo.konami-active {
+  animation: konami 0.5s ease;
+}

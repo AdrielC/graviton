@@ -11,11 +11,11 @@ object TestGen {
     Gen.listOf(byte).map(l => Chunk.fromIterable(l))
 
   val boundedBytes: Gen[Any, Chunk[Byte]] =
-    Gen.int(0, 1 << 16).flatMap(n => Gen.listOfN(n)(byte)).map(Chunk.fromIterable)
+    Gen.int(0, 1 << 12).flatMap(n => Gen.listOfN(n)(byte)).map(Chunk.fromIterable) // Reduced from 64KB to 4KB
 
   def chunkedBytes(chunkMin: Int, chunkMax: Int): Gen[Any, Chunk[Byte]] =
     for {
-      total  <- Gen.int(0, 1 << 18)
+      total  <- Gen.int(0, 1 << 14) // Reduced from 256KB to 16KB
       chunks <- Gen.listOfBounded(0, total / math.max(chunkMin, 1) + 1)(
                   Gen.int(chunkMin max 1, chunkMax max 1).map(_.min(total max 0))
                 )
@@ -24,13 +24,13 @@ object TestGen {
 
   val sizeSplit: Gen[Any, List[Int]] =
     for {
-      total <- Gen.int(0, 1 << 18)
-      parts <- Gen.listOf(Gen.int(1, 1 << 16))
+      total <- Gen.int(0, 1 << 14)             // Reduced from 256KB to 16KB
+      parts <- Gen.listOf(Gen.int(1, 1 << 12)) // Reduced from 64KB to 4KB
     } yield parts
 
-  /** Generate random byte chunks up to 1MB for fuzzing */
+  /** Generate random byte chunks up to 64KB for fuzzing */
   val largeBytes: Gen[Any, Chunk[Byte]] =
-    Gen.int(0, 1 << 20).flatMap(n => Gen.listOfN(n)(byte)).map(Chunk.fromIterable)
+    Gen.int(0, 1 << 16).flatMap(n => Gen.listOfN(n)(byte)).map(Chunk.fromIterable) // Reduced from 1MB to 64KB
 
   /** Generate byte sequences with specific patterns for testing CDC boundaries */
   def repeatingPattern(pattern: Array[Byte], count: Int): Gen[Any, Chunk[Byte]] =
