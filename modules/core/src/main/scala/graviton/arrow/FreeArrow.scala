@@ -21,6 +21,7 @@ sealed trait FreeArrow[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], -I, 
       case zero: FreeArrow.Zero[Prim, Prod, Sum, ?, ?] =>
         interpreter.zero[I, O](using zero.bottom.asInstanceOf[BottomOf[O]])
       case FreeArrow.Embed(prim)                       => interpreter.interpret(prim)
+      case FreeArrow.Iso(forward, _)                   => forward.compile
       case FreeArrow.Compose(left, right)              =>
         val l = left.compile
         val r = right.compile
@@ -55,7 +56,18 @@ object FreeArrow:
   type Aux[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], -I, +O, C <: Tuple] =
     FreeArrow[Prim, Prod, Sum, I, O] { type Caps = C }
 
-  type CapUnion[A <: Tuple, B <: Tuple] = Tuple.Concat[A, B]
+  private type Contains[T <: Tuple, X] <: Boolean = T match
+    case EmptyTuple => false
+    case X *: _     => true
+    case _ *: tail  => Contains[tail, X]
+
+  private type AppendIfAbsent[T <: Tuple, X] <: Tuple = Contains[T, X] match
+    case true  => T
+    case false => scala.Tuple.Concat[T, X *: EmptyTuple]
+
+  type CapUnion[A <: Tuple, B <: Tuple] <: Tuple = B match
+    case EmptyTuple => A
+    case h *: t     => CapUnion[AppendIfAbsent[A, h], t]
 
   final case class Id[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], A]() extends FreeArrow[Prim, Prod, Sum, A, A]:
     type Caps = EmptyTuple
@@ -70,6 +82,12 @@ object FreeArrow:
   final case class Embed[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], I, O, C <: Tuple](prim: Prim[I, O, C])
       extends FreeArrow[Prim, Prod, Sum, I, O]:
     type Caps = C
+
+  final case class Iso[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], I, O, C1 <: Tuple, C2 <: Tuple](
+    forward: FreeArrow.Aux[Prim, Prod, Sum, I, O, C1],
+    backward: FreeArrow.Aux[Prim, Prod, Sum, O, I, C2],
+  ) extends FreeArrow[Prim, Prod, Sum, I, O]:
+    type Caps = CapUnion[C1, C2]
 
   final case class Compose[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], I, M, O, C1 <: Tuple, C2 <: Tuple](
     left: FreeArrow.Aux[Prim, Prod, Sum, I, M, C1],
@@ -137,6 +155,12 @@ object FreeArrow:
     prim: Prim[I, O, C]
   ): FreeArrow.Aux[Prim, Prod, Sum, I, O, C] =
     Embed(prim)
+
+  inline def iso[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], I, O, C1 <: Tuple, C2 <: Tuple](
+    forward: FreeArrow.Aux[Prim, Prod, Sum, I, O, C1],
+    backward: FreeArrow.Aux[Prim, Prod, Sum, O, I, C2],
+  ): FreeArrow.Aux[Prim, Prod, Sum, I, O, CapUnion[C1, C2]] =
+    Iso(forward, backward)
 
   inline def inl[Prim[-_, +_, _ <: Tuple], Prod[+_, +_], Sum[+_, +_], A, B]: FreeArrow.Aux[Prim, Prod, Sum, A, Sum[A, B], EmptyTuple] =
     Inl()
