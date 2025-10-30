@@ -33,7 +33,7 @@ ThisBuild / Compile / doc / scalacOptions ++= Seq(
 // Task to generate and copy scaladoc to docs
 lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
 generateDocs := {
-  val log = streams.value.log
+  val log = Keys.streams.value.log
   val docDir = (Compile / doc).value
   val targetDir = file("docs/public/scaladoc")
   
