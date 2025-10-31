@@ -1,6 +1,7 @@
 package graviton.streams
 
 import graviton.core.bytes.{Hasher, MultiHasher}
+import zio.ZIO
 import zio.stream.{ZPipeline, ZSink}
 
 object HashingZ:
@@ -13,4 +14,6 @@ object HashingZ:
       .map(_.result.map(_ => hasher))
 
   def pipeline(multi: MultiHasher): ZPipeline[Any, Nothing, Byte, Byte] =
-    ZPipeline.identity[Byte]
+    ZPipeline.mapChunksZIO { chunk =>
+      ZIO.attempt(multi.update(chunk.toArray)).orDie.as(chunk)
+    }

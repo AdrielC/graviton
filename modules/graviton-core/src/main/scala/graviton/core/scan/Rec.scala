@@ -1,8 +1,5 @@
 package graviton.core.scan
 
-import scala.annotation.targetName
-import scala.compiletime.{erasedValue, constValue, summonInline}
-import scala.compiletime.ops.int.*
 import scala.Tuple.*
 
 /**
