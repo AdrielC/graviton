@@ -1,6 +1,6 @@
 package graviton.frontend.components
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import graviton.shared.ApiModels.*
 import graviton.frontend.GravitonApi
 import zio.*
@@ -26,6 +26,9 @@ object StatsPanel {
     val errorVar   = Var[Option[String]](None)
 
     val runtime = Runtime.default
+
+    // Load once on mount so demo data is visible without a manual refresh
+    loadStats()
 
     def loadStats(): Unit = {
       loadingVar.set(true)
@@ -55,6 +58,14 @@ object StatsPanel {
           disabled <-- loadingVar.signal,
         ),
       ),
+      child <-- api.offlineSignal.map { offline =>
+        if (offline)
+          div(
+            cls := "demo-hint",
+            "Showing simulated metrics. Connect a live server to inspect real-time statistics.",
+          )
+        else emptyNode
+      },
       child <-- statsVar.signal.map {
         case None =>
           div(cls := "stats-empty", "Click refresh to load statistics")

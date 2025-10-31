@@ -1,6 +1,6 @@
 package graviton.frontend.components
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import graviton.shared.ApiModels.*
 import graviton.frontend.GravitonApi
 import zio.*
@@ -18,6 +18,11 @@ object BlobExplorer {
     val showManifestVar = Var(false)
 
     val runtime = Runtime.default
+
+    def loadSample(blobId: BlobId): Unit = {
+      blobIdVar.set(blobId.value)
+      loadBlob(blobId.value)
+    }
 
     def loadBlob(blobIdStr: String): Unit = {
       if (blobIdStr.isEmpty) {
@@ -85,6 +90,29 @@ object BlobExplorer {
           disabled <-- loadingVar.signal,
         ),
       ),
+      child <-- api.offlineSignal.map { offline =>
+        if (!offline) emptyNode
+        else {
+          div(
+            cls := "demo-hint",
+            p(
+              "Running in demo mode. Try one of the sample blob IDs below or start a local Graviton server to explore your own data."
+            ),
+            div(
+              cls := "sample-id-list",
+              api.sampleBlobIds.map { blobId =>
+                button(
+                  cls    := "sample-id-btn",
+                  `type` := "button",
+                  blobId.value,
+                  onClick --> { _ => loadSample(blobId) },
+                  disabled <-- loadingVar.signal,
+                )
+              },
+            ),
+          )
+        }
+      },
       child <-- metadataVar.signal.map {
         case None           => emptyNode
         case Some(metadata) =>

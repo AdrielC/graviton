@@ -1,35 +1,85 @@
 package graviton.frontend
 
+import com.raquo.laminar.api.L.{Signal, Var}
 import graviton.shared.*
 import graviton.shared.ApiModels.*
+import org.scalajs.dom
 import zio.*
 
-/** High-level API client for Graviton */
-class GravitonApi(client: HttpClient) {
+/** High-level API client for Graviton with offline/demo fallbacks. */
+class GravitonApi(
+  client: HttpClient,
+  demoData: DemoData = DemoData.default,
+) {
+
+  private val offlineVar = Var(false)
+
+  def offlineSignal: Signal[Boolean] = offlineVar.signal
+
+  def isOffline: Boolean = offlineVar.now()
+
+  def sampleBlobIds: List[BlobId] = demoData.sampleBlobIds
 
   def getHealth: Task[HealthResponse] =
-    ZIO.succeed(client).flatMap { c =>
-      HttpClient.getJson[HealthResponse]("/api/health").provideEnvironment(ZEnvironment(c))
-    }
+    withFallback(
+      HttpClient.getJson[HealthResponse]("/api/health").provideEnvironment(ZEnvironment(client)),
+      Some(demoData.health),
+    )
 
   def getStats: Task[SystemStats] =
-    ZIO.succeed(client).flatMap { c =>
-      HttpClient.getJson[SystemStats]("/api/stats").provideEnvironment(ZEnvironment(c))
-    }
+    withFallback(
+      HttpClient.getJson[SystemStats]("/api/stats").provideEnvironment(ZEnvironment(client)),
+      Some(demoData.stats),
+    )
 
   def getBlobMetadata(blobId: BlobId): Task[BlobMetadata] =
-    ZIO.succeed(client).flatMap { c =>
-      HttpClient.getJson[BlobMetadata](s"/api/blobs/${blobId.value}").provideEnvironment(ZEnvironment(c))
-    }
+    withFallback(
+      HttpClient
+        .getJson[BlobMetadata](s"/api/blobs/${blobId.value}")
+        .provideEnvironment(ZEnvironment(client)),
+      demoData.metadataFor(blobId),
+      onFallbackMissing = Some(s"Demo dataset does not include blob ${blobId.value}."),
+    )
 
   def getBlobManifest(blobId: BlobId): Task[BlobManifest] =
-    ZIO.succeed(client).flatMap { c =>
-      HttpClient.getJson[BlobManifest](s"/api/blobs/${blobId.value}/manifest").provideEnvironment(ZEnvironment(c))
-    }
+    withFallback(
+      HttpClient
+        .getJson[BlobManifest](s"/api/blobs/${blobId.value}/manifest")
+        .provideEnvironment(ZEnvironment(client)),
+      demoData.manifestFor(blobId),
+      onFallbackMissing = Some(s"Demo dataset does not include a manifest for ${blobId.value}."),
+    )
 
   def initiateUpload(request: UploadRequest): Task[UploadResponse] =
-    ZIO.succeed(client).flatMap { c =>
-      HttpClient.postJson[UploadRequest, UploadResponse]("/api/upload", request).provideEnvironment(ZEnvironment(c))
+    withFallback(
+      HttpClient
+        .postJson[UploadRequest, UploadResponse]("/api/upload", request)
+        .provideEnvironment(ZEnvironment(client)),
+      Some(demoData.simulateUpload(request)),
+    )
+
+  private def withFallback[A](
+    effect: Task[A],
+    fallback: => Option[A],
+    onFallbackMissing: Option[String] = None,
+  ): Task[A] =
+    effect.catchAll { err =>
+      fallback match {
+        case Some(value) =>
+          markOffline(err)
+          ZIO.succeed(value)
+        case None        =>
+          onFallbackMissing match {
+            case Some(message) => ZIO.fail(new Exception(message, err))
+            case None          => ZIO.fail(err)
+          }
+      }
+    }
+
+  private def markOffline(cause: Throwable): Unit =
+    if (!offlineVar.now()) {
+      offlineVar.set(true)
+      dom.console.warn("Switching Graviton demo to offline mode", cause.getMessage)
     }
 }
 

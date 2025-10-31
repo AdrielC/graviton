@@ -4,7 +4,6 @@ import graviton.shared.HttpClient
 import zio.*
 import org.scalajs.dom
 import scala.scalajs.js
-import scala.scalajs.js.Thenable.Implicits.*
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.JSConverters.*
 
