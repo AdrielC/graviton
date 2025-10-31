@@ -1,10 +1,9 @@
 package graviton.frontend
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import com.raquo.waypoint.*
 import com.raquo.laminar.tags.HtmlTag
 import graviton.frontend.components.*
-import org.scalajs.dom
 
 /** Main Graviton frontend application */
 object GravitonApp {
@@ -66,7 +65,22 @@ object GravitonApp {
         ),
 
         // Health indicator
-        div(cls := "header-health", HealthCheck(api)),
+        div(
+          cls   := "header-health",
+          HealthCheck(api),
+          child <-- api.offlineSignal.map { offline =>
+            if offline then
+              div(
+                cls := "demo-banner",
+                span(cls := "demo-icon", "🛰️"),
+                span(
+                  cls    := "demo-text",
+                  "Demo mode: responses are simulated. Start a Graviton server at http://localhost:8080 to connect to a live API.",
+                ),
+              )
+            else emptyNode
+          },
+        ),
       ),
 
       // Main content area

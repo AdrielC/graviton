@@ -1,6 +1,6 @@
 package graviton.frontend.components
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import org.scalajs.dom
 import org.scalajs.dom.FileReader
 import scala.scalajs.js
@@ -213,7 +213,7 @@ object FileUpload {
     def processFile(file: dom.File, chunker: ChunkerType): Unit = {
       val reader = new FileReader()
 
-      reader.onload = (e: dom.Event) => {
+      reader.onload = (_: dom.Event) => {
         val arrayBuffer = reader.result.asInstanceOf[ArrayBuffer]
         val uint8Array  = new Uint8Array(arrayBuffer)
         val bytes       = new js.Array[Byte](uint8Array.length)
@@ -275,7 +275,7 @@ object FileUpload {
         processingVar.set(false)
       }
 
-      reader.onerror = (e: dom.Event) => {
+      reader.onerror = (_: dom.Event) => {
         errorVar.set(Some(s"Error reading file: ${file.name}"))
         processingVar.set(false)
       }
@@ -304,7 +304,7 @@ object FileUpload {
 
     div(
       cls := "file-upload",
-      h2("📤 File Upload & Chunking Demo"),
+      h2("?? File Upload & Chunking Demo"),
       p(
         cls := "upload-intro",
         """
@@ -316,7 +316,7 @@ object FileUpload {
       // Chunker selection
       div(
         cls := "chunker-selection",
-        h3("🔧 Chunker Strategy"),
+        h3("?? Chunker Strategy"),
         div(
           cls := "chunker-buttons",
           ChunkerType.all.map { chunker =>
@@ -359,7 +359,7 @@ object FileUpload {
         ),
         button(
           cls      := "btn-secondary clear-btn",
-          "🗑️ Clear All",
+          "??? Clear All",
           onClick --> { _ => clearAll() },
           disabled <-- analysesVar.signal.map(_.isEmpty),
         ),
@@ -369,12 +369,12 @@ object FileUpload {
       child <-- errorVar.signal.map {
         case None        => emptyNode
         case Some(error) =>
-          div(cls := "error-message", s"⚠️ $error")
+          div(cls := "error-message", s"?? $error")
       },
 
       // Processing indicator
       child <-- processingVar.signal.map { processing =>
-        if (processing) div(cls := "loading-spinner", "⏳ Processing files...")
+        if (processing) div(cls := "loading-spinner", "? Processing files...")
         else emptyNode
       },
 
@@ -391,7 +391,7 @@ object FileUpload {
 
           div(
             cls := "global-stats",
-            h3("📊 Global Deduplication Statistics"),
+            h3("?? Global Deduplication Statistics"),
             div(
               cls := "stats-grid-compact",
               div(cls := "stat-item", span(cls := "stat-label", "Total Files:"), span(cls := "stat-value", analyses.size.toString)),
@@ -430,18 +430,18 @@ object FileUpload {
         onClick --> { _ => expandedVar.update(!_) },
         div(
           cls := "file-info",
-          h4(cls := "file-name", s"📄 ${analysis.fileName}"),
+          h4(cls := "file-name", s"?? ${analysis.fileName}"),
           div(
             cls  := "file-meta",
-            span(s"${formatBytes(analysis.fileSize)} • "),
-            span(s"${analysis.totalChunks} chunks • "),
+            span(s"${formatBytes(analysis.fileSize)} ? "),
+            span(s"${analysis.totalChunks} chunks ? "),
             span(s"${analysis.chunkerType}"),
           ),
         ),
         span(
           cls := "expand-icon",
           child <-- expandedVar.signal.map { expanded =>
-            if (expanded) span("▼") else span("▶")
+            if (expanded) span("?") else span("?")
           },
         ),
       ),
@@ -454,13 +454,13 @@ object FileUpload {
             // Validations
             div(
               cls := "validations-section",
-              h5("✅ Validations"),
+              h5("? Validations"),
               div(
                 cls := "validations-list",
                 analysis.validations.map { validation =>
                   div(
                     cls := s"validation-item ${if (validation.isError) "error" else "success"}",
-                    span(cls := "validation-icon", if (validation.isError) "❌" else "✅"),
+                    span(cls := "validation-icon", if (validation.isError) "?" else "?"),
                     span(validation.message),
                   )
                 },
@@ -470,7 +470,7 @@ object FileUpload {
             // Chunk stats
             div(
               cls := "chunk-stats",
-              h5("🧩 Chunk Statistics"),
+              h5("?? Chunk Statistics"),
               div(
                 cls := "stats-grid-compact",
                 div(
@@ -494,7 +494,7 @@ object FileUpload {
             // Chunks table
             div(
               cls := "chunks-section",
-              h5(s"📦 Chunks (${analysis.chunks.length})"),
+              h5(s"?? Chunks (${analysis.chunks.length})"),
               div(
                 cls := "chunks-table-wrapper",
                 table(
@@ -510,17 +510,16 @@ object FileUpload {
                   tbody(
                     analysis.chunks.take(100).map { chunk =>
                       tr(
-                        cls                        := "chunk-row",
-                        cls.toggle("shared-chunk") := chunk.sharedWith.nonEmpty,
+                        cls := (if (chunk.sharedWith.nonEmpty) "chunk-row shared-chunk" else "chunk-row"),
                         td(formatBytes(chunk.offset)),
                         td(formatBytes(chunk.size)),
                         td(code(cls := "hash-value", chunk.hash)),
                         td(
-                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "—")
+                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "?")
                           else
                             div(
                               cls                                := "shared-files",
-                              span(cls := "share-indicator", s"🔗 ${chunk.sharedWith.size}"),
+                              span(cls := "share-indicator", s"?? ${chunk.sharedWith.size}"),
                               span(cls := "share-tooltip", chunk.sharedWith.mkString(", ")),
                             )
                         ),
