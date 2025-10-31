@@ -1,8 +1,8 @@
 package graviton.streams
 
+import graviton.core.types.*
 import zio.stream.ZPipeline
 
 object Chunker:
-  def fixed(size: Int): ZPipeline[Any, Nothing, Byte, Byte] =
-    require(size > 0, "chunk size must be positive")
+  def fixed(size: ChunkSize): ZPipeline[Any, Nothing, Byte, Byte] =
     ZPipeline.rechunk(size)
