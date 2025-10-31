@@ -1034,6 +1034,12 @@ onMounted(() => {
 
 Experience Graviton's capabilities through this interactive Scala.js application!
 
+::: info Build Checklist
+1. Run `./sbt buildFrontend` from the repo root to refresh `docs/public/js/main.js`.
+2. Rebuild the docs (`npm run docs:dev` or `npm run docs:build`).
+3. Reload this page—navigation should stay in-app (no full page flashes) and browser devtools should show the `main.js` chunk loading from `/js/` or your configured base path.
+:::
+
 ::: info Implementation Note
 The chunking algorithms demonstrated here use the **same FastCDC implementation** as the server-side code in `graviton-streams`. Upload multiple files to see real content-defined chunking and block-level deduplication in action!
 :::

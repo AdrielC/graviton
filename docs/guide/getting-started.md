@@ -20,9 +20,9 @@ Graviton provides a stable ingest and retrieval pipeline for large binary payloa
 ### Prerequisites
 
 - Java 21 or higher
-- SBT 1.9+
-- Node.js 20+ (for documentation)
-- Docker (optional, for TestContainers)
+- sbt 1.11+
+- Node.js 20+ (for documentation and the interactive demo)
+- Docker (optional, for TestContainers-driven integration tests)
 
 ### Build from Source
 
@@ -34,22 +34,31 @@ cd graviton
 # Compile all modules
 sbt compile
 
-# Run tests (without TestContainers)
+# Run formatting + the full JVM/JVM JS test matrix (without TestContainers)
 TESTCONTAINERS=0 ./sbt scalafmtAll test
 
-# Run with TestContainers
+# (Optional) Exercise container-backed integration tests
 TESTCONTAINERS=1 ./sbt test
 ```
 
-### Run the Documentation
+### Run the Documentation & Live Demo
+
+The documentation site embeds the Scala.js dashboard that powers the interactive storage demo. Build the JS bundle before launching VitePress so the `/demo` page can load it without console errors.
 
 ```bash
+# From the project root
+./sbt buildFrontend       # copies Scala.js output into docs/public/js/
+
 cd docs
-npm install
+npm install               # first run only
 npm run docs:dev
 ```
 
-The documentation will be available at `http://localhost:5173`.
+Once VitePress boots at `http://localhost:5173`, open the **🎮 Demo** tab and confirm you can navigate between Dashboard, Explorer, Upload, and Stats without the page reloading. If you deploy the docs somewhere with a sub-path (for example GitHub Pages), the loader picks up the correct base URL automatically—no manual tweaks required.
+
+::: tip No Scala.js bundle?
+If the demo reports _“Interactive Demo Not Available”_, rebuild it with `./sbt buildFrontend` and refresh the page. The bundle is committed for convenience, but rebuilding ensures it tracks your local Scala sources.
+:::
 
 ## Your First Upload
 

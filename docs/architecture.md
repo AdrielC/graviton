@@ -2,6 +2,43 @@
 
 Graviton separates pure domain logic from effectful runtime code.
 
+## High-Level System View
+
+```mermaid
+flowchart LR
+  subgraph Clients
+    CLI
+    SDKs
+    Integrations
+  end
+
+  subgraph Transports
+    HTTP
+    GRPC
+  end
+
+  subgraph Runtime[Runtime Ports]
+    Ingest[Ingest Service]
+    Retrieval[Retrieval Service]
+    ManifestSvc[Manifest Service]
+    MetricsSvc[Metrics & Telemetry]
+  end
+
+  subgraph Backends
+    S3[(S3 Blob Store)]
+    PG[(PostgreSQL Metadata)]
+    Rocks[(RocksDB Hot Cache)]
+  end
+
+  Clients --> Transports
+  Transports --> Runtime
+  Runtime -->|Store Blocks| S3
+  Runtime -->|Persist Manifests| PG
+  Runtime -->|Warm Cache| Rocks
+  Runtime -->|Emit Metrics| MetricsSvc
+  MetricsSvc --> Observability[(Prometheus + Structured Logs)]
+```
+
 ## Core
 
 `graviton-core` contains purely functional data structures and codecs:
