@@ -5,4 +5,4 @@ import zio.UIO
 
 final case class S3Metrics(registry: MetricsRegistry):
   def recordPut(bytes: Long): UIO[Unit] =
-    registry.counter(MetricKeys.BytesIngested, Map("backend" -> "s3"))
+    registry.gauge(MetricKeys.BytesIngested, bytes.toDouble, Map("backend" -> "s3"))
