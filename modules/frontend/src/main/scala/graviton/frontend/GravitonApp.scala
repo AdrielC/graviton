@@ -17,6 +17,12 @@ object GravitonApp {
     case object Stats     extends Page
   }
 
+  private def pageHref(page: Page): String = page match
+    case Page.Dashboard => "#/"
+    case Page.Explorer  => "#/explorer"
+    case Page.Upload    => "#/upload"
+    case Page.Stats     => "#/stats"
+
   val dashboardRoute = Route.static(Page.Dashboard, root / endOfSegments)
   val explorerRoute  = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
   val uploadRoute    = Route.static(Page.Upload, root / "upload" / endOfSegments)
@@ -122,7 +128,7 @@ object GravitonApp {
       cls <-- router.currentPageSignal.map { current =>
         if (current == page) "active" else ""
       },
-      href := router.absoluteUrlForPage(page),
+      href := pageHref(page),
       label,
       onClick --> { (event: dom.MouseEvent) =>
         event.preventDefault()
@@ -159,7 +165,7 @@ object GravitonApp {
             h3("🚀 Quick Start"),
             a(
               cls  := "feature-card-link",
-              href := router.absoluteUrlForPage(Page.Explorer),
+              href := pageHref(Page.Explorer),
               onClick --> { (event: dom.MouseEvent) =>
                 event.preventDefault()
                 event.stopPropagation()
@@ -173,7 +179,7 @@ object GravitonApp {
             ),
             a(
               cls  := "feature-card-link",
-              href := router.absoluteUrlForPage(Page.Upload),
+              href := pageHref(Page.Upload),
               onClick --> { (event: dom.MouseEvent) =>
                 event.preventDefault()
                 event.stopPropagation()
@@ -187,7 +193,7 @@ object GravitonApp {
             ),
             a(
               cls  := "feature-card-link",
-              href := router.absoluteUrlForPage(Page.Stats),
+              href := pageHref(Page.Stats),
               onClick --> { (event: dom.MouseEvent) =>
                 event.preventDefault()
                 event.stopPropagation()
