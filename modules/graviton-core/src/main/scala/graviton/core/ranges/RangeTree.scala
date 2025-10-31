@@ -65,7 +65,7 @@ final class RangeTree[A: Ordering: DiscreteDomain] private (private val interval
       intervals
         .rangeTo(window.endInclusive)
         .valuesIterator
-        .flatMap(_.intersection(window))
+        .flatMap(_.intersection(window).iterator)
         .toVector
     )
     RangeSet.single(window).difference(covered)
