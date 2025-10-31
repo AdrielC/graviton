@@ -58,7 +58,7 @@ npm run docs:build
 npm run docs:preview
 ```
 
-Visit `http://localhost:5173/graviton/` to see the magic! ✨
+Visit `http://localhost:5173/` (append your `DOCS_BASE` if you set one) to see the magic! ✨
 
 ## 🎨 Customization
 
