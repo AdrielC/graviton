@@ -67,7 +67,7 @@ object RangeSet:
 
   private def normalize[A: Ordering: DiscreteDomain](spans: Vector[Span[A]]): Vector[Span[A]] =
     val ord    = summon[Ordering[Span[A]]]
-    val sorted = spans.sorted(ord)
+    val sorted = spans.sorted(using ord)
     if sorted.isEmpty then Vector.empty
     else
       val builder = Vector.newBuilder[Span[A]]
@@ -80,3 +80,5 @@ object RangeSet:
       }
       builder += current
       builder.result()
+
+  extension [A: Ordering: DiscreteDomain](set: RangeSet[A]) def toTree: RangeTree[A] = RangeTree.fromRangeSet(set)
