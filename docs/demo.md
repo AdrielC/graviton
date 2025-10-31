@@ -556,6 +556,141 @@ onMounted(() => {
     cursor: not-allowed;
   }
 
+  .fastcdc-config {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    border: 1px solid var(--vp-c-brand-soft);
+    border-radius: 12px;
+    background: rgba(0, 200, 255, 0.05);
+  }
+
+  .fastcdc-config h4 {
+    margin: 0 0 0.75rem 0;
+    color: var(--vp-c-brand-1);
+  }
+
+  .config-help {
+    margin: 0 0 1.25rem 0;
+    color: var(--vp-c-text-3);
+    font-size: 0.9rem;
+  }
+
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+  }
+
+  .config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-radius: 10px;
+    background: rgba(0, 255, 65, 0.04);
+    border: 1px solid var(--vp-c-brand-soft);
+  }
+
+  .config-field input[type="range"] {
+    width: 100%;
+  }
+
+  .config-field input[type="number"] {
+    padding: 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--vp-c-border);
+    background: var(--vp-c-bg);
+    color: var(--vp-c-text-1);
+  }
+
+  .config-label {
+    font-weight: 600;
+    color: var(--vp-c-text-1);
+  }
+
+  .config-value {
+    font-size: 0.85rem;
+    color: var(--vp-c-text-3);
+  }
+
+  .config-summary {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: var(--vp-c-text-2);
+  }
+
+  .chunk-visualizer-section {
+    margin: 2rem 0;
+  }
+
+  .chunk-visualization {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .chunk-bars {
+    display: flex;
+    height: 32px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--vp-c-divider);
+    background: rgba(0, 255, 65, 0.06);
+  }
+
+  .chunk-bar {
+    background: rgba(0, 255, 65, 0.45);
+  }
+
+  .chunk-bar.shared {
+    background: rgba(0, 200, 255, 0.45);
+  }
+
+  .chunk-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    font-size: 0.85rem;
+    color: var(--vp-c-text-3);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .legend-swatch.unique {
+    background: rgba(0, 255, 65, 0.75);
+  }
+
+  .legend-swatch.shared {
+    background: rgba(0, 200, 255, 0.75);
+  }
+
+  .chunk-visualization-empty {
+    font-style: italic;
+    color: var(--vp-c-text-3);
+  }
+
+  .fastcdc-used {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: var(--vp-c-text-2);
+  }
+
+  .fastcdc-used .stat-label {
+    font-weight: 600;
+    margin-right: 0.5rem;
+  }
+
   /* File Upload Styles */
   .file-upload {
     padding: 2rem;
@@ -921,6 +1056,7 @@ This interactive demo showcases:
 - **📤 File Upload**: Interactive chunking visualization with multiple strategies
   - Compare Fixed-size vs FastCDC (content-defined) chunking
   - See block sharing and deduplication across files in real-time
+  - Tune FastCDC bounds with the CAS Chunk Tuner to visualize breakpoints and explore dedup sensitivity
   - View validation results and chunk-level details
 - **📊 Statistics**: Real-time system metrics and deduplication ratios
 
