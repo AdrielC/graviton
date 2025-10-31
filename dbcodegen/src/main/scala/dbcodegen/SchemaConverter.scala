@@ -19,7 +19,7 @@ object SchemaConverter {
   ): DataSchema = {
     val schemaName = Option(schema.getName).filter(_.nonEmpty).getOrElse("schema")
 
-    val (tables, enums) = schemaTables.collect {
+    val collected = schemaTables.collect {
       case table if config.schemaTableFilter(schemaName, table.getName) =>
         val usableColumns = table.getColumns.asScala.filter(column => !column.isHidden)
 
@@ -37,19 +37,43 @@ object SchemaConverter {
             .orElse(pgColumnInfo.get(colName.toUpperCase))
           val (scalaType, dataEnum) = columnToScalaType(schema, connection, column, pgInfo, config)
           val dataColumn = DataColumn(
-            column.getName,
-            scalaType,
-            column,
-            pgInfo,
+            name = column.getName,
+            scalaType = scalaType,
+            db = column,
+            pgType = pgInfo,
+            checkConstraints = Seq.empty,
+            domain = pgInfo.flatMap(_.domainName),
           )
 
           (dataColumn, dataEnum)
         }.unzip
 
-        val columnsMap = columns.map(c => c.name -> c).toMap
+        val tableChecks = table.getTableConstraints.asScala.collect { case check: CheckConstraint =>
+          val definition = Option(check.getDefinition).map(_.trim).filter(_.nonEmpty).getOrElse("")
+          val columnNames = check.getConstrainedColumns.asScala.map(_.getName).toSeq
+          val scope = if columnNames.distinct.size == 1 then CheckScope.Column else CheckScope.Table
+          val constraintName =
+            Option(check.getName)
+              .filter(_.nonEmpty)
+              .getOrElse(s"${table.getName}_${columnNames.mkString("_")}_ck")
+
+          DataCheckConstraint(constraintName, definition, columnNames, scope)
+        }.toSeq
+
+        val columnChecksByName = tableChecks
+          .filter(_.scope == CheckScope.Column)
+          .groupBy(_.columns.headOption.map(_.toLowerCase(Locale.ROOT)).getOrElse(""))
+
+        val columnsWithChecks = columns.map { column =>
+          val key = column.name.toLowerCase(Locale.ROOT)
+          val checks = columnChecksByName.getOrElse(key, Seq.empty)
+          column.copy(checkConstraints = checks)
+        }
 
         val indices = table.getIndexes.asScala.map { index =>
-          val indexColumns = index.getColumns.asScala.flatMap(column => columnsMap.get(column.getName))
+          val indexColumns = index.getColumns.asScala.flatMap { column =>
+            columnsWithChecks.find(_.name.equalsIgnoreCase(column.getName))
+          }
 
           DataIndex(
             index.getShortName.stripPrefix(table.getName + "."),
@@ -60,19 +84,28 @@ object SchemaConverter {
 
         val dataTable = DataTable(
           table.getName,
-          columns.toSeq,
+          columnsWithChecks.toSeq,
           indices.toSeq,
           table,
+          tableChecks,
         )
 
-        (dataTable, columnEnums)
-    }.unzip
+        val domains = columnsWithChecks.flatMap(_.domain).distinct
+
+        (dataTable, columnEnums, domains)
+    }
+
+    val (tables, enums, domains) = collected.foldLeft((List.empty[DataTable], List.empty[Option[DataEnum]], List.empty[String])) {
+      case ((ts, es, ds), (table, enumOptions, domainNames)) =>
+        (table :: ts, enumOptions.toList ::: es, domainNames.toList ::: ds)
+    }
 
     DataSchema(
       schemaName,
       tables.distinct,
-      enums.flatMap(_.flatten).distinct,
+      enums.flatten.distinct,
       schema,
+      domains.distinct,
     )
   }
 
