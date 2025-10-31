@@ -129,6 +129,12 @@ onMounted(() => {
     border: 1px solid #00ff00;
   }
 
+  .status-demo {
+    background: rgba(0, 200, 255, 0.15);
+    color: #00c8ff;
+    border: 1px solid rgba(0, 200, 255, 0.8);
+  }
+
   .status-degraded {
     background: rgba(255, 200, 0, 0.2);
     color: #ffc800;
@@ -492,6 +498,64 @@ onMounted(() => {
     font-size: 0.9em;
   }
 
+  .demo-banner {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: rgba(0, 200, 255, 0.08);
+    border: 1px solid rgba(0, 200, 255, 0.4);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .demo-icon {
+    font-size: 1.4rem;
+  }
+
+  .demo-text {
+    color: var(--vp-c-text-2);
+    font-size: 0.95rem;
+  }
+
+  .demo-hint {
+    margin: 1.5rem 0;
+    padding: 1rem 1.25rem;
+    background: rgba(0, 255, 65, 0.05);
+    border: 1px solid var(--vp-c-brand-soft);
+    border-radius: 10px;
+    color: var(--vp-c-text-2);
+  }
+
+  .sample-id-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+  }
+
+  .sample-id-btn {
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--vp-c-brand-soft);
+    background: rgba(0, 255, 65, 0.08);
+    color: var(--vp-c-text-1);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+  }
+
+  .sample-id-btn:hover:not(:disabled) {
+    background: rgba(0, 255, 65, 0.15);
+    border-color: var(--vp-c-brand-1);
+  }
+
+  .sample-id-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   /* File Upload Styles */
   .file-upload {
     padding: 2rem;
@@ -841,7 +905,11 @@ The chunking algorithms demonstrated here use the **same FastCDC implementation*
 <div id="graviton-app"></div>
 
 ::: tip Note
-This demo connects to a Graviton server. Make sure you have a server running at `http://localhost:8080` or update the API URL meta tag above.
+By default the demo looks for a Graviton instance at `http://localhost:8080`. Update the `<meta name="graviton-api-url" />` tag if your server runs elsewhere.
+:::
+
+::: info Demo Mode
+When this page cannot reach a live server (such as on GitHub Pages), the UI automatically switches to a simulated dataset. You can still explore chunking, manifests, and stats without any backend.
 :::
 
 ## Features

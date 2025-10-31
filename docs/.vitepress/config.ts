@@ -93,6 +93,17 @@ export default defineConfig({
         ]
       },
       {
+        text: 'Modules',
+        items: [
+          { text: 'Overview', link: '/modules/' },
+          { text: 'Backend Adapters', link: '/modules/backend' },
+          { text: 'Runtime Module', link: '/modules/runtime' },
+          { text: 'Streams Utilities', link: '/modules/streams' },
+          { text: 'Protocol Stack', link: '/modules/protocol' },
+          { text: 'Scala.js Frontend', link: '/modules/frontend' }
+        ]
+      },
+      {
         text: 'Operations',
         items: [
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
