@@ -34,6 +34,9 @@ sbt compile
 
 # Run formatter and tests
 TESTCONTAINERS=0 ./sbt scalafmtAll test
+
+# Optional: rebuild the Scala.js dashboard for the /demo docs page
+./sbt buildFrontend
 ```
 
 ### Using SBT Dependency

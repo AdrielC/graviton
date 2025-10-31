@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
 const normalizeBase = (value?: string) => {
   const trimmed = value?.trim()
@@ -25,7 +26,7 @@ const withBase = (path: string) => {
   return `${trimmedBase}${normalizedPath}` || '/'
 }
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   vite: {
     build: {
       rollupOptions: {
@@ -67,11 +68,20 @@ export default defineConfig({
       dark: 'github-dark'
     },
     config: (md) => {
-      // Mermaid diagrams will be rendered automatically
+      const original = md.renderer.rules.table_open ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+      md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+        tokens[idx].attrJoin('class', 'vp-doc-table graviton-table')
+        return original(tokens, idx, options, env, self)
+      }
     }
   },
   mermaid: {
-    // Mermaid config
+    theme: 'neutral',
+    darkTheme: 'forest',
+    fontFamily: 'JetBrains Mono, Fira Code, monospace'
+  },
+  mermaidPlugin: {
+    class: 'graviton-mermaid'
   },
   themeConfig: {
     logo: '/logo.svg',
@@ -186,4 +196,4 @@ export default defineConfig({
     sidebarMenuLabel: '📚 Menu',
     externalLinkIcon: true
   }
-})
+}))
