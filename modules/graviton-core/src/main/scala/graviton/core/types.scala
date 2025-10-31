@@ -5,16 +5,21 @@ import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
 
 object types:
-  type Algo          = String :| Match["(sha-256|blake3|md5)"]
-  type HexLower      = String :| (Match["[0-9a-f]+"] & MinLength[2])
-  type Mime          = String :| Match["[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+(;.*)?"]
-  type Size          = Long :| numeric.Greater[-1]
-  type ChunkSize     = Int :| numeric.Greater[0]
-  type ChunkIndex    = Long :| numeric.Greater[-1]
-  type ChunkCount    = Long :| numeric.Greater[-1]
-  type LocatorScheme = String :| Match["[a-z0-9+.-]+"]
-  type PathSegment   = String :| (Match["[^/]+"] & MinLength[1])
-  type FileSegment   = String :| (Match["[^/]+"] & MinLength[1])
+  type Algo             = String :| Match["(sha-256|blake3|md5)"]
+  type HexLower         = String :| (Match["[0-9a-f]+"] & MinLength[2])
+  type Mime             = String :| Match["[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+(;.*)?"]
+  type Size             = Long :| numeric.Greater[-1]
+  type ChunkSize        = Int :| numeric.Greater[0]
+  type ChunkIndex       = Long :| numeric.Greater[-1]
+  type ChunkCount       = Long :| numeric.Greater[-1]
+  type BlockSize        = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
+  type BlockIndex       = Long :| numeric.Greater[-1]
+  type CompressionLevel = Int :| (numeric.Greater[-1] & numeric.LessEqual[22])
+  type KekId            = String :| (Match["[A-Za-z0-9:_-]{4,128}"] & MinLength[4])
+  type NonceLength      = Int :| (numeric.Greater[0] & numeric.LessEqual[32])
+  type LocatorScheme    = String :| Match["[a-z0-9+.-]+"]
+  type PathSegment      = String :| (Match["[^/]+"] & MinLength[1])
+  type FileSegment      = String :| (Match["[^/]+"] & MinLength[1])
 
   private val Sha256HexLength = 64
   private val Md5HexLength    = 32
