@@ -1,6 +1,6 @@
 package graviton.frontend
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import org.scalajs.dom
 
 /** Application entry point */
@@ -15,10 +15,14 @@ object Main {
       "http://localhost:8080"
     }
 
-    // Render app
-    renderOnDomContentLoaded(
-      dom.document.getElementById("graviton-app"),
-      GravitonApp(baseUrl),
-    )
+    def mount(): Unit =
+      val container = dom.document.getElementById("graviton-app")
+      if container != null then
+        val _ = render(container, GravitonApp(baseUrl))
+        ()
+      else dom.console.warn("Graviton demo container not found")
+
+    if dom.document.readyState == "loading" then dom.window.addEventListener("DOMContentLoaded", _ => mount())
+    else mount()
   }
 }
