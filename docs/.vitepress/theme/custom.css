@@ -549,7 +549,7 @@ div[class*='language-']:hover code {
 /* Terminal-style command blocks */
 div[class*='language-bash']::before,
 div[class*='language-shell']::before {
-  content: '❯ ';
+  content: '? ';
   color: var(--vp-c-brand-1);
   position: absolute;
   left: 1rem;
@@ -571,6 +571,50 @@ div[class*='language-shell']::before {
     border-color: var(--vp-c-cyan);
     box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
   }
+}
+
+/* Mermaid diagrams */
+.graviton-mermaid {
+  margin: 1.5rem auto;
+  padding: 1.25rem;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 255, 65, 0.08);
+  backdrop-filter: blur(8px);
+  overflow-x: auto;
+}
+
+.graviton-mermaid svg {
+  max-width: 100%;
+  height: auto;
+  filter: drop-shadow(0 0 12px rgba(0, 255, 65, 0.2));
+  --mermaid-theme: dark;
+}
+
+.graviton-mermaid .node rect,
+.graviton-mermaid .node circle,
+.graviton-mermaid .node ellipse,
+.graviton-mermaid .node polygon {
+  stroke: var(--vp-c-brand-1) !important;
+  fill: rgba(0, 255, 65, 0.12) !important;
+}
+
+.graviton-mermaid .label {
+  fill: var(--vp-c-text-1) !important;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+}
+
+.graviton-mermaid .edgeLabel rect {
+  fill: rgba(0, 255, 65, 0.15) !important;
+  stroke: rgba(0, 255, 65, 0.25) !important;
+}
+
+.graviton-mermaid .cluster rect {
+  rx: 12px;
+  ry: 12px;
+  stroke-dasharray: 6 6;
+  stroke-width: 2px;
 }
 
 /* Loading bar animation for navigation */

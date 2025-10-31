@@ -11,10 +11,10 @@ Be respectful, collaborative, and professional. We're building something great t
 ### Prerequisites
 
 - **JDK 21+**: OpenJDK or Oracle JDK
-- **SBT 1.9+**: Scala build tool
+- **sbt 1.11+**: Scala build tool
 - **Git**: Version control
 - **PostgreSQL 16+** (optional): For integration tests
-- **Node.js 20+**: For documentation
+- **Node.js 20+**: For documentation and the Scala.js demo bundle
 
 ### Clone and Build
 
@@ -29,17 +29,14 @@ git submodule update --init --recursive
 # Compile everything
 sbt compile
 
-# Run tests (without TestContainers)
-TESTCONTAINERS=0 sbt test
+# Format & run the default JVM + JS test matrix (keeping TestContainers off by default)
+TESTCONTAINERS=0 ./sbt scalafmtAll test
 
-# Run with TestContainers
-TESTCONTAINERS=1 sbt test
+# (Optional) Exercise TestContainers-backed suites
+TESTCONTAINERS=1 ./sbt test
 
-# Format code
-sbt scalafmtAll
-
-# Check formatting
-sbt scalafmtCheckAll
+# (Optional) Rebuild the documentation demo assets after frontend changes
+./sbt buildFrontend
 ```
 
 ## Coding Standards

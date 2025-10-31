@@ -46,6 +46,9 @@ features:
 # Build all modules
 sbt compile
 
+# Build the Scala.js dashboard for the /demo page
+./sbt buildFrontend
+
 # Run the full test suite  
 TESTCONTAINERS=0 ./sbt scalafmtAll test
 
@@ -56,6 +59,10 @@ cd docs && npm install && npm run docs:dev
 ## 🚀 Why Graviton?
 
 Graviton is a **content-addressable storage runtime** that provides a stable ingest and retrieval pipeline for large binary payloads. The system is **modular by design** so that hashing, chunking, persistence, replication, and protocol concerns evolve independently.
+
+::: info Visualize the pipelines
+Every architecture and operations page now ships with live Mermaid diagrams. No extra setup required—VitePress renders them client-side with our neon skins so you can trace ingest, replication, and backend selection at a glance.
+:::
 
 ### Key Features
 
