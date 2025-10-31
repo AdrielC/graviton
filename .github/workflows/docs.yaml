@@ -24,6 +24,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Determine docs base path
+        shell: bash
+        env:
+          DOCS_BASE_OVERRIDE: ${{ vars.DOCS_BASE }}
+        run: |
+          if [ -n "${DOCS_BASE_OVERRIDE}" ]; then
+            VALUE="${DOCS_BASE_OVERRIDE}"
+          else
+            REPO_NAME="${GITHUB_REPOSITORY##*/}"
+            OWNER_LOWER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+            REPO_LOWER="$(printf '%s' "${REPO_NAME}" | tr '[:upper:]' '[:lower:]')"
+            if [ "${REPO_LOWER}" = "${OWNER_LOWER}.github.io" ]; then
+              VALUE="/"
+            else
+              VALUE="/${REPO_NAME}/"
+            fi
+          fi
+
+          TRIMMED="$(printf '%s' "${VALUE}" | sed -e 's#^/*##' -e 's#/*$##')"
+          if [ -z "${TRIMMED}" ]; then
+            NORMALIZED="/"
+          else
+            NORMALIZED="/${TRIMMED}/"
+          fi
+
+          echo "DOCS_BASE=${NORMALIZED}" >> "${GITHUB_ENV}"
+          echo "Using docs base: ${NORMALIZED}"
       
       - name: Setup Java
         uses: actions/setup-java@v3

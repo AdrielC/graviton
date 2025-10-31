@@ -1,5 +1,30 @@
 import { defineConfig } from 'vitepress'
 
+const normalizeBase = (value?: string) => {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    return undefined
+  }
+
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`
+}
+
+const [repositoryOwner = '', repositoryName = ''] = (process.env.GITHUB_REPOSITORY ?? '').split('/')
+const ownerLowerCase = repositoryOwner.trim().toLowerCase()
+const nameTrimmed = repositoryName.trim()
+const repoLowerCase = nameTrimmed.toLowerCase()
+const isUserOrOrgSite = repoLowerCase.length > 0 && repoLowerCase === `${ownerLowerCase}.github.io`
+
+const inferredBase = nameTrimmed.length > 0 ? (isUserOrOrgSite ? '/' : `/${nameTrimmed}/`) : '/'
+const base = normalizeBase(process.env.DOCS_BASE) ?? inferredBase
+
+const withBase = (path: string) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base
+  return `${trimmedBase}${normalizedPath}` || '/'
+}
+
 export default defineConfig({
   vite: {
     build: {
@@ -14,15 +39,15 @@ export default defineConfig({
   },
   title: 'Graviton',
   description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
-  base: '/graviton/',
+  base,
   cleanUrls: true,
   head: [
-    ['link', { rel: 'icon', href: '/graviton/logo.svg' }],
+    ['link', { rel: 'icon', href: withBase('/logo.svg') }],
     ['meta', { name: 'theme-color', content: '#00ff41' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:title', content: 'Graviton • Content-Addressable Storage' }],
     ['meta', { name: 'og:description', content: 'Modular storage runtime with deduplication, streaming, and ZIO power' }],
-    ['meta', { name: 'og:image', content: '/graviton/logo.svg' }],
+    ['meta', { name: 'og:image', content: withBase('/logo.svg') }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'Graviton • Content-Addressable Storage' }],
     ['meta', { name: 'keywords', content: 'graviton, zio, scala, storage, content-addressable, deduplication, streaming' }]
