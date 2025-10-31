@@ -1,6 +1,6 @@
 package graviton.frontend.components
 
-import com.raquo.laminar.api.L.{*, given}
+import com.raquo.laminar.api.L.*
 import org.scalajs.dom
 import org.scalajs.dom.FileReader
 import scala.scalajs.js
@@ -9,6 +9,19 @@ import scala.collection.mutable
 
 /** Interactive file upload component with chunking visualization */
 object FileUpload {
+
+  final case class FastCDCConfig(min: Int, avg: Int, max: Int)
+
+  object FastCDCConfig {
+    val default: FastCDCConfig = FastCDCConfig(256, 1024, 4096)
+
+    def normalize(config: FastCDCConfig): FastCDCConfig = {
+      val minBound = config.min.max(64).min(1 << 18)
+      val avgBound = config.avg.max(minBound).min(1 << 19)
+      val maxBound = config.max.max(avgBound).min(1 << 20)
+      FastCDCConfig(minBound, avgBound, maxBound)
+    }
+  }
 
   // Chunk information for display
   final case class ChunkDisplay(
@@ -28,6 +41,10 @@ object FileUpload {
     deduplicationRatio: Double,
     chunkerType: String,
     validations: List[ValidationResult],
+    averageChunkSize: Double,
+    minChunkSize: Int,
+    maxChunkSize: Int,
+    fastcdcConfig: Option[FastCDCConfig],
   )
 
   // Validation results
@@ -69,7 +86,7 @@ object FileUpload {
     }
     case object FastCDC  extends ChunkerType {
       val name        = "FastCDC"
-      val description = "Content-defined chunking (min: 256B, avg: 1KB, max: 4KB)"
+      val description = "Content-defined chunking (configure min/avg/max below)"
     }
 
     val all: List[ChunkerType] = List(Fixed256, Fixed1K, Fixed4K, FastCDC)
@@ -82,6 +99,8 @@ object FileUpload {
     val processingVar      = Var(false)
     val errorVar           = Var[Option[String]](None)
     val globalChunkMapVar  = Var[Map[String, List[String]]](Map.empty) // hash -> list of file names
+    val fastCDCConfigVar   = Var(FastCDCConfig.default)
+    val pendingReadsVar    = Var(0)
 
     def validateFile(file: dom.File): List[ValidationResult] = {
       val validations = mutable.ListBuffer[ValidationResult]()
@@ -115,6 +134,98 @@ object FileUpload {
       validations.toList
     }
 
+    def addPending(count: Int): Unit =
+      if count > 0 then
+        pendingReadsVar.update(_ + count)
+        processingVar.set(true)
+
+    def resolvePending(): Unit =
+      val remaining = (pendingReadsVar.now() - 1).max(0)
+      pendingReadsVar.set(remaining)
+      if remaining == 0 then processingVar.set(false)
+
+    def reprocessAllFiles(chunker: ChunkerType): Unit =
+      val existing = filesVar.now()
+      if existing.nonEmpty then
+        analysesVar.set(Map.empty)
+        globalChunkMapVar.set(Map.empty)
+        addPending(existing.size)
+        existing.foreach(file => processFile(file, chunker))
+
+    def updateFastCDCConfig(modifier: FastCDCConfig => FastCDCConfig): Unit =
+      val normalized = FastCDCConfig.normalize(modifier(fastCDCConfigVar.now()))
+      if normalized != fastCDCConfigVar.now() then
+        fastCDCConfigVar.set(normalized)
+        if selectedChunkerVar.now() == ChunkerType.FastCDC && filesVar.now().nonEmpty then reprocessAllFiles(ChunkerType.FastCDC)
+
+    def renderFastCDCControls(): HtmlElement = {
+      def control(
+        labelText: String,
+        valueOf: FastCDCConfig => Int,
+        updateField: (FastCDCConfig, Int) => FastCDCConfig,
+        minValue: Int,
+        maxValue: Int,
+        stepValue: Int,
+      ): HtmlElement = {
+        val observer = Observer[String] { rawValue =>
+          rawValue.toIntOption.foreach { value =>
+            updateFastCDCConfig(cfg => updateField(cfg, value))
+          }
+        }
+
+        label(
+          cls := "config-field",
+          span(cls   := "config-label", labelText),
+          input(
+            tpe      := "range",
+            minAttr  := minValue.toString,
+            maxAttr  := maxValue.toString,
+            stepAttr := stepValue.toString,
+            controlled(
+              value <-- fastCDCConfigVar.signal.map(cfg => valueOf(cfg).toString),
+              onInput.mapToValue --> observer,
+            ),
+          ),
+          input(
+            tpe      := "number",
+            minAttr  := minValue.toString,
+            maxAttr  := maxValue.toString,
+            stepAttr := stepValue.toString,
+            controlled(
+              value <-- fastCDCConfigVar.signal.map(cfg => valueOf(cfg).toString),
+              onInput.mapToValue --> observer,
+            ),
+          ),
+          span(
+            cls      := "config-value",
+            child.text <-- fastCDCConfigVar.signal.map(cfg => formatBytes(valueOf(cfg).toLong)),
+          ),
+        )
+      }
+
+      div(
+        cls := "fastcdc-config",
+        h4("?? CAS Chunk Tuner"),
+        p(
+          cls := "config-help",
+          "Adjust FastCDC boundaries to explore how chunk sizes change. Smaller windows create more dedup-friendly blocks; larger windows reduce manifest overhead.",
+        ),
+        div(
+          cls := "config-grid",
+          control("Minimum chunk", _.min, (cfg, value) => cfg.copy(min = value), 64, 65536, 64),
+          control("Target average", _.avg, (cfg, value) => cfg.copy(avg = value), 128, 262144, 64),
+          control("Maximum chunk", _.max, (cfg, value) => cfg.copy(max = value), 1024, 1048576, 256),
+        ),
+        div(
+          cls := "config-summary",
+          child.text <-- fastCDCConfigVar.signal.map { cfg =>
+            val normalized = FastCDCConfig.normalize(cfg)
+            s"Effective bounds => min ${formatBytes(normalized.min.toLong)}, avg ${formatBytes(normalized.avg.toLong)}, max ${formatBytes(normalized.max.toLong)}"
+          },
+        ),
+      )
+    }
+
     def simpleHash(bytes: js.Array[Byte]): String = {
       // Simple hash for demo purposes (not cryptographic)
       var hash    = 5381L
@@ -127,12 +238,12 @@ object FileUpload {
       "0x" + "0" * (8 - hashStr.length) + hashStr
     }
 
-    def chunkBytes(bytes: js.Array[Byte], chunker: ChunkerType): List[ChunkDisplay] =
+    def chunkBytes(bytes: js.Array[Byte], chunker: ChunkerType, fastConfig: FastCDCConfig): List[ChunkDisplay] =
       chunker match {
         case ChunkerType.Fixed256 => chunkFixed(bytes, 256)
         case ChunkerType.Fixed1K  => chunkFixed(bytes, 1024)
         case ChunkerType.Fixed4K  => chunkFixed(bytes, 4096)
-        case ChunkerType.FastCDC  => chunkFastCDC(bytes, min = 256, avg = 1024, max = 4096)
+        case ChunkerType.FastCDC  => chunkFastCDC(bytes, fastConfig)
       }
 
     def chunkFixed(bytes: js.Array[Byte], size: Int): List[ChunkDisplay] = {
@@ -166,9 +277,14 @@ object FileUpload {
      * Min/avg/max boundaries ensure predictable chunk sizes while
      * maintaining content-defined splitting for deduplication.
      */
-    def chunkFastCDC(bytes: js.Array[Byte], min: Int, avg: Int, max: Int): List[ChunkDisplay] = {
-      val chunks = mutable.ListBuffer[ChunkDisplay]()
-      val mask   = (1 << (log2(avg) - 1)) - 1
+    def chunkFastCDC(bytes: js.Array[Byte], config: FastCDCConfig): List[ChunkDisplay] = {
+      val chunks     = mutable.ListBuffer[ChunkDisplay]()
+      val normalized = FastCDCConfig.normalize(config)
+      val minSize    = normalized.min
+      val avgSize    = normalized.avg
+      val maxSize    = normalized.max
+      val avgPower   = math.max(1, log2(avgSize))
+      val mask       = (1 << (math.max(1, avgPower) - 1)) - 1
 
       var offset     = 0L
       var i          = 0
@@ -181,9 +297,9 @@ object FileUpload {
 
         val currentSize = i - chunkStart + 1
         val isBoundary  =
-          (currentSize >= min && (roll & mask) == 0) || // Rolling hash match
-            currentSize >= max ||                       // Max size reached
-            i == bytes.length - 1                       // End of file
+          (currentSize >= minSize && (mask == 0 || (roll & mask) == 0)) || // Rolling hash match
+            currentSize >= maxSize ||                                      // Max size reached
+            i == bytes.length - 1                                          // End of file
 
         if (isBoundary) {
           val chunkBytes = bytes.slice(chunkStart, i + 1)
@@ -213,7 +329,7 @@ object FileUpload {
     def processFile(file: dom.File, chunker: ChunkerType): Unit = {
       val reader = new FileReader()
 
-      reader.onload = (e: dom.Event) => {
+      reader.onload = (_: dom.Event) => {
         val arrayBuffer = reader.result.asInstanceOf[ArrayBuffer]
         val uint8Array  = new Uint8Array(arrayBuffer)
         val bytes       = new js.Array[Byte](uint8Array.length)
@@ -225,7 +341,14 @@ object FileUpload {
         }
 
         val validations = validateFile(file)
-        val chunks      = chunkBytes(bytes, chunker)
+        val fastConfig  = fastCDCConfigVar.now()
+        val chunks      = chunkBytes(bytes, chunker, fastConfig)
+
+        val sizeList          = chunks.map(_.size)
+        val averageChunkSize  = if (sizeList.nonEmpty) sizeList.sum.toDouble / sizeList.length else 0.0
+        val minChunkSize      = if (sizeList.nonEmpty) sizeList.min else 0
+        val maxChunkSize      = if (sizeList.nonEmpty) sizeList.max else 0
+        val configForAnalysis = if (chunker == ChunkerType.FastCDC) Some(fastConfig) else None
 
         // Update global chunk map for deduplication analysis
         val currentMap = globalChunkMapVar.now()
@@ -256,6 +379,10 @@ object FileUpload {
           deduplicationRatio = deduplicationRatio,
           chunkerType = chunker.name,
           validations = validations,
+          averageChunkSize = averageChunkSize,
+          minChunkSize = minChunkSize,
+          maxChunkSize = maxChunkSize,
+          fastcdcConfig = configForAnalysis,
         )
 
         // Update all analyses to reflect new sharing information
@@ -272,12 +399,12 @@ object FileUpload {
         }
 
         analysesVar.set(updatedAnalyses + (file.name -> analysis))
-        processingVar.set(false)
+        resolvePending()
       }
 
-      reader.onerror = (e: dom.Event) => {
+      reader.onerror = (_: dom.Event) => {
         errorVar.set(Some(s"Error reading file: ${file.name}"))
-        processingVar.set(false)
+        resolvePending()
       }
 
       reader.readAsArrayBuffer(file)
@@ -287,9 +414,8 @@ object FileUpload {
       if (files.isEmpty) return
 
       errorVar.set(None)
-      processingVar.set(true)
       filesVar.update(_ ++ files)
-
+      addPending(files.length)
       files.foreach { file =>
         processFile(file, selectedChunkerVar.now())
       }
@@ -300,11 +426,13 @@ object FileUpload {
       analysesVar.set(Map.empty)
       globalChunkMapVar.set(Map.empty)
       errorVar.set(None)
+      pendingReadsVar.set(0)
+      processingVar.set(false)
     }
 
     div(
       cls := "file-upload",
-      h2("📤 File Upload & Chunking Demo"),
+      h2("?? File Upload & Chunking Demo"),
       p(
         cls := "upload-intro",
         """
@@ -316,7 +444,7 @@ object FileUpload {
       // Chunker selection
       div(
         cls := "chunker-selection",
-        h3("🔧 Chunker Strategy"),
+        h3("?? Chunker Strategy"),
         div(
           cls := "chunker-buttons",
           ChunkerType.all.map { chunker =>
@@ -328,18 +456,17 @@ object FileUpload {
               onClick --> { _ =>
                 selectedChunkerVar.set(chunker)
                 // Re-process all files with new chunker
-                if (filesVar.now().nonEmpty) {
-                  analysesVar.set(Map.empty)
-                  globalChunkMapVar.set(Map.empty)
-                  processingVar.set(true)
-                  filesVar.now().foreach(file => processFile(file, chunker))
-                }
+                if (filesVar.now().nonEmpty) then reprocessAllFiles(chunker)
               },
               div(cls := "chunker-name", chunker.name),
               div(cls := "chunker-desc", chunker.description),
             )
           },
         ),
+        child <-- selectedChunkerVar.signal.map {
+          case ChunkerType.FastCDC => renderFastCDCControls()
+          case _                   => emptyNode
+        },
       ),
 
       // File input
@@ -359,7 +486,7 @@ object FileUpload {
         ),
         button(
           cls      := "btn-secondary clear-btn",
-          "🗑️ Clear All",
+          "??? Clear All",
           onClick --> { _ => clearAll() },
           disabled <-- analysesVar.signal.map(_.isEmpty),
         ),
@@ -369,12 +496,12 @@ object FileUpload {
       child <-- errorVar.signal.map {
         case None        => emptyNode
         case Some(error) =>
-          div(cls := "error-message", s"⚠️ $error")
+          div(cls := "error-message", s"?? $error")
       },
 
       // Processing indicator
       child <-- processingVar.signal.map { processing =>
-        if (processing) div(cls := "loading-spinner", "⏳ Processing files...")
+        if (processing) div(cls := "loading-spinner", "? Processing files...")
         else emptyNode
       },
 
@@ -388,10 +515,12 @@ object FileUpload {
           val sharedChunks       = chunkMap.count(_._2.size > 1)
           val deduplicationRatio = if (totalChunks > 0) uniqueChunks.toDouble / totalChunks else 1.0
           val spaceSavings       = if (totalChunks > 0) (1.0 - deduplicationRatio) * 100 else 0.0
+          val avgChunkSize       = if (totalChunks > 0) allChunks.map(_.size).sum.toDouble / totalChunks else 0.0
+          val maxChunkSize       = if (allChunks.nonEmpty) allChunks.map(_.size).max else 0
 
           div(
             cls := "global-stats",
-            h3("📊 Global Deduplication Statistics"),
+            h3("?? Global Deduplication Statistics"),
             div(
               cls := "stats-grid-compact",
               div(cls := "stat-item", span(cls := "stat-label", "Total Files:"), span(cls := "stat-value", analyses.size.toString)),
@@ -400,6 +529,16 @@ object FileUpload {
               div(cls := "stat-item", span(cls := "stat-label", "Shared Chunks:"), span(cls := "stat-value", sharedChunks.toString)),
               div(cls := "stat-item", span(cls := "stat-label", "Dedup Ratio:"), span(cls := "stat-value", f"$deduplicationRatio%.3f")),
               div(cls := "stat-item", span(cls := "stat-label", "Space Savings:"), span(cls := "stat-value", f"$spaceSavings%.1f%%")),
+              div(
+                cls   := "stat-item",
+                span(cls := "stat-label", "Avg Chunk Size:"),
+                span(cls := "stat-value", formatBytes(math.round(avgChunkSize).toLong)),
+              ),
+              div(
+                cls   := "stat-item",
+                span(cls := "stat-label", "Largest Chunk:"),
+                span(cls := "stat-value", formatBytes(maxChunkSize.toLong)),
+              ),
             ),
           )
         }
@@ -420,6 +559,32 @@ object FileUpload {
     )
   }
 
+  private def renderChunkVisualization(analysis: FileAnalysis): HtmlElement = {
+    val totalSize = analysis.chunks.map(_.size.toLong).sum
+    if (totalSize <= 0) then div(cls := "chunk-visualization-empty", "No chunk data available yet")
+    else {
+      val bars = analysis.chunks.map { chunk =>
+        val widthPct         = math.max(0.5, chunk.size.toDouble / totalSize * 100)
+        val barClasses       = if (chunk.sharedWith.nonEmpty) "chunk-bar shared" else "chunk-bar"
+        div(
+          cls       := barClasses,
+          styleAttr := s"flex-basis:$widthPct%;",
+          title     := s"${formatBytes(chunk.size.toLong)} starting at ${formatBytes(chunk.offset)}",
+        )
+      }
+
+      div(
+        cls := "chunk-visualization",
+        div(cls := "chunk-bars", bars),
+        div(
+          cls   := "chunk-legend",
+          span(cls := "legend-item", span(cls := "legend-swatch unique"), "Unique chunk"),
+          span(cls := "legend-item", span(cls := "legend-swatch shared"), "Shared chunk"),
+        ),
+      )
+    }
+  }
+
   private def renderFileAnalysis(analysis: FileAnalysis): HtmlElement = {
     val expandedVar = Var(false)
 
@@ -430,18 +595,18 @@ object FileUpload {
         onClick --> { _ => expandedVar.update(!_) },
         div(
           cls := "file-info",
-          h4(cls := "file-name", s"📄 ${analysis.fileName}"),
+          h4(cls := "file-name", s"?? ${analysis.fileName}"),
           div(
             cls  := "file-meta",
-            span(s"${formatBytes(analysis.fileSize)} • "),
-            span(s"${analysis.totalChunks} chunks • "),
+            span(s"${formatBytes(analysis.fileSize)} ? "),
+            span(s"${analysis.totalChunks} chunks ? "),
             span(s"${analysis.chunkerType}"),
           ),
         ),
         span(
           cls := "expand-icon",
           child <-- expandedVar.signal.map { expanded =>
-            if (expanded) span("▼") else span("▶")
+            if (expanded) span("?") else span("?")
           },
         ),
       ),
@@ -454,13 +619,13 @@ object FileUpload {
             // Validations
             div(
               cls := "validations-section",
-              h5("✅ Validations"),
+              h5("? Validations"),
               div(
                 cls := "validations-list",
                 analysis.validations.map { validation =>
                   div(
                     cls := s"validation-item ${if (validation.isError) "error" else "success"}",
-                    span(cls := "validation-icon", if (validation.isError) "❌" else "✅"),
+                    span(cls := "validation-icon", if (validation.isError) "?" else "?"),
                     span(validation.message),
                   )
                 },
@@ -470,7 +635,7 @@ object FileUpload {
             // Chunk stats
             div(
               cls := "chunk-stats",
-              h5("🧩 Chunk Statistics"),
+              h5("?? Chunk Statistics"),
               div(
                 cls := "stats-grid-compact",
                 div(
@@ -488,13 +653,46 @@ object FileUpload {
                   span(cls := "stat-label", "Shared Chunks:"),
                   span(cls := "stat-value", (analysis.totalChunks - analysis.chunks.count(_.sharedWith.isEmpty)).toString),
                 ),
+                div(
+                  cls := "stat-item",
+                  span(cls := "stat-label", "Average Size:"),
+                  span(cls := "stat-value", formatBytes(math.round(analysis.averageChunkSize).toLong)),
+                ),
+                div(
+                  cls := "stat-item",
+                  span(cls := "stat-label", "Smallest Chunk:"),
+                  span(cls := "stat-value", formatBytes(analysis.minChunkSize.toLong)),
+                ),
+                div(
+                  cls := "stat-item",
+                  span(cls := "stat-label", "Largest Chunk:"),
+                  span(cls := "stat-value", formatBytes(analysis.maxChunkSize.toLong)),
+                ),
               ),
+              analysis.fastcdcConfig match
+                case Some(config) =>
+                  div(
+                    cls := "fastcdc-used",
+                    span(cls := "stat-label", "FastCDC Config:"),
+                    span(
+                      cls    := "stat-value",
+                      s"min ${formatBytes(config.min.toLong)} | avg ${formatBytes(config.avg.toLong)} | max ${formatBytes(config.max.toLong)}",
+                    ),
+                  )
+                case None         => emptyNode,
+            ),
+
+            // Visualization of chunk boundaries
+            div(
+              cls := "chunk-visualizer-section",
+              h5("?? Chunk Breakpoints"),
+              renderChunkVisualization(analysis),
             ),
 
             // Chunks table
             div(
               cls := "chunks-section",
-              h5(s"📦 Chunks (${analysis.chunks.length})"),
+              h5(s"?? Chunks (${analysis.chunks.length})"),
               div(
                 cls := "chunks-table-wrapper",
                 table(
@@ -510,17 +708,16 @@ object FileUpload {
                   tbody(
                     analysis.chunks.take(100).map { chunk =>
                       tr(
-                        cls                        := "chunk-row",
-                        cls.toggle("shared-chunk") := chunk.sharedWith.nonEmpty,
+                        cls := (if (chunk.sharedWith.nonEmpty) "chunk-row shared-chunk" else "chunk-row"),
                         td(formatBytes(chunk.offset)),
                         td(formatBytes(chunk.size)),
                         td(code(cls := "hash-value", chunk.hash)),
                         td(
-                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "—")
+                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "?")
                           else
                             div(
                               cls                                := "shared-files",
-                              span(cls := "share-indicator", s"🔗 ${chunk.sharedWith.size}"),
+                              span(cls := "share-indicator", s"?? ${chunk.sharedWith.size}"),
                               span(cls := "share-tooltip", chunk.sharedWith.mkString(", ")),
                             )
                         ),
