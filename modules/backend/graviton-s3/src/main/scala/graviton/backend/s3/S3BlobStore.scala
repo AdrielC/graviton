@@ -1,14 +1,17 @@
 package graviton.backend.s3
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.model.{BlobStat, BlobWriteResult}
+import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult}
 import graviton.runtime.stores.BlobStore
-import zio.stream.{ZSink, ZStream}
-import zio.ZIO
+import zio.*
+import zio.stream.*
 
 class S3BlobStore extends BlobStore:
-  override def put: ZSink[Any, Throwable, Byte, Nothing, BlobWriteResult]  =
+  override def put(plan: BlobWritePlan): ZSink[Any, Throwable, Byte, Chunk[Byte], BlobWriteResult] =
     ZSink.fail(new UnsupportedOperationException("S3BlobStore.put not implemented"))
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte]          = ZStream.empty
+
+  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] = ZStream.empty
+
   override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] = ZIO.succeed(None)
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]           = ZIO.unit
+
+  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] = ZIO.unit
