@@ -30,7 +30,7 @@ npm run docs:dev
 
 - **HealthCheck**: polls `/api/health`, displays status badges, and surfaces demo mode notifications.
 - **BlobExplorer**: loads metadata/manifests and, in demo mode, offers pre-populated blob IDs for quick inspection.
-- **FileUpload**: pure client-side chunking visualiser supporting fixed-size and FastCDC placeholder strategies. Reports deduplication metrics and highlights shared chunks.
+- **FileUpload**: pure client-side chunking visualiser supporting fixed-size and FastCDC placeholder strategies. Reports deduplication metrics, highlights shared chunks, and includes a CAS Chunk Tuner to experiment with FastCDC min/avg/max bounds.
 - **StatsPanel**: fetches `/api/stats`, auto-loads once on mount, and renders aggregate counters.
 
 Each component returns a pure Laminar `HtmlElement`, which keeps them easy to test and compose.
