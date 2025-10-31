@@ -4,6 +4,7 @@ import com.raquo.laminar.api.L.*
 import com.raquo.waypoint.*
 import com.raquo.laminar.tags.HtmlTag
 import graviton.frontend.components.*
+import org.scalajs.dom
 
 /** Main Graviton frontend application */
 object GravitonApp {
@@ -46,8 +47,17 @@ object GravitonApp {
     owner = unsafeWindowOwner,
   )
 
-  def apply(baseUrl: String): HtmlElement = {
-    val api = new GravitonApi(new BrowserHttpClient(baseUrl))
+  def apply(baseUrl: String, docsBase: String): HtmlElement = {
+    val api                = new GravitonApi(new BrowserHttpClient(baseUrl))
+    val docsBaseNormalized =
+      val trimmed = docsBase.trim
+      if trimmed.isEmpty || trimmed == "/" then ""
+      else if trimmed.endsWith("/") then trimmed.dropRight(1)
+      else trimmed
+
+    def docHref(path: String): String =
+      val normalizedPath = if path.startsWith("/") then path else s"/$path"
+      s"$docsBaseNormalized$normalizedPath"
 
     div(
       cls := "graviton-app",
@@ -98,9 +108,9 @@ object GravitonApp {
         p(
           a(href := "https://github.com/AdrielC/graviton", target := "_blank", "GitHub"),
           " • ",
-          a(href := "/graviton/api", "API Docs"),
+          a(href := docHref("/api"), "API Docs"),
           " • ",
-          a(href := "/graviton/scaladoc/index.html", target       := "_blank", "Scaladoc"),
+          a(href := docHref("/scaladoc/index.html"), target       := "_blank", "Scaladoc"),
         ),
       ),
     )
@@ -114,7 +124,9 @@ object GravitonApp {
       },
       href := router.absoluteUrlForPage(page),
       label,
-      onClick.preventDefault --> { _ =>
+      onClick --> { (event: dom.MouseEvent) =>
+        event.preventDefault()
+        event.stopPropagation()
         router.pushState(page)
       },
     )
@@ -148,7 +160,11 @@ object GravitonApp {
             a(
               cls  := "feature-card-link",
               href := router.absoluteUrlForPage(Page.Explorer),
-              onClick.preventDefault --> { _ => router.pushState(Page.Explorer) },
+              onClick --> { (event: dom.MouseEvent) =>
+                event.preventDefault()
+                event.stopPropagation()
+                router.pushState(Page.Explorer)
+              },
               div(
                 cls := "feature-card",
                 "🔍 Explore Blobs",
@@ -158,7 +174,11 @@ object GravitonApp {
             a(
               cls  := "feature-card-link",
               href := router.absoluteUrlForPage(Page.Upload),
-              onClick.preventDefault --> { _ => router.pushState(Page.Upload) },
+              onClick --> { (event: dom.MouseEvent) =>
+                event.preventDefault()
+                event.stopPropagation()
+                router.pushState(Page.Upload)
+              },
               div(
                 cls := "feature-card",
                 "📤 Upload Files",
@@ -168,7 +188,11 @@ object GravitonApp {
             a(
               cls  := "feature-card-link",
               href := router.absoluteUrlForPage(Page.Stats),
-              onClick.preventDefault --> { _ => router.pushState(Page.Stats) },
+              onClick --> { (event: dom.MouseEvent) =>
+                event.preventDefault()
+                event.stopPropagation()
+                router.pushState(Page.Stats)
+              },
               div(
                 cls := "feature-card",
                 "📊 View Statistics",
