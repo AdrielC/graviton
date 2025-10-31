@@ -11,6 +11,9 @@ onMounted(() => {
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     const rawBase = import.meta.env?.BASE_URL ?? '/'
     const normalizedBase = rawBase === '/' ? '' : rawBase.replace(/\/$/, '')
+    if (typeof window !== 'undefined') {
+      window.__GRAVITON_DOCS_BASE__ = normalizedBase
+    }
     const jsPath = `${normalizedBase}/js/main.js`
 
     // Dynamically import the main module
