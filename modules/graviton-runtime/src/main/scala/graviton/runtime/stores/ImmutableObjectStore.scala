@@ -1,8 +1,8 @@
 package graviton.runtime.stores
 
 import graviton.core.locator.BlobLocator
-import zio.stream.ZStream
-import zio.ZIO
+import zio.*
+import zio.stream.*
 
 trait ImmutableObjectStore:
   def head(locator: BlobLocator): ZIO[Any, Throwable, Option[Long]]
