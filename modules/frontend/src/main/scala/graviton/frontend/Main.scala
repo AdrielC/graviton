@@ -2,6 +2,7 @@ package graviton.frontend
 
 import com.raquo.laminar.api.L.*
 import org.scalajs.dom
+import scala.scalajs.js
 
 /** Application entry point */
 object Main {
@@ -15,10 +16,15 @@ object Main {
       "http://localhost:8080"
     }
 
+    val docsBaseDynamic = dom.window.asInstanceOf[js.Dynamic].selectDynamic("__GRAVITON_DOCS_BASE__")
+    val docsBase        =
+      if js.isUndefined(docsBaseDynamic) || docsBaseDynamic == null then ""
+      else docsBaseDynamic.toString
+
     def mount(): Unit =
       val container = dom.document.getElementById("graviton-app")
       if container != null then
-        val _ = render(container, GravitonApp(baseUrl))
+        val _ = render(container, GravitonApp(baseUrl, docsBase))
         ()
       else dom.console.warn("Graviton demo container not found")
 

@@ -9,10 +9,13 @@ import { onMounted } from 'vue'
 onMounted(() => {
   // Only run in browser, not during SSR
   if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    // Check if running in dev mode (Vite dev server) or build mode
-    const isDev = import.meta.env?.DEV;
-    const jsPath = isDev ? '/js/main.js' : '/graviton/js/main.js';
-    
+    const rawBase = import.meta.env?.BASE_URL ?? '/'
+    const normalizedBase = rawBase === '/' ? '' : rawBase.replace(/\/$/, '')
+    if (typeof window !== 'undefined') {
+      window.__GRAVITON_DOCS_BASE__ = normalizedBase
+    }
+    const jsPath = `${normalizedBase}/js/main.js`
+
     // Dynamically import the main module
     import(jsPath).catch(err => {
       console.warn('Interactive demo not loaded:', err.message);
