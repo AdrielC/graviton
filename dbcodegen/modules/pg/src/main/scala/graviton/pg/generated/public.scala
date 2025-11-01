@@ -19,8 +19,8 @@ object Replicas {
   opaque type Id <: Tuple = (Chunk[Byte], String, Long)
   type Tupled = (key: Chunk[Byte], sectorId: String, rangeStart: Long)
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
+    def fromTuple(tuple: Tupled): Id = tuple
+    def toTuple(id: Id): Tupled = id
     def apply(key: Chunk[Byte], sectorId: String, rangeStart: Long): Id = fromTuple((key = key, sectorId = sectorId, rangeStart = rangeStart))
   }
   given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], String, Long)]].biMap(value => Replicas.Id.fromTuple((key = value._1, sectorId = value._2, rangeStart = value._3)), id => (Replicas.Id.toTuple(id).key, Replicas.Id.toTuple(id).sectorId, Replicas.Id.toTuple(id).rangeStart))
@@ -37,8 +37,8 @@ object Manifests {
   opaque type Id <: Tuple = Tuple1[Chunk[Byte]]
   type Tupled = key: Chunk[Byte]
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
+    def fromTuple(tuple: Tupled): Id = tuple
+    def toTuple(id: Id): Tupled = id
     def apply(key: Chunk[Byte]): Id = fromTuple(key = key)
   }
   given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => Manifests.Id.fromTuple(key = value), id => Manifests.Id.toTuple(id).key)
@@ -51,8 +51,8 @@ object BlobData {
   opaque type Id <: Tuple = (Chunk[Byte], NonNegLong)
   type Tupled = (key: Chunk[Byte], chunkOffset: NonNegLong)
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
+    def fromTuple(tuple: Tupled): Id = tuple
+    def toTuple(id: Id): Tupled = id
     def apply(key: Chunk[Byte], chunkOffset: NonNegLong): Id = fromTuple((key = key, chunkOffset = chunkOffset))
   }
   given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], NonNegLong)]].biMap(value => BlobData.Id.fromTuple((key = value._1, chunkOffset = value._2)), id => (BlobData.Id.toTuple(id).key, BlobData.Id.toTuple(id).chunkOffset))
@@ -68,8 +68,8 @@ object StorageSectors {
   opaque type Id <: Tuple = Tuple1[String]
   type Tupled = id: String
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
+    def fromTuple(tuple: Tupled): Id = tuple
+    def toTuple(id: Id): Tupled = id
     def apply(id: String): Id = fromTuple(id = id)
   }
   given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[String]].biMap(value => StorageSectors.Id.fromTuple(id = value), id => StorageSectors.Id.toTuple(id).id)
@@ -82,8 +82,8 @@ object Blobs {
   opaque type Id <: Tuple = Tuple1[Chunk[Byte]]
   type Tupled = key: Chunk[Byte]
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
+    def fromTuple(tuple: Tupled): Id = tuple
+    def toTuple(id: Id): Tupled = id
     def apply(key: Chunk[Byte]): Id = fromTuple(key = key)
   }
   given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => Blobs.Id.fromTuple(key = value), id => Blobs.Id.toTuple(id).key)

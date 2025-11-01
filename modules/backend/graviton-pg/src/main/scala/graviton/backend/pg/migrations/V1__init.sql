@@ -15,7 +15,10 @@ CREATE TABLE IF NOT EXISTS blobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   version BIGINT NOT NULL DEFAULT 1,
-  CONSTRAINT blobs_size_positive CHECK (size >= 0)
+  CONSTRAINT blobs_size_positive CHECK (size >= 0),
+  CONSTRAINT blobs_checksum_length CHECK (checksum IS NULL OR octet_length(checksum) = 32),
+  CONSTRAINT blobs_content_type_length CHECK (content_type IS NULL OR length(content_type) <= 255),
+  CONSTRAINT blobs_attributes_is_object CHECK (attributes IS NULL OR jsonb_typeof(attributes) = 'object')
 );
 
 CREATE TABLE IF NOT EXISTS blob_data (
@@ -27,7 +30,9 @@ CREATE TABLE IF NOT EXISTS blob_data (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (key, chunk_offset),
   CONSTRAINT blob_data_chunk_offset_nonneg CHECK (chunk_offset >= 0),
-  CONSTRAINT blob_data_chunk_size_positive CHECK (chunk_size > 0)
+  CONSTRAINT blob_data_chunk_size_positive CHECK (chunk_size > 0),
+  CONSTRAINT blob_data_chunk_size_max CHECK (chunk_size <= 16777216),
+  CONSTRAINT blob_data_checksum_length CHECK (checksum IS NULL OR octet_length(checksum) = 32)
 );
 
 CREATE TABLE IF NOT EXISTS manifests (
@@ -36,7 +41,9 @@ CREATE TABLE IF NOT EXISTS manifests (
   schema_version INT NOT NULL DEFAULT 1,
   attributes JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT manifests_schema_version_positive CHECK (schema_version > 0),
+  CONSTRAINT manifests_attributes_is_object CHECK (attributes IS NULL OR jsonb_typeof(attributes) = 'object')
 );
 
 CREATE TABLE IF NOT EXISTS replicas (
@@ -48,7 +55,8 @@ CREATE TABLE IF NOT EXISTS replicas (
   status replica_status NOT NULL DEFAULT 'ACTIVE',
   last_verified TIMESTAMPTZ,
   PRIMARY KEY (key, sector_id, range_start),
-  CONSTRAINT replicas_valid_range CHECK (range_start >= 0 AND range_end >= range_start)
+  CONSTRAINT replicas_valid_range CHECK (range_start >= 0 AND range_end > range_start),
+  CONSTRAINT replicas_sector_nonempty CHECK (char_length(sector_id) > 0)
 );
 
 CREATE TABLE IF NOT EXISTS storage_sectors (
@@ -59,7 +67,8 @@ CREATE TABLE IF NOT EXISTS storage_sectors (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT storage_sectors_capacity_nonneg CHECK (capacity_bytes >= 0),
-  CONSTRAINT storage_sectors_available_nonneg CHECK (available_bytes >= 0 AND available_bytes <= capacity_bytes)
+  CONSTRAINT storage_sectors_available_nonneg CHECK (available_bytes >= 0 AND available_bytes <= capacity_bytes),
+  CONSTRAINT storage_sectors_region_nonempty CHECK (char_length(region) > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_blobs_created ON blobs(created_at);

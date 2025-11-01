@@ -230,8 +230,8 @@ object CodeGenerator {
         sb.append(s"  type Tupled = $namedTuple\n\n")
 
         sb.append("  object Id:\n")
-        sb.append(s"    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]\n")
-        sb.append(s"    def toTuple(id: Id): Tupled      = id.asInstanceOf[Tupled]\n")
+        sb.append(s"    def fromTuple(tuple: Tupled): Id = tuple\n")
+        sb.append(s"    def toTuple(id: Id): Tupled      = id\n")
         sb.append(s"    def apply($tupleCtor): Id        = fromTuple(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n\n")
 
         val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
