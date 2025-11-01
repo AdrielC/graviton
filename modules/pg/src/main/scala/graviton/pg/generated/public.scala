@@ -16,18 +16,16 @@ enum ReplicaStatus(val value: String) {
 object ReplicaStatus { given Schema[ReplicaStatus] = DeriveSchema.gen[ReplicaStatus] }
 @Table(PostgresDbType) final case class Replicas(@Id @SqlName("key") key: Chunk[Byte], @Id @SqlName("sector_id") sectorId: String, @Id @SqlName("range_start") rangeStart: Long, @SqlName("range_end") rangeEnd: Long, @SqlName("healthy") healthy: Boolean, @SqlName("status") status: ReplicaStatus, @SqlName("last_verified") lastVerified: Option[java.time.OffsetDateTime]) derives DbCodec
 object Replicas {
-  opaque type Id <: Tuple = (Chunk[Byte], String, Long)
-  type Tupled = (key: Chunk[Byte], sectorId: String, rangeStart: Long)
+  final case class Id(key: Chunk[Byte], sectorId: String, rangeStart: Long)
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
-    def apply(key: Chunk[Byte], sectorId: String, rangeStart: Long): Id = fromTuple((key = key, sectorId = sectorId, rangeStart = rangeStart))
+    def fromTuple(value: (Chunk[Byte], String, Long)): Id = Replicas.Id(key = value._1, sectorId = value._2, rangeStart = value._3)
+    def toTuple(id: Id): (Chunk[Byte], String, Long) = (id.key, id.sectorId, id.rangeStart)
   }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], String, Long)]].biMap(value => Replicas.Id.fromTuple((key = value._1, sectorId = value._2, rangeStart = value._3)), id => (Replicas.Id.toTuple(id).key, Replicas.Id.toTuple(id).sectorId, Replicas.Id.toTuple(id).rangeStart))
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], String, Long)]].biMap(value => Replicas.Id(key = value._1, sectorId = value._2, rangeStart = value._3), id => (id.key, id.sectorId, id.rangeStart))
   extension (id: Id) {
-    def key: Chunk[Byte] = Replicas.Id.toTuple(id).key
-    def sectorId: String = Replicas.Id.toTuple(id).sectorId
-    def rangeStart: Long = Replicas.Id.toTuple(id).rangeStart
+    def key: Chunk[Byte] = id.key
+    def sectorId: String = id.sectorId
+    def rangeStart: Long = id.rangeStart
   }
   final case class Creator(key: Chunk[Byte], sectorId: String, rangeStart: Long, rangeEnd: Long, healthy: Option[Boolean] = None, status: Option[ReplicaStatus] = None, lastVerified: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Replicas.Creator, Replicas, Replicas.Id]
@@ -46,17 +44,15 @@ object Manifests {
 }
 @Table(PostgresDbType) final case class BlobData(@Id @SqlName("key") key: Chunk[Byte], @Id @SqlName("chunk_offset") chunkOffset: NonNegLong, @SqlName("chunk_size") chunkSize: Int, @SqlName("chunk_data") chunkData: Chunk[Byte], @SqlName("checksum") checksum: Option[Chunk[Byte]], @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object BlobData {
-  opaque type Id <: Tuple = (Chunk[Byte], NonNegLong)
-  type Tupled = (key: Chunk[Byte], chunkOffset: NonNegLong)
+  final case class Id(key: Chunk[Byte], chunkOffset: NonNegLong)
   object Id {
-    def fromTuple(tuple: Tupled): Id = tuple.asInstanceOf[Id]
-    def toTuple(id: Id): Tupled = id.asInstanceOf[Tupled]
-    def apply(key: Chunk[Byte], chunkOffset: NonNegLong): Id = fromTuple((key = key, chunkOffset = chunkOffset))
+    def fromTuple(value: (Chunk[Byte], NonNegLong)): Id = BlobData.Id(key = value._1, chunkOffset = value._2)
+    def toTuple(id: Id): (Chunk[Byte], NonNegLong) = (id.key, id.chunkOffset)
   }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], NonNegLong)]].biMap(value => BlobData.Id.fromTuple((key = value._1, chunkOffset = value._2)), id => (BlobData.Id.toTuple(id).key, BlobData.Id.toTuple(id).chunkOffset))
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Chunk[Byte], NonNegLong)]].biMap(value => BlobData.Id(key = value._1, chunkOffset = value._2), id => (id.key, id.chunkOffset))
   extension (id: Id) {
-    def key: Chunk[Byte] = BlobData.Id.toTuple(id).key
-    def chunkOffset: NonNegLong = BlobData.Id.toTuple(id).chunkOffset
+    def key: Chunk[Byte] = id.key
+    def chunkOffset: NonNegLong = id.chunkOffset
   }
   final case class Creator(key: Chunk[Byte], chunkOffset: NonNegLong, chunkSize: Int, chunkData: Chunk[Byte], checksum: Option[Chunk[Byte]] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[BlobData.Creator, BlobData, BlobData.Id]
@@ -87,11 +83,11 @@ object Blobs {
 }
 object Schemas {
   given replicasSchema: Schema[Replicas] = DeriveSchema.gen[Replicas]
-  given replicasIdSchema: Schema[Replicas.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], String, Long)]].transform(value => Replicas.Id.fromTuple((key = value._1, sectorId = value._2, rangeStart = value._3)), id => (Replicas.Id.toTuple(id).key, Replicas.Id.toTuple(id).sectorId, Replicas.Id.toTuple(id).rangeStart))
+  given replicasIdSchema: Schema[Replicas.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], String, Long)]].transform(value => Replicas.Id(key = value._1, sectorId = value._2, rangeStart = value._3), id => (id.key, id.sectorId, id.rangeStart))
   given manifestsSchema: Schema[Manifests] = DeriveSchema.gen[Manifests]
   given manifestsIdSchema: Schema[Manifests.Id] = scala.compiletime.summonInline[Schema[Chunk[Byte]]].transform(value => Manifests.Id(value), id => Manifests.Id.unwrap(id))
   given blobDataSchema: Schema[BlobData] = DeriveSchema.gen[BlobData]
-  given blobDataIdSchema: Schema[BlobData.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], NonNegLong)]].transform(value => BlobData.Id.fromTuple((key = value._1, chunkOffset = value._2)), id => (BlobData.Id.toTuple(id).key, BlobData.Id.toTuple(id).chunkOffset))
+  given blobDataIdSchema: Schema[BlobData.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], NonNegLong)]].transform(value => BlobData.Id(key = value._1, chunkOffset = value._2), id => (id.key, id.chunkOffset))
   given storageSectorsSchema: Schema[StorageSectors] = DeriveSchema.gen[StorageSectors]
   given storageSectorsIdSchema: Schema[StorageSectors.Id] = scala.compiletime.summonInline[Schema[String]].transform(value => StorageSectors.Id(value), id => StorageSectors.Id.unwrap(id))
   given blobsSchema: Schema[Blobs] = DeriveSchema.gen[Blobs]
