@@ -53,7 +53,7 @@ Bidirectional streaming upload:
 ```protobuf
 service UploadService {
   // Bidirectional streaming upload
-  rpc Upload(stream UploadMessage) returns (stream UploadResponse);
+  rpc Upload(stream UploadMessage) returns (stream UploadAck);
 }
 
 message UploadMessage {
@@ -61,6 +61,7 @@ message UploadMessage {
     StartUpload start = 1;
     UploadChunk chunk = 2;
     CompleteUpload complete = 3;
+    UploadAck ack = 4;
   }
 }
 
@@ -78,27 +79,9 @@ message CompleteUpload {
   bytes expected_hash = 1;
 }
 
-message UploadResponse {
-  oneof response {
-    UploadStarted started = 1;
-    UploadCredit credit = 2;
-    UploadComplete complete = 3;
-    UploadError error = 4;
-  }
-}
-
-message UploadStarted {
+message UploadAck {
   string upload_id = 1;
-}
-
-message UploadCredit {
-  int64 bytes = 1;
-}
-
-message UploadComplete {
-  bytes key = 1;
-  int64 size = 2;
-  bytes hash = 3;
+  uint64 received_bytes = 2;
 }
 ```
 
@@ -107,65 +90,25 @@ message UploadComplete {
 ### Scala Client
 
 ```scala
-import graviton.proto.blob.*
-import io.grpc.ManagedChannelBuilder
+import graviton.protocol.grpc.client.UploadNodeGrpcClient
+import graviton.protocol.grpc.client.UploadNodeGrpcClient.*
+import zio.*
+import zio.stream.ZStream
 
-// Create channel
-val channel = ManagedChannelBuilder
-  .forAddress("localhost", 50051)
-  .usePlaintext()
-  .build()
+val uploadProgram = ZIO.serviceWithZIO[UploadServiceClient] { service =>
+  val client = UploadNodeGrpcClient.fromService(service)
+  val payload = ZStream.fromFileName("/tmp/archive.tar")
 
-// Create client
-val client = ZIO.succeed(BlobServiceGrpc.stub(channel))
+  client.uploadStream(
+    data = payload,
+    expectedSize = Some(128L * 1024 * 1024),
+    attributes = Map("content-type" -> "application/x-tar")
+  )
+}
 
-// Get a blob
-def getBlob(key: BinaryKey): ZStream[Any, StatusException, Chunk[Byte]] =
-  for {
-    stub <- ZStream.fromZIO(client)
-    request = GetBlobRequest(key = key.bytes)
-    chunk <- ZStream.fromIterator(stub.getBlob(request))
-  } yield Chunk.fromArray(chunk.data.toByteArray)
-
-// Upload a blob
-def uploadBlob(
-  data: ZStream[Any, Throwable, Byte]
-): ZIO[Any, StatusException, BinaryKey] =
-  for {
-    stub <- client
-    
-    // Start upload
-    startMsg = UploadMessage(
-      message = UploadMessage.Message.Start(
-        StartUpload(totalSize = data.size)
-      )
-    )
-    
-    // Stream chunks
-    chunks = data.chunks.map { chunk =>
-      UploadMessage(
-        message = UploadMessage.Message.Chunk(
-          UploadChunk(data = ByteString.copyFrom(chunk.toArray))
-        )
-      )
-    }
-    
-    // Complete upload
-    completeMsg = UploadMessage(
-      message = UploadMessage.Message.Complete(CompleteUpload())
-    )
-    
-    // Send all messages
-    responses <- ZStream.fromIterable(startMsg +: chunks :+ completeMsg)
-      .via(stub.upload)
-      .runCollect
-    
-    // Extract key from completion response
-    key <- responses.collectFirst {
-      case UploadResponse(UploadResponse.Response.Complete(c)) => 
-        BinaryKey.fromBytes(c.key.toByteArray)
-    }.toZIO
-  } yield key
+val runtime = Runtime.default
+// Provide the generated UploadServiceClient layer from zio-grpc when running your application.
+// runtime.unsafeRun(uploadProgram.provideLayer(uploadServiceClientLayer))
 ```
 
 ### Python Client
@@ -386,8 +329,8 @@ val client = MetadataUtils.attachHeaders(stub, metadata)
 
 ## See Also
 
-- **[HTTP API](./http)** — REST endpoints
-- **[Getting Started](../guide/getting-started)** — Quick start guide
+- **[HTTP API](./http)** ? REST endpoints
+- **[Getting Started](../guide/getting-started)** ? Quick start guide
 
 ::: tip
 For large uploads, use the bidirectional streaming `Upload` RPC for better flow control!

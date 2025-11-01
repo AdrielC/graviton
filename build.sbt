@@ -164,7 +164,8 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
   .settings(baseSettings,
     name := "graviton-grpc",
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio
+      "dev.zio" %% "zio" % V.zio,
+      "io.grpc" % "grpc-api" % "1.65.0"
     )
   )
 
@@ -173,8 +174,9 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
   .settings(baseSettings,
     name := "graviton-http",
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"      % V.zio,
-      "dev.zio" %% "zio-http" % V.zioHttp
+      "dev.zio" %% "zio"        % V.zio,
+      "dev.zio" %% "zio-http"   % V.zioHttp,
+      "dev.zio" %% "zio-schema" % V.zioSchema
     )
   )
 
