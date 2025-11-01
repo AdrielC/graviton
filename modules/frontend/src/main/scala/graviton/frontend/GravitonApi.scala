@@ -50,6 +50,14 @@ class GravitonApi(
       onFallbackMissing = Some(s"Demo dataset does not include a manifest for ${blobId.value}."),
     )
 
+  def listSchemas: Task[List[ObjectSchema]] =
+    withFallback(
+      HttpClient
+        .getJson[List[ObjectSchema]]("/api/schema")
+        .provideEnvironment(ZEnvironment(client)),
+      Some(demoData.schemaCatalog),
+    )
+
   def initiateUpload(request: UploadRequest): Task[UploadResponse] =
     withFallback(
       HttpClient

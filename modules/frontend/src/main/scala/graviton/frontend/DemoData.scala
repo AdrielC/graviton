@@ -11,6 +11,7 @@ final case class DemoData(
   health: HealthResponse,
   stats: SystemStats,
   blobs: Map[BlobId, DemoData.DemoBlob],
+  schemas: List[ObjectSchema],
   simulatedUpload: UploadResponse,
 ) {
 
@@ -20,6 +21,8 @@ final case class DemoData(
   def metadataFor(id: BlobId): Option[BlobMetadata] = blobs.get(id).map(_.metadata)
 
   def manifestFor(id: BlobId): Option[BlobManifest] = blobs.get(id).map(_.manifest)
+
+  def schemaCatalog: List[ObjectSchema] = schemas
 
   def simulateUpload(request: UploadRequest): UploadResponse = simulatedUpload.copy(
     blobId = BlobId(s"sha256:demo-upload-${request.expectedSize.getOrElse(0L)}")
@@ -118,6 +121,74 @@ object DemoData {
         deduplicationRatio = 1.0 / 0.72, // illustrative value ~1.39:1
       ),
       blobs = blobs,
+      schemas = List(
+        ObjectSchema(
+          name = "BlobMetadata",
+          category = "core",
+          version = "1.0.0",
+          summary = Some("Primary descriptor for a stored blob."),
+          fields = List(
+            SchemaField("id", "BlobId", "1", nullable = false, description = Some("Unique content-addressed identifier.")),
+            SchemaField("size", "Long", "1", nullable = false, description = Some("Total size of the blob in bytes.")),
+            SchemaField("contentType", "String", "0..1", nullable = true, description = Some("Optional MIME type reported at ingest.")),
+            SchemaField("createdAt", "EpochMillis", "1", nullable = false, description = Some("Creation timestamp in epoch milliseconds.")),
+            SchemaField(
+              "checksums",
+              "Map[String,String]",
+              "0..n",
+              nullable = false,
+              description = Some("Digest values keyed by algorithm."),
+            ),
+          ),
+          sampleJson = Some(
+            """{
+              |  "id": "sha256:demo-welcome",
+              |  "size": 1920,
+              |  "contentType": "application/graviton-demo",
+              |  "createdAt": 1728192000000,
+              |  "checksums": {
+              |    "sha256": "demo0a7f7bc2b3a6c410502ac48f3564c0f54f58c1d9f9b8498897c1d1f3af001"
+              |  }
+              |}""".stripMargin
+          ),
+        ),
+        ObjectSchema(
+          name = "BlobManifest",
+          category = "core",
+          version = "1.0.0",
+          summary = Some("Chunk-level view that powers streaming and deduplication."),
+          fields = List(
+            SchemaField("blobId", "BlobId", "1", nullable = false, description = Some("ID of the blob the manifest belongs to.")),
+            SchemaField("totalSize", "Long", "1", nullable = false, description = Some("Total assembled size of the blob.")),
+            SchemaField("chunks", "ChunkInfo", "1..n", nullable = false, description = Some("Ordered content-defined chunks.")),
+          ),
+          sampleJson = Some(
+            """{
+              |  "blobId": "sha256:demo-manifest",
+              |  "totalSize": 2368,
+              |  "chunks": [
+              |    { "offset": 0, "size": 512, "hash": "chunk:01:welcome" },
+              |    { "offset": 512, "size": 896, "hash": "chunk:04:pipeline" },
+              |    { "offset": 1408, "size": 960, "hash": "chunk:05:storage" }
+              |  ]
+              |}""".stripMargin
+          ),
+        ),
+        ObjectSchema(
+          name = "ChunkInfo",
+          category = "streams",
+          version = "1.0.0",
+          summary = Some("Individual content-defined blocks produced by FastCDC."),
+          fields = List(
+            SchemaField("offset", "Long", "1", nullable = false, description = Some("Byte offset from the start of the blob.")),
+            SchemaField("size", "Long", "1", nullable = false, description = Some("Size of the chunk in bytes.")),
+            SchemaField("hash", "String", "1", nullable = false, description = Some("Digest of the chunk payload.")),
+          ),
+          sampleJson = Some(
+            """{ "offset": 512, "size": 896, "hash": "chunk:04:pipeline" }"""
+          ),
+        ),
+      ),
       simulatedUpload = UploadResponse(
         blobId = BlobId("sha256:demo-upload"),
         uploadUrl = "https://demo.invalid/upload",

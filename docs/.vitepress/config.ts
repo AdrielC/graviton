@@ -90,6 +90,7 @@ export default withMermaid(defineConfig({
       { text: '🚀 Guide', link: '/guide/getting-started' },
       { text: '🏗️ Architecture', link: '/architecture' },
       { text: '🔌 API', link: '/api' },
+      { text: '🧪 Scala.js', link: '/dev/scalajs' },
       { text: '🎮 Demo', link: '/demo' },
       { text: '📚 Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
     ],
@@ -160,6 +161,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Contributing', link: '/dev/contributing' },
           { text: 'Testing', link: '/dev/testing' },
+          { text: 'Scala.js Playbook', link: '/dev/scalajs' },
           { text: 'Design Docs', link: '/design/' }
         ]
       },

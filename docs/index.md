@@ -40,6 +40,12 @@ features:
     details: Replication, backpressure, graceful degradation, and zero-downtime deployments out of the box.
 ---
 
+## 🛰️ Hyperdrive Telemetry
+
+Get a taste of the Graviton control room. The live HUD keeps a pulse on ingest throughput, deduplication ratios, replication health, and the latest runtime chatter—rendered in neon, constantly shifting, and entirely in-browser.
+
+<NeonHud />
+
 ## 🎮 Quick Start
 
 ```bash
@@ -72,12 +78,19 @@ Every architecture and operations page now ships with live Mermaid diagrams. No 
 - **Type-Safe Schema**: Compile-time guarantees with ZIO Schema
 - **Observable**: Prometheus metrics and structured logging
 - **Replicated**: Multi-region support with eventual consistency
+- **Schema Insights**: Interactive schema explorer powered by Scala.js + ZIO on the docs site
 
 ## 📚 Next Steps
 
 :::tip 🎯 New to Graviton?
 Start with the [Getting Started Guide](/guide/getting-started) for a hands-on introduction!
 :::
+
+## ✨ Launch the Quantum Command Center
+
+Need warp-speed navigation? Hit `⌘K` / `Ctrl+K` (or click the floating button) to summon the Quantum Command Center—an omnipresent command palette with synthwave vibes, hyperspace unlocks, and instant jumps to the hottest docs.
+
+<QuantumConsole />
 
 <div class="grid-container">
   <a href="/architecture" class="feature-card">
@@ -98,6 +111,11 @@ Start with the [Getting Started Guide](/guide/getting-started) for a hands-on in
   <a href="/dev/contributing" class="feature-card">
     <h3>🤝 Contributing</h3>
     <p>Join the community and help build the future of storage</p>
+  </a>
+
+  <a href="/dev/scalajs" class="feature-card">
+    <h3>🧪 Scala.js Playbook</h3>
+    <p>Run the Laminar dashboard locally with live reload and shared models</p>
   </a>
 </div>
 
