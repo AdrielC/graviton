@@ -29,9 +29,9 @@ object CheckConstraintParser:
     case Inclusion(column: String, values: Seq[LiteralValue], negated: Boolean)
     case NotNull(column: String, negated: Boolean)
 
-  final case class Parsed(plan: ValidationPlan, normalizedExpression: String)
+  final case class ParsedConstraint(plan: ValidationPlan, normalizedExpression: String)
 
-  def parse(definition: String, targetColumn: String): Either[String, Parsed] =
+  def parse(definition: String, targetColumn: String): Either[String, ParsedConstraint] =
     val normalized = normalize(definition)
     if normalized.isEmpty then Left("Empty check definition")
     else
@@ -40,11 +40,11 @@ object CheckConstraintParser:
         splitTopLevel(normalized, "AND") match
           case Some((left, right)) =>
             (parseSingle(left, columnKey, targetColumn), parseSingle(right, columnKey, targetColumn)) match
-              case (Right(Parsed(ValidationPlan.NumericComparison(_, op1, value1), _)),
-                    Right(Parsed(ValidationPlan.NumericComparison(_, op2, value2), _))) =>
+              case (Right(ParsedConstraint(ValidationPlan.NumericComparison(_, op1, value1), _)),
+                    Right(ParsedConstraint(ValidationPlan.NumericComparison(_, op2, value2), _))) =>
                 arrangeBounds(op1, value1, op2, value2) match
                   case Some((lowerValue, lowerInclusive, upperValue, upperInclusive)) =>
-                    Right(Parsed(
+                    Right(ParsedConstraint(
                       ValidationPlan.Between(targetColumn, lowerValue, upperValue, lowerInclusive, upperInclusive),
                       normalized,
                     ))
@@ -82,23 +82,25 @@ object CheckConstraintParser:
   private def isInclusiveUpper(op: ComparisonOperator): Boolean =
     op == ComparisonOperator.LessThanOrEqual
 
-  private def parseSingle(expr: String, columnKey: String, targetColumn: String): Either[String, Parsed] =
+  private def parseSingle(expr: String, columnKey: String, targetColumn: String): Either[String, ParsedConstraint] =
     val comparisonPattern = """(?i)^(.+?)\s*(>=|<=|<>|!=|=|>|<)\s*(.+)$""".r
     val betweenPattern    = """(?i)^(.+?)\s+BETWEEN\s+(.+?)\s+AND\s+(.+)$""".r
     val lengthPattern     = """(?i)^(char_length|length)\s*\(\s*(.+?)\s*\)\s*(>=|<=|=|>|<)\s*(\d+)\s*$""".r
     val inPattern         = """(?i)^(.+?)\s+(NOT\s+)?IN\s*\((.+)\)\s*$""".r
     val isNullPattern     = """(?i)^(.+?)\s+IS\s+(NOT\s+)?NULL$""".r
 
-    expr match
+    val normalizedExpr = stripOuterParentheses(expr.trim)
+
+    normalizedExpr match
       case isNullPattern(rawColumn, notGroup) if matchesColumn(rawColumn, columnKey) =>
         val negated = Option(notGroup).exists(_.trim.nonEmpty)
-        Right(Parsed(ValidationPlan.NotNull(targetColumn, negated), expr))
+        Right(ParsedConstraint(ValidationPlan.NotNull(targetColumn, negated), expr))
 
       case betweenPattern(rawColumn, rawLower, rawUpper) if matchesColumn(rawColumn, columnKey) =>
         val lower = parseLiteral(rawLower)
         val upper = parseLiteral(rawUpper)
         Right(
-          Parsed(
+          ParsedConstraint(
             ValidationPlan.Between(targetColumn, lower, upper, lowerInclusive = true, upperInclusive = true),
             expr,
           ),
@@ -107,17 +109,17 @@ object CheckConstraintParser:
       case inPattern(rawColumn, notGroup, rawList) if matchesColumn(rawColumn, columnKey) =>
         val negated = Option(notGroup).exists(_.trim.nonEmpty)
         val values  = splitCommaSeparated(rawList).map(parseLiteral)
-        Right(Parsed(ValidationPlan.Inclusion(targetColumn, values, negated), expr))
+        Right(ParsedConstraint(ValidationPlan.Inclusion(targetColumn, values, negated), expr))
 
       case lengthPattern(_, rawColumn, operator, rawValue) if matchesColumn(rawColumn, columnKey) =>
         val op     = parseOperator(operator)
         val length = Try(rawValue.trim.toInt).toOption.getOrElse(0)
-        Right(Parsed(ValidationPlan.LengthComparison(targetColumn, op, length), expr))
+        Right(ParsedConstraint(ValidationPlan.LengthComparison(targetColumn, op, length), expr))
 
       case comparisonPattern(rawLeft, operatorSymbol, rawRight) if matchesColumn(rawLeft, columnKey) =>
         val operator = parseOperator(operatorSymbol)
         val value    = parseLiteral(rawRight)
-        Right(Parsed(ValidationPlan.NumericComparison(targetColumn, operator, value), expr))
+        Right(ParsedConstraint(ValidationPlan.NumericComparison(targetColumn, operator, value), expr))
 
       case _ => Left(s"Unsupported check expression '$expr' for column '$targetColumn'")
 
@@ -169,7 +171,7 @@ object CheckConstraintParser:
           buffer.clear()
         case '\'' =>
           if inQuote && idx + 1 < length && input.charAt(idx + 1) == '\'' then
-            buffer.append(''')
+            buffer.append('\'')
             idx += 1
           else
             inQuote = !inQuote

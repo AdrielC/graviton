@@ -11,7 +11,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "size")
 
     parsed match
-      case Right(Parsed(ValidationPlan.NumericComparison(_, ComparisonOperator.GreaterThan, LiteralValue.Numeric(value)), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.NumericComparison(_, ComparisonOperator.GreaterThan, LiteralValue.Numeric(value)), _)) =>
         assertEquals(value, BigDecimal(0))
       case other => fail(s"Unexpected parse result: $other")
   }
@@ -21,7 +21,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "age")
 
     parsed match
-      case Right(Parsed(ValidationPlan.Between(_, lower, upper, lowerInclusive, upperInclusive), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.Between(_, lower, upper, lowerInclusive, upperInclusive), _)) =>
         assertEquals(lower, LiteralValue.Numeric(BigDecimal(18)))
         assertEquals(upper, LiteralValue.Numeric(BigDecimal(65)))
         assert(lowerInclusive)
@@ -34,7 +34,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "status")
 
     parsed match
-      case Right(Parsed(ValidationPlan.Inclusion(_, values, negated), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.Inclusion(_, values, negated), _)) =>
         assertEquals(negated, false)
         val rendered = values.collect { case LiteralValue.StringLiteral(str) => str }
         assertEquals(rendered, Seq("queued", "running", "completed"))
@@ -46,7 +46,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "kind")
 
     parsed match
-      case Right(Parsed(ValidationPlan.Inclusion(_, values, negated), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.Inclusion(_, values, negated), _)) =>
         assertEquals(negated, true)
         val rendered = values.collect { case LiteralValue.StringLiteral(str) => str }
         assertEquals(rendered, Seq("alpha", "beta"))
@@ -58,7 +58,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "identifier")
 
     parsed match
-      case Right(Parsed(ValidationPlan.LengthComparison(_, ComparisonOperator.LessThanOrEqual, value), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.LengthComparison(_, ComparisonOperator.LessThanOrEqual, value), _)) =>
         assertEquals(value, 12)
       case other => fail(s"Unexpected parse result: $other")
   }
@@ -68,7 +68,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "payload")
 
     parsed match
-      case Right(Parsed(ValidationPlan.NotNull(_, negated), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.NotNull(_, negated), _)) =>
         assertEquals(negated, true)
       case other => fail(s"Unexpected parse result: $other")
   }
@@ -78,7 +78,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "deleted_at")
 
     parsed match
-      case Right(Parsed(ValidationPlan.NotNull(_, negated), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.NotNull(_, negated), _)) =>
         assertEquals(negated, false)
       case other => fail(s"Unexpected parse result: $other")
   }
@@ -88,7 +88,7 @@ final class CheckConstraintParserSuite extends FunSuite:
     val parsed     = CheckConstraintParser.parse(definition, "attempts")
 
     parsed match
-      case Right(Parsed(ValidationPlan.NumericComparison(_, ComparisonOperator.Equal, LiteralValue.Numeric(value)), _)) =>
+      case Right(ParsedConstraint(ValidationPlan.NumericComparison(_, ComparisonOperator.Equal, LiteralValue.Numeric(value)), _)) =>
         assertEquals(value, BigDecimal(3))
       case other => fail(s"Unexpected parse result: $other")
   }

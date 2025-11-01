@@ -1,6 +1,7 @@
 package dbcodegen
 
 import schemacrawler.schema._
+import schemacrawler.schema.{TableConstraint, TableConstraintType}
 import schemacrawler.tools.utility.SchemaCrawlerUtility
 import us.fatehi.utility.datasource.DatabaseConnectionSource
 
@@ -48,12 +49,14 @@ object SchemaConverter {
           (dataColumn, dataEnum)
         }.unzip
 
-        val tableChecks = table.getTableConstraints.asScala.collect { case check: CheckConstraint =>
-          val definition = Option(check.getDefinition).map(_.trim).filter(_.nonEmpty).getOrElse("")
+        val tableChecks = table.getTableConstraints.asScala.collect { case check: TableConstraint if check.getType == TableConstraintType.check =>
+          val definitionOpt: Option[String] = Option(check.getDefinition)
+          val definition = definitionOpt.map(_.trim).filter(_.nonEmpty).getOrElse("")
           val columnNames = check.getConstrainedColumns.asScala.map(_.getName).toSeq
           val scope = if columnNames.distinct.size == 1 then CheckScope.Column else CheckScope.Table
           val constraintName =
             Option(check.getName)
+              .map(_.trim)
               .filter(_.nonEmpty)
               .getOrElse(s"${table.getName}_${columnNames.mkString("_")}_ck")
 
