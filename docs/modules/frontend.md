@@ -1,45 +1,81 @@
 # Scala.js Frontend
 
-`modules/frontend` hosts the Laminar-powered dashboard that ships with the documentation site. A custom sbt task (`buildFrontend`) compiles the Scala.js sources and copies the resulting bundle to `docs/public/js/main.js`.
+`modules/frontend` delivers the Laminar-based dashboard that powers the `/demo` page. It cross-compiles alongside the JVM codebase, reuses shared protocol models, and emits a bundle that VitePress loads on demand.
 
-## Build workflow
+:::tip Need a step-by-step loop?
+See the new [Scala.js Playbook](/dev/scalajs) for incremental builds, hot reload, and bundling cheatsheets.
+:::
 
-```
+## Quick Start
+
+```bash
+# One-off build
 sbt buildFrontend
 
-cd docs
-npm run docs:dev
+# Continuous development loop
+sbt ~frontend/fastLinkJS
+
+# Serve docs with the embedded demo
+cd docs && npm run docs:dev
 ```
 
-- The bundle is imported dynamically by `docs/demo.md`, so the same assets serve local dev (`npm run docs:dev`) and the GitHub Pages deployment.
-- CI already invokes `sbt buildFrontend`; run it locally after editing Scala sources or adding dependencies.
+- `buildFrontend` writes an optimized bundle to `docs/public/js/main.js` (used for CI and production docs).
+- `fastLinkJS` keeps source maps and rebuilds in milliseconds; symlink its output into `docs/public/js/main.js` for local iteration.
+- VitePress (`docs`) dynamically imports `/js/main.js` whenever `/demo` is visited.
 
-## Application entry points
+## Architecture
 
-- `Main` reads the `<meta name="graviton-api-url" />` tag and mounts the Laminar tree under `#graviton-app` once the DOM is ready.
-- `GravitonApp` orchestrates routing, header/footer layout, and renders the Dashboard, Explorer, Upload, and Stats pages.
-- Navigation uses `waypoint` with hash-based routes so deep links work on GitHub Pages without server configuration.
+```
+Laminar Components --.
+Shared Models (JS) --+--> GravitonApp --> Laminar Router (waypoint)
+Shared Models (JVM) --'                    |
+                                          +--> Pages: Dashboard / Explorer / Upload / Stats
+GravitonApi (ZIO HTTP client) ------------'
+```
 
-## API client & demo mode
+### Bundled Views
 
-- `GravitonApi` wraps the shared `HttpClient` trait and exposes an `offlineSignal` Laminar `Signal[Boolean]` to toggle demo messaging.
-- `DemoData` contains canned health, stats, and manifest responses. When real HTTP calls fail, `GravitonApi` falls back to this dataset and logs a warning to the browser console.
-- `BrowserHttpClient` executes Fetch requests; the combination ensures the UI behaves even without a live Graviton instance.
+- **Dashboard** - Animated overview with quick links into each tool.
+- **Explorer** - Blob metadata and manifest inspector with demo fallback data.
+- **Upload** - Client-side chunking sandbox visualising FastCDC behaviour.
+- **Stats** - Aggregated counters pulled through ZIO calls to the API.
+- **Schema** - Schema explorer that renders shared models and sample JSON directly in Scala.js.
 
-## Components
+### Entry Points
 
-- **HealthCheck**: polls `/api/health`, displays status badges, and surfaces demo mode notifications.
-- **BlobExplorer**: loads metadata/manifests and, in demo mode, offers pre-populated blob IDs for quick inspection.
-- **FileUpload**: pure client-side chunking visualiser supporting fixed-size and FastCDC placeholder strategies. Reports deduplication metrics, highlights shared chunks, and includes a CAS Chunk Tuner to experiment with FastCDC min/avg/max bounds.
-- **StatsPanel**: fetches `/api/stats`, auto-loads once on mount, and renders aggregate counters.
+- `graviton/frontend/Main.scala` - bootstraps the Laminar tree once the DOM is ready and reads the `<meta name="graviton-api-url" />` configuration.
+- `graviton/frontend/GravitonApp.scala` - orchestrates layout, navigation, and top-level state wiring.
 
-Each component returns a pure Laminar `HtmlElement`, which keeps them easy to test and compose.
+### State & Effects
 
-## Extending the frontend
+- **Signals**: Laminar `Signal`/`EventStream` instances drive reactive updates; each component is a pure `HtmlElement` factory.
+- **API**: `GravitonApi` wraps `BrowserHttpClient` (Fetch) and exposes an `offlineSignal` used to toggle demo mode badges.
+- **Demo data**: `DemoData` mirrors real API payloads and keeps the UI functional without a server. HTTP failures transparently swap to the canned dataset.
 
-1. Create new components under `modules/frontend/src/main/scala/graviton/frontend/components/`.
-2. Wire them into `GravitonApp` (navigation + page rendering) and expose additional routes if needed.
-3. Update `docs/demo.md` or `docs/.vitepress/theme/custom.css` when adding new CSS classes.
-4. Re-run `sbt buildFrontend` and rebuild the docs to refresh the bundled assets.
+## Styling & Assets
 
-The module purposefully avoids framework globals; everything flows through Laminar signals and ZIO effects, making it straightforward to reuse pieces across future UIs.
+- Shared CSS lives in `docs/.vitepress/theme/custom.css`. The Scala.js components emit semantic class names (`app-header`, `stats-panel`, ...); the docs theme now ships the matching rules.
+- When adding new classes, extend `custom.css` rather than embedding `<style>` blocks in markdown.
+- Static assets (icons, svgs) belong in `docs/public/` so VitePress can serve them alongside the bundle.
+
+## Adding a New View
+
+1. Create a component under `graviton/frontend/components/YourFeature.scala` that returns a Laminar `HtmlElement`.
+2. Register a new `Route` in `GravitonApp` and add it to the navigation model.
+3. Provide supporting API calls through `GravitonApi` (ideally typed with shared protocol models).
+4. Update `docs/demo.md` copy if the UX needs new descriptions or build steps.
+5. Run `sbt ~frontend/fastLinkJS` while hacking; finish with `sbt buildFrontend` before committing.
+
+## Interop with the Docs Site
+
+- The `/demo` markdown page injects the bundle and hosts the Laminar root node (`#graviton-app`).
+- Vue components under `.vitepress/theme/components/` (e.g., `NeonHud`, `QuantumConsole`) can coexist with Scala.js output - they live outside the Laminar mount point.
+- When adjusting the documentation layout, prefer editing CSS in `custom.css` to keep the Scala.js DOM stable.
+
+## Testing & Quality
+
+- Run the repo-wide `TESTCONTAINERS=0 ./sbt scalafmtAll test` to cover both JVM and JS targets before pushing.
+- Component logic is organised so you can unit-test pure functions in JVM or JS scopes (e.g. shared utilities in `modules/protocol`).
+- For browser regression checks, open DevTools and watch for console warnings emitted by Laminar or Fetch error handlers.
+
+The frontend module intentionally avoids global state. Everything flows through Laminar signals and ZIO effects, which keeps the code portable and ready for future UIs beyond the documentation site.

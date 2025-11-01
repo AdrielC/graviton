@@ -15,6 +15,7 @@ object GravitonApp {
     case object Explorer  extends Page
     case object Upload    extends Page
     case object Stats     extends Page
+    case object Schema    extends Page
   }
 
   private def pageHref(page: Page): String = page match
@@ -22,30 +23,35 @@ object GravitonApp {
     case Page.Explorer  => "#/explorer"
     case Page.Upload    => "#/upload"
     case Page.Stats     => "#/stats"
+    case Page.Schema    => "#/schema"
 
   val dashboardRoute = Route.static(Page.Dashboard, root / endOfSegments)
   val explorerRoute  = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
   val uploadRoute    = Route.static(Page.Upload, root / "upload" / endOfSegments)
   val statsRoute     = Route.static(Page.Stats, root / "stats" / endOfSegments)
+  val schemaRoute    = Route.static(Page.Schema, root / "schema" / endOfSegments)
 
   val router = new Router[Page](
-    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute),
+    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute),
     getPageTitle = {
       case Page.Dashboard => "Graviton - Dashboard"
       case Page.Explorer  => "Graviton - Blob Explorer"
       case Page.Upload    => "Graviton - File Upload"
       case Page.Stats     => "Graviton - Statistics"
+      case Page.Schema    => "Graviton - Schema Viewer"
     },
     serializePage = {
       case Page.Dashboard => "#/"
       case Page.Explorer  => "#/explorer"
       case Page.Upload    => "#/upload"
       case Page.Stats     => "#/stats"
+      case Page.Schema    => "#/schema"
     },
     deserializePage = {
       case s if s.contains("explorer") => Page.Explorer
       case s if s.contains("upload")   => Page.Upload
       case s if s.contains("stats")    => Page.Stats
+      case s if s.contains("schema")   => Page.Schema
       case _                           => Page.Dashboard
     },
   )(
@@ -78,6 +84,7 @@ object GravitonApp {
           navLink(Page.Explorer, "🔍 Explorer"),
           navLink(Page.Upload, "📤 Upload"),
           navLink(Page.Stats, "📊 Stats"),
+          navLink(Page.Schema, "🧬 Schema"),
         ),
 
         // Health indicator
@@ -205,6 +212,20 @@ object GravitonApp {
                 p("Monitor system metrics and deduplication ratios"),
               ),
             ),
+            a(
+              cls  := "feature-card-link",
+              href := pageHref(Page.Schema),
+              onClick --> { (event: dom.MouseEvent) =>
+                event.preventDefault()
+                event.stopPropagation()
+                router.pushState(Page.Schema)
+              },
+              div(
+                cls := "feature-card",
+                "🧬 Browse Schemas",
+                p("Inspect shared data models straight from Scala.js + ZIO"),
+              ),
+            ),
           ),
         ),
       )
@@ -225,6 +246,12 @@ object GravitonApp {
       div(
         cls := "page-stats",
         StatsPanel(api),
+      )
+
+    case Page.Schema =>
+      div(
+        cls := "page-schema",
+        SchemaViewer(api),
       )
   }
 }
