@@ -2,12 +2,19 @@ syntax = "proto3";
 
 package graviton;
 
-message UploadOpen {
+message StartUpload {
   string upload_id = 1;
+  uint64 total_size = 2;
+  map<string, string> attributes = 3;
 }
 
 message UploadChunk {
   bytes payload = 1;
+  uint64 offset = 2;
+}
+
+message CompleteUpload {
+  bytes expected_hash = 1;
 }
 
 message UploadAck {
@@ -17,9 +24,10 @@ message UploadAck {
 
 message UploadMessage {
   oneof value {
-    UploadOpen open = 1;
+    StartUpload start = 1;
     UploadChunk chunk = 2;
-    UploadAck ack = 3;
+    CompleteUpload complete = 3;
+    UploadAck ack = 4;
   }
 }
 
