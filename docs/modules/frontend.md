@@ -69,7 +69,7 @@ GravitonApi (ZIO HTTP client) ------------'
 ## Interop with the Docs Site
 
 - The `/demo` markdown page injects the bundle and hosts the Laminar root node (`#graviton-app`).
-- Vue components under `.vitepress/theme/components/` (e.g., `NeonHud`, `QuantumConsole`) can coexist with Scala.js output - they live outside the Laminar mount point.
+- Vue components under `.vitepress/theme/` can coexist with Scala.js output; they mount outside the Laminar root node.
 - When adjusting the documentation layout, prefer editing CSS in `custom.css` to keep the Scala.js DOM stable.
 
 ## Testing & Quality
