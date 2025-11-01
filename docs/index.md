@@ -111,6 +111,11 @@ Need warp-speed navigation? Hit `⌘K` / `Ctrl+K` (or click the floating button)
     <h3>🤝 Contributing</h3>
     <p>Join the community and help build the future of storage</p>
   </a>
+
+  <a href="/dev/scalajs" class="feature-card">
+    <h3>🧪 Scala.js Playbook</h3>
+    <p>Run the Laminar dashboard locally with live reload and shared models</p>
+  </a>
 </div>
 
 <style>
