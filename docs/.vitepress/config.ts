@@ -39,18 +39,19 @@ export default withMermaid(defineConfig({
     }
   },
   title: 'Graviton',
-  description: 'Documentation for Graviton, a ZIO-based content-addressable storage runtime.',
+  description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
   base,
   cleanUrls: true,
   head: [
     ['link', { rel: 'icon', href: withBase('/logo.svg') }],
-    ['meta', { name: 'theme-color', content: '#1d4ed8' }],
+    ['meta', { name: 'theme-color', content: '#00ff41' }],
     ['meta', { name: 'og:type', content: 'website' }],
-    ['meta', { name: 'og:title', content: 'Graviton Documentation' }],
-    ['meta', { name: 'og:description', content: 'Guides, architecture notes, and API docs for the Graviton storage runtime.' }],
+    ['meta', { name: 'og:title', content: 'Graviton • Content-Addressable Storage' }],
+    ['meta', { name: 'og:description', content: 'Modular storage runtime with deduplication, streaming, and ZIO power' }],
     ['meta', { name: 'og:image', content: withBase('/logo.svg') }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'Graviton Documentation' }]
+    ['meta', { name: 'twitter:title', content: 'Graviton • Content-Addressable Storage' }],
+    ['meta', { name: 'keywords', content: 'graviton, zio, scala, storage, content-addressable, deduplication, streaming' }]
   ],
   ignoreDeadLinks: [
     // Design docs (future)
@@ -84,14 +85,14 @@ export default withMermaid(defineConfig({
   },
   themeConfig: {
     logo: '/logo.svg',
-    siteTitle: 'Graviton',
+    siteTitle: '⚡ Graviton',
     nav: [
-      { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Architecture', link: '/architecture' },
-      { text: 'API', link: '/api' },
-      { text: 'Scala.js', link: '/dev/scalajs' },
-      { text: 'Demo', link: '/demo' },
-      { text: 'Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
+      { text: '🚀 Guide', link: '/guide/getting-started' },
+      { text: '🏗️ Architecture', link: '/architecture' },
+      { text: '🔌 API', link: '/api' },
+      { text: '🧪 Scala.js', link: '/dev/scalajs' },
+      { text: '🎮 Demo', link: '/demo' },
+      { text: '📚 Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
     ],
     sidebar: [
       {
@@ -167,7 +168,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
-          { text: 'Live Demo', link: '/demo' }
+          { text: '🎮 Live Demo', link: '/demo' }
         ]
       }
     ],
@@ -181,20 +182,20 @@ export default withMermaid(defineConfig({
       provider: 'local'
     },
     footer: {
-      message: 'Built with ZIO and Scala 3',
-      copyright: 'MIT License'
+      message: '⚡ Built with ZIO • Powered by Scala 3',
+      copyright: '🌌 Content-addressable storage, refined. • MIT License'
     },
     outline: {
       level: [2, 3],
-      label: 'On this page'
+      label: '📑 On this page'
     },
     docFooter: {
-      prev: 'Previous',
-      next: 'Next'
+      prev: '← Previous',
+      next: 'Next →'
     },
-    darkModeSwitchLabel: 'Theme',
-    returnToTopLabel: 'Back to top',
-    sidebarMenuLabel: 'Menu',
+    darkModeSwitchLabel: '🌓 Theme',
+    returnToTopLabel: '↑ Back to top',
+    sidebarMenuLabel: '📚 Menu',
     externalLinkIcon: true
   }
 }))
