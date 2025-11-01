@@ -78,6 +78,7 @@ Every architecture and operations page now ships with live Mermaid diagrams. No 
 - **Type-Safe Schema**: Compile-time guarantees with ZIO Schema
 - **Observable**: Prometheus metrics and structured logging
 - **Replicated**: Multi-region support with eventual consistency
+- **Schema Insights**: Interactive schema explorer powered by Scala.js + ZIO on the docs site
 
 ## 📚 Next Steps
 

@@ -83,6 +83,7 @@ This interactive demo showcases:
   - See block sharing and deduplication across files in real-time
   - Tune FastCDC bounds with the CAS Chunk Tuner to visualize breakpoints and explore dedup sensitivity
   - View validation results and chunk-level details
+- **🧬 Schema Explorer**: Browse the shared API models, drill into field definitions, and view sample JSON powered by Scala.js and ZIO running in the browser
 - **📊 Statistics**: Real-time system metrics and deduplication ratios
 
 ## Try it yourself

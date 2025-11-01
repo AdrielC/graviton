@@ -38,7 +38,7 @@ npm install  # first time only
 npm run docs:dev
 ```
 
-- VitePress serves the docs on <http://localhost:5173> (default).
+- VitePress serves the docs on `http://localhost:5173` (default).
 - The `/demo` route dynamically imports `/js/main.js` from `docs/public/js/`. When running fastLinkJS, symlink or copy the fastopt bundle into `docs/public/js/main.js`:
 
 ```bash
@@ -82,3 +82,4 @@ When the API cannot be reached the UI falls back to simulated demo data, so you 
 - Extend `modules/frontend` with new Laminar components (see the refreshed [Scala.js Frontend module doc](/modules/frontend)).
 - Explore the [Interactive Demo](/demo) for layout inspiration - its CSS now lives in `docs/.vitepress/theme/custom.css` for reuse.
 - Wire live metrics into the docs via the Vue components under `.vitepress/theme/components/`.
+- Use the Schema Explorer route (`#/schema`) to validate shared models and view sample payloads served entirely from Scala.js + ZIO.

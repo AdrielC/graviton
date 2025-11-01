@@ -33,6 +33,14 @@ Shared Models (JVM) --'                    |
 GravitonApi (ZIO HTTP client) ------------'
 ```
 
+### Bundled Views
+
+- **Dashboard** - Animated overview with quick links into each tool.
+- **Explorer** - Blob metadata and manifest inspector with demo fallback data.
+- **Upload** - Client-side chunking sandbox visualising FastCDC behaviour.
+- **Stats** - Aggregated counters pulled through ZIO calls to the API.
+- **Schema** - Schema explorer that renders shared models and sample JSON directly in Scala.js.
+
 ### Entry Points
 
 - `graviton/frontend/Main.scala` - bootstraps the Laminar tree once the DOM is ready and reads the `<meta name="graviton-api-url" />` configuration.

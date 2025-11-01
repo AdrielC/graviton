@@ -62,4 +62,23 @@ object ApiModels {
     version: String,
     uptime: Long,
   ) derives JsonCodec
+
+  /** Field definition inside a schema */
+  final case class SchemaField(
+    name: String,
+    dataType: String,
+    cardinality: String,
+    nullable: Boolean,
+    description: Option[String],
+  ) derives JsonCodec
+
+  /** Schema descriptor for an entity exposed by Graviton */
+  final case class ObjectSchema(
+    name: String,
+    category: String,
+    version: String,
+    summary: Option[String],
+    fields: List[SchemaField],
+    sampleJson: Option[String],
+  ) derives JsonCodec
 }

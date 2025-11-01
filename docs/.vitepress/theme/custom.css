@@ -1153,6 +1153,225 @@ body.konami-mode .VPNavBarTitle .logo {
   }
 }
 
+/* Schema viewer */
+.page-schema {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.schema-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.schema-subtitle {
+  color: var(--vp-c-text-2);
+  max-width: 720px;
+}
+
+.schema-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.schema-search {
+  flex: 1;
+  min-width: 240px;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+}
+
+.schema-search:focus {
+  outline: none;
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 0 3px rgba(0, 255, 65, 0.12);
+}
+
+.schema-reload {
+  padding: 0.65rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid var(--vp-c-brand-soft);
+  background: rgba(0, 255, 65, 0.08);
+  color: var(--vp-c-text-1);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.schema-reload:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 255, 65, 0.18);
+}
+
+.schema-reload:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.schema-offline,
+.schema-error,
+.schema-loading {
+  padding: 0.85rem 1.1rem;
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+
+.schema-offline {
+  background: rgba(0, 200, 255, 0.08);
+  border: 1px solid rgba(0, 200, 255, 0.35);
+  color: var(--vp-c-text-2);
+}
+
+.schema-error {
+  background: rgba(255, 72, 72, 0.12);
+  border: 1px solid rgba(255, 72, 72, 0.35);
+  color: #ff9b9b;
+}
+
+.schema-loading {
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  color: var(--vp-c-text-2);
+}
+
+.schema-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 2fr);
+  gap: 1.5rem;
+}
+
+.schema-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.schema-card {
+  border: 1px solid rgba(0, 255, 65, 0.15);
+  background: rgba(0, 255, 65, 0.04);
+  border-radius: 12px;
+  padding: 1.1rem;
+  transition: transform 0.2s ease, border 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.schema-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 12px 28px rgba(0, 255, 65, 0.18);
+}
+
+.schema-card.active {
+  border-color: var(--vp-c-brand-1);
+  background: rgba(0, 255, 65, 0.12);
+  box-shadow: 0 0 0 2px rgba(0, 255, 65, 0.25);
+}
+
+.schema-meta {
+  color: var(--vp-c-text-3);
+  font-size: 0.85rem;
+  margin: 0.35rem 0;
+}
+
+.schema-summary {
+  color: var(--vp-c-text-2);
+  font-size: 0.9rem;
+  min-height: 2.4em;
+}
+
+.schema-stats {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--vp-c-text-3);
+}
+
+.schema-empty {
+  padding: 1rem;
+  border: 1px dashed rgba(0, 255, 65, 0.25);
+  border-radius: 10px;
+  color: var(--vp-c-text-3);
+  font-style: italic;
+}
+
+.schema-detail,
+.schema-detail-placeholder {
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  background: rgba(10, 14, 20, 0.75);
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.schema-detail-placeholder {
+  color: var(--vp-c-text-3);
+  place-content: center;
+  text-align: center;
+}
+
+.schema-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.schema-chip {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  background: rgba(0, 255, 65, 0.08);
+  color: var(--vp-c-text-2);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.schema-fields-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 255, 65, 0.12);
+}
+
+.schema-fields-table th,
+.schema-fields-table td {
+  padding: 0.65rem 0.8rem;
+  border-bottom: 1px solid rgba(0, 255, 65, 0.08);
+}
+
+.schema-fields-table thead {
+  background: rgba(0, 255, 65, 0.12);
+  color: var(--vp-c-text-1);
+}
+
+.schema-fields-table tbody tr:hover {
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.schema-sample pre {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 255, 65, 0.12);
+  color: var(--vp-c-text-1);
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+.schema-summary-inline {
+  color: var(--vp-c-text-2);
+  font-size: 0.85rem;
+}
+
 /* Scala.js demo styles */
 .graviton-app {
   width: 100%;
