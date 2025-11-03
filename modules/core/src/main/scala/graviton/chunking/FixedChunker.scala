@@ -3,13 +3,13 @@ package graviton.chunking
 import graviton.core.model.Block
 import zio.*
 import zio.stream.*
-
+import graviton.GravitonError
 /** Simple fixed-size chunker. */
 object FixedChunker:
   def apply(size: Int): Chunker =
     new Chunker:
       val name                                             = s"fixed($size)"
-      val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+      val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
         ZPipeline
           .fromChannel {
             def splitAll(acc: Chunk[Byte]): (Chunk[Chunk[Byte]], Chunk[Byte]) =
@@ -39,3 +39,4 @@ object FixedChunker:
           .mapChunksZIO { chunked =>
             ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err)))
           }
+          .mapError(err => GravitonError.ChunkerFailure(err.getMessage))

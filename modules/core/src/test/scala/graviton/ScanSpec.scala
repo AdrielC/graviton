@@ -5,6 +5,8 @@ import zio.stream.*
 import zio.test.*
 import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
+import graviton.core.model.Block
+import graviton.domain.HashBytes
 
 object ScanSpec extends ZIOSpecDefault:
   def spec = suite("ScanSpec")(
@@ -58,7 +60,7 @@ object ScanSpec extends ZIOSpecDefault:
       }(_ => Chunk.empty)
       val composed  = stateless.andThen(stateful)
       for out <- ZStream(1, 2).via(composed.toPipeline).runCollect
-      yield assertTrue(composed.initial == Tuple1(0)) &&
+      yield assertTrue(composed.initialState.value.head == 0) &&
         assertTrue(out == Chunk(2, 5))
     },
     test("stateful composition appends state tuples") {
@@ -90,10 +92,10 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk((2, 2), (3, 4)))
     },
     test("hashAndCount computes digest and length") {
-      val bytes = Chunk.fromArray("abc".getBytes)
+      val bytes = Block.applyUnsafe(Chunk.fromArray("abc".getBytes))
       val scan  = Scan.hashAndCount(HashAlgorithm.SHA256)
       for
-        out    <- ZStream.fromChunk(bytes).via(scan.toPipeline).runCollect
+        out    <- ZStream.succeed(bytes).via(scan.toPipeline).runCollect
         digest <- Hashing
                     .compute(Bytes(ZStream.fromChunk(bytes)), HashAlgorithm.SHA256)
         digRef  = digest.assume[MinLength[16] & MaxLength[64]]
@@ -112,7 +114,7 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(3L))
     },
     test("runAll processes iterable without ZIO") {
-      val (st, out) = Scan.count.runAll(List(1, 2, 3))
+      val (st, out) = Scan.count.runAll(List(Block.applyUnsafe(Chunk.fromArray("abc".getBytes))))
       assertTrue(st.head == 3L) && assertTrue(out == Chunk(3L))
     },
     test("chunkBy splits input into fixed-size chunks") {
@@ -131,7 +133,7 @@ object ScanSpec extends ZIOSpecDefault:
         val sum = s + i
         (sum, Chunk.single(sum))
       }(s => Chunk.single(s))
-      val (st, out) = scan.runZPure(List(1, 2, 3)).run(scan.initial)
+      val (st, out) = scan.runZPure(List(1, 2, 3)).run(scan.initialState.value)
       assertTrue(out == Chunk(1, 3, 6, 6)) && assertTrue(st.head == 6)
     },
   )

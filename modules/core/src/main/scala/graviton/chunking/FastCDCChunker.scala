@@ -3,12 +3,14 @@ package graviton.chunking
 import graviton.core.model.Block
 import zio.*
 import zio.stream.*
+import graviton.GravitonError
+
 
 object FastCDCChunker:
   import Chunker.Bounds
 
   final case class Config(
-    bounds: Bounds,
+    bounds: Bounds[Int, Int, Int],
     normalization: Int = 2,
     window: Int = 64,
   )
@@ -27,21 +29,21 @@ object FastCDCChunker:
     new Chunker:
       val name                                             =
         s"fastcdc(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
-      val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+      val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
         ZPipeline
           .fromChannel {
-            def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
+            def loop(buf: Chunk[Byte]): ZChannel[Any, GravitonError, Chunk[
               Byte
-            ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
+            ], Any, GravitonError, Chunk[Chunk[Byte]], Any] =
               ZChannel.readWith(
                 (in: Chunk[Byte]) => loop(buf ++ in),
-                (err: Throwable) => ZChannel.fail(err),
+                (err: GravitonError) => ZChannel.fail(err),
                 (_: Any) => ZChannel.write(split(buf, cfg)),
               )
             loop(Chunk.empty)
           }
           .mapChunksZIO { chunked =>
-            ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err)))
+            ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(GravitonError.ChunkerFailure(_)))
           }
 
   private def split(bytes: Chunk[Byte], cfg: Config): Chunk[Chunk[Byte]] =

@@ -11,6 +11,8 @@ import org.testcontainers.containers.GenericContainer
 import org.testcontainers.utility.DockerImageName
 import zio.test.TestAspect
 
+import graviton.domain.HashBytes
+
 class HttpEchoContainer
     extends GenericContainer[HttpEchoContainer](
       DockerImageName.parse("hashicorp/http-echo:1.0")
@@ -30,7 +32,7 @@ object RocksDBCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = true)
@@ -48,7 +50,7 @@ object RocksDBCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = false)
@@ -82,7 +84,7 @@ object RocksDBCacheStoreSpec extends ZIOSpecDefault:
                            Bytes(ZStream.fromIterable(arr0)),
                            HashAlgorithm.SHA256,
                          )
-            digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+            digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
             hash       = Hash(digest, HashAlgorithm.SHA256)
             ref       <- Ref.make(0)
             remote     = ref.updateAndGet(_ + 1) *> fetchOnce

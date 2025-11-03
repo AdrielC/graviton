@@ -9,4 +9,6 @@ type FileKey = BinaryKey
 object FileKey:
   // Re-expose key constructors and nested types for ergonomic call sites
   export BinaryKey.{CasKey, WritableKey}
-  export BinaryKey.WritableKey.{Rnd, Static, Scoped}
+  export CasKey.FileKey
+  export CasKey.BlockKey
+  export BinaryKey.WritableKey.{Random, Static, Scoped}

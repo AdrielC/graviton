@@ -5,6 +5,8 @@ import zio.*
 import zio.stream.*
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.zip.InflaterInputStream
+import graviton.GravitonError
+
 
 /**
  * Chunker that splits a PDF on `stream` boundaries and emits uncompressed
@@ -12,7 +14,7 @@ import java.util.zip.InflaterInputStream
  */
 object PdfChunker extends Chunker:
   val name                                             = "pdf"
-  val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+  val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
     ZPipeline
       .fromChannel {
         def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
@@ -28,6 +30,7 @@ object PdfChunker extends Chunker:
       .mapChunksZIO { chunked =>
         ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err)))
       }
+      .mapError(err => GravitonError.ChunkerFailure(err.getMessage))
 
   private val streamToken    = "stream".getBytes("ISO-8859-1")
   private val endStreamToken = "endstream".getBytes("ISO-8859-1")

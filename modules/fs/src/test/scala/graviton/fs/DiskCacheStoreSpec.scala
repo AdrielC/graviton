@@ -7,6 +7,7 @@ import zio.test.*
 import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
 import java.nio.file.Files
+import graviton.domain.HashBytes
 
 object DiskCacheStoreSpec extends ZIOSpecDefault:
 
@@ -22,7 +23,7 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = true)
@@ -40,7 +41,7 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = false)

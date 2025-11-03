@@ -1,10 +1,14 @@
-package graviton.core
+package graviton
+package core
 
 import zio.*
-import zio.stream.*
+import graviton.core.model.*
+
 
 trait BlockStore extends FileStore:
-  def ingestBlocks(
-    chunker: ZSink[Any, Throwable, Byte, Byte, Chunk[FileKey.CasKey]]
-  ): ZSink[Any, Throwable, Byte, Byte, Chunk[FileKey.CasKey]]
-  def readBlock(key: FileKey.CasKey): IO[Throwable, Option[Bytes]]
+
+  def putBlock(block: Block): ZIO[Any, Throwable, BlockKey]
+
+  def getBlock(key: BlockKey, range: Option[ByteRange] = None): IO[Throwable, Option[Block]]
+
+  def readBlocks(key: FileKey): IO[Throwable, Option[Blocks]]

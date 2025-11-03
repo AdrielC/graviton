@@ -1,13 +1,11 @@
 package graviton
 
-import zio.Chunk
 import zio.schema.{DeriveSchema, Schema}
+import scodec.bits.ByteVector
+import graviton.domain.HashBytes
 
-final case class Hash(bytes: Chunk[Byte], algo: HashAlgorithm):
-  def hex: String =
-    bytes
-      .foldLeft(new StringBuilder)((sb, b) => sb.append(f"$b%02x"))
-      .toString
+final case class Hash(bytes: HashBytes, algo: HashAlgorithm):
+  def hex: String = ByteVector(bytes.toArray).toHex
 
 object Hash:
   given Schema[Hash] = DeriveSchema.gen[Hash]

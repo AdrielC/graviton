@@ -1,23 +1,179 @@
-package graviton.core.model
+package graviton.core
+package model
 
 import graviton.GravitonError
 import io.github.iltotore.iron.{zio as _, *}
-import io.github.iltotore.iron.constraint.numeric.*
+import io.github.iltotore.iron.constraint.all.*
 import zio.*
 import zio.stream.*
 
+import scala.compiletime.ops.string.`+`
+
+
+import scala.annotation.targetName
+import graviton.SubtypeExt
+
+
+
 /** Project-wide constant limits. */
 object Limits:
-  inline val MAX_BLOCK_SIZE_IN_BYTES = 1048576
+  final val MAX_BLOCK_SIZE_IN_BYTES = ByteConstraints.MAX_BLOCK_SIZE_IN_BYTES
+  final type MAX_BLOCK_SIZE_IN_BYTES = ByteConstraints.MAX_BLOCK_SIZE_IN_BYTES.type
+
+  final val MAX_FILE_SIZE_IN_BYTES = ByteConstraints.MAX_FILE_SIZE_IN_BYTES
+  final type MAX_FILE_SIZE_IN_BYTES = MAX_FILE_SIZE_IN_BYTES.type
 
 /** Size measured in bytes. Always strictly positive. */
-type Size = Int :| Positive
 
-object Size:
-  def apply(n: Int): Either[String, Size] = n.refineEither[Positive]
+object Sized:
+  import scala.compiletime.ops.any.ToString
+  import scala.compiletime.ops.string.`+`
+  type TypeConstr[Min, Max] = GreaterEqual[Min] & LessEqual[Max]
+  type ConstrDesc[Min, Max] = "Size must be between " + ToString[Min] + " and " + ToString[Max]
+  type Constr[Min, Max]     = DescribedAs[TypeConstr[Min, Max], ConstrDesc[Min, Max]]
+  
+end Sized
 
-  def fromZIO(n: Int): IO[GravitonError, Size] =
-    ZIO.fromEither(apply(n)).mapError(msg => GravitonError.PolicyViolation(msg))
+sealed transparent trait Sized[
+  N <: Int | Long | Sized[?, ?, ?], 
+  _Min <: N,
+  _Max <: N,
+](using I: Integral[N], _Min: Constraint[_Min, GreaterEqual[_Max]], _Max: Constraint[_Max, LessEqual[_Min]]) extends SubtypeExt[N, Sized.Constr[_Min, _Max]]:
+  self: SubtypeExt[N, Sized.Constr[_Min, _Max]] =>
+
+  val _ = I
+  val _ = _Min
+  val _ = _Max
+
+
+  import Integral.Implicits.infixIntegralOps
+  given Integral[T] = self.assumeAll[Integral](summon[Integral[N]])
+  
+
+  final type V[Val <: N] = Val & T
+  inline def V[Val <: N]: Val & T =
+    inline rtc.test(scala.compiletime.constValue[Val]) match
+      case Left(err) => compiletime.error(rtc.message)
+      case Right(n)  => n.asInstanceOf[Val & T]
+
+  final type TypeConstr = Sized.TypeConstr[_Min, _Max]
+  final type ConstrDesc = Sized.ConstrDesc[_Min, _Max]
+  final type Constr     = Sized.Constr[_Min, _Max]
+  final type Max = T
+  final type Min = T
+
+  inline transparent def max: Max = applyUnsafe(compiletime.constValue[_Max]).asInstanceOf[Max]
+  inline transparent def min: Min = applyUnsafe(compiletime.constValue[_Min]).asInstanceOf[Min]
+
+  inline transparent def Max: Max = max
+  inline transparent def Min: Min = min
+
+
+  infix type *[M <: N, NN <: Int | Long] <: V[N] = M match
+    case Int  => NN match
+      case Int  => V[scala.compiletime.ops.int.`*`[M, NN]]
+      case Long => V[scala.compiletime.ops.int.`*`[M, scala.compiletime.ops.long.ToInt[NN]]]
+    case Long => NN match
+      case Int  => V[scala.compiletime.ops.long.`*`[M, scala.compiletime.ops.int.ToLong[NN]]]
+      case Long => V[scala.compiletime.ops.long.`*`[M, NN]]
+
+
+  extension (self: T)
+
+      @targetName("add")
+      def ++ [TT <: T](other: TT): Option[T] = option(self + other)
+
+      @targetName("sub")
+      def -- [TT <: T](other: TT): Option[T] = option(self - other)
+      
+  end extension
+  
+  type B[NN <: N] <: V[NN] = NN match
+    case Int  => V[NN]
+    case Long => V[NN]
+
+  type KB[NN <: N] = V[B[NN] * 1024]
+  type MB[NN <: N] = V[KB[NN] * 1024]
+  type GB[NN <: N] = V[MB[NN] * 1024]
+
+  type TB[NN <: N] = V[GB[NN] * 1024]
+
+  inline def TB[NN <: N]: TB[NN] = V[TB[NN]]
+  inline def GB[NN <: N]: GB[NN] = V[GB[NN]]
+  inline def MB[NN <: N]: MB[NN] = V[MB[NN]]
+  inline def KB[NN <: N]: KB[NN] = V[KB[NN]]
+  inline def B[NN <: N]: B[NN]   = V[B[NN]]
+
+
+
+end Sized
+
+
+transparent trait ByteSize[
+  N <: Int | Long | Sized[? <: Int | Long, ? <: Int | Long, ? <: Int | Long], 
+  Mn <: N, 
+  Mx <: N
+] extends Sized[N, Mn, Mx]:
+  self: Sized[N, Mn, Mx] =>
+
+
+  final type Zero = V[ZeroOf[N]]
+  final type One = V[OneOf[N]]
+  inline transparent def zero: T = applyUnsafe(compiletime.constValue[ZeroOf[N]])
+  inline transparent def one: T = applyUnsafe(compiletime.constValue[OneOf[N]])
+
+end ByteSize
+
+
+type ZeroOf[N <: Int | Long | Sized[?, ?, ?]] <: (Int | Long | Sized[?, ?, ?]) & N = N match
+  case Int => 0 & N
+  case Long => 0L & N
+  case Sized[n, _, _] => ZeroOf[n] & N
+
+type OneOf[N <: Int | Long | Sized[?, ?, ?]] <: (Int | Long | Sized[?, ?, ?]) & N = N match
+  case Int => 1 & N
+  case Long => 1L & N
+  case Sized[n, _, _] => OneOf[n] & N
+
+/** Immutable block of bytes constrained to 1..=MAX_BLOCK_SIZE_IN_BYTES. */
+
+type MaxOf[N <: Int | Long | Sized[?, ?, ?]] <: (Int | Long | Sized[?, ?, ?]) & N = N match
+  case Int => Int.MaxValue.type & N
+  case Long => Long.MaxValue.type & N
+  case Sized[n, mn, mx] => MaxOf[mx] & N
+
+
+sealed transparent trait NonNegativeSize[N <: Int | Long]
+ extends Sized[N, ZeroOf[N], MaxOf[N]]:
+  self: Sized[N, ZeroOf[N], MaxOf[N]] =>
+
+  final type Zero = V[ZeroOf[N]]
+  final type One = V[OneOf[N]]
+  inline transparent def zero: T = applyUnsafe(compiletime.constValue[ZeroOf[N]])
+  inline transparent def one: T = applyUnsafe(compiletime.constValue[OneOf[N]])
+
+end NonNegativeSize
+
+type Size = Size.T
+object Size extends NonNegativeSize[Int]
+
+type SizeLong = SizeLong.T
+object SizeLong extends NonNegativeSize[Long]
+
+
+sealed trait BoundedIntSize[Min <: Int, Max <: Int] extends NonNegativeSize[Int]
+
+sealed trait BoundedLongSize[Min <: Long, Max <: Long] extends NonNegativeSize[Long]
+
+type BlockSize = BlockSize.T
+object BlockSize extends BoundedIntSize[ByteConstraints.BlockSize.Min, ByteConstraints.BlockSize.Max]
+
+type FileSize = FileSize.T
+object FileSize extends BoundedLongSize[ByteConstraints.FileSize.Min, ByteConstraints.FileSize.Max]
+
+type UploadChunkSize = UploadChunkSize.T
+object UploadChunkSize extends BoundedIntSize[ByteConstraints.UploadChunkSize.Min, ByteConstraints.UploadChunkSize.Max]
+
 
 object IndexConstraint:
   object NonNegative:
@@ -25,30 +181,33 @@ object IndexConstraint:
       RuntimeConstraint[Long, NonNegative.type]((value: Long) => value >= 0L, "index must be >= 0")
 
 /** Zero-based indices. */
-type Index = Long :| IndexConstraint.NonNegative.type
+type Index = Index.T
+object Index extends NonNegativeSize[Long]
 
-object Index:
-  def apply(n: Long): Either[String, Index] = n.refineEither[IndexConstraint.NonNegative.type]
+type BlockLength = BlockSize.T
+final val BlockLength = BlockSize
 
-/** Immutable block of bytes constrained to 1..=MAX_BLOCK_SIZE_IN_BYTES. */
-final case class Block private (bytes: Chunk[Byte], size: Size):
-  def toChunk: Chunk[Byte] = bytes
-  def toArray: Array[Byte] = bytes.toArray
+type Block = Block.T
+object Block extends SubtypeExt[Chunk[Byte], Length[BlockLength.Constr]]:
+  self =>
 
-object Block:
-  import Limits.MAX_BLOCK_SIZE_IN_BYTES
+  def fromChunk(chunk: Chunk[Byte]): Either[String, Block] = 
+    self.either(chunk)
 
-  def fromChunk(bytes: Chunk[Byte]): Either[String, Block] =
-    val length = bytes.length
-    if length <= 0 then Left("chunk length must be > 0")
-    else if length > MAX_BLOCK_SIZE_IN_BYTES then Left(s"chunk length exceeds $MAX_BLOCK_SIZE_IN_BYTES")
-    else Size(length).map(size => Block(bytes, size))
+  def fromChunkZIO(chunk: Chunk[Byte]): ZIO[Any, GravitonError, Block] = 
+    ZIO.fromEither(self.either(chunk)).mapError(
+      err => GravitonError.CorruptData("Invalid block chunk: " + chunk.length + " bytes: " + err)
+    )
 
-  def fromChunkZIO(bytes: Chunk[Byte]): IO[GravitonError, Block] =
-    ZIO.fromEither(fromChunk(bytes)).mapError(GravitonError.PolicyViolation.apply)
+  extension (block: Block) 
+    def bytes: NonEmptyChunk[Byte] = NonEmptyChunk.fromChunk(block).get
+    def length: Int = block.length
+    def blockSize: BlockSize = BlockSize.applyUnsafe(block.length.toInt)
+    def fileSize: FileSize   = FileSize.applyUnsafe(block.blockSize.toLong)
 
-  def unsafeFromChunk(bytes: Chunk[Byte]): Block =
-    fromChunk(bytes).fold(err => throw new IllegalArgumentException(err), identity)
+end Block
+
+
 
 object BlockBuilder:
   import Limits.MAX_BLOCK_SIZE_IN_BYTES
@@ -64,7 +223,7 @@ object BlockBuilder:
         }
       )
 
-  def rechunk(max: Int = MAX_BLOCK_SIZE_IN_BYTES): ZPipeline[Any, GravitonError, Byte, Block] =
+  def rechunk(max: BlockSize = BlockSize.max): ZPipeline[Any, GravitonError, Byte, Block] =
     ZPipeline.fromChannel {
       def emitFull(bytes: Chunk[Byte]): IO[GravitonError, (Chunk[Block], Chunk[Byte])] =
         var rest = bytes
@@ -90,12 +249,10 @@ object BlockBuilder:
             if buffer.isEmpty then ZChannel.unit
             else
               ZChannel
-                .fromZIO(
-                  ZIO.fromEither(Block.fromChunk(buffer)).mapError(GravitonError.PolicyViolation.apply)
+                .fromEither(
+                  Block.either(buffer).left.map(GravitonError.PolicyViolation(_))
                 )
-                .flatMap { block =>
-                  ZChannel.write(Chunk.single(block))
-                },
+                .flatMap { block => ZChannel.write(Chunk.single(block)) },
         )
       loop(Chunk.empty)
     }

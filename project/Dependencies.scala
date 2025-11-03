@@ -21,6 +21,8 @@ object Dependencies {
         lazy val schemacrawlerV  = "16.27.1"
         lazy val embeddedPgV     = "2.0.4"
         lazy val scalateV        = "1.10.1"
+        lazy val catsV           = "3.7-4972921"
+        lazy val fs2V            = "3.13.0-M7"
     }
 
     object Libraries {
@@ -38,6 +40,10 @@ object Dependencies {
         lazy val postgresql = "org.postgresql" % "postgresql" % V.postgresV
         lazy val hikari = "com.zaxxer" % "HikariCP" % "5.1.0"
         lazy val testcontainers = "org.testcontainers" % "postgresql" % V.testContainersV % Test
+        lazy val catsCore = "org.typelevel" %% "cats-core" % V.catsV
+        lazy val fs2Core = "co.fs2" %% "fs2-core" % V.fs2V
+        lazy val fs2Io = "co.fs2" %% "fs2-io" % V.fs2V
+        lazy val scodecFs2 = "co.fs2" %% "fs2-scodec" % V.fs2V
     }
 
     object TestLibraries {

@@ -9,6 +9,8 @@ import io.github.iltotore.iron.constraint.all.*
 import io.minio.{MakeBucketArgs, MinioClient}
 import org.testcontainers.containers.MinIOContainer
 import org.testcontainers.utility.DockerImageName
+import graviton.domain.HashBytes
+import graviton.core.model.Block
 
 object S3BlobStoreSpec extends ZIOSpecDefault:
   override def spec =
@@ -35,12 +37,12 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
                            client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build())
                          )
             store      = new S3BlobStore(client, bucket, BlobStoreId("test"))
-            data       = Chunk.fromArray("hello".getBytes)
+            data       = Block.applyUnsafe(Chunk.fromArray("hello".getBytes))
             hashBytes <- Hashing
                            .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
-            digest     = hashBytes.assume[MinLength[16] & MaxLength[64]]
+            digest    <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
             hash       = Hash(digest, HashAlgorithm.SHA256)
-            key        = BlockKey(hash, data.length.assume[Positive])
+            key        = BlockKey(hash, data.blockSize)
             _         <- store.write(key, Bytes(ZStream.fromChunk(data)))
             outOpt    <- store.read(key)
             out       <- outOpt match

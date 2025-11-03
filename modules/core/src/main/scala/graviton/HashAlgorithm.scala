@@ -2,68 +2,77 @@ package graviton
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-
+import scodec.bits.ByteVector
 import zio.schema.{DeriveSchema, Schema}
-import zio.schema.derived
+
+import scala.util.Try
 
 /**
  * Supported hashing algorithms for content addressed storage. Each algorithm
  * exposes metadata about its digest and can compute hashes directly.
  */
-sealed trait HashAlgorithm derives Schema:
-  /** Canonical lowercase name of the algorithm. */
+sealed trait HashAlgorithm:
+
+  /** Canonical lowercase name of the algorithm (e.g. "sha256"). */
   def canonicalName: String
 
-  /** Number of hex characters produced by this algorithm. */
-  def digestLength: Int
+  /** Number of hex characters in the digest (e.g. 64 for SHA-256). */
+  def hexDigestLength: Int
 
   /** Obtain a new `MessageDigest` instance for this algorithm. */
   protected def newDigest(): MessageDigest
 
-  /**
-   * Compute the digest for the provided data and return a lowercase hex
-   * string.
-   */
-  final def hash(data: Array[Byte]): String =
-    val md  = newDigest()
-    val dig = md.digest(data)
-    val sb  = new StringBuilder(dig.length * 2)
-    dig.foreach(b => sb.append(f"$b%02x"))
-    sb.toString
+  /** Thread-local `MessageDigest` for efficient reuse. */
+  private lazy val threadLocalDigest: ThreadLocal[MessageDigest] =
+    ThreadLocal.withInitial(() => newDigest())
 
-  final def hash(data: String): String =
+  protected final def getDigest: MessageDigest = threadLocalDigest.get()
+
+  protected final def cloneDigest(digest: MessageDigest): MessageDigest =
+    Try(digest.clone().asInstanceOf[MessageDigest]).getOrElse(newDigest())
+
+  final def hash(data: Array[Byte]): String =
+    ByteVector(cloneDigest(getDigest).digest(data)).toHex
+
+  final def hex(data: String): String =
     hash(data.getBytes(StandardCharsets.UTF_8))
 
 object HashAlgorithm:
 
+  given default: HashAlgorithm = Blake3
+
   case object Blake3 extends HashAlgorithm:
-    val canonicalName                        = "blake3"
-    val digestLength                         = 64
+    val canonicalName: String                = "blake3"
+    val hexDigestLength: Int                 = 64
     protected def newDigest(): MessageDigest = Blake3MessageDigest()
 
   case object SHA256 extends HashAlgorithm:
-    val canonicalName                        = "sha256"
-    val digestLength                         = 64
+    val canonicalName: String                = "sha256"
+    val hexDigestLength: Int                 = 64
     protected def newDigest(): MessageDigest =
       MessageDigest.getInstance("SHA-256")
 
   case object SHA512 extends HashAlgorithm:
-    val canonicalName                        = "sha512"
-    val digestLength                         = 128
+    val canonicalName: String                = "sha512"
+    val hexDigestLength: Int                 = 128
     protected def newDigest(): MessageDigest =
       MessageDigest.getInstance("SHA-512")
 
   val values: List[HashAlgorithm] = List(Blake3, SHA256, SHA512)
 
   private val aliases: Map[String, HashAlgorithm] =
-    values
-      .flatMap(a => List(a.canonicalName -> a, a.canonicalName.toUpperCase -> a))
-      .toMap
+    (values.flatMap { a =>
+      val base  = a.canonicalName
+      val upper = base.toUpperCase
+      val jca   = base match
+        case "sha256" => List("SHA-256", "SHA256")
+        case "sha512" => List("SHA-512", "SHA512")
+        case "blake3" => List("BLAKE3")
+        case _        => Nil
+      (base :: upper :: jca).map(_ -> a)
+    }).toMap
 
-  /**
-   * Parse a hash algorithm from a string, accepting canonical and uppercase
-   * names.
-   */
+  /** Parse a hash algorithm from a string (canonical, uppercase, or JCA name). */
   def parse(input: String): Either[String, HashAlgorithm] =
     aliases.get(input).toRight(s"Unknown hash algorithm: $input")
 

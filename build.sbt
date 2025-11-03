@@ -1,3 +1,4 @@
+import Dependencies.Libraries
 import cats.instances.set
 enablePlugins(
   ZioSbtEcosystemPlugin,
@@ -175,6 +176,11 @@ lazy val commonSettings = Seq(
     "dev.zio"            %% "zio-test"              % zioV % Test,
     "dev.zio"            %% "zio-test-sbt"          % zioV % Test,
     "dev.zio"            %% "zio-test-magnolia"     % zioV % Test,
+
+    // cats 
+    "dev.zio" %% "zio-interop-cats" % "23.1.0.5",
+    "co.fs2" %% "fs2-io" % fs2V,
+    "co.fs2" %% "fs2-scodec" % fs2V,
   ),
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   scalacOptions ++= Seq(
@@ -193,6 +199,12 @@ lazy val core = project
     name := "graviton-core"
   )
   .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.scodec" %% "scodec-core" % "2.3.3",
+      "org.scodec" %% "scodec-bits" % "1.2.4"
+    )
+  )
 
 lazy val db = project
   .in(file("modules/db"))

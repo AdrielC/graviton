@@ -137,10 +137,15 @@ object AnchoredCdcPipeline:
       val automaton = Automaton.build(pack.tokens)
       PipelineState(Tokenizer(0, automaton), Chunk.empty)
 
+  import io.github.iltotore.iron.constraint.all.*
+  import io.github.iltotore.iron.:|
+
   extension (pipeline: ZPipeline.type)
-    def anchoredCdc(tokenPack: TokenPack, avgSize: Int, anchorBonus: Int): ZPipeline[Any, Throwable, Byte, Block] =
-      require(avgSize > 0, "avgSize must be > 0")
-      require(anchorBonus >= 0, "anchorBonus must be >= 0")
+    def anchoredCdc(
+      tokenPack: TokenPack,
+      avgSize: Int :| Greater[0],
+      anchorBonus: Int :| GreaterEqual[1],
+    ): ZPipeline[Any, Throwable, Byte, Block] =
 
       val sink = ZSink.foldWeightedDecompose[Segment, Accumulator](Accumulator.empty)(
         (acc, segment) =>

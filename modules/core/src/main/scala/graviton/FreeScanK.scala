@@ -1,353 +1,365 @@
 package graviton
 
-import zio.*
-import zio.schema.Schema
+// import zio.*
+// import zio.schema.Schema
 
-import scala.<:<
+// import scala.<:<
+// import cats.Eval
+// import cats.implicits.*
 
-/**
- * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
- * Leaves are F[A, B] values that must encode their State type via a type member.
- * No lambdas or closures are stored in this structure; interpretation happens via Interpreter.
- */
-sealed trait FreeScanK[:=>:[-?, +?], -I, +O]:
-  type State <: Tuple
-  type Size <: Int = State match {
-    case NonEmptyTuple => Tuple.Size[State]
-    case _             =>
-      State <:< scala.Product match
-        case true  => 1
-        case false => 0
-  }
-  inline def size: Size = scala.compiletime.summonInline[Size]
-  type Types
-  def compile(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, State]
-  inline def compileOptimized(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, State] =
-    FreeScanK.optimize(this).compile
-  def labelsFromType(using FreeScanK.Interpreter[:=>:]): Chunk[String]
+// /**
+//  * A pure-data Free Arrow for scans, parameterized by a domain DSL F.
+//  * Leaves are F[A, B] values that must encode their State type via a type member.
+//  * No lambdas or closures are stored in this structure; interpretation happens via Interpreter.
+//  */
+// sealed trait FreeScanK[:=>:[-?, +?], -I, +O]:
+//   type S <: Matchable
+//   type State       = Scan.ToState[S]
+//   type Size <: Int = State match {
+//     case NonEmptyTuple => Tuple.Size[State]
+//     case _             =>
+//       State <:< scala.Product match
+//         case true  => 1
+//         case false => 0
+//   }
+//   inline def size: Size = scala.compiletime.summonInline[Size]
+//   type Types
+//   def compile(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, Scan.ToState[S]]
+//   inline def compileOptimized(using FreeScanK.Interpreter[:=>:]): Scan.Aux[I, O, Scan.ToState[S]] =
+//     FreeScanK.optimize(this).compile
+//   def labelsFromType(using FreeScanK.Interpreter[:=>:]): Chunk[String]
 
 object FreeScanK:
-  type Aux[:=>:[-?, +?], -I, +O, S <: Tuple] = FreeScanK[:=>:, I, O] { type State = S }
+  // type Aux[:=>:[-?, +?], -I, +O, SS <: Matchable] = FreeScanK[:=>:, I, O] { type S = SS }
 
   // Interpreter from DSL to concrete Scan
   trait Interpreter[:=>:[-?, +?]]:
     type State
-    def toScan[I, O, S <: Tuple](op: I :=>: O): Scan.Aux[I, O, S]
-    def stateSchema[I, O, S <: Tuple](op: I :=>: O): Schema[S]
-    def stateLabels[I, O, S <: Tuple](op: I :=>: O): Chunk[String]
+    def toScan[I, O, S <: Matchable](op: I :=>: O): Scan.Aux[I, O, Scan.ToState[S]]
+    def stateSchema[I, O, S <: Matchable](op: I :=>: O): zio.schema.Schema[Scan.ToState[S]]
+    def stateLabels[I, O, S <: Matchable](op: I :=>: O): zio.Chunk[String]
 
-  // Constructors
-  final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
-    type State = EmptyTuple
-    type Types = Any
-    inline def compile(using Interpreter[F]): Scan.Aux[A, A, EmptyTuple] = Scan.identity[A]
-    override def labelsFromType(using Interpreter[F]): Chunk[String]     = Chunk.empty
+//   // Constructors
+//   final case class Id[F[_, _], A]() extends FreeScanK[F, A, A]:
+//     type S = EmptyTuple
+//     type Types = Any
+//     inline def compile(using Interpreter[F]): Scan.Aux[A, A, S]   = Scan.identity[A]
+//     override def labelsFromType(using Interpreter[F]): Chunk[String] = Chunk.empty
 
-  final case class Op[F[
-    _,
-    _,
-  ] <: { type State <: Tuple }, I, O, S <: Tuple](
-    fab: F[I, O] { type State = S }
-  ) extends FreeScanK[F, I, O]:
-    type State = S
+//   final case class Op[F[
+//     _,
+//     _,
+//   ] <: { type State <: Tuple }, I, O, S <: Tuple](
+//     fab: F[I, O] { type State = S }
+//   ) extends FreeScanK[F, I, O]:
 
-    type Types = Any
-    def compile(using i: Interpreter[F]): Scan.Aux[I, O, S]             = i.toScan(fab)
-    inline def schema(using i: Interpreter[F]): Schema[S]               = i.stateSchema(fab)
-    inline def labels(using i: Interpreter[F]): Chunk[String]           = i.stateLabels(fab)
-    override def labelsFromType(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
+//     type Types = Any
+//     override def compile(using i: Interpreter[F]): Scan.Aux[I, O, Scan.ToState[S]]             = i.toScan(fab)
+//     inline def schema(using i: Interpreter[F]): Schema[S]               = i.stateSchema(fab)
+//     inline def labels(using i: Interpreter[F]): Chunk[String]           = i.stateLabels(fab)
+//     override def labelsFromType(using i: Interpreter[F]): Chunk[String] = i.stateLabels(fab)
 
-  final case class AndThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
-    left: FreeScanK.Aux[F, A, B, S1],
-    right: FreeScanK.Aux[F, B, C, S2],
-  ) extends FreeScanK[F, A, C]:
-    type State = Tuple.Concat[S1, S2]
-    type Types = Any
-    def compile(using Interpreter[F]): Scan.Aux[A, C, State]         = left.compile.andThen(right.compile)
-    override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+//   final case class AndThen[F[_, _], A, B, C, S1 <: Matchable, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, A, B, S1],
+//     right: FreeScanK.Aux[F, B, C, S2],
+//   ) extends FreeScanK[F, A, C]:
+//     type S = Tuple.Concat[left.State, right.State]
+//     type Types = Any
+//     def compile(using Interpreter[F]): Scan.Aux[A, C, Tuple.Concat[Scan.ToState[left.State], Scan.ToState[right.State]]]         = 
+//       left.compile.andThen(right.compile)
+//     override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
-  def andThen[F[_, _], A, B, C, S1 <: Tuple, S2 <: Tuple](
-    left: FreeScanK.Aux[F, A, B, S1],
-    right: FreeScanK.Aux[F, B, C, S2],
-  ): FreeScanK.Aux[F, A, C, Tuple.Concat[S1, S2]] =
-    AndThen(left, right)
+//   def andThen[F[_, _], A, B, C, S1 <: Matchable, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, A, B, S1],
+//     right: FreeScanK.Aux[F, B, C, S2],
+//   ): FreeScanK.Aux[F, A, C, Tuple.Concat[Scan.ToState[S1], Scan.ToState[S2]]] =
+//     AndThen(left, right)
+//       .asInstanceOf[FreeScanK.Aux[F, A, C, Tuple.Concat[Scan.ToState[S1], Scan.ToState[S2]]]]
 
-  final case class Zip[F[_, _], I, O1, O2, S1 <: Tuple, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I, O1, S1],
-    right: FreeScanK.Aux[F, I, O2, S2],
-  ) extends FreeScanK[F, I, (O1, O2)]:
-    type State = Tuple.Concat[S1, S2]
-    type Types = Any
-    inline def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), State]  = left.compile.zip(right.compile)
-    inline override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+//   final case class Zip[F[_, _], I, O1, O2, S1 <: Matchable, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, I, O1, S1],
+//     right: FreeScanK.Aux[F, I, O2, S2],
+//   ) extends FreeScanK[F, I, (O1, O2)]:
 
-  end Zip
+//     override type S = Tuple.Concat[Scan.ToState[S1], Scan.ToState[S2]]
 
-  def zip[F[_, _], I, O1, O2, S1 <: Tuple, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I, O1, S1],
-    right: FreeScanK.Aux[F, I, O2, S2],
-  ): FreeScanK.Aux[F, I, (O1, O2), Tuple.Concat[S1, S2]] =
-    Zip(left, right)
+//     type Types = Any
+//     inline def compile(using Interpreter[F]): Scan.Aux[I, (O1, O2), Scan.ToState[S]]      = left.compile.zip(right.compile)
+//     inline override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
-  // Typeclass to prove that Tuple.Concat[A, B] can be split back into (A, B)
-  trait SplitConcat[A <: Tuple, B <: Tuple, AB <: Tuple]:
-    def split(ab: AB): (A, B)
+//   end Zip
 
-  object SplitConcat:
+//   def zip[F[_, _], I, O1, O2, S1 <: Tuple, S2 <: Tuple](
+//     left: FreeScanK.Aux[F, I, O1, S1],
+//     right: FreeScanK.Aux[F, I, O2, S2],
+//   ): FreeScanK.Aux[F, I, (O1, O2), Tuple.Concat[S1, S2]] =
+//     Zip(left, right)
+//       .asInstanceOf[FreeScanK.Aux[F, I, (O1, O2), Tuple.Concat[S1, S2]]]
 
-    given splitEmpty: [A <: Tuple] => SplitConcat[A, EmptyTuple, A]:
-      def split(ab: A): (A, EmptyTuple) = (ab, EmptyTuple)
+//   // Typeclass to prove that Tuple.Concat[A, B] can be split back into (A, B)
+//   trait SplitConcat[A <: Matchable, B <: Matchable, AB <: Tuple & Matchable]:
+//     def split(ab: AB): (A, B)
 
-    given splitNilRight: [B <: Tuple] => SplitConcat[EmptyTuple, B, B]:
-      def split(ab: B): (EmptyTuple, B) = (EmptyTuple, ab)
+//   object SplitConcat:
 
-    given splitCons: [AHead, ATail <: Tuple, B <: Tuple, ABTail <: Tuple] => (tail: SplitConcat[ATail, B, ABTail]) => SplitConcat[
-      AHead *: ATail,
-      B,
-      AHead *: ABTail,
-    ]: 
-      def split(ab: AHead *: ABTail): (AHead *: ATail, B) =
-        val (aTail, b) = tail.split(ab.tail)
-        (ab.head *: aTail, b)
+//     given splitEmpty: [A <: Matchable & Tuple] => SplitConcat[A, EmptyTuple, A]:
+//       def split(ab: A): (A, EmptyTuple) = (ab, EmptyTuple)
 
-  end SplitConcat
+//     given splitNilRight: [B <: Matchable & Tuple] => SplitConcat[EmptyTuple, B, B]:
+//       def split(ab: B): (EmptyTuple, B) = (EmptyTuple, ab)
 
-  final case class Product[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O1, S1],
-    right: FreeScanK.Aux[F, I2, O2, S2],
-  )(using split: SplitConcat[S1, S2, Tuple.Concat[S1, S2]])
-      extends FreeScanK[F, (I1, I2), (O1, O2)]:
-    type State = Tuple.Concat[S1, S2]
-    type Types = Any
+//     given splitCons: [AHead, ATail <: Matchable & Tuple, B <: Matchable, ABTail <: Matchable & Tuple]
+//       => (tail: SplitConcat[ATail, B, ABTail])
+//         => SplitConcat[
+//           AHead *: ATail,
+//           B,
+//           AHead *: ABTail,
+//         ]:
+//       def split(ab: AHead *: ABTail): (AHead *: ATail, B) =
+//         val (aTail, b) = tail.split(ab.tail)
+//         (ab.head *: aTail, b)
 
-    def compile(using i: Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), State] =
-      val a = left.compile(using i)
-      val b = right.compile(using i)
-      type S1 = a.State
-      type S2 = b.State
-      type S  = Tuple.Concat[S1, S2]
+//   end SplitConcat
 
-      Scan.statefulTuple[(I1, I2), (O1, O2), S](a.initial ++ b.initial) { (st, in) =>
-        val (s1, s2)  = split.split(st)
-        val (i1, i2)  = in
-        val (s1b, o1) = a.step(s1, i1)
-        val (s2b, o2) = b.step(s2, i2)
-        ((s1b ++ s2b).asInstanceOf[S], o1.zip(o2))
-      } { st =>
-        val (s1, s2) = split.split(st.asInstanceOf[S])
-        a.done(s1).zip(b.done(s2))
-      }
+//   final case class Product[F[_, _], I1, O1, S1 <: Matchable, I2, O2, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, I1, O1, S1],
+//     right: FreeScanK.Aux[F, I2, O2, S2],
+//   )(using split: SplitConcat[left.State, right.State, Tuple.Concat[Scan.ToState[S1], Scan.ToState[S2]]])
+//       extends FreeScanK[F, (I1, I2), (O1, O2)]:
+//     type S     = Tuple.Concat[left.State, right.State]
+//     type Types = Any
 
-    override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
+//     def compile(using i: Interpreter[F]): Scan.Aux[(I1, I2), (O1, O2), S] =
+//       val a = left.compile(using i)
+//       val b = right.compile(using i)
+//       Scan.statefulTuple[(I1, I2), (O1, O2), S]((a.initial ++ b.initial)) { (st: S, in: (I1, I2)) =>
+//         val (s1, s2)  = split.split(st)
+//         val (i1, i2)  = in
+//         val (s1b, o1) = a.step(s1, i1)
+//         val (s2b, o2) = b.step(s2, i2)
+//         ((s1b ++ s2b), o1.zip(o2))
+//       } { (st: S) =>
+//         val (s1, s2) = split.split(st)
+//         a.done(s1).zip(b.done(s2))
+//       }
 
-  end Product
+//     override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 
-  def product[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O1, S1],
-    right: FreeScanK.Aux[F, I2, O2, S2],
-  )(using split: SplitConcat[S1, S2, Tuple.Concat[S1, S2]]): FreeScanK.Aux[F, (I1, I2), (O1, O2), Tuple.Concat[S1, S2]] =
-    Product(left, right)
+//   end Product
 
-  final case class First[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ) extends FreeScanK[F, (I, C), (O, C)]:
-    type State = Tuple.Concat[S, Tuple1[Option[C]]]
-    def compile(using Interpreter[F]): Scan.Aux[(I, C), (O, C), State] =
-      val a     = src.compile
-      val sizeA = a.initial.productArity
-      Scan.statefulTuple[(I, C), (O, C), Tuple.Concat[a.State, Tuple1[Option[C]]]](a.initial ++ Tuple1(None)) { (st, in) =>
-        val sA        = st.take(sizeA).asInstanceOf[a.State]
-        val (i, c)    = in
-        val (sAb, oA) = a.step(sA, i)
-        ((sAb ++ Tuple1(Some(c))).asInstanceOf[Tuple.Concat[a.State, Tuple1[Option[C]]]], oA.map(o => (o, c)))
-      } { st =>
-        val sA       = st.take(sizeA).asInstanceOf[a.State]
-        val lastCOpt = st.drop(sizeA).asInstanceOf[Tuple1[Option[C]]]._1
-        lastCOpt match
-          case Some(c) => a.done(sA).map(o => (o, c))
-          case None    => Chunk.empty
-      }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]   = src.labelsFromType
+//   def product[F[_, _], I1, O1, S1 <: Matchable, I2, O2, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, I1, O1, S1],
+//     right: FreeScanK.Aux[F, I2, O2, S2],
+//   )(
+//     using split: SplitConcat[left.State, right.State, Tuple.Concat[Scan.ToState[S1], Scan.ToState[S2]]]
+//   ): FreeScanK.Aux[F, (I1, I2), (O1, O2), Tuple.Concat[left.State, right.State]] =
+//     FreeScanK.Product(left, right).asInstanceOf[FreeScanK.Aux[F, (I1, I2), (O1, O2), Tuple.Concat[left.State, right.State]]]
 
-  def first[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ): FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] =
-    First(src)
+//   final case class First[F[_, _], I, O, C, SS <: Matchable](
+//     src: FreeScanK.Aux[F, I, O, SS]
+//   ) extends FreeScanK[F, (I, C), (O, C)]:
 
-  final case class Second[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ) extends FreeScanK[F, (C, I), (C, O)]:
-    type State = Option[C] *: S
-    def compile(using Interpreter[F]): Scan.Aux[(C, I), (C, O), State] =
-      val a     = src.compile
-      val sizeA = 1 // Tuple1[Option[C]]
-      Scan.statefulTuple[(C, I), (C, O), Option[C] *: a.State](Option.empty[C] *: a.initial) { (st, in) =>
-        val sA       = st.drop(sizeA).asInstanceOf[a.State]
-        val (c, i)   = in
-        val (sAb, o) = a.step(sA, i)
-        ((Some(c) *: sAb).asInstanceOf[Option[C] *: a.State], o.map(o2 => (c, o2)))
-      } { st =>
-        val lastCOpt = st.head
-        val sA       = st.tail
-        lastCOpt match
-          case Some(c) => a.done(sA).map(o => (c, o))
-          case None    => Chunk.empty
-      }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]   = src.labelsFromType
+//     override type S = Tuple.Concat[src.State, Tuple1[Option[C]]]
 
-  end Second
+//     def compile(using Interpreter[F]): Scan.Aux[(I, C), (O, C), Tuple.Concat[Scan.ToState[SS], Tuple1[Option[C]]]] =
+//       val a     = src.compile
+//       val sizeA = a.initial.productArity
+//       Scan.statefulTuple[(I, C), (O, C), Tuple.Concat[Scan.ToState[SS], Tuple1[Option[C]]]](
+//         (a.initialState, Eval.now(Tuple1(None))).mapN(_ ++ _)
+//       ) { (st, in) =>
+//         val (sA, sC)  = st.splitAt(sizeA)
+//         val (i, c)    = in
+//         val (sAb, oA) = a.step(Scan.toState(sA).asInstanceOf[a.State], i)
+//         ((sAb ++ Tuple1(Some(c))).asInstanceOf[Tuple.Concat[Scan.ToState[SS], Tuple1[Option[C]]]], oA.map(o => (o, c)))
+//       } { st =>
+//         val (sA, sC) = st.splitAt(sizeA)
+//         a.done(Scan.toState(sA).asInstanceOf[a.State]).flatMap(o => Scan.toState(sC).asInstanceOf[Tuple1[Option[C]]]._1.map(c => o -> c))
+//       }
+//     override def labelsFromType(using Interpreter[F]): Chunk[String]                                               = src.labelsFromType
 
-  def second[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ): FreeScanK.Aux[F, (C, I), (C, O), Option[C] *: S] =
-    Second(src)
+//   def first[F[_, _], I, O, C, S <: Tuple](
+//     src: FreeScanK.Aux[F, I, O, S]
+//   ): FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] =
+//     First(src)
+//       .asInstanceOf[FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]]]
+//   final case class Second[F[_, _], I, O, C, SS <: Matchable](
+//     src: FreeScanK.Aux[F, I, O, SS]
+//   ) extends FreeScanK[F, (C, I), (C, O)]:
+//     override type S = Option[C] *: src.State
+//     def compile(using Interpreter[F]): Scan.Aux[(C, I), (C, O), S]   =
+//       val a     = src.compile
+//       val sizeA = 1 // Tuple1[Option[C]]
+//       Scan.statefulTuple[(C, I), (C, O), S](a.initialState.map(s => (Option.empty[C] *: s))) { case ((st: S), (in: (C, I))) =>
+//         val (sA, sC) = st.splitAt(sizeA)
+//         val (c, i)   = in
+//         val (sAb, o) = a.step(sA.asInstanceOf[a.State], i)
+//         ((Some(c) *: sAb.asInstanceOf[src.State]), o.map(o2 => (c, o2)))
+//       } { (st: S) =>
+//         val (lastCOpt, sA) = st.splitAt(sizeA)
+//         val lastCOptOpt    = lastCOpt.asInstanceOf[Option[C]]
 
-  final case class LeftChoice[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ) extends FreeScanK[F, Either[I, C], Either[O, C]]:
-    type State = S
-    def compile(using Interpreter[F]): Scan.Aux[Either[I, C], Either[O, C], S] =
-      val a = src.compile
-      Scan.statefulTuple[Either[I, C], Either[O, C], a.State](a.initial) { (s, in) =>
-        in match
-          case Left(i)  =>
-            val (s2, out) = a.step(s, i)
-            (s2, out.map(Left(_)))
-          case Right(c) => (s, Chunk.single(Right(c)))
-      }(s => a.done(s).map(Left(_)))
-    override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
+//         lastCOptOpt match
+//           case Some(c: C) => a.done(sA.asInstanceOf[a.State]).map((o: O) => (c, o))
+//           case None       => Chunk.empty[(C, O)]
+//       }
+//     override def labelsFromType(using Interpreter[F]): Chunk[String] = src.labelsFromType
 
-  final case class RightChoice[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ) extends FreeScanK[F, Either[C, I], Either[C, O]]:
-    type State = S
-    def compile(using Interpreter[F]): Scan.Aux[Either[C, I], Either[C, O], S] =
-      val a = src.compile
-      Scan.statefulTuple[Either[C, I], Either[C, O], a.State](a.initial) { (s, in) =>
-        in match
-          case Right(i) =>
-            val (s2, out) = a.step(s, i)
-            (s2, out.map(Right(_)))
-          case Left(c)  => (s, Chunk.single(Left(c)))
-      }(s => a.done(s).map(Right(_)))
-    override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
-  end RightChoice
+//   end Second
 
-  def rightChoice[F[_, _], I, O, C, S <: Tuple](
-    src: FreeScanK.Aux[F, I, O, S]
-  ): FreeScanK.Aux[F, Either[C, I], Either[C, O], S] =
-    RightChoice(src)
+//   inline def second[F[_, _], I, O, C, S <: Matchable & Tuple](
+//     src: FreeScanK.Aux[F, I, O, S]
+//   ) =
+//     Second[F, I, O, C, S](src)
 
-  def plusPlus[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O1, S1],
-    right: FreeScanK.Aux[F, I2, O2, S2],
-  ): FreeScanK.Aux[F, Either[I1, I2], Either[O1, O2], Tuple.Concat[S1, S2]] =
-    PlusPlus(left, right)
+//   final case class LeftChoice[F[_, _], I, O, C, S <: Matchable](
+//     src: FreeScanK.Aux[F, I, O, S]
+//   ) extends FreeScanK[F, Either[I, C], Either[O, C]]:
+//     type State = S
+//     def compile(using Interpreter[F]): Scan.Aux[Either[I, C], Either[O, C], S] =
+//       val a = src.compile
+//       Scan.statefulTuple(a._initial.value) { (st: S, in: Either[I, C]) =>
+//         in match
+//           case Left(i)  =>
+//             val (s2, out) = a.step(Scan.toState(st).asInstanceOf[a.State], i)
+//             ((Scan.toState(s2).asInstanceOf[S]), out.map(Left(_)))
+//           case Right(c) => (Scan.toState(st).asInstanceOf[S], Chunk.single(Right(c)))
+//       }(s => a.done(s.asInstanceOf[a.State]).map(Left(_)))
+//     override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
 
-  final case class PlusPlus[F[_, _], I1, O1, S1 <: Tuple, I2, O2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O1, S1],
-    right: FreeScanK.Aux[F, I2, O2, S2],
-  ) extends FreeScanK[F, Either[I1, I2], Either[O1, O2]]:
-    type State = Tuple.Concat[S1, S2]
-    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], Either[O1, O2], State] =
-      val a     = left.compile
-      val b     = right.compile
-      val sizeA = a.initial.productArity
-      Scan.statefulTuple[Either[I1, I2], Either[O1, O2], Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        in match
-          case Left(i1)  =>
-            val (s1b, o1) = a.step(s1, i1)
-            ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.map(Left(_)))
-          case Right(i2) =>
-            val (s2b, o2) = b.step(s2, i2)
-            ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2.map(Right(_)))
-      } { st =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
-      }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]                   = left.labelsFromType ++ right.labelsFromType
-  end PlusPlus
+//   final case class RightChoice[F[_, _], I, O, C, S <: Matchable](
+//     src: FreeScanK.Aux[F, I, O, S]
+//   ) extends FreeScanK[F, Either[C, I], Either[C, O]]:
+//     type State = S
+//     def compile(using Interpreter[F]): Scan.Aux[Either[C, I], Either[C, O], S] =
+//       val a = src.compile
+//       Scan.statefulTuple(a._initial.value) { (st: S, in: Either[C, I]) =>
+//         in match
+//           case Right(i) =>
+//             val (s2, out) = a.step(Scan.toState(st).asInstanceOf[a.State], i)
+//             (Scan.toState(s2).asInstanceOf[S], out.map(Right(_)))
+//           case Left(c)  => (Scan.toState(st).asInstanceOf[S], Chunk.single(Left(c)))
+//       }(s => a.done(Scan.toState(s)).map(Right(_)))
+//     override def labelsFromType(using Interpreter[F]): Chunk[String]           = src.labelsFromType
+//   end RightChoice
 
-  final case class FanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O, S1],
-    right: FreeScanK.Aux[F, I2, O, S2],
-  ) extends FreeScanK[F, Either[I1, I2], O]:
-    type State = Tuple.Concat[S1, S2]
-    def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], O, State] =
-      val a     = left.compile
-      val b     = right.compile
-      val sizeA = a.initial.productArity
-      Scan.statefulTuple[Either[I1, I2], O, Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        in match
-          case Left(i1)  =>
-            val (s1b, o1) = a.step(s1, i1)
-            ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1)
-          case Right(i2) =>
-            val (s2b, o2) = b.step(s2, i2)
-            ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2)
-      } { st =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        a.done(s1) ++ b.done(s2)
-      }
-    override def labelsFromType(using Interpreter[F]): Chunk[String]      = left.labelsFromType ++ right.labelsFromType
+//   def rightChoice[F[_, _], I, O, C, S <: Matchable](
+//     src: FreeScanK.Aux[F, I, O, S]
+//   ): FreeScanK.Aux[F, Either[C, I], Either[C, O], S] =
+//     RightChoice(src)
 
-  end FanIn
+//   transparent inline def plusPlus[F[_, _], I1, O1, I2, O2](
+//     left: FreeScanK[F, I1, O1],
+//     right: FreeScanK[F, I2, O2],
+//   ): FreeScanK[F, Either[I1, I2], Either[O1, O2]] =
+//     PlusPlus[F, I1, O1, I2, O2](left, right)
 
-  def fanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
-    left: FreeScanK.Aux[F, I1, O, S1],
-    right: FreeScanK.Aux[F, I2, O, S2],
-  ): FreeScanK.Aux[F, Either[I1, I2], O, Tuple.Concat[S1, S2]] =
-    FanIn(left, right)
+//   final case class PlusPlus[F[_, _], I1, O1, I2, O2](
+//     left: FreeScanK[F, I1, O1],
+//     right: FreeScanK[F, I2, O2],
+//   ) extends FreeScanK[F, Either[I1, I2], Either[O1, O2]]:
+//     final type State = Tuple.Concat[left.State, right.State]
+//     def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], Either[O1, O2], State] =
+//       val a     = left.compile
+//       val b     = right.compile
+//       val sizeA = a.initial.productArity
+//       Scan.statefulTuple[Either[I1, I2], Either[O1, O2], Tuple.Concat[a.State, b.State]](a.initial ++ b.initial) { (st, in) =>
+//         val s1 = st.take(sizeA).asInstanceOf[a.State]
+//         val s2 = st.drop(sizeA).asInstanceOf[b.State]
+//         in match
+//           case Left(i1)  =>
+//             val (s1b, o1) = a.step(s1, i1)
+//             ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.map(Left(_)))
+//           case Right(i2) =>
+//             val (s2b, o2) = b.step(s2, i2)
+//             ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2.map(Right(_)))
+//       } { st =>
+//         val s1 = st.take(sizeA).asInstanceOf[a.State]
+//         val s2 = st.drop(sizeA).asInstanceOf[b.State]
+//         a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
+//       }
+//     override def labelsFromType(using Interpreter[F]): Chunk[String]                   = left.labelsFromType ++ right.labelsFromType
+//   end PlusPlus
 
-  // Syntax
-  extension [F[_, _], I, O, S <: Tuple](self: FreeScanK.Aux[F, I, O, S])
-    transparent inline def >>>[O2, S2 <: Tuple](
-      inline that: FreeScanK.Aux[F, O, O2, S2]
-    ): FreeScanK.Aux[F, I, O2, Tuple.Concat[S, S2]] =
-      AndThen(self, that)
-    transparent inline def &&&[O2, S2 <: Tuple](
-      inline that: FreeScanK.Aux[F, I, O2, S2]
-    ): FreeScanK.Aux[F, I, (O, O2), Tuple.Concat[S, S2]] =
-      Zip(self, that)
-    transparent inline def ***[I2, O2, S2 <: Tuple](
-      inline that: FreeScanK.Aux[F, I2, O2, S2]
-    )(using split: SplitConcat[S, S2, Tuple.Concat[S, S2]]): FreeScanK.Aux[F, (I, I2), (O, O2), Tuple.Concat[S, S2]] = Product(self, that)
-    transparent inline def first[C]: FreeScanK.Aux[F, (I, C), (O, C), Tuple.Concat[S, Tuple1[Option[C]]]] = First(self)
-    transparent inline def second[C]: FreeScanK.Aux[F, (C, I), (C, O), Option[C] *: S]                    = Second(self)
-    transparent inline def left[C]: FreeScanK.Aux[F, Either[I, C], Either[O, C], S]                       = LeftChoice(self)
-    transparent inline def right[C]: FreeScanK.Aux[F, Either[C, I], Either[C, O], S]                      = RightChoice(self)
-    transparent inline def +++[I2, O2, S2 <: Tuple](
-      that: FreeScanK.Aux[F, I2, O2, S2]
-    ): FreeScanK.Aux[F, Either[I, I2], Either[O, O2], Tuple.Concat[S, S2]] = PlusPlus(self, that)
-    transparent inline def |||[I2, S2 <: Tuple](
-      that: FreeScanK.Aux[F, I2, O, S2]
-    ): FreeScanK.Aux[F, Either[I, I2], O, Tuple.Concat[S, S2]] = FanIn(self, that)
-  end extension
+//   final case class FanIn[F[_, _], I1, O, S1 <: Matchable, I2, S2 <: Matchable](
+//     left: FreeScanK.Aux[F, I1, O, S1],
+//     right: FreeScanK.Aux[F, I2, O, S2],
+//   ) extends FreeScanK[F, Either[I1, I2], O]:
+//     final type State = Tuple.Concat[left.State, right.State]
+//     def compile(using Interpreter[F]): Scan.Aux[Either[I1, I2], O, State] =
+//       val a     = left.compile
+//       val b     = right.compile
+//       val sizeA = a.initial.productArity
+//       Scan.statefulTuple[Either[I1, I2], O, Tuple.Concat[left.State, right.State]](
+//         a.initial.asInstanceOf[left.State] ++ b.initial.asInstanceOf[right.State]
+//       ) { (st, in) =>
+//         val s1 = st.take(sizeA).asInstanceOf[a.State]
+//         val s2 = st.drop(sizeA).asInstanceOf[b.State]
+//         in match
+//           case Left(i1)  =>
+//             val (s1b, o1) = a.step(s1, i1)
+//             ((s1b ++ s2).asInstanceOf[Tuple.Concat[left.State, right.State]], o1)
+//           case Right(i2) =>
+//             val (s2b, o2) = b.step(s2, i2)
+//             ((s1 ++ s2b).asInstanceOf[Tuple.Concat[left.State, right.State]], o2)
+//       } { st =>
+//         val s1 = st.take(sizeA).asInstanceOf[a.State]
+//         val s2 = st.drop(sizeA).asInstanceOf[b.State]
+//         (a.done(s1) ++ b.done(s2))
+//       }
+//     override def labelsFromType(using Interpreter[F]): Chunk[String]      = left.labelsFromType ++ right.labelsFromType
 
-  inline def id[F[_, _], A]: Aux[F, A, A, EmptyTuple] = Id[F, A]()
-  inline def op[F[_, _] <: { type State <: Tuple }, I, O, S <: Tuple](
-    fab: F[I, O] { type State = S }
-  ): Aux[F, I, O, S] =
-    Op(fab)
+//   end FanIn
 
-  // Optimizer (no-op for now to keep types simple and avoid inline recursion)
-  private def optimize[F[_, _], I, O, S <: Tuple](
-    fs: FreeScanK.Aux[F, I, O, S]
-  ): FreeScanK.Aux[F, I, O, S] =
-    fs match
-      case AndThen(Id(), r) => optimize(r.asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case AndThen(l, Id()) => optimize(l.asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case Zip(l, r)        => optimize(Zip(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case First(s)         => optimize(First(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case Second(s)        => optimize(Second(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case LeftChoice(s)    => optimize(LeftChoice(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case RightChoice(s)   => optimize(RightChoice(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case PlusPlus(l, r)   => optimize(PlusPlus(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case FanIn(l, r)      => optimize(FanIn(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
-      case other            => other
+//   def fanIn[F[_, _], I1, O, S1 <: Tuple, I2, S2 <: Tuple](
+//     left: FreeScanK.Aux[F, I1, O, S1],
+//     right: FreeScanK.Aux[F, I2, O, S2],
+//   ): FreeScanK[F, Either[I1, I2], O] =
+//     FanIn(left, right)
+
+//   // Syntax
+//   extension [F[_, _], I, O, S <: Matchable](self: FreeScanK.Aux[F, I, O, S])
+//     transparent inline def >>>[O2, S2 <: Matchable](
+//       inline that: FreeScanK.Aux[F, O, O2, S2]
+//     ): FreeScanK[F, I, O2] =
+//       AndThen(self, that)
+//     transparent inline def &&&[O2, S2 <: Matchable](
+//       inline that: FreeScanK.Aux[F, I, O2, S2]
+//     ): FreeScanK[F, I, (O, O2)] =
+//       Zip(self, that)
+//     transparent inline def ***[I2, O2, S2 <: Matchable](
+//       that: FreeScanK.Aux[F, I2, O2, S2]
+//     )(using split: SplitConcat[self.State, that.State, Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]]): FreeScanK[F, (I, I2), (O, O2)] =
+//       Product(self, that)(using split)
+//     transparent inline def first[C]: FreeScanK[F, (I, C), (O, C)]             = First[F, I, O, C, S](self)
+//     transparent inline def second[C]: FreeScanK[F, (C, I), (C, O)]            = Second[F, I, O, C, S](self)
+//     transparent inline def left[C]: FreeScanK[F, Either[I, C], Either[O, C]]  = LeftChoice[F, I, O, C, S](self)
+//     transparent inline def right[C]: FreeScanK[F, Either[C, I], Either[C, O]] = RightChoice[F, I, O, C, S](self)
+//     transparent inline def +++[I2, O2, S2 <: Matchable](
+//       that: FreeScanK[F, I2, O2]
+//     ): FreeScanK[F, Either[I, I2], Either[O, O2]] = PlusPlus(self, that)
+//     transparent inline def |||[I2, S2 <: Matchable](
+//       that: FreeScanK[F, I2, O]
+//     ): FreeScanK[F, Either[I, I2], O] = FanIn(self, that)
+//   end extension
+
+//   inline def id[F[_, _], A]: FreeScanK[F, A, A] = Id[F, A]()
+//   inline def op[F[_, _] <: { type State <: Tuple }, I, O, S <: Tuple](
+//     fab: F[I, O] { type State = S }
+//   ): Aux[F, I, O, S] =
+//     Op(fab)
+
+//   // Optimizer (no-op for now to keep types simple and avoid inline recursion)
+//   private def optimize[F[_, _], I, O, S <: Matchable](
+//     fs: FreeScanK.Aux[F, I, O, S]
+//   ): FreeScanK.Aux[F, I, O, S] =
+//     fs match
+//       case AndThen(Id(), r) => optimize(r.asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case AndThen(l, Id()) => optimize(l.asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case Zip(l, r)        => optimize(Zip(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case First(s)         => optimize(First(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case Second(s)        => optimize(Second(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case LeftChoice(s)    => optimize(LeftChoice(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case RightChoice(s)   => optimize(RightChoice(s).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case PlusPlus(l, r)   => optimize(PlusPlus(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case FanIn(l, r)      => optimize(FanIn(l, r).asInstanceOf[FreeScanK.Aux[F, I, O, S]])
+//       case other            => other

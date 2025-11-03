@@ -3,6 +3,8 @@ package graviton
 import zio.*
 import zio.test.*
 import zio.stream.*
+import graviton.domain.HashBytes
+import graviton.core.model.Block
 
 object HashingSpec extends ZIOSpecDefault:
   def spec = suite("HashingSpec")(
@@ -29,7 +31,7 @@ object HashingSpec extends ZIOSpecDefault:
         )
       )
       for
-        hashes         <- Hashing.rolling(stream, HashAlgorithm.SHA256).runCollect
+        hashes         <- Hashing.rolling(Blocks(stream), HashAlgorithm.SHA256).runCollect
         expectedFirst  <- Hashing.compute(
                             Bytes(ZStream.fromIterable("ab".getBytes.toIndexedSeq)),
                             HashAlgorithm.SHA256,
@@ -48,6 +50,6 @@ object HashingSpec extends ZIOSpecDefault:
         dig      <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
         expected <- Hashing
                       .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
-      yield assertTrue(dig == expected)
+      yield assertTrue(dig == Hash(HashBytes.applyUnsafe(expected), HashAlgorithm.SHA256))
     },
   )

@@ -6,9 +6,10 @@ import zio.stream.*
 
 object RollingHashChunker:
   import Chunker.Bounds
+  import graviton.GravitonError
 
   final case class Config(
-    bounds: Bounds,
+    bounds: Bounds[Int, Int, Int],
     window: Int = 48,
     polynomial: Long = 0x3da3358b4dc173L,
   )
@@ -17,7 +18,7 @@ object RollingHashChunker:
     new Chunker:
       val name                                             =
         s"rolling(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
-      val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+      val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
         ZPipeline
           .fromChannel {
             def loop(state: State): ZChannel[Any, Throwable, Chunk[
@@ -36,8 +37,9 @@ object RollingHashChunker:
             loop(State.empty(cfg))
           }
           .mapChunksZIO { chunked =>
-            ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err)))
+            ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.either(bytes)).mapError(err => new IllegalArgumentException(err)))
           }
+          .mapError(err => GravitonError.ChunkerFailure(err.getMessage))
 
   private final case class State(
     cfg: Config,

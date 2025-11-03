@@ -8,19 +8,24 @@ import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
 import java.nio.file.Files
 
+
+
+import graviton.domain.HashBytes
+import graviton.core.model.Block
+
 object FileSystemBlobStoreSpec extends ZIOSpecDefault:
   def spec = suite("FileSystemBlobStoreSpec")(
     test("write, read, delete round trip") {
       for
         tmp     <- ZIO.attempt(Files.createTempDirectory("fs-store"))
         store   <- FileSystemBlobStore.make(tmp)
-        data     = Chunk.fromArray("hello".getBytes)
+        data     = Block.applyUnsafe(Chunk.fromArray("hello".getBytes))
         hash    <- Hashing.compute(
                      Bytes(ZStream.fromChunk(data)),
                      HashAlgorithm.SHA256,
                    )
-        digest   = hash.assume[MinLength[16] & MaxLength[64]]
-        sizeR    = data.length.assume[Positive]
+        digest   <- ZIO.fromEither(HashBytes.either(hash)).mapError(e => new RuntimeException(e))
+        sizeR    = data.blockSize
         key      = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
         _       <- store.write(key, Bytes(ZStream.fromChunk(data)))
         read    <- store.read(key).someOrFailException.flatMap(_.runCollect)
@@ -33,13 +38,13 @@ object FileSystemBlobStoreSpec extends ZIOSpecDefault:
       for
         tmp   <- ZIO.attempt(Files.createTempDirectory("fs-store"))
         store <- FileSystemBlobStore.make(tmp)
-        data   = Chunk.fromArray("hello".getBytes)
+        data   = Block.applyUnsafe(Chunk.fromArray("hello".getBytes))
         hash  <- Hashing.compute(
                    Bytes(ZStream.fromChunk(data)),
                    HashAlgorithm.SHA256,
                  )
-        digest = hash.assume[MinLength[16] & MaxLength[64]]
-        sizeR  = data.length.assume[Positive]
+        digest <- ZIO.fromEither(HashBytes.either(hash)).mapError(e => new RuntimeException(e))
+        sizeR  = data.blockSize
         key    = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
         _     <- store.write(key, Bytes(ZStream.fromChunk(data)))
         read  <- store

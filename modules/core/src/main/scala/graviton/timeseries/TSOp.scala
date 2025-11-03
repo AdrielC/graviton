@@ -6,7 +6,8 @@ import zio.schema.{DeriveSchema, Schema}
 
 // A tiny time-series DSL with pure-data ops and named state case classes
 sealed trait TSOp[-I, +O]:
-  type State <: Tuple
+  type S <: Matchable
+  type State = Scan.ToState[S]
 
 object TSOp:
   infix type :=>:[-I, +O] = TSOp[I, O]
@@ -18,23 +19,23 @@ object TSOp:
 
   // Ops (generic over element A)
   final case class Delta[A](numeric: Numeric[A], schemaA: Schema[A]) extends TSOp[A, A]:
-    type State = Tuple1[Prev[A]]
+    type S = Prev[A]
   object Delta:
     def make[A](using num: Numeric[A], sa: Schema[A]): Delta[A] = Delta(num, sa)
 
   final case class MovingAvg[A](n: Int, frac: Fractional[A], schemaA: Schema[A]) extends TSOp[A, A]:
-    override type State = Tuple1[MovAvgState[A]]
+    override type S = MovAvgState[A]
   object MovingAvg:
     inline def make[A](inline n: Int)(using f: Fractional[A], sa: Schema[A]): MovingAvg[A] = MovingAvg(n, f, sa)
 
   // Pure-data stateless ops
   final case class PairSub[A](numeric: Numeric[A], schemaA: Schema[A]) extends TSOp[(A, A), A]:
-    type State = EmptyTuple
+    type S = EmptyTuple
   object PairSub:
     inline def make[A](using n: Numeric[A], sa: Schema[A]): PairSub[A] = PairSub(n, sa)
 
   final case class RateFromPair[A](frac: Fractional[A], schemaA: Schema[A]) extends TSOp[(Long, A), A]:
-    type State = EmptyTuple
+    type S = EmptyTuple
   object RateFromPair:
     inline def make[A](using f: Fractional[A], sa: Schema[A]): RateFromPair[A] = RateFromPair(f, sa)
 
@@ -43,23 +44,23 @@ object TSOp:
       schemaT.transform[Tuple1[T]](t => t *: EmptyTuple, { case h *: _ => h })
     def emptyTuple: Schema[EmptyTuple]                            = Schema[Unit].transform(_ => EmptyTuple, _ => ())
 
-    given prevSchema:  [A] => (sa: Schema[A]) => Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
+    given prevSchema: [A] => (sa: Schema[A]) => Schema[Prev[A]]          = DeriveSchema.gen[Prev[A]]
     given movAvgSchema: [A] => (sa: Schema[A]) => Schema[MovAvgState[A]] = DeriveSchema.gen[MovAvgState[A]]
-    def prevSchemaFor[A](sa: Schema[A]): Schema[Prev[A]]               =
+    def prevSchemaFor[A](sa: Schema[A]): Schema[Prev[A]]                 =
       given Schema[A] = sa
       DeriveSchema.gen[Prev[A]]
-    def movAvgSchemaFor[A](sa: Schema[A]): Schema[MovAvgState[A]]      =
+    def movAvgSchemaFor[A](sa: Schema[A]): Schema[MovAvgState[A]]        =
       given Schema[A] = sa
       DeriveSchema.gen[MovAvgState[A]]
 
   inline given FreeScanK.Interpreter[:=>:]:
 
-    type Flatten[A] <: Tuple | A = A match  
+    type Flatten[A] <: Tuple | A = A match
       case a *: b => a *: Flatten[b]
       case _      => Tuple1[A]
 
     override type State = TSOp.State
-    def toScan[I, O, S <: Tuple](op: I :=>: O): Scan.Aux[I, O, S] =
+    def toScan[I, O, S <: Matchable](op: I :=>: O): Scan.Aux[I, O, Scan.ToState[S]] =
       op match
         case d: Delta[a]        =>
           given num: Numeric[a] = d.numeric
@@ -68,7 +69,7 @@ object TSOp:
               val out = st._1.previous.map(p => num.minus(a0, p)).getOrElse(a0)
               (Tuple1(Prev(Some(a0))), Chunk.single(out))
             }(_ => Chunk.empty)
-            .asInstanceOf[Scan.Aux[I, O, S]]
+            .asInstanceOf[Scan.Aux[I, O, Scan.ToState[S]]]
         case m: MovingAvg[a]    =>
           given frac: Fractional[a] = m.frac
           import frac.*
@@ -80,12 +81,12 @@ object TSOp:
               val avg  = sum1 / fromInt(buf1.size)
               (Tuple1(MovAvgState(buf1, sum1)), Chunk.single(avg))
             }(_ => Chunk.empty)
-            .asInstanceOf[Scan.Aux[I, O, S]]
+            .asInstanceOf[Scan.Aux[I, O, Scan.ToState[S]]]
         case p: PairSub[a]      =>
           given num: Numeric[a] = p.numeric
           Scan
             .stateless[(a, a), a] { case (x, y) => Chunk.single(num.minus(x, y)) }
-            .asInstanceOf[Scan.Aux[I, O, S]]
+            .asInstanceOf[Scan.Aux[I, O, Scan.ToState[S]]]
         case r: RateFromPair[a] =>
           given frac: Fractional[a] = r.frac
           import frac.*
@@ -94,16 +95,16 @@ object TSOp:
               val denom = fromInt(dt.toInt)
               Chunk.single(if dt == 0 then da else da / denom)
             }
-            .asInstanceOf[Scan.Aux[I, O, S]]
+            .asInstanceOf[Scan.Aux[I, O, Scan.ToState[S]]]
 
-    def stateSchema[I, O, S <: Tuple](op: I :=>: O): Schema[S] =
+    def stateSchema[I, O, S <: Matchable](op: I :=>: O): Schema[Scan.ToState[S]] =
       (op: TSOp[I, O]) match
-        case d: Delta[a]        => Schemas.singleElemTuple(Schemas.prevSchemaFor[a](d.schemaA)).asInstanceOf[Schema[S]]
-        case m: MovingAvg[a]    => Schemas.singleElemTuple(Schemas.movAvgSchemaFor[a](m.schemaA)).asInstanceOf[Schema[S]]
-        case _: PairSub[?]      => Schemas.emptyTuple.asInstanceOf[Schema[S]]
-        case _: RateFromPair[?] => Schemas.emptyTuple.asInstanceOf[Schema[S]]
+        case d: Delta[a]        => Schemas.singleElemTuple(Schemas.prevSchemaFor[a](d.schemaA)).asInstanceOf[Schema[Scan.ToState[S]]]
+        case m: MovingAvg[a]    => Schemas.singleElemTuple(Schemas.movAvgSchemaFor[a](m.schemaA)).asInstanceOf[Schema[Scan.ToState[S]]]
+        case _: PairSub[?]      => Schema[Unit].asInstanceOf[Schema[Scan.ToState[S]]]
+        case _: RateFromPair[?] => Schema[Unit].asInstanceOf[Schema[Scan.ToState[S]]]
 
-    def stateLabels[I, O, S <: Tuple](op: I :=>: O): Chunk[String] =
+    def stateLabels[I, O, S <: Matchable](op: I :=>: O): Chunk[String] =
       (op: TSOp[I, O]) match
         case _: Delta[?]        => Chunk("previous")
         case _: MovingAvg[?]    => Chunk("buffer", "sum")

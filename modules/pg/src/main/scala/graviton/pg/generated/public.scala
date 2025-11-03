@@ -27,7 +27,7 @@ final case class BuildInfo(
   @SqlName("launched_at")
   launchedAt: java.time.OffsetDateTime,
   @SqlName("is_current")
-  isCurrent: Boolean
+  isCurrent: Boolean,
 ) derives DbCodec
 
 object BuildInfo:
@@ -37,8 +37,7 @@ object BuildInfo:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: Long = id
+  extension (id: Id) def value: Long = id
 
   final case class Creator(
     id: Option[BuildInfo.Id] = None,
@@ -49,7 +48,7 @@ object BuildInfo:
     zioVersion: String,
     builtAt: java.time.OffsetDateTime,
     launchedAt: java.time.OffsetDateTime,
-    isCurrent: Option[Boolean] = None
+    isCurrent: Option[Boolean] = None,
   ) derives DbCodec
 
   val repo = Repo[BuildInfo.Creator, BuildInfo, BuildInfo.Id]
@@ -62,7 +61,7 @@ final case class HashAlgorithm(
   @SqlName("name")
   name: String,
   @SqlName("is_fips")
-  isFips: Boolean
+  isFips: Boolean,
 ) derives DbCodec
 
 object HashAlgorithm:
@@ -72,13 +71,12 @@ object HashAlgorithm:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Short]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: Short = id
+  extension (id: Id) def value: Short = id
 
   final case class Creator(
     id: Option[HashAlgorithm.Id] = None,
     name: String,
-    isFips: Option[Boolean] = None
+    isFips: Option[Boolean] = None,
   ) derives DbCodec
 
   val repo = Repo[HashAlgorithm.Creator, HashAlgorithm, HashAlgorithm.Id]
@@ -107,7 +105,7 @@ final case class Store(
   @SqlName("updated_at")
   updatedAt: java.time.OffsetDateTime,
   @SqlName("dv_hash")
-  dvHash: Option[Chunk[Byte]]
+  dvHash: Option[Chunk[Byte]],
 ) derives DbCodec
 
 object Store:
@@ -117,8 +115,7 @@ object Store:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[StoreKey]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: StoreKey = id
+  extension (id: Id) def value: StoreKey = id
 
   final case class Creator(
     key: StoreKey,
@@ -131,7 +128,7 @@ object Store:
     version: Option[NonNegLong] = None,
     createdAt: Option[java.time.OffsetDateTime] = None,
     updatedAt: Option[java.time.OffsetDateTime] = None,
-    dvHash: Option[Chunk[Byte]] = None
+    dvHash: Option[Chunk[Byte]] = None,
   ) derives DbCodec
 
   val repo = Repo[Store.Creator, Store, Store.Id]
@@ -150,7 +147,7 @@ final case class Blob(
   @SqlName("media_type_hint")
   mediaTypeHint: Option[String],
   @SqlName("created_at")
-  createdAt: java.time.OffsetDateTime
+  createdAt: java.time.OffsetDateTime,
 ) derives DbCodec
 
 object Blob:
@@ -160,8 +157,7 @@ object Blob:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: java.util.UUID = id
+  extension (id: Id) def value: java.util.UUID = id
 
   final case class Creator(
     id: Option[Blob.Id] = None,
@@ -169,7 +165,7 @@ object Blob:
     hash: HashBytes,
     sizeBytes: PosLong,
     mediaTypeHint: Option[String] = None,
-    createdAt: Option[java.time.OffsetDateTime] = None
+    createdAt: Option[java.time.OffsetDateTime] = None,
   ) derives DbCodec
 
   val repo = Repo[Blob.Creator, Blob, Blob.Id]
@@ -187,44 +183,46 @@ final case class Block(
   @SqlName("created_at")
   createdAt: java.time.OffsetDateTime,
   @SqlName("inline_bytes")
-  inlineBytes: Option[SmallBytes]
+  inlineBytes: Option[SmallBytes],
 ) derives DbCodec
 
 object Block:
   opaque type Id <: (
     algoId: Short,
-    hash: HashBytes
+    hash: HashBytes,
   ) = (
     algoId: Short,
-    hash: HashBytes
+    hash: HashBytes,
   )
   object Id:
     def either(algoId: Short, hash: HashBytes): Either[String, Id] = Right((algoId = algoId, hash = hash))
-    def apply(value: (
-    algoId: Short,
-    hash: HashBytes
-  )): Id = value
+    def apply(
+      value: (
+        algoId: Short,
+        hash: HashBytes,
+      )
+    ): Id = value
     def apply(algoId: Short, hash: HashBytes): (
-    algoId: Short,
-    hash: HashBytes
-  ) = (algoId = algoId, hash = hash)
+      algoId: Short,
+      hash: HashBytes,
+    ) = (algoId = algoId, hash = hash)
 
   export Id.given
   extension (id: Id)
     def value: (
-    algoId: Short,
-    hash: HashBytes
-  ) = id
+      algoId: Short,
+      hash: HashBytes,
+    ) = id
 
-  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(Short, HashBytes)]].biMap(v => Id((algoId = v._1, hash = v._2)), i => (i.algoId, i.hash))
-
+  given DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[(Short, HashBytes)]].biMap(v => Id((algoId = v._1, hash = v._2)), i => (i.algoId, i.hash))
 
   final case class Creator(
     algoId: Short,
     hash: HashBytes,
     sizeBytes: PosLong,
     createdAt: Option[java.time.OffsetDateTime] = None,
-    inlineBytes: Option[SmallBytes] = None
+    inlineBytes: Option[SmallBytes] = None,
   ) derives DbCodec
 
   val repo = Repo[Block.Creator, Block, Block.Id]
@@ -243,7 +241,7 @@ final case class MerkleSnapshot(
   @SqlName("at_time")
   atTime: java.time.OffsetDateTime,
   @SqlName("note")
-  note: Option[String]
+  note: Option[String],
 ) derives DbCodec
 
 object MerkleSnapshot:
@@ -253,8 +251,7 @@ object MerkleSnapshot:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: Long = id
+  extension (id: Id) def value: Long = id
 
   final case class Creator(
     id: Option[MerkleSnapshot.Id] = None,
@@ -262,7 +259,7 @@ object MerkleSnapshot:
     algoId: Short,
     rootHash: HashBytes,
     atTime: Option[java.time.OffsetDateTime] = None,
-    note: Option[String] = None
+    note: Option[String] = None,
   ) derives DbCodec
 
   val repo = Repo[MerkleSnapshot.Creator, MerkleSnapshot, MerkleSnapshot.Id]
@@ -284,37 +281,39 @@ final case class ManifestEntry(
   @SqlName("size_bytes")
   sizeBytes: PosLong,
   @SqlName("span")
-  span: Option[DbRange[Long]]
+  span: Option[DbRange[Long]],
 ) derives DbCodec
 
 object ManifestEntry:
   opaque type Id <: (
     blobId: java.util.UUID,
-    seq: Int
+    seq: Int,
   ) = (
     blobId: java.util.UUID,
-    seq: Int
+    seq: Int,
   )
   object Id:
     def either(blobId: java.util.UUID, seq: Int): Either[String, Id] = Right((blobId = blobId, seq = seq))
-    def apply(value: (
-    blobId: java.util.UUID,
-    seq: Int
-  )): Id = value
+    def apply(
+      value: (
+        blobId: java.util.UUID,
+        seq: Int,
+      )
+    ): Id = value
     def apply(blobId: java.util.UUID, seq: Int): (
-    blobId: java.util.UUID,
-    seq: Int
-  ) = (blobId = blobId, seq = seq)
+      blobId: java.util.UUID,
+      seq: Int,
+    ) = (blobId = blobId, seq = seq)
 
   export Id.given
   extension (id: Id)
     def value: (
-    blobId: java.util.UUID,
-    seq: Int
-  ) = id
+      blobId: java.util.UUID,
+      seq: Int,
+    ) = id
 
-  given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(java.util.UUID, Int)]].biMap(v => Id((blobId = v._1, seq = v._2)), i => (i.blobId, i.seq))
-
+  given DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[(java.util.UUID, Int)]].biMap(v => Id((blobId = v._1, seq = v._2)), i => (i.blobId, i.seq))
 
   final case class Creator(
     blobId: java.util.UUID,
@@ -323,7 +322,7 @@ object ManifestEntry:
     blockHash: HashBytes,
     offsetBytes: PosLong,
     sizeBytes: PosLong,
-    span: Option[DbRange[Long]] = None
+    span: Option[DbRange[Long]] = None,
   ) derives DbCodec
 
   val repo = Repo[ManifestEntry.Creator, ManifestEntry, ManifestEntry.Id]
@@ -352,7 +351,7 @@ final case class Replica(
   @SqlName("first_seen_at")
   firstSeenAt: java.time.OffsetDateTime,
   @SqlName("last_verified_at")
-  lastVerifiedAt: Option[java.time.OffsetDateTime]
+  lastVerifiedAt: Option[java.time.OffsetDateTime],
 ) derives DbCodec
 
 object Replica:
@@ -362,8 +361,7 @@ object Replica:
   given DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Long]].biMap(value => Id(value), id => value(id))
 
   export Id.given
-  extension (id: Id)
-    def value: Long = id
+  extension (id: Id) def value: Long = id
 
   final case class Creator(
     id: Option[Replica.Id] = None,
@@ -376,7 +374,7 @@ object Replica:
     etag: Option[String] = None,
     storageClass: Option[String] = None,
     firstSeenAt: Option[java.time.OffsetDateTime] = None,
-    lastVerifiedAt: Option[java.time.OffsetDateTime] = None
+    lastVerifiedAt: Option[java.time.OffsetDateTime] = None,
   ) derives DbCodec
 
   val repo = Repo[Replica.Creator, Replica, Replica.Id]
@@ -394,7 +392,7 @@ final case class VBlobManifest(
   @SqlName("created_at")
   createdAt: Option[java.time.OffsetDateTime],
   @SqlName("manifest")
-  manifest: Option[Json]
+  manifest: Option[Json],
 ) derives DbCodec
 
 object VBlobManifest:
@@ -427,7 +425,7 @@ final case class VBlockReplicaHealth(
   @SqlName("has_active")
   hasActive: Option[Boolean],
   @SqlName("has_lost")
-  hasLost: Option[Boolean]
+  hasLost: Option[Boolean],
 ) derives DbCodec
 
 object VBlockReplicaHealth:
@@ -458,11 +456,10 @@ final case class VStoreInventory(
   @SqlName("first_replica_seen_at")
   firstReplicaSeenAt: Option[java.time.OffsetDateTime],
   @SqlName("last_replica_verified_at")
-  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime]
+  lastReplicaVerifiedAt: Option[java.time.OffsetDateTime],
 ) derives DbCodec
 
 object VStoreInventory:
   type Id = Null
 
   val repo = ImmutableRepo[VStoreInventory, VStoreInventory.Id]
-

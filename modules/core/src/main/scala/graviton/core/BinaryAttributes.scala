@@ -19,20 +19,20 @@ private object DynamicAttr:
       attr.source,
     )
 
-final case class BinaryAttributes private (
-  advertised: ListMap[BinaryAttributeKey[?], DynamicAttr],
-  confirmed: ListMap[BinaryAttributeKey[?], DynamicAttr],
+final case class BinaryAttributes private[graviton] (
+  advertised: Map[BinaryAttributeKey, DynamicAttr],
+  confirmed: Map[BinaryAttributeKey, DynamicAttr],
 ):
-  def getAdvertised[A](k: BinaryAttributeKey[A])(using Schema[A]): Option[BinaryAttribute[A]] =
-    advertised.get(k).flatMap(_.to[A])
+  def getAdvertised[A](k: BinaryAttributeKey.Aux[A]): Option[BinaryAttribute[A]] =
+    advertised.get(k).flatMap(_.to[A](using k.schema))
 
-  def getConfirmed[A](k: BinaryAttributeKey[A])(using Schema[A]): Option[BinaryAttribute[A]] =
-    confirmed.get(k).flatMap(_.to[A])
+  def getConfirmed[A](k: BinaryAttributeKey.Aux[A]): Option[BinaryAttribute[A]] =
+    confirmed.get(k).flatMap(_.to[A](using k.schema))
 
-  def putAdvertised[A](k: BinaryAttributeKey[A], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
+  def putAdvertised[A](k: BinaryAttributeKey.Aux[A], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
     copy(advertised = advertised.updated(k, DynamicAttr.from(attr)))
 
-  def putConfirmed[A](k: BinaryAttributeKey[A], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
+  def putConfirmed[A](k: BinaryAttributeKey.Aux[A], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
     copy(confirmed = confirmed.updated(k, DynamicAttr.from(attr)))
 
   def ++(other: BinaryAttributes): BinaryAttributes =
@@ -44,10 +44,10 @@ final case class BinaryAttributes private (
 object BinaryAttributes:
   val empty: BinaryAttributes = BinaryAttributes(ListMap.empty, ListMap.empty)
 
-  def advertised[A](k: BinaryAttributeKey[A], value: A, source: String)(using Schema[A]): BinaryAttributes =
+  def advertised[A](k: BinaryAttributeKey.Aux[A], value: A, source: String)(using Schema[A]): BinaryAttributes =
     empty.putAdvertised(k, BinaryAttribute(value, source))
 
-  def confirmed[A](k: BinaryAttributeKey[A], value: A, source: String)(using Schema[A]): BinaryAttributes =
+  def confirmed[A](k: BinaryAttributeKey.Aux[A], value: A, source: String)(using Schema[A]): BinaryAttributes =
     empty.putConfirmed(k, BinaryAttribute(value, source))
 
   private val FilenamePattern  = "^[^\\/\\r\\n]+$".r

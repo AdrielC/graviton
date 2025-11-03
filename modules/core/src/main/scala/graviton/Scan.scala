@@ -6,8 +6,11 @@ import zio.ChunkBuilder
 import zio.stream.Take
 import zio.prelude.fx.ZPure
 // import scala.compiletime.{erasedValue, summonFrom}
-import io.github.iltotore.iron.{zio as _, *}
-import io.github.iltotore.iron.constraint.all.*
+// removed iron refined constraints from this file for simplicity
+import cats.Eval
+import cats.data.Ior
+import graviton.core.model.Block
+import graviton.domain.HashBytes
 
 /**
  * A stateful stream transformer whose state is represented as a Tuple.
@@ -16,27 +19,67 @@ import io.github.iltotore.iron.constraint.all.*
  * compile-time optimisation and eliminate intermediate allocations.
  */
 sealed trait Scan[-I, +O]:
-  type State <: Tuple
+
+  type S <: Matchable
+
+  type State = Scan.ToState[S]
+
   type Size = scala.Tuple.Size[State]
 
   inline def size: Size = scala.compiletime.summonInline[Size]
 
-  def initial: State
+  private[graviton] def _initial: Eval[S]
+
+  final def initialState: Eval[State] = _initial.map(Scan.toState(_))
+
+  final def initial: State = initialState.value
+
+  type FromState[A <: Tuple] = A match
+    case EmptyTuple      => Unit
+    case n *: EmptyTuple => Tuple.Head[A]
+    case _               => Tuple.Take[A, Size]
+
+  def fromState[A <: State & Matchable](a: A): FromState[A] = a match
+    case _: EmptyTuple.type => ().asInstanceOf[FromState[A]]
+    case h *: EmptyTuple    => h.asInstanceOf[FromState[A]]
+    case t                  =>
+      t.productIterator
+        .take(
+          scala.compiletime
+            .constValueOpt[Size]
+            .getOrElse(initial.productArity.asInstanceOf[Size])
+        )
+        .foldRight[Tuple](EmptyTuple)((o, e) => o *: e)
+        .asInstanceOf[FromState[A]]
+
   def step(state: State, in: I): (State, Chunk[O])
   def done(state: State): Chunk[O]
 
 object Scan:
-  type Aux[-I, +O, S <: Tuple] = Scan[I, O] { type State = S }
+
+  type ToState[A] <: Tuple = A match
+    case EmptyTuple => EmptyTuple
+    case Unit       => EmptyTuple
+    case x *: xs    => x *: ToState[xs]
+
+  def toState[A <: Matchable](a: A): ToState[A] =
+    a match
+      case _: EmptyTuple.type => EmptyTuple.asInstanceOf[ToState[A]]
+      case _: Unit            => EmptyTuple.asInstanceOf[ToState[A]]
+      case _: (x *: xs)       => (a.asInstanceOf[x *: xs].head *: toState(a.asInstanceOf[x *: xs].tail)).asInstanceOf[ToState[A]]
+      case _                  => Tuple1(a).asInstanceOf[ToState[A]]
+
+  type Aux[-I, +O, St <: Matchable] = Scan[I, O] { type S = St }
 
   // ---------------------- core operations ----------------------
 
-  extension [I, O, S <: Tuple](self: Scan.Aux[I, O, S])
+  extension [I, O, S <: Matchable](self: Scan.Aux[I, O, S])
     transparent inline def toChannel: ZChannel[Any, Nothing, Chunk[
       I
-    ], Any, Nothing, Take[Nothing, O], Any] =
+    ], Any, Nothing, Take[Nothing, O], self.State] =
       def loop(
-        state: S
-      ): ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Take[Nothing, O], Any] =
+        state: self.State
+      ): ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Take[Nothing, O], self.State] =
         ZChannel.readWith(
           in =>
             val (s, outs) = in.foldLeft((state, Chunk.empty[O])) { (acc, i) =>
@@ -49,17 +92,17 @@ object Scan:
           _ =>
             ZChannel.write(Take.chunk(self.done(state))) *>
               ZChannel.write(Take.end) *>
-              ZChannel.unit,
+              ZChannel.succeed(state),
         )
       loop(self.initial)
 
     transparent inline def toPipeline: ZPipeline[Any, Nothing, I, O] =
       ZPipeline.fromChannel(
-        toChannel.mapOut(
+        toChannel.mapOutZIO(
           _.fold(
-            Chunk.empty[O],
-            cause => throw cause.squash,
-            chunk => chunk,
+            ZIO.succeed(Chunk.empty[O]),
+            cause => ZIO.die(cause.squash),
+            chunk => ZIO.succeed(chunk),
           )
         )
       )
@@ -67,46 +110,48 @@ object Scan:
     transparent inline def toSink: ZSink[Any, Nothing, I, Nothing, Chunk[O]] =
       toPipeline >>> ZSink.collectAll[O]
 
-    transparent inline def map[O2](inline f: O => O2): Scan.Aux[I, O2, S] =
-      statefulTuple(self.initial)((s: S, i: I) =>
-        val (s2, o) = self.step(s, i)
-        (s2, o.map(f))
-      )(s => self.done(s).map(f))
+    def map[O2](f: O => O2): Scan.Aux[I, O2, S] =
+      statefulTuple(self._initial)((s: S, i: I) =>
+        val (s2, o) = self.step(toState(s), i)
+        ((s2).asInstanceOf[S], o.map(f))
+      )(s => self.done(toState(s)).map(f))
 
-    transparent inline def contramap[I2](
-      inline f: I2 => I
+    def contramap[I2](
+      f: I2 => I
     ): Scan.Aux[I2, O, S] =
-      statefulTuple(self.initial)((s: S, i2: I2) => self.step(s, f(i2): I))(
-        self.done
-      )
+      statefulTuple(self._initial)((st: S, i2: I2) =>
+        val (s2, o) = self.step(toState(st), f(i2): I)
+        ((s2).asInstanceOf[S], o)
+      )(s => self.done(toState(s)))
 
-    transparent inline def dimap[I2, O2](inline g: I2 => I)(
-      inline f: O => O2
+    def dimap[I2, O2](g: I2 => I)(
+      f: O => O2
     ): Scan.Aux[I2, O2, S] =
-      statefulTuple(self.initial)((s: S, i2: I2) =>
-        val (s2, o) = self.step(s, g(i2): I)
-        (s2, o.map(f))
-      )(s => self.done(s).map(f))
+      statefulTuple(self._initial)((s: S, i2: I2) =>
+        val (s2, o) = self.step(toState(s), g(i2): I)
+        ((s2).asInstanceOf[S], o.map(f))
+      )(s => self.done(toState(s)).map(f))
 
-    transparent inline def andThen[O2, S2 <: Tuple](
-      inline that: Scan.Aux[O, O2, S2]
-    ): Scan.Aux[I, O2, Tuple.Concat[S, S2]] =
-      val sizeA = self.initial.productArity
-      statefulTuple(self.initial ++ that.initial)((st: Tuple, i: I) =>
-        val s1        = st.take(sizeA).asInstanceOf[S]
-        val s2        = st.drop(sizeA).asInstanceOf[S2]
-        val (s1b, o1) = self.step(s1, i)
-        var s2b       = s2
+    def andThen[O2, S2 <: Matchable](
+      that: Scan.Aux[O, O2, S2]
+    ): Scan.Aux[I, O2, Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
+      type SS = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
+      val sizeA = self.initial.productArity.asInstanceOf[self.Size]
+      statefulTuple(self.initialState.flatMap(s => that.initialState.map(t => s ++ t)))((st: SS, i: I) =>
+        val s1        = st.take(sizeA).asInstanceOf[self.State]
+        val s2        = st.drop(sizeA).asInstanceOf[that.State]
+        val (s1b, o1) = self.step(s1.asInstanceOf[self.State], i)
+        var s2b       = toState(s2).asInstanceOf[that.State]
         val builder   = ChunkBuilder.make[O2]()
         o1.foreach { o =>
           val (s2n, o2) = that.step(s2b, o)
           s2b = s2n
           builder ++= o2
         }
-        ((s1b ++ s2b).asInstanceOf[Tuple.Concat[S, S2]], builder.result())
+        (toState(s1b ++ s2b).asInstanceOf[SS], builder.result())
       ) { (st: Tuple) =>
-        val s1      = st.take(sizeA).asInstanceOf[S]
-        val s2      = st.drop(sizeA).asInstanceOf[S2]
+        val s1      = st.take(sizeA).asInstanceOf[self.State]
+        val s2      = st.drop(sizeA).asInstanceOf[that.State]
         val interim = self.done(s1)
         var s2b     = s2
         val builder = ChunkBuilder.make[O2]()
@@ -118,30 +163,31 @@ object Scan:
         builder.result() ++ that.done(s2b)
       }
 
-    transparent inline def flatMap[O2, S2 <: Tuple](
-      inline that: Scan.Aux[O, O2, S2]
-    ): Scan.Aux[I, O2, Tuple.Concat[S, S2]] =
+    transparent inline def flatMap[O2, S2 <: Matchable](
+      that: Scan.Aux[O, O2, S2]
+    ): Scan.Aux[I, O2, Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
       andThen(that)
 
-    transparent inline def zip[O2, S2 <: Tuple](
-      inline that: Scan.Aux[I, O2, S2]
-    ): Scan.Aux[I, (O, O2), Tuple.Concat[S, S2]] =
-      val sizeA = self.initial.productArity
-      statefulTuple(self.initial ++ that.initial)((st: Tuple, i: I) =>
-        val s1        = st.take(sizeA).asInstanceOf[S]
-        val s2        = st.drop(sizeA).asInstanceOf[S2]
-        val (s1b, o1) = self.step(s1, i)
-        val (s2b, o2) = that.step(s2, i)
-        ((s1b ++ s2b).asInstanceOf[Tuple.Concat[S, S2]], o1.zip(o2))
-      ) { (st: Tuple) =>
-        val s1 = st.take(sizeA).asInstanceOf[S]
-        val s2 = st.drop(sizeA).asInstanceOf[S2]
-        self.done(s1).zip(that.done(s2))
+    transparent inline def zip[O2, S2 <: Matchable](
+      that: Scan.Aux[I, O2, S2]
+    ): Scan.Aux[I, (O, O2), Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
+      inline val sizeA = self.size
+      type CombinedState = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
+      statefulTuple(self.initial ++ that.initial)((st: CombinedState, i: I) =>
+        val (s1, s2)  = st.splitAt(sizeA)
+        val (s1b, o1) = self.step(s1.asInstanceOf[self.State], i)
+        val (s2b, o2) = that.step(s2.asInstanceOf[that.State], i)
+        ((s1b ++ s2b).asInstanceOf[CombinedState], o1.zip(o2))
+      ) { st =>
+        val (s1, s2) = st.splitAt(sizeA)
+        self
+          .done(s1.asInstanceOf[self.State])
+          .zip(that.done(toState(s2).asInstanceOf[that.State]))
       }
 
     transparent inline def runAll(
       inputs: Iterable[I]
-    ): (S, Chunk[O]) =
+    ): (self.State, Chunk[O]) =
       var state   = self.initial
       val builder = ChunkBuilder.make[O]()
       val it      = inputs.iterator
@@ -154,9 +200,9 @@ object Scan:
 
     transparent inline def runZPure(
       inputs: Iterable[I]
-    ): ZPure[Nothing, S, S, Any, Nothing, Chunk[O]] =
+    ): ZPure[Nothing, S, self.State, Any, Nothing, Chunk[O]] =
       ZPure.modify { (st: S) =>
-        var state   = st
+        var state   = toState(st)
         val builder = ChunkBuilder.make[O]()
         val it      = inputs.iterator
         while it.hasNext do
@@ -169,74 +215,84 @@ object Scan:
 
   // ---------------------- Stateless implementations ----------------------
 
-  sealed trait Stateless[-I, +O] extends Scan[I, O]:
-    final type State = EmptyTuple
-    final val initial: EmptyTuple = EmptyTuple
+  sealed trait Stateless[-I, +O](f: I => Chunk[O]) extends Scan[I, O]:
+    final type S = EmptyTuple
+    override val _initial: Eval[S]   = Eval.now(EmptyTuple)
+    def done(state: State): Chunk[O] = Chunk.empty
 
-    def done(state: EmptyTuple): Chunk[O]
+    def step(state: State, in: I) = (state, f(in))
 
-  private[Scan] final class StatelessChain[I, O](val fs: Chunk[Any => Any]) extends Stateless[I, O]:
-
-    def stepSingle(state: EmptyTuple, in: I) =
-      var res: Any = in
-      var i        = 0
-      while i < fs.length do
-        res = fs(i)(res)
-        i += 1
-      (state, res.asInstanceOf[O])
-
-    def step(state: EmptyTuple, in: I) =
-      val (s, o) = stepSingle(state, in)
-      (s, Chunk.single(o))
-
-    def done(state: EmptyTuple) = Chunk.empty
+  private[Scan] case class StatelessChain[I, O](val fs: Chunk[Any => Any])
+      extends Stateless[I, O]({ (in: I) =>
+        if fs.isEmpty
+        then Chunk.single(in.asInstanceOf[O])
+        else
+          var res: Any = in
+          var i        = 0
+          while i < fs.length do
+            res = fs(i)(res)
+            i += 1
+          end while
+          Chunk.single(res.asInstanceOf[O])
+      })
 
   transparent inline def stateless1[I, O](inline f: I => O): Stateless[I, O] =
-    new StatelessChain[I, O](Chunk.single(f.asInstanceOf[Any => Any]))
+    StatelessChain[I, O](Chunk.single(f.asInstanceOf[Any => Any]))
 
   def stateless[I, O](
     f: I => Chunk[O]
   ): Stateless[I, O] =
-    new Stateless[I, O]:
-      def step(state: EmptyTuple, in: I) = (state, f(in))
-      def done(state: EmptyTuple)        = Chunk.empty
+    new Stateless[I, O](f) {}
 
   // ---------------------- Stateful helpers ----------------------
 
-  sealed trait Stateful[-I, +O, S <: Tuple] extends Scan[I, O]:
-    final type State = S
-    val initial: S
+  sealed trait Stateful[St <: Matchable, -I, +O] extends Scan[I, O]:
+    override final type S = St
 
-  def stateful[I, O, S](init: S)(
-    stepFn: (S, I) => (S, Chunk[O])
-  )(doneFn: S => Chunk[O]): Stateful[I, O, S *: EmptyTuple] =
-    new Stateful[I, O, S *: EmptyTuple]:
-      val initial                             = init *: EmptyTuple
-      def step(state: S *: EmptyTuple, in: I) =
-        val (s, o) = stepFn(state.head, in)
-        (s *: EmptyTuple, o)
-      def done(state: S *: EmptyTuple)        = doneFn(state.head)
+  final case class DefaultStateful[I, O, St <: Matchable](_initial: Eval[St])(
+    stepFn: (St, I) => (St, Chunk[O])
+  )(onDone: St => Chunk[O])
+      extends Stateful[St, I, O]:
 
-  def statefulTuple[I, O, S <: Tuple](init: S)(
-    stepFn: (S, I) => (S, Chunk[O])
-  )(doneFn: S => Chunk[O]): Stateful[I, O, S] =
-    new Stateful[I, O, S]:
-      val initial               = init
-      def step(state: S, in: I) = stepFn(state, in)
-      def done(state: S)        = doneFn(state)
+    def step(state: State, in: I): (State, Chunk[O]) =
+      val st     = fromState(state).asInstanceOf[St]
+      val (s, o) = stepFn(st, in)
+      (toState(s), o)
 
-  transparent inline def apply[I, O, S](init: S)(
-    inline stepFn: (S, I) => (S, Chunk[O])
-  )(inline doneFn: S => Chunk[O]): Stateful[I, O, S *: EmptyTuple] =
-    stateful(init)(stepFn)(doneFn)
+    def done(state: State): Chunk[O] =
+      val st = fromState(state).asInstanceOf[St]
+      onDone(st)
+
+  end DefaultStateful
+
+  inline def stateful[I, O, St <: Matchable](_init: => St)(
+    stepFn: (St, I) => (St, Chunk[O])
+  )(doneFn: St => Chunk[O]): Stateful[St, I, O] =
+    DefaultStateful(Eval.now(_init))(stepFn)(doneFn)
+
+  def statefulTuple[I, O, St <: Matchable](_init: => St)(
+    stepFn: (St, I) => (St, Chunk[O])
+  )(doneFn: St => Chunk[O]): Stateful[St, I, O] =
+    statefulTuple(Eval.later(_init))((s: St, i: I) => stepFn(s, i))(doneFn)
+
+  inline def statefulTuple[I, O, St <: Matchable](_init: Eval[St])(
+    stepFn: (St, I) => (St, Chunk[O])
+  )(doneFn: St => Chunk[O]): Stateful[St, I, O] =
+    stateful(_init.value) { (a: St, b: I) =>
+      val (s, o) = stepFn(a, b)
+      (s, o)
+    }(s => doneFn(s))
+
+  transparent inline def apply[I, O, SS <: Matchable](init: => SS)(
+    inline stepFn: (SS, I) => (SS, Chunk[O])
+  )(inline doneFn: SS => Chunk[O]): Stateful[SS, I, O] =
+    stateful(init)((s: SS, i: I) => stepFn(s, i))(s => doneFn(s))
 
   // identity
-  private object Identity extends Stateless[Any, Any]:
-    def step(state: EmptyTuple, in: Any) = (state, Chunk.single(in))
-    def done(state: EmptyTuple)          = Chunk.empty
+  private[graviton] class Identity[A] extends StatelessChain[A, A](Chunk.empty)
 
   transparent inline def identity[I]: Aux[I, I, EmptyTuple] =
-    Identity.asInstanceOf[Aux[I, I, EmptyTuple]]
+    new Identity[I]
 
   transparent inline def lift[I, O](inline f: I => O): Aux[I, O, EmptyTuple] =
     stateless1(f)
@@ -244,67 +300,50 @@ object Scan:
   // ---------------------- Built-in scans ----------------------
 
   /** Counts the number of elements in the incoming stream. */
-  val count: Aux[Any, Long, Long *: EmptyTuple] =
+  val count: Aux[Any, Long, Long] =
     stateful[Any, Long, Long](0L)((s, _) => (s + 1L, Chunk.empty))(s => Chunk.single(s))
 
+  type HashState = java.security.MessageDigest | io.github.rctcwyvrn.blake3.Blake3
+
+  extension [A <: HashState & Matchable](self: A)
+    def update(b: Chunk[Byte]): A =
+      self match
+        case md: java.security.MessageDigest       => md.update(b.toArray); self
+        case bl: io.github.rctcwyvrn.blake3.Blake3 => bl.update(b.toArray); self
+
+    def digest: HashBytes =
+      self match
+        case md: java.security.MessageDigest       => HashBytes.applyUnsafe(Chunk.fromArray(md.digest()))
+        case bl: io.github.rctcwyvrn.blake3.Blake3 => HashBytes.applyUnsafe(Chunk.fromArray(bl.digest()))
+
   /** Computes a hash of all bytes using the provided algorithm. */
-  def hash(algo: HashAlgorithm): Aux[Byte, Hash, AnyRef *: EmptyTuple] =
-    algo match
-      case HashAlgorithm.SHA256 | HashAlgorithm.SHA512 =>
-        val md = java.security.MessageDigest.getInstance(algo match
-          case HashAlgorithm.SHA256 => "SHA-256"
-          case HashAlgorithm.SHA512 => "SHA-512"
-          case _                    => "SHA-256")
-        stateful[Byte, Hash, java.security.MessageDigest](md) { (m, b) =>
-          m.update(b); (m, Chunk.empty)
-        }(m =>
-          Chunk.single(
-            Hash(
-              Chunk.fromArray(m.digest()).assume[MinLength[16] & MaxLength[64]],
-              algo,
-            )
-          )
-        )
-          .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
-      case HashAlgorithm.Blake3                        =>
-        val bl = io.github.rctcwyvrn.blake3.Blake3.newInstance()
-        stateful[Byte, Hash, io.github.rctcwyvrn.blake3.Blake3](bl) { (h, b) =>
-          h.update(Array(b)); (h, Chunk.empty)
-        }(h =>
-          Chunk.single(
-            Hash(
-              Chunk.fromArray(h.digest()).assume[MinLength[16] & MaxLength[64]],
-              algo,
-            )
-          )
-        )
-          .asInstanceOf[Aux[Byte, Hash, AnyRef *: EmptyTuple]]
+  def hash(algo: graviton.HashAlgorithm): Aux[Block, Hash, HashState] =
+    statefulTuple(
+      algo match
+        case HashAlgorithm.SHA256 => java.security.MessageDigest.getInstance("SHA-256")
+        case HashAlgorithm.SHA512 => java.security.MessageDigest.getInstance("SHA-512")
+        case HashAlgorithm.Blake3 => io.github.rctcwyvrn.blake3.Blake3.newInstance()
+    ) { (m: HashState, b: Block) =>
+      (m.update(b.bytes), Chunk.empty[Hash])
+    }((m: HashState) => Chunk.single(Hash(m.digest, algo)))
 
   /** Convenience scan that produces both hash and count in one pass. */
   def hashAndCount(
-    algo: HashAlgorithm
-  ): Aux[Byte, (Hash, Long), (AnyRef, Long)] =
-    val initHasher: AnyRef = algo match
-      case HashAlgorithm.SHA256 =>
-        java.security.MessageDigest.getInstance("SHA-256")
-      case HashAlgorithm.SHA512 =>
-        java.security.MessageDigest.getInstance("SHA-512")
-      case HashAlgorithm.Blake3 =>
-        io.github.rctcwyvrn.blake3.Blake3.newInstance()
-    statefulTuple((initHasher, 0L)) { (state, b: Byte) =>
-      val (h, c) = state
-      h match
-        case md: java.security.MessageDigest       => md.update(b)
-        case bl: io.github.rctcwyvrn.blake3.Blake3 => bl.update(Array(b))
-      ((h, c + 1L), Chunk.empty)
-    } { (state) =>
-      val (h, c) = state
-      val dig    = h match
-        case md: java.security.MessageDigest       => Chunk.fromArray(md.digest())
-        case bl: io.github.rctcwyvrn.blake3.Blake3 =>
-          Chunk.fromArray(bl.digest())
-      val digRef = dig.assume[MinLength[16] & MaxLength[64]]
-      Chunk.single((Hash(digRef, algo), c))
+    algo: graviton.HashAlgorithm
+  ): Aux[Block, Ior[Hash, Long], (HashState, Long)] =
+    statefulTuple(
+      (
+        algo match
+          case HashAlgorithm.SHA256 => java.security.MessageDigest.getInstance("SHA-256")
+          case HashAlgorithm.SHA512 => java.security.MessageDigest.getInstance("SHA-512")
+          case HashAlgorithm.Blake3 => io.github.rctcwyvrn.blake3.Blake3.newInstance()
+        ,
+        0L
+      )
+    ) { (m: (HashState, Long), b: Block) =>
+      (m._1.update(b.bytes), m._2 + b.blockSize.toLong) -> Chunk.single(Ior.right(m._2 + b.blockSize.toLong))
+    } { (m: (HashState, Long)) =>
+      Chunk.single(Ior.both(Hash(m._1.digest, algo), m._2))
     }
 
   // --------- chunking ---------
@@ -314,7 +353,7 @@ object Scan:
   def chunkBy[I](
     costFn: I => Int,
     threshold: Int,
-  ): Aux[I, Chunk[I], ChunkState[I] *: EmptyTuple] =
+  ): Aux[I, Chunk[I], ChunkState[I]] =
     stateful(ChunkState(Chunk.empty[I], 0)) { (st: ChunkState[I], i: I) =>
       val buf1  = st.buffer :+ i
       val cost1 = st.cost + costFn(i)
@@ -324,6 +363,16 @@ object Scan:
       if st.buffer.isEmpty then Chunk.empty else Chunk.single(st.buffer)
     }
 
-  def fixedSize[I](size: Int): Aux[I, Chunk[I], ChunkState[I] *: EmptyTuple] =
+  def fixedSize[I](size: Int): Aux[I, Chunk[I], ChunkState[I]] =
     chunkBy(_ => 1, size)
+
+  /**
+   * Limits the number of bytes passing through. After the limit is exceeded,
+   * no further elements are emitted.
+   */
+  def limitBytes(maxBytes: Long): Aux[Byte, Byte, Long] =
+    stateful[Byte, Byte, Long](0L) { (count, b) =>
+      val next = count + 1
+      if next <= maxBytes then (next, Chunk.single(b)) else (next, Chunk.empty)
+    }(_ => Chunk.empty)
 end Scan

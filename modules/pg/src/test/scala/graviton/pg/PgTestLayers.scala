@@ -36,24 +36,25 @@ object PgTestLayers:
       img    <- State.get[DockerImageName]
     yield img
 
-
-  private def mkContainer[C <: PostgreSQLContainer[C] : {PgTestLayers, Tag}]: ZLayer[Any, Config.Error, C] =
+  private def mkContainer[C <: PostgreSQLContainer[C]: {PgTestLayers, Tag}]: ZLayer[Any, Config.Error, C] =
     ZLayer.scoped:
       for
         config    <- ZIO.config[PgTestConfig]
         imgN      <- getImageName.provideService(config).toZIO.orDie
         container <- ZIO.acquireRelease(
                        ZIO.attemptBlocking {
-                         val c = PgTestLayers[C].make(imgN)
-                         .withUsername(config.username)
-                         .withPassword(config.password)
-                         .withDatabaseName(config.database)
+                         val c = PgTestLayers[C]
+                           .make(imgN)
+                           .withUsername(config.username)
+                           .withPassword(config.password)
+                           .withDatabaseName(config.database)
 
-                         val conf = config.initScript.fold(c)(path => c.withInitScript(path.getFileName.toString))
-                         .withStartupAttempts(config.startupAttempts)
-                         .withStartupTimeout(config.startupTimeout)
-                         .withReuse(true)
-                         .waitingFor(Wait.forListeningPort().withStartupTimeout(config.startupTimeout))
+                         val conf = config.initScript
+                           .fold(c)(path => c.withInitScript(path.getFileName.toString))
+                           .withStartupAttempts(config.startupAttempts)
+                           .withStartupTimeout(config.startupTimeout)
+                           .withReuse(true)
+                           .waitingFor(Wait.forListeningPort().withStartupTimeout(config.startupTimeout))
 
                          conf.start()
                          conf
@@ -77,7 +78,7 @@ object PgTestLayers:
                          ds.setJdbcUrl(url)
                          ds.setUsername(container.getUsername)
                          ds.setPassword(container.getPassword)
-                        
+
                          ds.setMaximumPoolSize(4)
                          ds.setMinimumIdle(1)
                          ds.setAutoCommit(true)
@@ -94,10 +95,10 @@ object PgTestLayers:
                      )(ds => ZIO.attempt(ds.close()).orDie)
       yield ds
 
-  private inline def transactorLayer: ZLayer[DataSource, Throwable, TransactorZIO] =
+  inline private def transactorLayer: ZLayer[DataSource, Throwable, TransactorZIO] =
     TransactorZIO.layer
 
-  def layer[A <: PostgreSQLContainer[A] : {PgTestLayers, Tag}]: ZLayer[PgTestConfig, Throwable, TransactorZIO] =
+  def layer[A <: PostgreSQLContainer[A]: {PgTestLayers, Tag}]: ZLayer[PgTestConfig, Throwable, TransactorZIO] =
     ZLayer.make[TransactorZIO](
       mkContainer[A],
       mkDataSource[A],
@@ -110,34 +111,32 @@ object PgTestLayers:
 
 end PgTestLayers
 
-
-
 case class PgTestConfig(
-    image: String,
-    tag: String,
-    registry: Option[String],
-    repository: Option[String],
-    username: String,
-    password: String,
-    database: String,
-    initScript: Option[Path],
-    startupAttempts: Int,
-    startupTimeout: Duration
-  )
+  image: String,
+  tag: String,
+  registry: Option[String],
+  repository: Option[String],
+  username: String,
+  password: String,
+  database: String,
+  initScript: Option[Path],
+  startupAttempts: Int,
+  startupTimeout: Duration,
+)
 
 end PgTestConfig
 
 object PgTestConfig:
 
-  val layer: ZLayer[Any, Config.Error, PgTestConfig] = 
-    ZLayer.succeed(provider) >>> 
-    ZLayer.fromZIO(ZIO.config[PgTestConfig])
+  val layer: ZLayer[Any, Config.Error, PgTestConfig] =
+    ZLayer.succeed(provider) >>>
+      ZLayer.fromZIO(ZIO.config[PgTestConfig])
 
   def provider =
     ConfigProvider
       .fromMap(
         Map(
-          "image"   -> "postgres",
+          "image"           -> "postgres",
           "tag"             -> "17",
           "username"        -> "postgres",
           "password"        -> "postgres",
@@ -164,44 +163,39 @@ object PgTestConfig:
     val initScript      = Config.string("initScript").withDefault("../../ddl.sql").map(Path.of(_)).optional
     val startupAttempts = Config.int("startupAttempts").withDefault(3)
     val startupTimeout  = Config.duration("startupTimeout").withDefault(10.minutes)
-    
-    (image ++ tag ++ registry ++ repository ++ username ++ password ++ database ++ initScript ++ startupAttempts ++ startupTimeout)
-    .nested("pg")
-    .map:
-      case (image, tag, registry, repository, username, password, database, initScript, startupAttempts, startupTimeout) =>
-        val config = PgTestConfig(
-          image = image,
-          tag = tag,
-          registry = registry,
-          repository = repository,
-          username = username,
-          password = password,
-          database = database,
-          initScript = initScript,
-          startupAttempts = startupAttempts,
-          startupTimeout = startupTimeout,
-        )
-        println(s"config: $config")
-        config
 
+    (image ++ tag ++ registry ++ repository ++ username ++ password ++ database ++ initScript ++ startupAttempts ++ startupTimeout)
+      .nested("pg")
+      .map:
+        case (image, tag, registry, repository, username, password, database, initScript, startupAttempts, startupTimeout) =>
+          val config = PgTestConfig(
+            image = image,
+            tag = tag,
+            registry = registry,
+            repository = repository,
+            username = username,
+            password = password,
+            database = database,
+            initScript = initScript,
+            startupAttempts = startupAttempts,
+            startupTimeout = startupTimeout,
+          )
+          println(s"config: $config")
+          config
 
   end config
 end PgTestConfig
 
-
-
 case class TestContainer(dockerImageName: DockerImageName) extends PostgreSQLContainer[TestContainer](dockerImageName):
-  override def withUsername(username: String): TestContainer = super.withUsername(username)
-  override def withPassword(password: String): TestContainer = super.withPassword(password)
+  override def withUsername(username: String): TestContainer         = super.withUsername(username)
+  override def withPassword(password: String): TestContainer         = super.withPassword(password)
   override def withDatabaseName(databaseName: String): TestContainer = super.withDatabaseName(databaseName)
 
-  def withInitScript(initScript: Path): TestContainer = super.withInitScript(initScript.toString)
-  override def withStartupAttempts(startupAttempts: Int): TestContainer = super.withStartupAttempts(startupAttempts)
+  def withInitScript(initScript: Path): TestContainer                      = super.withInitScript(initScript.toString)
+  override def withStartupAttempts(startupAttempts: Int): TestContainer    = super.withStartupAttempts(startupAttempts)
   override def withStartupTimeout(startupTimeout: Duration): TestContainer = super.withStartupTimeout(startupTimeout)
-  override def withReuse(reuse: Boolean): TestContainer = super.withReuse(reuse)
-  override def waitingFor(waitStrategy: WaitStrategy): TestContainer = super.waitingFor(waitStrategy)
-
-  
+  override def withReuse(reuse: Boolean): TestContainer                    = super.withReuse(reuse)
+  override def waitingFor(waitStrategy: WaitStrategy): TestContainer       = super.waitingFor(waitStrategy)
 
 end TestContainer
 

@@ -9,39 +9,7 @@ import zio.*
 import zio.stream.ZStream
 import zio.test.*
 
-object BlobRepoSpec extends ZIOSpec[ConfigProvider] {
-
-  private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
-    value.trim match
-      case v if v.equalsIgnoreCase("1") || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("yes") => true
-      case _                                                                                       => false
-  }
-
-  private def repoLayer: ZLayer[Any, Throwable, TransactorZIO & BlockRepoLive & BlobRepoLive] =
-    ZLayer.make[TransactorZIO & BlockRepoLive & BlobRepoLive](
-      PgTestConfig.layer,
-      PgTestLayers.layer[TestContainer],
-      BlockRepoLive.layer,
-      BlobRepoLive.layer,
-    )
-  end repoLayer
-
-
-  override def bootstrap: ZLayer[Any, Any, ConfigProvider] =
-    ZLayer.succeed(pg.PgTestConfig.provider)
-    
-
-  private def seedAlgorithm(xa: TransactorZIO): Task[Unit] =
-    xa.transact {
-      sql"""
-        INSERT INTO hash_algorithm (id, name, is_fips)
-        VALUES (1, 'sha-256', true)
-        ON CONFLICT (id) DO NOTHING
-      """.update.run()
-    }.unit
-
-  private def sampleHash(seed: Int): HashBytes =
-    HashBytes.applyUnsafe(Chunk.fill(32)((seed + 17).toByte))
+object BlobRepoSpec extends PgTestSpec {
 
   override def spec: Spec[Environment & Scope, Any] =
     suite("BlobRepo")(

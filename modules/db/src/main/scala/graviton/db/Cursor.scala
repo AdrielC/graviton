@@ -91,7 +91,7 @@ object Cursor:
         .withTotal(patch.total.getOrElse(oldValue.total.getOrElse(Max(0L))))
 
   object ref:
-    val cursorRef: FiberRef[Cursor] = Unsafe.unsafe { u ?=> 
+    val cursorRef: FiberRef[Cursor] = Unsafe.unsafe { u ?=>
       FiberRef.unsafe.makePatch(
         initial,
         Cursor.differ,

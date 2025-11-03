@@ -11,6 +11,10 @@ import zio.schema.{DeriveSchema, Schema, derived}
 
 import graviton.Hash
 import zio.schema.validation.Validation
+// import graviton.BlockKey
+import graviton.core.model.*
+
+
 
 /**
  * Identifier for binary content. Keys can either be content addressed
@@ -22,17 +26,14 @@ sealed trait BinaryKey derives Schema:
 
   /** Render this key as a URI-like string. */
   def renderKey: String = this match
-    case CasKey(hash)                   => s"cas:${hash.algo.canonicalName}/${hash.hex}"
-    case WritableKey.Rnd(id)            => s"uuid:${id.toString}"
-    case WritableKey.Static(name)       => s"user:$name"
+    case CasKey.BlockKey(hash, size)    => s"cas/block/${hash.algo.canonicalName}/${hash.hex}/${size}"
+    case CasKey.FileKey(hash, size)     => s"cas/file/${hash.algo.canonicalName}/${hash.hex}/${size}"
+    case WritableKey.Random(id)         => s"uuid/${id.toString}"
+    case WritableKey.Static(name)       => s"user/$name"
     case WritableKey.Scoped(scope, key) =>
       val encoded =
-        val joined = scope
-          .map { case (k, v) => k + "__" + v.mkString("__") }
-          .mkString("::")
-        Base64.getEncoder.encodeToString(
-          joined.getBytes(StandardCharsets.UTF_8)
-        )
+        val joined = scope.map { case (k, v) => k + "__" + v.mkString("__") }.mkString("::")
+        Base64.getEncoder.encodeToString(joined.getBytes(StandardCharsets.UTF_8))
       s"scoped:$encoded/$key"
 
 object BinaryKey:
@@ -41,23 +42,26 @@ object BinaryKey:
     Schema[Chunk[(K, A)]].transform(ListMap.from, Chunk.fromIterable)
 
   /** Content addressed key – represents the digest of some content. */
-  final case class CasKey(hash: Hash) extends BinaryKey
+  enum CasKey[+S] extends BinaryKey:
+    case BlockKey(hash: Hash, size: BlockSize) extends CasKey[BlockSize]
+    case FileKey(hash: Hash, size: FileSize) extends CasKey[FileSize]
+  end CasKey
 
   /** Keys that can be written to by clients. */
   sealed trait WritableKey extends BinaryKey
 
   object WritableKey:
-    final case class Rnd(id: UUID)       extends WritableKey
-    final case class Static(key: String) extends WritableKey
-    final case class Scoped(
+    private[graviton] final case class Random(id: UUID)       extends WritableKey
+    private[graviton] final case class Static(key: String) extends WritableKey
+    private[graviton] final case class Scoped(
       scope: ListMap[String, NonEmptyChunk[String]],
       key: String,
     ) extends WritableKey
 
-    def random(id: UUID): WritableKey = Rnd(id)
+    def random(id: UUID): WritableKey = Random(id)
 
     def randomF(using Trace): UIO[WritableKey] =
-      zio.Random.nextUUID.map(Rnd.apply)
+      zio.Random.nextUUID.map(Random(_))
 
     private def validateKey(key: String): Either[String, String] =
       Option(key)
@@ -80,8 +84,7 @@ object BinaryKey:
         )
         .map { case (scope, value) => Scoped(scope.map((k, v) => (k.trim, v)), value.trim) }
 
-  export WritableKey.{Rnd, Scoped, Static}
+  export WritableKey.{Random, Scoped, Static}
 
-  given Schema[BinaryKey] = DeriveSchema.gen[BinaryKey]
   object WritableKeySchemas:
     given Schema[WritableKey] = DeriveSchema.gen[WritableKey]

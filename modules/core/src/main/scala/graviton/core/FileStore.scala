@@ -1,4 +1,5 @@
-package graviton.core
+package graviton
+package core
 
 import zio.*
 import zio.stream.*
@@ -9,5 +10,5 @@ import zio.stream.*
  * describes how the underlying blocks compose the file.
  */
 trait FileStore extends KeyedStore:
-  def ingest: ZSink[Any, Throwable, Bytes, Nothing, (FileKey, BlockManifest)]
+  def ingest: ZSink[Any, Throwable, Bytes, Nothing, (FileKey.CasKey.FileKey, BlockManifest)]
   def findBinary(key: FileKey): IO[Throwable, Option[Bytes]]
