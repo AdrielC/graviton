@@ -6,12 +6,14 @@ import graviton.core.model.*
 import zio.*
 import zio.stream.*
 import java.time.Instant
-import graviton.domain.NonNegInt
+import graviton.domain.{HashBytes, NonNegInt}
 
 // import graviton.chunking.Chunker
 // import graviton.GravitonError.ChunkerFailure
-import graviton.core.{BlockManifestEntry, BlockManifest}
-
+import graviton.core.BlockManifestEntry
+import graviton.core.FileKey
+import graviton.core.BlockManifest
+import graviton.core.BinaryKeyMatcher
 
 final case class BlockState(refs: NonNegInt, unreferencedAt: Option[Instant])
 
@@ -20,7 +22,32 @@ final class InMemoryBlockStore private (
   stores: Map[BlobStoreId, BlobStore],
   primary: BlobStore,
   resolver: BlockResolver,
-) extends BlockStore:
+) extends BlockStore with graviton.core.BlockStore:
+
+  def putBlock(block: Block): ZIO[Any, Throwable, BlockKey] =
+    ???
+
+  def getBlock(key: BlockKey, range: Option[ByteRange] = None): IO[Throwable, Option[Block]] =
+    ???
+
+  def readBlocks(key: FileKey): IO[Throwable, Option[Blocks]] =
+    ???
+
+  def delete(key: FileKey): IO[Throwable, Boolean] =
+    ???
+
+  def exists(key: FileKey): IO[Throwable, Boolean] =
+    ???
+
+  def listKeys(matcher: BinaryKeyMatcher): ZStream[Any, Throwable, FileKey] =
+    ???
+
+
+  def findBinary(key: FileKey): IO[Throwable, Option[Bytes]] =
+    ???
+
+  def ingest: ZSink[Any, Throwable, Bytes, Nothing, (FileKey.CasKey.FileKey, BlockManifest)] =
+    ???
 
   // private val MaxBlockSize: Int = Limits.MAX_BLOCK_SIZE_IN_BYTES
 
@@ -51,16 +78,14 @@ final class InMemoryBlockStore private (
           ???
       }
 
-  def put: ZSink[Any, GravitonError, Block, Nothing, BlockManifest] =
-    ???
-    // ZPipeline.identity[Block] >>> 
-    // storeBlock(BinaryAttributes.empty)
-    
-    // .contramapChunks { (chunk: Chunk[Block]) =>
-    //   chunk.flatMap(_.bytes)
-    // }
-    // .mapError(e => GravitonError.BackendUnavailable(e.getMessage))
-    // .ignoreLeftover
+  def put: ZSink[Any, GravitonError, Byte, Nothing, BlockKey] =
+    ZSink.collectAll[Byte].mapZIO { data =>
+      val key = BlockKey(
+        Hash(HashBytes.applyUnsafe(data), 
+      HashAlgorithm.SHA256), BlockSize.applyUnsafe(data.length))
+      index.update(_ + (key -> BlockState(NonNegInt(1), None)))
+      .as(key)
+    }
 
 
   def get(

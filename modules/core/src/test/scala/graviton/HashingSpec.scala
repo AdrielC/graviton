@@ -24,14 +24,17 @@ object HashingSpec extends ZIOSpecDefault:
       )
     },
     test("rolling hash emits prefix digests") {
-      val stream = Bytes(
+      val stream = Blocks(
         ZStream.fromChunks(
-          Chunk.fromArray("ab".getBytes),
-          Chunk.fromArray("cd".getBytes),
+          Chunk(
+      Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
+            Block.applyUnsafe(Chunk.fromArray("cd".getBytes)),
+          )
+          
         )
       )
       for
-        hashes         <- Hashing.rolling(Blocks(stream), HashAlgorithm.SHA256).runCollect
+        hashes         <- Hashing.rolling(stream, HashAlgorithm.SHA256).runCollect
         expectedFirst  <- Hashing.compute(
                             Bytes(ZStream.fromIterable("ab".getBytes.toIndexedSeq)),
                             HashAlgorithm.SHA256,

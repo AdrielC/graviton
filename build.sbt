@@ -184,8 +184,7 @@ lazy val commonSettings = Seq(
   ),
   testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   scalacOptions ++= Seq(
-    "-source:future",
-    "-language:experimental.modularity"
+    "-source:future"
   )
 )
 

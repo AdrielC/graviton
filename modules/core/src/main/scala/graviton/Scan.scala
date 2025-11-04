@@ -164,25 +164,70 @@ object Scan:
       }
 
     transparent inline def flatMap[O2, S2 <: Matchable](
-      that: Scan.Aux[O, O2, S2]
-    ): Scan.Aux[I, O2, Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
-      andThen(that)
+      that: O => Scan.Aux[O, O2, S2]
+    ): Scan.Aux[I, O2, Tuple.Concat[self.State, Tuple1[Option[ToState[S2]]]]] =
+      Scan.statefulTuple[I, O2, Tuple.Concat[self.State, Tuple1[Option[ToState[S2]]]]](
+        self.initial ++ (Tuple1(Option.empty[ToState[S2]]): Tuple1[Option[ToState[S2]]])
+      )((s, i: I) =>  
+        val (s2: self.State, os: Chunk[O]) = self.step(s.drop(1).asInstanceOf[self.State], i)
+        os.headOption match
+          case None => ((s2.drop(1).asInstanceOf[self.State] ++ (Tuple1(Option.empty[ToState[S2]]): Tuple1[Option[ToState[S2]]]), Chunk.empty[O2]))
+          case Some(o) => 
+            val newSc: Scan.Aux[O, O2, S2] = that(o)
+            val newState: ToState[S2] = newSc.initial
+            val (newState2, o3) = newSc.step(newState, o)
+
+
+            def loop(acc: (Option[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk[O2]), o: O): (Option[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk[O2]) = {
+              acc match
+                case (None, o2) => 
+                  val newSc: Scan.Aux[O, O2, S2] = that(o)
+                  val newState: ToState[S2] = newSc.initial
+                  val (newState2, o3) = newSc.step(newState, o)
+                  (Some((newSc, newState2)), o2 ++ o3)
+                case (Some((sc, state)), os: Chunk[O2]) => 
+                  val (state2, o2) = sc.step(state, o)
+                  (Some((sc, state2)), os ++ o2)
+            }
+
+            val (newState3: Option[(Scan.Aux[O, O2, S2], ToState[S2])], o4: Chunk[O2]) = os.tail.foldLeft((Option.empty[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk.empty[O2]))(loop)
+            
+            (toState(s2.drop(1).asInstanceOf[self.State]) ++ 
+            Tuple1(Some(newState3.map(_._2).getOrElse(newSc.initial))), o4)
+            .asInstanceOf[(Tuple.Concat[self.State,
+            (Tuple1[Option[ToState[S2]]])], zio.Chunk[O2])]
+
+      )((s) => 
+        self.done(s.drop(1).asInstanceOf[self.State]).foldLeft[
+          (Option[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk[O2])
+        ]((Option.empty[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk.empty[O2]))(
+          (acc, o) => {
+          val (sc, s2) = acc
+          sc match
+            case None => 
+              val newSc: Scan.Aux[O, O2, S2] = that(o)
+              val newState: ToState[S2] = newSc.initial
+              val (newState2, o3) = newSc.step(newState, o)
+              (Some((newSc, newState2)), o3)
+            case Some((sc, state)) => 
+              val (state2, o2) = sc.step(state, o)
+              (Some((sc, state2)), o2)
+        })._2)
 
     transparent inline def zip[O2, S2 <: Matchable](
       that: Scan.Aux[I, O2, S2]
-    ): Scan.Aux[I, (O, O2), Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
+    ): Scan.Aux[I, (O, O2), Tuple.Concat[self.State, ToState[S2]]] =
       inline val sizeA = self.size
       type CombinedState = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
       statefulTuple(self.initial ++ that.initial)((st: CombinedState, i: I) =>
         val (s1, s2)  = st.splitAt(sizeA)
         val (s1b, o1) = self.step(s1.asInstanceOf[self.State], i)
         val (s2b, o2) = that.step(s2.asInstanceOf[that.State], i)
-        ((s1b ++ s2b).asInstanceOf[CombinedState], o1.zip(o2))
+        ((s1b ++ s2b), o1.zip(o2))
       ) { st =>
         val (s1, s2) = st.splitAt(sizeA)
-        self
-          .done(s1.asInstanceOf[self.State])
-          .zip(that.done(toState(s2).asInstanceOf[that.State]))
+        self.done(s1.asInstanceOf[self.State])
+        .zip(that.done(s2.asInstanceOf[that.State]))
       }
 
     transparent inline def runAll(
@@ -341,7 +386,7 @@ object Scan:
         0L
       )
     ) { (m: (HashState, Long), b: Block) =>
-      (m._1.update(b.bytes), m._2 + b.blockSize.toLong) -> Chunk.single(Ior.right(m._2 + b.blockSize.toLong))
+      (m._1.update(b), m._2 + b.size.toLong) -> Chunk.single(Ior.right(m._2 + b.size.toLong))
     } { (m: (HashState, Long)) =>
       Chunk.single(Ior.both(Hash(m._1.digest, algo), m._2))
     }

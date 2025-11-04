@@ -5,6 +5,8 @@ import graviton.impl.*
 import zio.*
 import zio.stream.*
 import zio.test.*
+import graviton.domain.HashBytes
+import graviton.core.model.BlockSize
 
 object EncryptionSpec extends ZIOSpecDefault:
 
@@ -19,8 +21,8 @@ object EncryptionSpec extends ZIOSpecDefault:
                      Bytes(ZStream.fromIterable(data.toIndexedSeq)),
                      HashAlgorithm.SHA256,
                    )
-      size      <- Size.fromZIO(data.length).orDie
-    yield BlockKey(Hash(hashBytes, HashAlgorithm.SHA256), size)
+      size      = Size.applyUnsafe(data.length)
+    yield BlockKey(Hash(HashBytes.applyUnsafe(hashBytes), HashAlgorithm.SHA256), BlockSize.applyUnsafe(size))
 
   def spec =
     suite("EncryptionSpec")(

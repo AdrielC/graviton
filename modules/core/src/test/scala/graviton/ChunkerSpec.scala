@@ -8,6 +8,9 @@ import zio.stream.*
 import zio.test.*
 import java.util.zip.{Deflater, DeflaterOutputStream}
 import java.io.ByteArrayOutputStream
+import graviton.domain.HashBytes
+import io.github.iltotore.iron.autoRefine
+
 
 case object ChunkerSpec extends ZIOSpecDefault:
 
@@ -34,11 +37,11 @@ case object ChunkerSpec extends ZIOSpecDefault:
       val data = Chunk.fromArray("abcdef".getBytes("UTF-8"))
       ZStream.fromChunk(data).via(FixedChunker(2).pipeline).runCollect.map { out =>
         val expected = Chunk(
-          Block.unsafeFromChunk(Chunk.fromArray("ab".getBytes)),
-          Block.unsafeFromChunk(Chunk.fromArray("cd".getBytes)),
-          Block.unsafeFromChunk(Chunk.fromArray("ef".getBytes)),
+          Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
+          Block.applyUnsafe(Chunk.fromArray("cd".getBytes)),
+          Block.applyUnsafe(Chunk.fromArray("ef".getBytes)),
         )
-        assertTrue(out.map(_.toChunk) == expected.map(_.toChunk))
+        assertTrue(out == expected)
       }
     },
     test("pdf chunker normalizes compressed streams") {
@@ -49,7 +52,7 @@ case object ChunkerSpec extends ZIOSpecDefault:
         c1 <- ZStream.fromChunk(pdf1).via(PdfChunker.pipeline).runCollect
         c2 <- ZStream.fromChunk(pdf2).via(PdfChunker.pipeline).runCollect
       yield assertTrue(
-        c1.map(_.toChunk) == c2.map(_.toChunk) && c1.exists(_.toChunk == Chunk.fromArray(content))
+        c1.map(_.bytes) == c2.map(_.bytes) && c1.exists(_.bytes == NonEmptyChunk.fromChunk(Chunk.fromArray(content)).get)
       )
     },
     test("anchored CDC nudges boundaries to anchors") {
@@ -64,11 +67,11 @@ case object ChunkerSpec extends ZIOSpecDefault:
         .runCollect
         .map { out =>
           val expected = Chunk(
-            Block.unsafeFromChunk(Chunk.fromArray((part + token).getBytes("UTF-8"))),
-            Block.unsafeFromChunk(Chunk.fromArray((part + token).getBytes("UTF-8"))),
-            Block.unsafeFromChunk(Chunk.fromArray(tail.getBytes("UTF-8"))),
+            Block.applyUnsafe(Chunk.fromArray((part + token).getBytes("UTF-8"))),
+            Block.applyUnsafe(Chunk.fromArray((part + token).getBytes("UTF-8"))),
+            Block.applyUnsafe(Chunk.fromArray(tail.getBytes("UTF-8"))),
           )
-          assertTrue(out.map(_.toChunk) == expected.map(_.toChunk))
+          assertTrue(out == expected)
         }
     },
     test("anchored CDC enforces block size limits even without anchors") {
@@ -79,7 +82,7 @@ case object ChunkerSpec extends ZIOSpecDefault:
         .via(ZPipeline.anchoredCdc(pack, avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2, anchorBonus = 0))
         .runCollect
         .map { chunks =>
-          assertTrue(chunks.forall(_.toChunk.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))
+          assertTrue(chunks.forall(_.bytes.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))
         }
     },
   )

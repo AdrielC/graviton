@@ -15,5 +15,5 @@ object Bytes:
 opaque type Blocks <: ZStream[Any, Throwable, Block] =
   ZStream[Any, Throwable, Block]
 object Blocks:
-  def apply(stream: Bytes): Bytes = stream
+  def apply(stream: ZStream[Any, Throwable, Block]): Blocks = stream
   

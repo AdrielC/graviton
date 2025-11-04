@@ -13,7 +13,15 @@ transparent trait SubtypeExt[A, C] extends RefinedSubtype[A, C]:
       .transformOrFail(either(_), a => Right(a.value))
 end SubtypeExt
 
-trait RefinedTypeExt[A: Schema, C] extends RefinedType[A, C]
+transparent trait RefinedTypeExt[A: Schema, C] extends RefinedType[A, C]:
+
+  given Schema[T] =
+    summon[Schema[A]]
+        .annotate(rtc)
+        .transformOrFail(either(_), a => Right(a.value))
+
+end RefinedTypeExt
+
 
 object domain:
 

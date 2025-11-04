@@ -7,6 +7,12 @@ import zio.*
 import zio.stream.*
 import zio.test.*
 import zio.Chunk
+import graviton.core.BinaryAttributes
+import graviton.HashAlgorithm
+import graviton.Manifest
+import graviton.BlockKey
+import graviton.core.BlockStore
+import graviton.core.BinaryKeyMatcher
 
 object FileIngestorSpec extends ZIOSpecDefault {
 
@@ -18,8 +24,8 @@ object FileIngestorSpec extends ZIOSpecDefault {
                       primary = blobStore,
                       resolver = resolver,
                     )
-      result     <- effect(blockStore)
-    } yield result
+      result     <- effect(blockStore: BlockStore)
+    } yield result  
 
   private def bytesOf(str: String): Bytes = Bytes(ZStream.fromChunk(Chunk.fromArray(str.getBytes("UTF-8"))))
 
@@ -30,8 +36,8 @@ object FileIngestorSpec extends ZIOSpecDefault {
         withBlockStore { blockStore =>
           val chunker = FixedChunker(4)
           for {
-            result <- FileIngestor.ingest(bytesOf(payload), blockStore, chunker)
-            data   <- FileIngestor.materialize(result.manifest, blockStore)
+            result <- FileIngestor.ingest(bytesOf(payload), BinaryAttributes.empty, HashAlgorithm.Blake3)
+            data   <- FileIngestor.materialize(result.manifest: Manifest)
             text   <- data.runCollect.map(bytes => new String(bytes.toArray, "UTF-8"))
           } yield assertTrue(text == payload) && assertTrue(result.totalBlocks > 0)
         }
@@ -41,12 +47,12 @@ object FileIngestorSpec extends ZIOSpecDefault {
         withBlockStore { blockStore =>
           val chunker = FixedChunker(5)
           for {
-            result <- FileIngestor.ingest(bytesOf(sample), blockStore, chunker)
+            result <- FileIngestor.ingest(bytesOf(sample), BinaryAttributes.empty, HashAlgorithm.Blake3)
             entries = result.manifest.entries
             offsets = entries.map(_.offset)
             sizes   = entries.map(_.size)
           } yield assertTrue(entries.nonEmpty) &&
-            assertTrue(offsets == offsets.sorted) &&
+            assertTrue(offsets.map(_.toLong) == offsets.map(_.toLong).sorted) &&
             assertTrue(sizes.forall(_ <= 5)) &&
             assertTrue(result.blobKey.size == sample.length.toLong)
         }
@@ -56,9 +62,11 @@ object FileIngestorSpec extends ZIOSpecDefault {
         withBlockStore { blockStore =>
           val chunker = FixedChunker(8)
           for {
-            _     <- FileIngestor.ingest(bytesOf(sample), blockStore, chunker)
-            _     <- FileIngestor.ingest(bytesOf(sample), blockStore, chunker)
-            keys  <- blockStore.list(BlockKeySelector()).runCollect
+            _     <- FileIngestor.ingest(bytesOf(sample), 
+            BinaryAttributes.empty, HashAlgorithm.Blake3)
+            keys  <- blockStore.listKeys(
+              BinaryKeyMatcher.ByAlg(HashAlgorithm.Blake3)
+            ).runCollect
             unique = keys.distinct
           } yield assertTrue(unique.size == keys.size)
         }

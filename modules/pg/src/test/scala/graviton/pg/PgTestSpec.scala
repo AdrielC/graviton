@@ -18,12 +18,13 @@ trait PgTestSpec extends ZIOSpec[ConfigProvider] {
       case _                                                                                       => false
   }
 
-  protected def repoLayer: ZLayer[Any, Throwable, TransactorZIO & StoreRepo & BlockRepo] =
-    ZLayer.make[TransactorZIO & StoreRepo & BlockRepo](
+  protected def repoLayer: ZLayer[Any, Throwable, TransactorZIO & StoreRepo & BlockRepo & BlobRepo] =
+    ZLayer.make[TransactorZIO & StoreRepo & BlockRepo & BlobRepo](
       PgTestConfig.layer,
       PgTestLayers.layer[TestContainer],
       StoreRepoLive.layer,
       BlockRepoLive.layer,
+      BlobRepoLive.layer,
     )
 
   protected def seedAlgorithm(xa: TransactorZIO): Task[Unit] =

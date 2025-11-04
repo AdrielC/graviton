@@ -44,6 +44,7 @@ object BlockManifest:
     manifest.binaryAttributes, 
     manifest.entries.map(a => a: BlockManifestEntry)
   )
+  
 
   given Schema[BlockManifest] = DeriveSchema.gen[BlockManifest]
 

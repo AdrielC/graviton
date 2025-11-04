@@ -54,7 +54,7 @@ object Chunker:
     case AnchoredCdc(
       pack: AnchoredCdcPipeline.TokenPack,
       avgSize: Int :| Greater[0],
-      anchorBonus: Int :| GreaterEqual[1],
+      anchorBonus: Int :| Greater[1],
     )
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])

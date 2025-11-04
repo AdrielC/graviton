@@ -144,7 +144,7 @@ object AnchoredCdcPipeline:
     def anchoredCdc(
       tokenPack: TokenPack,
       avgSize: Int :| Greater[0],
-      anchorBonus: Int :| GreaterEqual[1],
+      anchorBonus: Int :| Greater[1],
     ): ZPipeline[Any, Throwable, Byte, Block] =
 
       val sink = ZSink.foldWeightedDecompose[Segment, Accumulator](Accumulator.empty)(

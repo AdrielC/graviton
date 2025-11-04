@@ -2,8 +2,10 @@ package graviton
 
 import zio.*
 import zio.stream.*
-import graviton.core.{BinaryAttributes, BlockManifest, BlockManifestEntry}
+import graviton.core.BinaryAttributes
+import graviton.core.BlockManifestEntry
 import graviton.core.model.Block
+import graviton.BlockKey
 
 
 
@@ -18,7 +20,7 @@ trait BlockStore:
    */
   def storeBlock(attrs: BinaryAttributes): ZPipeline[Any & Scope, GravitonError, Block, BlockManifestEntry]
   
-  def put: ZSink[Any, Throwable, Block, Nothing, BlockManifest]
+  def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey]
   
   def get(
     key: BlockKey,

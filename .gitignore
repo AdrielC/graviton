@@ -18,7 +18,7 @@ cs
 .cursorrules
 .cursorignore
 metals.sbt
-
+.home/
 
 # Generated files
 bin/

@@ -35,13 +35,12 @@ object Sized:
 end Sized
 
 sealed transparent trait Sized[
-  N <: Int | Long | Sized[?, ?, ?], 
+  N <: Int | Long : Integral, 
   _Min <: N,
   _Max <: N,
-](using I: Integral[N], _Min: Constraint[_Min, GreaterEqual[_Max]], _Max: Constraint[_Max, LessEqual[_Min]]) extends SubtypeExt[N, Sized.Constr[_Min, _Max]]:
+](using _Min: Constraint[_Min, GreaterEqual[_Max]], _Max: Constraint[_Max, LessEqual[_Min]]) extends SubtypeExt[N, Sized.Constr[_Min, _Max]]:
   self: SubtypeExt[N, Sized.Constr[_Min, _Max]] =>
 
-  val _ = I
   val _ = _Min
   val _ = _Max
 
@@ -110,7 +109,7 @@ end Sized
 
 
 transparent trait ByteSize[
-  N <: Int | Long | Sized[? <: Int | Long, ? <: Int | Long, ? <: Int | Long], 
+  N <: Int | Long, 
   Mn <: N, 
   Mx <: N
 ] extends Sized[N, Mn, Mx]:
@@ -146,6 +145,8 @@ type MaxOf[N <: Int | Long | Sized[?, ?, ?]] <: (Int | Long | Sized[?, ?, ?]) & 
 sealed transparent trait NonNegativeSize[N <: Int | Long]
  extends Sized[N, ZeroOf[N], MaxOf[N]]:
   self: Sized[N, ZeroOf[N], MaxOf[N]] =>
+
+  // given Ordering[N] = Ordering.by(applyUnsafe(_).toLong)
 
   final type Zero = V[ZeroOf[N]]
   final type One = V[OneOf[N]]
