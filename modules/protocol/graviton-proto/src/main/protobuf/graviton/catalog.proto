@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package io.graviton.blobstore.v1;
+
+option java_multiple_files = true;
+option java_package = "io.graviton.blobstore.v1";
+option java_outer_classname = "CatalogProto";
+
+service Catalog {
+  rpc Search         (SearchRequest)          returns (stream SearchResult);
+  rpc List           (ListRequest)            returns (ListResponse);
+  rpc Get            (GetRequest)             returns (GetResponse);
+  rpc FindDuplicates (FindDuplicatesRequest)  returns (stream DuplicateGroup);
+  rpc Export         (ExportRequest)          returns (stream ExportChunk);
+  rpc Subscribe      (SubscribeRequest)       returns (stream CatalogEvent);
+}
+
+message SearchRequest {
+  repeated Filter   filters    = 1;
+  repeated OrGroup  or_groups  = 2;
+  optional uint32   page_size  = 3;
+  optional string   page_after = 4;
+  optional string   text_query = 5;
+  repeated string   tags       = 6;
+}
+
+message Filter {
+  enum Field {
+    FIELD_UNSPECIFIED  = 0;
+    FIELD_HASH         = 1;
+    FIELD_CONTENT_TYPE = 2;
+    FIELD_SIZE_BYTES   = 3;
+    FIELD_CREATED_AT   = 4;
+    FIELD_NAMESPACE    = 5;
+    FIELD_META_KEY     = 6;
+  }
+  Field   field      = 1;
+  string  op         = 2;
+  string  value      = 3;
+  optional string namespace = 4;
+}
+
+message OrGroup {
+  repeated Filter filters = 1;
+}
+
+message SearchResult {
+  string document_id   = 1;
+  string blob_hash     = 2;
+  string content_type  = 3;
+  uint64 size_bytes    = 4;
+  repeated string tags = 5;
+  map<string, NamespaceSummary> metadata = 6;
+}
+
+message NamespaceSummary {
+  string namespace     = 1;
+  repeated string keys = 2;
+}
+
+message ListRequest {
+  optional uint32 page_size  = 1;
+  optional string page_after = 2;
+}
+
+message ListResponse {
+  repeated SearchResult items = 1;
+  optional string next_cursor = 2;
+}
+
+message GetRequest {
+  string blob_hash = 1;
+}
+
+message GetResponse {
+  oneof result {
+    SearchResult item = 1;
+    Error error       = 2;
+  }
+}
+
+message FindDuplicatesRequest {
+  string hash_prefix   = 1;
+  optional uint64 size_bytes = 2;
+}
+
+message DuplicateGroup {
+  string key = 1;
+  repeated SearchResult items = 2;
+}
+
+message ExportRequest {
+  repeated string blob_hashes  = 1;
+  repeated string document_ids = 2;
+  optional SearchRequest query = 3;
+  bool include_frames          = 4;
+}
+
+message ExportChunk {
+  oneof kind {
+    Manifest   manifest = 1;
+    ExportFrame frame   = 2;
+  }
+}
+
+message Manifest {
+  string content_type = 1;
+  bytes  bytes        = 2;
+}
+
+message ExportFrame {
+  string content_type = 1;
+  bytes  bytes        = 2;
+}
+
+message SubscribeRequest {
+  repeated string topics = 1;
+}
+
+message CatalogEvent {
+  string topic = 1;
+  string message = 2;
+  map<string,string> attributes = 3;
+}
+
+message Error {
+  int32 code = 1;
+  string message = 2;
+  map<string,string> details = 3;
+}

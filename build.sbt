@@ -4,6 +4,9 @@ import BuildHelper._
 import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
+import sbtprotoc.ProtocPlugin.autoImport._
+import scalapb.compiler.Version
+import scalapb.zio_grpc.ZioCodeGenerator
 
 lazy val V = new {
   val scala3     = "3.7.3"
@@ -156,21 +159,34 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     )
   )
 
-lazy val proto = (project in file("modules/protocol/graviton-proto"))
-  .settings(baseSettings, name := "graviton-proto")
+  lazy val proto = (project in file("modules/protocol/graviton-proto"))
+    .settings(
+      baseSettings,
+      name := "graviton-proto",
+      libraryDependencies ++= Seq(
+        "com.thesamet.scalapb" %% "scalapb-runtime" % Version.scalapbVersion % "protobuf",
+        "dev.zio" %% "zio-grpc" % V.zioGrpc
+      ),
+      Compile / PB.targets := Seq(
+        scalapb.gen(flatPackage = false) -> (Compile / sourceManaged).value / "scalapb",
+        ZioCodeGenerator -> (Compile / sourceManaged).value / "scalapb",
+      ),
+    )
 
-lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
-  .dependsOn(runtime, proto)
-  .settings(baseSettings,
-    name := "graviton-grpc",
-    libraryDependencies ++= Seq(
-        "dev.zio" %% "zio"              % V.zio,
+  lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
+    .dependsOn(runtime, proto)
+    .settings(
+      baseSettings,
+      name := "graviton-grpc",
+      libraryDependencies ++= Seq(
+        "dev.zio" %% "zio"               % V.zio,
+        "dev.zio" %% "zio-grpc"         % V.zioGrpc,
         "dev.zio" %% "zio-grpc-core"    % V.zioGrpc,
         "dev.zio" %% "zio-test"         % V.zio % Test,
         "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
-        "dev.zio" %% "zio-test-magnolia" % V.zio % Test
+        "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
+      ),
     )
-  )
 
 lazy val http = (project in file("modules/protocol/graviton-http"))
   .dependsOn(runtime)
