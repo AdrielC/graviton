@@ -5,6 +5,7 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
+import protocbridge.Target
 
   lazy val V = new {
     val scala3     = "3.7.3"
@@ -167,7 +168,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
         "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % V.scalapb,
       ),
       Compile / PB.targets := Seq(
-        scalapb.gen(flatPackage = false, grpc = true) -> (Compile / sourceManaged).value / "scalapb"
+        Target(scalapb.gen(flatPackage = false, grpc = true), (Compile / sourceManaged).value / "scalapb")
       ),
     )
 
@@ -178,8 +179,6 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       name := "graviton-grpc",
       libraryDependencies ++= Seq(
         "dev.zio" %% "zio"          % V.zio,
-        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc"      % V.zioGrpc,
-        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
         "io.grpc" % "grpc-netty" % "1.50.1",
         "dev.zio" %% "zio-test"         % V.zio % Test,
         "dev.zio" %% "zio-test-sbt"     % V.zio % Test,

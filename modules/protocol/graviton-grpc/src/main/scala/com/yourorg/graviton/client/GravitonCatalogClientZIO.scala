@@ -5,55 +5,46 @@ import io.graviton.blobstore.v1.*
 import zio.*
 import zio.stream.*
 
-final class GravitonCatalogClientZIO(stub: GravitonCatalogClientZIO.CatalogClient)
+final class GravitonCatalogClientZIO(stub: GravitonCatalogClientZIO.CatalogClient):
 
-import GravitonCatalogClientZIO.*
+  import GravitonCatalogClientZIO.*
 
-def search(filters: SearchFilters): ZStream[Any, CatalogClientError, SearchResult] =
-  val request = filters.toProto
-  stub
-    .search(request)
-    .mapError(CatalogClientError.TransportFailure.apply)
+  def search(filters: SearchFilters): ZStream[Any, CatalogClientError, SearchResult] =
+    val request = filters.toProto
+    stub.search(request).mapError(CatalogClientError.TransportFailure.apply)
 
-def list(pageSize: Option[Int], pageAfter: Option[String]): IO[CatalogClientError, ListResponse] =
-  val request = ListRequest(pageSize = pageSize.map(_.toLong), pageAfter = pageAfter)
-  stub.list(request).mapError(CatalogClientError.TransportFailure.apply)
+  def list(pageSize: Option[Int], pageAfter: Option[String]): IO[CatalogClientError, ListResponse] =
+    val request = ListRequest(pageSize = pageSize.map(_.toLong), pageAfter = pageAfter)
+    stub.list(request).mapError(CatalogClientError.TransportFailure.apply)
 
-def get(hash: String): IO[CatalogClientError, SearchResult] =
-  stub
-    .get(GetRequest(blobHash = hash))
-    .mapError(CatalogClientError.TransportFailure.apply)
-    .flatMap {
-      case GetResponse(result = GetResponse.Result.Item(item))   => ZIO.succeed(item)
-      case GetResponse(result = GetResponse.Result.Error(error)) => ZIO.fail(CatalogClientError.RemoteFailure(error))
-      case _                                                     => ZIO.fail(CatalogClientError.NotFound(hash))
-    }
+  def get(hash: String): IO[CatalogClientError, SearchResult] =
+    stub
+      .get(GetRequest(blobHash = hash))
+      .mapError(CatalogClientError.TransportFailure.apply)
+      .flatMap {
+        case GetResponse(result = GetResponse.Result.Item(item))  => ZIO.succeed(item)
+        case GetResponse(result = GetResponse.Result.Error(error)) => ZIO.fail(CatalogClientError.RemoteFailure(error))
+        case _                                                     => ZIO.fail(CatalogClientError.NotFound(hash))
+      }
 
-def findDuplicates(request: FindDuplicatesRequest): ZStream[Any, CatalogClientError, DuplicateGroup] =
-  stub
-    .findDuplicates(request)
-    .mapError(CatalogClientError.TransportFailure.apply)
+  def findDuplicates(request: FindDuplicatesRequest): ZStream[Any, CatalogClientError, DuplicateGroup] =
+    stub.findDuplicates(request).mapError(CatalogClientError.TransportFailure.apply)
 
-def exportData(request: ExportPlan): ZStream[Any, CatalogClientError, ExportChunk] =
-  stub
-    .`export`(request.toProto)
-    .mapError(CatalogClientError.TransportFailure.apply)
+  def exportData(request: ExportPlan): ZStream[Any, CatalogClientError, ExportChunk] =
+    stub.`export`(request.toProto).mapError(CatalogClientError.TransportFailure.apply)
 
-def subscribe(topics: Chunk[String]): ZStream[Any, CatalogClientError, CatalogEvent] =
-  stub
-    .subscribe(SubscribeRequest(topics = topics.toList))
-    .mapError(CatalogClientError.TransportFailure.apply)
+  def subscribe(topics: Chunk[String]): ZStream[Any, CatalogClientError, CatalogEvent] =
+    stub.subscribe(SubscribeRequest(topics = topics.toList)).mapError(CatalogClientError.TransportFailure.apply)
 
-object GravitonCatalogClientZIO {
+object GravitonCatalogClientZIO:
 
-  trait CatalogClient {
+  trait CatalogClient:
     def search(request: SearchRequest): ZStream[Any, Status, SearchResult]
     def list(request: ListRequest): IO[Status, ListResponse]
     def get(request: GetRequest): IO[Status, GetResponse]
     def findDuplicates(request: FindDuplicatesRequest): ZStream[Any, Status, DuplicateGroup]
     def `export`(request: ExportRequest): ZStream[Any, Status, ExportChunk]
     def subscribe(request: SubscribeRequest): ZStream[Any, Status, CatalogEvent]
-  }
 
   final case class SearchFilters(
     hashes: Chunk[String] = Chunk.empty,
@@ -97,22 +88,16 @@ object GravitonCatalogClientZIO {
         includeFrames = includeFrames,
       )
 
-  sealed trait CatalogClientError extends Throwable {
+  sealed trait CatalogClientError extends Throwable:
     def message: String
     override def getMessage: String = message
-  }
 
-  object CatalogClientError {
-    final case class TransportFailure(status: Status) extends CatalogClientError {
+  object CatalogClientError:
+    final case class TransportFailure(status: Status) extends CatalogClientError:
       override def message: String = Option(status.getDescription).getOrElse(status.getCode.name())
-    }
 
-    final case class RemoteFailure(error: Error) extends CatalogClientError {
-      override def message: String = s"${error.code}: ${error.message}"
-    }
+    final case class RemoteFailure(error: Error) extends CatalogClientError:
+      override def message: String = s"${error.code.name}: ${error.message}"
 
-    final case class NotFound(hash: String) extends CatalogClientError {
+    final case class NotFound(hash: String) extends CatalogClientError:
       override def message: String = s"Blob $hash not found"
-    }
-  }
-}
