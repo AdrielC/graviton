@@ -1,4 +1,4 @@
-package com.yourorg.graviton.client
+package ai.hylo.graviton.client
 
 import zio.*
 import zio.http.*

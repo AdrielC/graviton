@@ -1,7 +1,7 @@
-package com.yourorg.graviton.client
+package ai.hylo.graviton.client
 
 import com.google.protobuf.ByteString
-import com.yourorg.graviton.client.GravitonUploadGatewayClientZIO.*
+import ai.hylo.graviton.client.GravitonUploadGatewayClientZIO.*
 import io.grpc.Status
 import io.graviton.blobstore.v1.common.*
 import io.graviton.blobstore.v1.upload.*

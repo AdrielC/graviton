@@ -1,4 +1,4 @@
-package com.yourorg.graviton.client
+package ai.hylo.graviton.client
 
 import io.grpc.Status
 import io.graviton.blobstore.v1.catalog.*
