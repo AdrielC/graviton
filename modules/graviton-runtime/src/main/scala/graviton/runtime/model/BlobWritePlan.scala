@@ -2,7 +2,7 @@ package graviton.runtime.model
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.locator.BlobLocator
-import graviton.core.scan.Scan
+import graviton.core.scan.*
 import graviton.runtime.policy.{BlobLayout, StorePolicy}
 import zio.stream.*
 
@@ -20,4 +20,4 @@ object IngestProgram:
 
   final case class UsePipeline(pipeline: ZPipeline[Any, Throwable, Byte, Byte]) extends IngestProgram
 
-  final case class UseScan[Out, State](label: String, build: () => Scan.Aux[Byte, Out, State]) extends IngestProgram
+  final case class UseScan[Out](label: String, build: () => FreeScan[Prim, Byte, Out]) extends IngestProgram

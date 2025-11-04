@@ -4,7 +4,8 @@ import zio.*
 import zio.stream.*
 import zio.stream.Take
 import zio.ChunkBuilder
-import graviton.Scan
+import graviton.core.scan.*
+import graviton.core.scan.FS.*
 
 import java.nio.charset.StandardCharsets
 import scala.util.control.NonFatal
@@ -51,81 +52,82 @@ object HttpChunkedScan {
   inline private def advanceWindow(window: Int, b: Byte): Int =
     ((window << 8) | (b & 0xff)) & 0xffff
 
-  val chunkedDecode: Scan.Aux[Byte, Take[Throwable, Chunk[Byte]], DecoderState *: EmptyTuple] =
-    Scan.stateful[Byte, Take[Throwable, Chunk[Byte]], DecoderState](
+  private def stepDecode(
+    state: DecoderState,
+    b: Byte,
+  ): (DecoderState, List[Take[Throwable, Chunk[Byte]]]) =
+    val DecoderState(phase, lineBuf, bodyBuf, bodyIndex, window) = state
+    val nextWindow                                               = advanceWindow(window, b)
+
+    phase match
+      case Phase.ReadingSize =>
+        if (nextWindow & 0xffff) == 0x0d0a then
+          parseSizeLine(lineBuf) match
+            case Left(err)   =>
+              (DecoderState(Phase.Done, Chunk.empty, bodyBuf, 0, 0), List(Take.fail(err)))
+            case Right(0)    =>
+              (DecoderState(Phase.ReadingTrailers, Chunk.empty, Array.emptyByteArray, 0, 0), Nil)
+            case Right(size) =>
+              val buffer = Array.ofDim[Byte](size)
+              (DecoderState(Phase.ReadingBody(size), Chunk.empty, buffer, 0, 0), Nil)
+        else
+          val nextBuf = if b == Cr || b == Lf then lineBuf else lineBuf :+ b
+          (DecoderState(Phase.ReadingSize, nextBuf, bodyBuf, bodyIndex, nextWindow & 0xffff), Nil)
+
+      case Phase.ReadingBody(remaining) =>
+        bodyBuf(bodyIndex) = b
+        val nextRemaining = remaining - 1
+        val nextIndex     = bodyIndex + 1
+        if nextRemaining == 0 then
+          (DecoderState(Phase.ExpectingBodyCr, Chunk.empty, bodyBuf, nextIndex, 0), Nil)
+        else
+          (DecoderState(Phase.ReadingBody(nextRemaining), Chunk.empty, bodyBuf, nextIndex, 0), Nil)
+
+      case Phase.ExpectingBodyCr =>
+        if b == Cr then
+          (DecoderState(Phase.ExpectingBodyLf, Chunk.empty, bodyBuf, bodyIndex, 0), Nil)
+        else
+          (
+            DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0),
+            List(Take.fail(ChunkedDecodeError("Missing CR after chunk body"))),
+          )
+
+      case Phase.ExpectingBodyLf =>
+        if b == Lf then
+          val out = Chunk.fromArray(java.util.Arrays.copyOf(bodyBuf, bodyIndex))
+          (DecoderState(Phase.ReadingSize, Chunk.empty, Array.emptyByteArray, 0, 0), List(Take.single(out)))
+        else
+          (
+            DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0),
+            List(Take.fail(ChunkedDecodeError("Missing LF after chunk body"))),
+          )
+
+      case Phase.ReadingTrailers =>
+        if (nextWindow & 0xffff) == 0x0d0a then
+          if lineBuf.isEmpty then
+            (DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0), Nil)
+          else
+            (DecoderState(Phase.ReadingTrailers, Chunk.empty, bodyBuf, 0, 0), Nil)
+        else
+          val nextBuf = if b == Cr then lineBuf else lineBuf :+ b
+          (DecoderState(Phase.ReadingTrailers, nextBuf, bodyBuf, bodyIndex, nextWindow & 0xffff), Nil)
+
+      case Phase.Done =>
+        (DecoderState(Phase.Done, lineBuf, bodyBuf, bodyIndex, nextWindow), Nil)
+
+  private def flushDecode(state: DecoderState): List[Take[Throwable, Chunk[Byte]]] =
+    state.phase match
+      case Phase.Done            => Nil
+      case Phase.ReadingSize     => List(Take.fail(ChunkedDecodeError("Unexpected EOF while reading chunk size")))
+      case Phase.ReadingBody(_)  => List(Take.fail(ChunkedDecodeError("Unexpected EOF inside chunk body")))
+      case Phase.ExpectingBodyCr => List(Take.fail(ChunkedDecodeError("Unexpected EOF after chunk body")))
+      case Phase.ExpectingBodyLf => List(Take.fail(ChunkedDecodeError("Unexpected EOF after chunk body")))
+      case Phase.ReadingTrailers => List(Take.fail(ChunkedDecodeError("Unexpected EOF while reading chunk trailers")))
+
+  val chunkedDecode: FreeScan[Prim, Byte, Take[Throwable, Chunk[Byte]]] =
+    FS.fold[Byte, Take[Throwable, Chunk[Byte]], DecoderState](
       DecoderState(Phase.ReadingSize, Chunk.empty, Array.emptyByteArray, 0, 0)
-    ) { (state, b) =>
-      val DecoderState(phase, lineBuf, bodyBuf, bodyIndex, window) = state
-      val nextWindow                                               = advanceWindow(window, b)
-
-      phase match {
-        case Phase.ReadingSize =>
-          if (nextWindow & 0xffff) == 0x0d0a then
-            parseSizeLine(lineBuf) match {
-              case Left(err)   => (DecoderState(Phase.Done, Chunk.empty, bodyBuf, 0, 0), Chunk.single(Take.fail(err)))
-              case Right(0)    => (DecoderState(Phase.ReadingTrailers, Chunk.empty, Array.emptyByteArray, 0, 0), Chunk.empty)
-              case Right(size) =>
-                val buffer = Array.ofDim[Byte](size)
-                (DecoderState(Phase.ReadingBody(size), Chunk.empty, buffer, 0, 0), Chunk.empty)
-            }
-          else {
-            val nextBuf = if b == Cr || b == Lf then lineBuf else lineBuf :+ b
-            (DecoderState(Phase.ReadingSize, nextBuf, bodyBuf, bodyIndex, nextWindow & 0xffff), Chunk.empty)
-          }
-
-        case Phase.ReadingBody(remaining) =>
-          bodyBuf(bodyIndex) = b
-          val nextRemaining = remaining - 1
-          val nextIndex     = bodyIndex + 1
-          if (nextRemaining == 0)
-            (DecoderState(Phase.ExpectingBodyCr, Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
-          else
-            (DecoderState(Phase.ReadingBody(nextRemaining), Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
-
-        case Phase.ExpectingBodyCr =>
-          if (b == Cr)
-            (DecoderState(Phase.ExpectingBodyLf, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
-          else
-            (
-              DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0),
-              Chunk.single(Take.fail(ChunkedDecodeError("Missing CR after chunk body"))),
-            )
-
-        case Phase.ExpectingBodyLf =>
-          if (b == Lf) {
-            val out                                = Chunk.fromArray(java.util.Arrays.copyOf(bodyBuf, bodyIndex))
-            val take: Take[Throwable, Chunk[Byte]] = Take.single(out)
-            (DecoderState(Phase.ReadingSize, Chunk.empty, Array.emptyByteArray, 0, 0), Chunk.single(take))
-          } else
-            (
-              DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0),
-              Chunk.single(Take.fail(ChunkedDecodeError("Missing LF after chunk body"))),
-            )
-
-        case Phase.ReadingTrailers =>
-          if ((nextWindow & 0xffff) == 0x0d0a)
-            if (lineBuf.isEmpty)
-              (DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
-            else
-              (DecoderState(Phase.ReadingTrailers, Chunk.empty, bodyBuf, 0, 0), Chunk.empty)
-          else {
-            val nextBuf = if b == Cr then lineBuf else lineBuf :+ b
-            (DecoderState(Phase.ReadingTrailers, nextBuf, bodyBuf, bodyIndex, nextWindow & 0xffff), Chunk.empty)
-          }
-
-        case Phase.Done =>
-          (DecoderState(Phase.Done, lineBuf, bodyBuf, bodyIndex, nextWindow), Chunk.empty)
-      }
-    } { st =>
-      st.phase match {
-        case Phase.Done            => Chunk.empty
-        case Phase.ReadingSize     => Chunk.single(Take.fail(ChunkedDecodeError("Unexpected EOF while reading chunk size")))
-        case Phase.ReadingBody(_)  => Chunk.single(Take.fail(ChunkedDecodeError("Unexpected EOF inside chunk body")))
-        case Phase.ExpectingBodyCr => Chunk.single(Take.fail(ChunkedDecodeError("Unexpected EOF after chunk body")))
-        case Phase.ExpectingBodyLf => Chunk.single(Take.fail(ChunkedDecodeError("Unexpected EOF after chunk body")))
-        case Phase.ReadingTrailers => Chunk.single(Take.fail(ChunkedDecodeError("Unexpected EOF while reading chunk trailers")))
-      }
-    }
+    )((state, byte) => stepDecode(state, byte))(flushDecode)
 
   val chunkedPipeline: ZPipeline[Any, Throwable, Byte, Byte] =
     chunkedDecode.toPipeline >>> ZPipeline.mapChunksZIO { takes =>
