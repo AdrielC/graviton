@@ -48,57 +48,124 @@ message BlobMetadata {
 
 ### UploadService
 
-Bidirectional streaming upload:
+The `UploadService` manages resumable ingest using scoped sessions. A session is always bound to a `Scope`, guaranteeing cleanup if the caller disconnects or the fiber fails. Clients can stream data through a `ZSink`, upload manual parts via HTTP, and then finalise the manifest in a single RPC.
+
+#### Overview
+
+| Concept            | Description                                                                    |
+| :----------------- | :----------------------------------------------------------------------------- |
+| UploadSession      | Logical handle for an in-flight upload; scoped for automatic cleanup           |
+| UploadHandle       | Server-side capability exposing streaming and manual part APIs                 |
+| Scope              | Binds temporary resources to the lifetime of the session                       |
+| ZSink              | Primary interface for backpressured streaming uploads                          |
+| Manual Part Upload | Optional per-part PUT route for heterogeneous clients                          |
+| Finalisation       | `completeUpload()` validates parts, assembles blocks, writes metadata          |
+
+```scala
+trait UploadService {
+  def registerUpload(request: RegisterUploadRequest): ZIO[Scope, UploadError, UploadHandle]
+}
+
+trait UploadHandle {
+  def session: UploadSession
+  def sink: ZSink[Any, UploadError, FileChunk, Nothing, Unit]
+  def uploadPart(part: FileChunk): IO[UploadError, Unit]
+  def completeUpload(expected: Chunk[UploadedPart]): IO[UploadError, DocumentId]
+  def abort: UIO[Unit]
+}
+
+final case class FileChunk(offset: Long, bytes: Chunk[Byte], checksum: Option[String])
+```
+
+```scala
+sealed trait UploadError extends Throwable
+object UploadError {
+  final case class InvalidPart(message: String) extends UploadError
+  final case class UploadNotFound(uploadId: String) extends UploadError
+  final case class UploadAlreadyCompleted(uploadId: String) extends UploadError
+  final case class StorageFailure(message: String) extends UploadError
+  final case class ProtocolViolation(message: String) extends UploadError
+  case object IncompleteUpload extends UploadError
+}
+```
+
+**Flow**
+
+```text
+1. Client calls registerUpload(RegisterUploadRequest)
+2. Server allocates UploadSession inside a Scope
+3. Client uploads parts:
+    - via sink (streaming ZStream[FileChunk])
+    - or via uploadPart (one-by-one)
+4. Client calls completeUpload(expectedParts)
+5. Server validates checksums, assembles parts, persists metadata
+```
+
+The service is designed for chunked Content Addressable Storage (CAS). Each part can provide a checksum on upload, which the server verifies immediately. Finalisation recomputes the CAS hash for the assembled object.
+
+#### gRPC Protocol
 
 ```protobuf
+syntax = "proto3";
+
+package graviton.upload.v1;
+
 service UploadService {
-  // Bidirectional streaming upload
-  rpc Upload(stream UploadMessage) returns (stream UploadResponse);
+  rpc RegisterUpload (RegisterUploadRequest) returns (RegisterUploadResponse);
+  rpc UploadParts (stream UploadChunk) returns (stream UploadAck);
+  rpc CompleteUpload (CompleteUploadRequest) returns (CompleteUploadResponse);
 }
 
-message UploadMessage {
-  oneof message {
-    StartUpload start = 1;
-    UploadChunk chunk = 2;
-    CompleteUpload complete = 3;
-  }
+message RegisterUploadRequest {
+  string file_name = 1;
+  uint64 file_size = 2;
+  string media_type = 3;
+  map<string, MetadataNamespace> metadata = 4;
+  uint32 preferred_chunk_size = 5;
 }
 
-message StartUpload {
-  int64 total_size = 1;
-  map<string, string> attributes = 2;
+message MetadataNamespace {
+  map<string, string> fields = 1;
+}
+
+message RegisterUploadResponse {
+  string upload_id = 1;
+  uint32 chunk_size = 2;
+  uint32 max_chunks = 3;
+  uint64 expires_at_epoch_seconds = 4;
 }
 
 message UploadChunk {
-  bytes data = 1;
-  int64 offset = 2;
-}
-
-message CompleteUpload {
-  bytes expected_hash = 1;
-}
-
-message UploadResponse {
-  oneof response {
-    UploadStarted started = 1;
-    UploadCredit credit = 2;
-    UploadComplete complete = 3;
-    UploadError error = 4;
-  }
-}
-
-message UploadStarted {
   string upload_id = 1;
+  uint32 sequence_number = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+  string checksum = 5;
+  bool last = 6;
 }
 
-message UploadCredit {
-  int64 bytes = 1;
+message UploadAck {
+  string upload_id = 1;
+  uint32 acknowledged_sequence = 2;
+  uint64 received_bytes = 3;
 }
 
-message UploadComplete {
-  bytes key = 1;
-  int64 size = 2;
-  bytes hash = 3;
+message UploadedPart {
+  uint32 part_number = 1;
+  uint64 offset = 2;
+  uint64 size = 3;
+  string checksum = 4;
+}
+
+message CompleteUploadRequest {
+  string upload_id = 1;
+  repeated UploadedPart parts = 2;
+  string expected_checksum = 3;
+}
+
+message CompleteUploadResponse {
+  string document_id = 1;
+  map<string, string> attributes = 2;
 }
 ```
 
