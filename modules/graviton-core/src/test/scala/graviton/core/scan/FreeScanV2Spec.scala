@@ -53,14 +53,14 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val combined = map[Chunk[Byte], (Chunk[Byte], Chunk[Byte])](chunk => (chunk, chunk)) >>>
           (counter[Chunk[Byte]] >< byteCounter)
         val inputs   = List(chunk("ab"), chunk("c"), chunk("def"))
-        val outputs  = combined.runList(inputs)
+        val outputs  = combined.runChunk(inputs).toList
 
         assertTrue(outputs == List((1L, 2L), (2L, 3L), (3L, 6L)))
       },
       test("fixed chunker flushes remainder") {
         val chunker = fixedChunker(3)
         val inputs  = List(chunk("ab"), chunk("cde"))
-        val outputs = chunker.runList(inputs).map(bytes => new String(bytes.toArray, ascii))
+        val outputs = chunker.runChunk(inputs).map(bytes => new String(bytes.toArray, ascii))
 
         assertTrue(outputs == List("abc", "de"))
       },
@@ -73,7 +73,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
           keyBits2 <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, 5L))
           entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
           entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
-          outputs   = buildManifest.runList(List(entry1, entry2))
+          outputs   = buildManifest.runChunk(List(entry1, entry2))
           manifest <- ZIO.fromOption(outputs.lastOption)
         yield assertTrue(
           manifest.entries == List(entry1, entry2),
@@ -82,7 +82,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
       },
       test("hashBytes emits padded digest on flush") {
         val data     = chunk("hi")
-        val outputs  = hashBytes(HashAlgo.Sha256).runList(List(data))
+        val outputs  = hashBytes(HashAlgo.Sha256).runChunk(List(data))
         val expected = "6869" + ("0" * 60)
 
         for
@@ -94,10 +94,10 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val many    = (1 to 10000).toList
         val program =
           map[Int, Int](_ + 1) >>>
-            flat[Int, Int](i => List(i, i)) >>>
+            flat[Int, Int](i => Chunk(i, i)) >>>
             filter[Int](_ % 3 == 0)
 
-        val collected = program.runList(many)
-        assertTrue(collected.size == many.size * 2 / 3)
+        val collected = program.runChunk(many)
+        assertTrue(collected.length == many.length * 2 / 3)
       },
     )
