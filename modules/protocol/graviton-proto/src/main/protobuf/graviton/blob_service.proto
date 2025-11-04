@@ -1,17 +1,31 @@
 syntax = "proto3";
 
-package graviton;
+package io.graviton.blobstore.v1;
+
+option java_multiple_files = true;
+option java_package = "io.graviton.blobstore.v1";
+option java_outer_classname = "BlobServiceProto";
 
 message BlobKey {
   string value = 1;
 }
 
-message BlobStat {
+message GetBlobRequest {
+  BlobKey key = 1;
+}
+
+message BlobChunk {
+  bytes data = 1;
+  uint64 offset = 2;
+  bool last = 3;
+}
+
+message StatBlobResponse {
   uint64 size = 1;
   string etag = 2;
 }
 
 service BlobService {
-  rpc GetBlob(BlobKey) returns (stream bytes);
-  rpc StatBlob(BlobKey) returns (BlobStat);
+  rpc GetBlob(GetBlobRequest) returns (stream BlobChunk);
+  rpc StatBlob(BlobKey) returns (StatBlobResponse);
 }
