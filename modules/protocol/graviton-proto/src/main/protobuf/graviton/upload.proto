@@ -6,6 +6,8 @@ option java_multiple_files = true;
 option java_package = "io.graviton.blobstore.v1";
 option java_outer_classname = "UploadProto";
 
+import "graviton/common.proto";
+
 // ============================
 // PRIMARY: Unified session pipe
 // ============================
@@ -126,26 +128,6 @@ message Event {
   string topic = 1;
   string message = 2;
   map<string,string> attributes = 3;
-}
-
-message Error {
-  enum Code {
-    CODE_UNSPECIFIED   = 0;
-    INVALID_REQUEST    = 1;
-    UNAUTHORIZED       = 2;
-    FORBIDDEN          = 3;
-    NOT_FOUND          = 4;
-    CONFLICT           = 5;
-    INVALID_CHECKSUM   = 6;
-    SESSION_EXPIRED    = 7;
-    STORAGE_ERROR      = 8;
-    INTERNAL_ERROR     = 9;
-    PROTOCOL_VIOLATION = 10;
-    UNSUPPORTED_TYPE   = 11;
-  }
-  Code  code    = 1;
-  string message = 2;
-  map<string,string> details = 3;
 }
 
 message Pong {
