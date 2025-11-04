@@ -6,8 +6,7 @@ import graviton.core.manifest.*
 import graviton.core.bytes.*
 import zio.*
 import zio.stream.*
-
-import scala.collection.mutable.ListBuffer
+import zio.ChunkBuilder
 
 /**
  * Symmetric monoidal product (⊗) abstraction for scan inputs/outputs.
@@ -83,10 +82,10 @@ object FreeScan:
 sealed trait Prim[A, B]
 
 object Prim:
-  final case class Map1[A, B](f: A => B)                                                                   extends Prim[A, B]
-  final case class Filter[A](p: A => Boolean)                                                              extends Prim[A, A]
-  final case class Flat[A, B](f: A => Iterable[B])                                                         extends Prim[A, B]
-  final case class Fold[A, B, S](init: () => S, step: (S, A) => (S, Iterable[B]), flush: S => Iterable[B]) extends Prim[A, B]
+  final case class Map1[A, B](f: A => B)                                                             extends Prim[A, B]
+  final case class Filter[A](p: A => Boolean)                                                        extends Prim[A, A]
+  final case class Flat[A, B](f: A => Chunk[B])                                                      extends Prim[A, B]
+  final case class Fold[A, B, S](init: () => S, step: (S, A) => (S, Chunk[B]), flush: S => Chunk[B]) extends Prim[A, B]
 
 /**
  * Volga-style combinator helpers and batteries-included primitives.
@@ -99,46 +98,46 @@ object FS:
 
   def filter[A](p: A => Boolean): FreeScan[Prim, A, A] = FreeScan.Embed(Filter(p))
 
-  def flat[A, B](f: A => Iterable[B]): FreeScan[Prim, A, B] = FreeScan.Embed(Flat(f))
+  def flat[A, B](f: A => Chunk[B]): FreeScan[Prim, A, B] = FreeScan.Embed(Flat(f))
 
-  def fold[A, B, S](initial: => S)(step: (S, A) => (S, Iterable[B]))(flush: S => Iterable[B]): FreeScan[Prim, A, B] =
+  def fold[A, B, S](initial: => S)(step: (S, A) => (S, Chunk[B]))(flush: S => Chunk[B]): FreeScan[Prim, A, B] =
     FreeScan.Embed(Fold(() => initial, step, flush))
 
   def stateful[A, S](initial: => S)(step: (S, A) => S): FreeScan[Prim, A, S] =
     fold[A, S, S](initial) { (s, a) =>
       val next = step(s, a)
-      (next, next :: Nil)
-    }(_ => Nil)
+      (next, Chunk(next))
+    }(_ => Chunk.empty)
 
   def counter[A]: FreeScan[Prim, A, Long] =
     fold[A, Long, Long](0L) { (count, _) =>
       val next = count + 1
-      (next, next :: Nil)
-    }(_ => Nil)
+      (next, Chunk(next))
+    }(_ => Chunk.empty)
 
   def byteCounter: FreeScan[Prim, Chunk[Byte], Long] =
     fold[Chunk[Byte], Long, Long](0L) { (total, bytes) =>
       val next = total + bytes.length
-      (next, next :: Nil)
-    }(_ => Nil)
+      (next, Chunk(next))
+    }(_ => Chunk.empty)
 
   def hashBytes(algo: HashAlgo): FreeScan[Prim, Chunk[Byte], Either[String, Digest]] =
     fold[Chunk[Byte], Either[String, Digest], Hasher](Hasher.memory(algo)) { (hasher, chunk) =>
       val updated = hasher.update(chunk.toArray)
-      (updated, Nil)
-    }(hasher => hasher.result :: Nil)
+      (updated, Chunk.empty)
+    }(hasher => Chunk(hasher.result))
 
   def buildManifest: FreeScan[Prim, ManifestEntry, Manifest] =
     fold[ManifestEntry, Manifest, (List[ManifestEntry], Long)]((Nil, 0L)) { case ((entries, total), entry) =>
       val spanLength = entry.span.length
       val next       = (entry :: entries, total + spanLength)
-      (next, Nil)
-    } { case (entries, total) => Manifest(entries.reverse, total) :: Nil }
+      (next, Chunk.empty)
+    } { case (entries, total) => Chunk(Manifest(entries.reverse, total)) }
 
   def fixedChunker(frameBytes: Int): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
     val safeSize = math.max(1, frameBytes)
     fold[Chunk[Byte], Chunk[Byte], (Array[Byte], Int)]((Array.ofDim[Byte](safeSize), 0)) { case ((buffer, filled), chunk) =>
-      val out      = ListBuffer.empty[Chunk[Byte]]
+      val out      = ChunkBuilder.make[Chunk[Byte]]()
       var writeIdx = filled
       var idx      = 0
       while idx < chunk.length do
@@ -148,10 +147,10 @@ object FS:
           out += Chunk.fromArray(java.util.Arrays.copyOf(buffer, safeSize))
           writeIdx = 0
         idx += 1
-      ((buffer, writeIdx), out.toList)
+      ((buffer, writeIdx), out.result())
     } { case (buffer, filled) =>
-      if filled == 0 then Nil
-      else Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)) :: Nil
+      if filled == 0 then Chunk.empty
+      else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
   extension [A, B](left: FreeScan[Prim, A, B])
@@ -161,12 +160,13 @@ object FS:
 
     def optimize: FreeScan[Prim, A, B] = Optimize.fuse(left)
 
-    def toChannel: ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] =
-      Compile.toChannel(left)
+    def toChannel: ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] = Compile.toChannel(left)
 
     def toPipeline: ZPipeline[Any, Nothing, A, B] = ZPipeline.fromChannel(Compile.toChannel(left))
 
-    def runList(inputs: Iterable[A]): List[B] = Compile.runList(left, inputs)
+    def runChunk(inputs: Iterable[A]): Chunk[B] = Compile.runChunk(left, inputs)
+
+    def runList(inputs: Iterable[A]): List[B] = runChunk(inputs).toList
 
 /**
  * Peephole optimizer for local primitive fusion.
@@ -192,86 +192,88 @@ object Optimize:
 
 private trait Step[-A, +B]:
   def init(): Unit
-  def onElem(a: A): List[B]
-  def onEnd(): List[B]
+  def onElem(a: A): Chunk[B]
+  def onEnd(): Chunk[B]
 
 private object Compile:
 
   def toChannel[A, B](free: FreeScan[Prim, A, B]): ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] =
     val step = build(Optimize.fuse(free))
 
-    lazy val loop: ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] =
+    def loop: ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] =
       ZChannel.readWith(
         (chunk: Chunk[A]) =>
-          val buffer     = ListBuffer.empty[B]
+          val builder  = ChunkBuilder.make[B]()
           chunk.foreach { a =>
             val out = step.onElem(a)
-            buffer ++= out
+            out.foreach(value => builder += value)
           }
-          val writeChunk =
-            if buffer.nonEmpty then ZChannel.write(Chunk.fromIterable(buffer))
-            else ZChannel.unit
-          writeChunk *> loop
-        ,
-        (_: Any) =>
-          val tail = step.onEnd()
-          if tail.nonEmpty then ZChannel.write(Chunk.fromIterable(tail))
-          else ZChannel.unit
+          val outChunk = builder.result()
+          val emit     =
+            if outChunk.isEmpty then ZChannel.unit else ZChannel.writeChunk(Chunk(outChunk))
+          emit *> loop
         ,
         (_: Any) => ZChannel.unit,
+        (_: Any) =>
+          val tail = step.onEnd()
+          if tail.isEmpty then ZChannel.unit else ZChannel.writeChunk(Chunk(tail)),
       )
 
     step.init()
     loop
 
-  def runList[A, B](free: FreeScan[Prim, A, B], inputs: Iterable[A]): List[B] =
+  def runChunk[A, B](free: FreeScan[Prim, A, B], inputs: Iterable[A]): Chunk[B] =
     val step    = build(Optimize.fuse(free))
-    val builder = ListBuffer.empty[B]
+    val builder = ChunkBuilder.make[B]()
     step.init()
-    inputs.foreach(a => builder ++= step.onElem(a))
-    builder ++= step.onEnd()
-    builder.toList
+    inputs.foreach { a =>
+      val chunk = step.onElem(a)
+      chunk.foreach(value => builder += value)
+    }
+    val tail    = step.onEnd()
+    tail.foreach(value => builder += value)
+    builder.result()
 
   private def build[A, B](free: FreeScan[Prim, A, B]): Step[A, B] =
     free match
       case _: FreeScan.Id[Prim, A] @unchecked =>
         new Step[A, B]:
-          def init(): Unit          = ()
-          def onElem(a: A): List[B] = List(a.asInstanceOf[B])
-          def onEnd(): List[B]      = Nil
+          def init(): Unit           = ()
+          def onElem(a: A): Chunk[B] = Chunk(a.asInstanceOf[B])
+          def onEnd(): Chunk[B]      = Chunk.empty
 
       case embed: FreeScan.Embed[Prim, a, b] @unchecked =>
         val step: Step[a, b] =
           embed.prim match
             case Map1(f) =>
               new Step[a, b]:
-                def init(): Unit           = ()
-                def onElem(a0: a): List[b] = List(f(a0))
-                def onEnd(): List[b]       = Nil
+                def init(): Unit            = ()
+                def onElem(a0: a): Chunk[b] = Chunk(f(a0))
+                def onEnd(): Chunk[b]       = Chunk.empty
 
             case Filter(p) =>
               new Step[a, b]:
-                def init(): Unit           = ()
-                def onElem(a0: a): List[b] =
-                  if p(a0) then List(a0)
-                  else Nil
-                def onEnd(): List[b]       = Nil
+                def init(): Unit            = ()
+                def onElem(a0: a): Chunk[b] =
+                  if p(a0) then Chunk(a0)
+                  else Chunk.empty
+                def onEnd(): Chunk[b]       = Chunk.empty
 
             case Flat(f) =>
               new Step[a, b]:
-                def init(): Unit           = ()
-                def onElem(a0: a): List[b] = f(a0).toList
-                def onEnd(): List[b]       = Nil
+                def init(): Unit            = ()
+                def onElem(a0: a): Chunk[b] = f(a0)
+                def onEnd(): Chunk[b]       = Chunk.empty
 
             case fold: Fold[a, b, s] =>
               var state: s = null.asInstanceOf[s]
               new Step[a, b]:
-                def init(): Unit           = state = fold.init()
-                def onElem(a0: a): List[b] =
+                def init(): Unit            = state = fold.init()
+                def onElem(a0: a): Chunk[b] =
                   val (next, out) = fold.step(state, a0)
                   state = next
-                  out.toList
-                def onEnd(): List[b]       = fold.flush(state).toList
+                  out
+                def onEnd(): Chunk[b]       = fold.flush(state)
 
         step.asInstanceOf[Step[A, B]]
 
@@ -284,17 +286,24 @@ private object Compile:
               left.init()
               right.init()
 
-            def onElem(a0: a): List[c] =
-              val acc = ListBuffer.empty[c]
-              val mid = left.onElem(a0)
-              mid.foreach(value => acc ++= right.onElem(value))
-              acc.toList
+            def onElem(a0: a): Chunk[c] =
+              val builder = ChunkBuilder.make[c]()
+              val mid     = left.onElem(a0)
+              mid.foreach { value =>
+                val outs = right.onElem(value)
+                outs.foreach(out => builder += out)
+              }
+              builder.result()
 
-            def onEnd(): List[c] =
-              val acc = ListBuffer.empty[c]
-              left.onEnd().foreach(value => acc ++= right.onElem(value))
-              acc ++= right.onEnd()
-              acc.toList
+            def onEnd(): Chunk[c] =
+              val builder = ChunkBuilder.make[c]()
+              left.onEnd().foreach { value =>
+                val outs = right.onElem(value)
+                outs.foreach(out => builder += out)
+              }
+              val tail    = right.onEnd()
+              tail.foreach(out => builder += out)
+              builder.result()
 
         step.asInstanceOf[Step[A, B]]
 
@@ -303,64 +312,69 @@ private object Compile:
         val right: Step[c, d]          = build(par.right)
         val step: Step[(a, c), (b, d)] =
           new Step[(a, c), (b, d)]:
-            private var leftBuf: List[b]  = Nil
-            private var rightBuf: List[d] = Nil
+            private var leftBuf: Chunk[b]  = Chunk.empty
+            private var rightBuf: Chunk[d] = Chunk.empty
 
             def init(): Unit =
               left.init()
               right.init()
-              leftBuf = Nil
-              rightBuf = Nil
+              leftBuf = Chunk.empty
+              rightBuf = Chunk.empty
 
-            private def drain(): List[(b, d)] =
-              val acc = ListBuffer.empty[(b, d)]
-              while leftBuf.nonEmpty && rightBuf.nonEmpty do
-                acc += ((leftBuf.head, rightBuf.head))
-                leftBuf = leftBuf.tail
-                rightBuf = rightBuf.tail
-              acc.toList
+            private def emitPairs(): Chunk[(b, d)] =
+              val available = math.min(leftBuf.length, rightBuf.length)
+              if available == 0 then Chunk.empty
+              else
+                val builder = ChunkBuilder.make[(b, d)]()
+                var idx     = 0
+                while idx < available do
+                  builder += ((leftBuf(idx), rightBuf(idx)))
+                  idx += 1
+                leftBuf = leftBuf.drop(available)
+                rightBuf = rightBuf.drop(available)
+                builder.result()
 
-            def onElem(in: (a, c)): List[(b, d)] =
+            def onElem(in: (a, c)): Chunk[(b, d)] =
               val (la, rc) = in
-              leftBuf = leftBuf ::: left.onElem(la)
-              rightBuf = rightBuf ::: right.onElem(rc)
-              drain()
+              leftBuf = leftBuf ++ left.onElem(la)
+              rightBuf = rightBuf ++ right.onElem(rc)
+              emitPairs()
 
-            def onEnd(): List[(b, d)] =
-              leftBuf = leftBuf ::: left.onEnd()
-              rightBuf = rightBuf ::: right.onEnd()
-              drain()
+            def onEnd(): Chunk[(b, d)] =
+              leftBuf = leftBuf ++ left.onEnd()
+              rightBuf = rightBuf ++ right.onEnd()
+              emitPairs()
 
         step.asInstanceOf[Step[A, B]]
 
       case _: FreeScan.Bra[Prim, a, b] @unchecked =>
         val step: Step[(a, b), (b, a)] =
           new Step[(a, b), (b, a)]:
-            def init(): Unit                       = ()
-            def onElem(pair: (a, b)): List[(b, a)] = List((pair._2, pair._1))
-            def onEnd(): List[(b, a)]              = Nil
+            def init(): Unit                        = ()
+            def onElem(pair: (a, b)): Chunk[(b, a)] = Chunk((pair._2, pair._1))
+            def onEnd(): Chunk[(b, a)]              = Chunk.empty
 
         step.asInstanceOf[Step[A, B]]
 
       case _: FreeScan.AssocL[Prim, a, b, c] @unchecked =>
         val step: Step[(a, (b, c)), ((a, b), c)] =
           new Step[(a, (b, c)), ((a, b), c)]:
-            def init(): Unit                                  = ()
-            def onElem(value: (a, (b, c))): List[((a, b), c)] =
+            def init(): Unit                                   = ()
+            def onElem(value: (a, (b, c))): Chunk[((a, b), c)] =
               val (a0, (b0, c0)) = value
-              List(((a0, b0), c0))
-            def onEnd(): List[((a, b), c)]                    = Nil
+              Chunk(((a0, b0), c0))
+            def onEnd(): Chunk[((a, b), c)]                    = Chunk.empty
 
         step.asInstanceOf[Step[A, B]]
 
       case _: FreeScan.AssocR[Prim, a, b, c] @unchecked =>
         val step: Step[((a, b), c), (a, (b, c))] =
           new Step[((a, b), c), (a, (b, c))]:
-            def init(): Unit                                  = ()
-            def onElem(value: ((a, b), c)): List[(a, (b, c))] =
+            def init(): Unit                                   = ()
+            def onElem(value: ((a, b), c)): Chunk[(a, (b, c))] =
               val ((a0, b0), c0) = value
-              List((a0, (b0, c0)))
-            def onEnd(): List[(a, (b, c))]                    = Nil
+              Chunk((a0, (b0, c0)))
+            def onEnd(): Chunk[(a, (b, c))]                    = Chunk.empty
 
         step.asInstanceOf[Step[A, B]]
 
