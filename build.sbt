@@ -5,28 +5,29 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
-import protocbridge.{Target, gens}
+import scalapb.compiler.Version
 
-  lazy val V = new {
-    val scala3     = "3.7.3"
-    val zio        = "2.1.9"
-    val zioSchema  = "1.5.0"
-    val zioPrelude = "1.0.0-RC23"
-    val zioGrpc    = "0.6.2"
-    val zioHttp    = "3.0.0-RC7"
-    val iron       = "2.6.0"
-    val awsV2      = "2.25.54"
-    val rocksdbJni = "8.11.3"
-    val pg         = "42.7.4"
-    val laminar    = "17.1.0"
-    val waypoint   = "8.0.0"
-    val scalajsDom = "2.8.0"
-    val scalapb    = "0.11.14"
-  }
+lazy val V = new {
+  val scala3     = "3.7.3"
+  val zio        = "2.1.9"
+  val zioSchema  = "1.5.0"
+  val zioPrelude = "1.0.0-RC23"
+  val zioGrpc    = "0.6.3"
+  val zioHttp    = "3.0.0-RC7"
+  val iron       = "2.6.0"
+  val awsV2      = "2.25.54"
+  val rocksdbJni = "8.11.3"
+  val pg         = "42.7.4"
+  val laminar    = "17.1.0"
+  val waypoint   = "8.0.0"
+  val scalajsDom = "2.8.0"
+  val grpc       = "1.65.1"
+}
 
 ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.graviton"
 ThisBuild / resolvers += Resolver.mavenCentral
+ThisBuild / PB.protocVersion := "3.21.12"
 
 // Semantic versioning
 ThisBuild / versionScheme := Some("early-semver")
@@ -164,21 +165,21 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       baseSettings,
       name := "graviton-proto",
       libraryDependencies ++= Seq(
-        "com.thesamet.scalapb" %% "scalapb-runtime" % V.scalapb % "protobuf",
-        "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % V.scalapb,
+        "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % Version.scalapbVersion,
+        "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0" % "protobuf",
+        "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0"
       ),
-      Compile / PB.targets := {
-        val out = (Compile / sourceManaged).value / "scalapb"
-        val options = Seq(
-          "grpc",
-          "flat_package=false",
-          "java_conversions=false",
-          "single_line_to_proto_string",
-          "ascii_format_to_string",
-          "lenses"
-        )
-        Seq(Target(gens.scalapb, out, options))
-      },
+      Compile / PB.targets := Seq(
+        scalapb.gen(
+          flatPackage = false,
+          javaConversions = false,
+          grpc = true,
+          singleLineToProtoString = true,
+          asciiFormatToString = true,
+          lenses = true
+        ) -> (Compile / sourceManaged).value / "scalapb",
+        scalapb.zio_grpc.ZioCodeGenerator -> (Compile / sourceManaged).value / "scalapb"
+      )
     )
 
   lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
@@ -188,7 +189,8 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       name := "graviton-grpc",
       libraryDependencies ++= Seq(
         "dev.zio" %% "zio"          % V.zio,
-        "io.grpc" % "grpc-netty" % "1.50.1",
+        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
+        "io.grpc" % "grpc-netty" % V.grpc,
         "dev.zio" %% "zio-test"         % V.zio % Test,
         "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
         "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
