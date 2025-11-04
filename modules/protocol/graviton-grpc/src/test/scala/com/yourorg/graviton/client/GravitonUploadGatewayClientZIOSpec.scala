@@ -1,8 +1,10 @@
 package com.yourorg.graviton.client
 
+import com.google.protobuf.ByteString
 import com.yourorg.graviton.client.GravitonUploadGatewayClientZIO.*
 import io.grpc.Status
-import io.graviton.blobstore.v1.*
+import io.graviton.blobstore.v1.common.*
+import io.graviton.blobstore.v1.upload.*
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -38,13 +40,13 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
                         ),
                       )
           uploadSvc = new InMemoryUploadService
-          client    = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)
+          client    = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)(using Clock.ClockLive)
           frame1    = DataFrame(
                         "sess-1",
                         sequence = 0L,
                         offsetBytes = 0L,
                         contentType = "application/graviton-frame",
-                        bytes = Chunk.fromArray("frame-0".getBytes),
+                        bytes = ByteString.copyFrom("frame-0".getBytes),
                         last = false,
                       )
           frame2    = DataFrame(
@@ -52,7 +54,7 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
                         sequence = 1L,
                         offsetBytes = 6L,
                         contentType = "application/graviton-frame",
-                        bytes = Chunk.fromArray("frame-1".getBytes),
+                        bytes = ByteString.copyFrom("frame-1".getBytes),
                         last = true,
                       )
           outcome  <- client.uploadFrames(
@@ -62,7 +64,7 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
                       )
           sent     <- recorded.get
         } yield assertTrue(
-          sent.collect { case ClientFrame(ClientFrame.Kind.Frame(df)) => df.sequence } == Chunk(0L, 1L),
+          sent.collect { case ClientFrame(kind = ClientFrame.Kind.Frame(df)) => df.sequence } == Chunk(0L, 1L),
           outcome.acknowledgements.map(_.acknowledgedSequence) == Chunk(0L, 1L),
           outcome.completed.blobHash == "hash-123",
         )
@@ -74,7 +76,7 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
             ServerFrame.Kind.Error(Error(code = Error.Code.SESSION_EXPIRED, message = "expired", details = Map("reason" -> "ttl")))
           ),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)(using Clock.ClockLive)
         client
           .uploadFrames(
             StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
@@ -96,7 +98,7 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
             )
           ),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)(using Clock.ClockLive)
         client
           .uploadFrames(
             StartUpload(objectContentType = "application/pdf", metadata = List.empty),
@@ -110,7 +112,7 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
           ServerFrame(ServerFrame.Kind.StartAck(StartAck(sessionId = "ooo", ttlSeconds = 30L))),
           ServerFrame(ServerFrame.Kind.Ack(Ack(sessionId = "ooo", acknowledgedSequence = 2L, receivedBytes = 1L))),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)(using Clock.ClockLive)
         client
           .uploadFrames(
             StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
@@ -118,16 +120,18 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
             complete = Complete(sessionId = "ooo"),
           )
           .exit
-          .map(exit => assertTrue(exit.fold(_.isFailure, _ => false)))
+          .map(exit => assertTrue(exit.isFailure))
       },
     )
 
   private final case class RecordingGateway(ref: Ref[Chunk[ClientFrame]], responses: Chunk[ServerFrame]) extends UploadGatewayClient {
     override def stream(requests: ZStream[Any, Throwable, ClientFrame]): ZStream[Any, Status, ServerFrame] =
       ZStream.unwrap {
-        requests.runCollect.flatMap { collected =>
-          ref.set(collected) *> ZIO.succeed(ZStream.fromChunk(responses))
-        }
+        requests.runCollect
+          .mapError(Status.fromThrowable)
+          .flatMap { collected =>
+            ref.set(collected) *> ZIO.succeed(ZStream.fromChunk(responses))
+          }
       }
   }
 
@@ -135,7 +139,11 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
     def drain(responses: Chunk[ServerFrame]): UploadGatewayClient =
       new UploadGatewayClient {
         override def stream(requests: ZStream[Any, Throwable, ClientFrame]): ZStream[Any, Status, ServerFrame] =
-          ZStream.unwrap(requests.runDrain.as(ZStream.fromChunk(responses)))
+          ZStream.unwrap(
+            requests.runDrain
+              .mapError(Status.fromThrowable)
+              .as(ZStream.fromChunk(responses))
+          )
       }
   }
 
@@ -144,7 +152,11 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
       ZIO.succeed(RegisterUploadResponse(sessionId = request.clientSessionId.getOrElse("session"), ttlSeconds = 30L))
 
     override def uploadParts(request: ZStream[Any, Throwable, UploadPartRequest]): ZStream[Any, Status, UploadPartsResponse] =
-      ZStream.unwrap(request.runDrain.as(ZStream.empty))
+      ZStream.unwrap(
+        request.runDrain
+          .mapError(Status.fromThrowable)
+          .as(ZStream.empty: ZStream[Any, Status, UploadPartsResponse])
+      )
 
     override def completeUpload(request: CompleteUploadRequest): IO[Status, CompleteUploadResponse] =
       ZIO.succeed(

@@ -1,7 +1,8 @@
 package com.yourorg.graviton.client
 
 import io.grpc.Status
-import io.graviton.blobstore.v1.*
+import io.graviton.blobstore.v1.catalog.*
+import io.graviton.blobstore.v1.common.*
 import zio.*
 import zio.stream.*
 
@@ -14,7 +15,7 @@ final class GravitonCatalogClientZIO(stub: GravitonCatalogClientZIO.CatalogClien
     stub.search(request).mapError(CatalogClientError.TransportFailure.apply)
 
   def list(pageSize: Option[Int], pageAfter: Option[String]): IO[CatalogClientError, ListResponse] =
-    val request = ListRequest(pageSize = pageSize.map(_.toLong), pageAfter = pageAfter)
+    val request = ListRequest(pageSize = pageSize, pageAfter = pageAfter)
     stub.list(request).mapError(CatalogClientError.TransportFailure.apply)
 
   def get(hash: String): IO[CatalogClientError, SearchResult] =
@@ -22,7 +23,7 @@ final class GravitonCatalogClientZIO(stub: GravitonCatalogClientZIO.CatalogClien
       .get(GetRequest(blobHash = hash))
       .mapError(CatalogClientError.TransportFailure.apply)
       .flatMap {
-        case GetResponse(result = GetResponse.Result.Item(item))  => ZIO.succeed(item)
+        case GetResponse(result = GetResponse.Result.Item(item))   => ZIO.succeed(item)
         case GetResponse(result = GetResponse.Result.Error(error)) => ZIO.fail(CatalogClientError.RemoteFailure(error))
         case _                                                     => ZIO.fail(CatalogClientError.NotFound(hash))
       }
@@ -68,7 +69,7 @@ object GravitonCatalogClientZIO:
       }
       SearchRequest(
         filters = (hashFilters ++ contentFilters ++ namespaceFilters ++ rangeFilters).toList,
-        pageSize = pageSize.map(_.toLong),
+        pageSize = pageSize,
         pageAfter = pageAfter,
         textQuery = textQuery,
         tags = tags.toList,
