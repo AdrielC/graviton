@@ -9,6 +9,7 @@ addSbtPlugin("dev.zio" % "zio-sbt-website"   % zioSbtVersion)
 
 // Semantic versioning from git tags
 addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.0")
+addSbtPlugin("com.thesamet.scalapb" % "sbt-scalapb" % "0.11.15")
 
 addSbtPlugin("ch.epfl.scala" % "sbt-scalafix"  % "0.14.3")
 addSbtPlugin("org.scalameta" % "sbt-scalafmt"  % "2.5.5")
