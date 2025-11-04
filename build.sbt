@@ -11,7 +11,7 @@ import sbtprotoc.ProtocPlugin.autoImport._
     val zio        = "2.1.9"
     val zioSchema  = "1.5.0"
     val zioPrelude = "1.0.0-RC23"
-    val zioGrpc    = "0.7.5"
+    val zioGrpc    = "0.6.2"
     val zioHttp    = "3.0.0-RC7"
     val iron       = "2.6.0"
     val awsV2      = "2.25.54"
@@ -178,8 +178,8 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       name := "graviton-grpc",
       libraryDependencies ++= Seq(
         "dev.zio" %% "zio"          % V.zio,
-        "dev.zio" %% "zio-grpc"     % V.zioGrpc,
-        "dev.zio" %% "zio-grpc-core" % V.zioGrpc,
+        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc"      % V.zioGrpc,
+        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
         "io.grpc" % "grpc-netty" % "1.50.1",
         "dev.zio" %% "zio-test"         % V.zio % Test,
         "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
@@ -187,8 +187,8 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       ),
     )
 
-lazy val http = (project in file("modules/protocol/graviton-http"))
-  .dependsOn(runtime)
+  lazy val http = (project in file("modules/protocol/graviton-http"))
+    .dependsOn(runtime, grpc)
   .settings(baseSettings,
     name := "graviton-http",
     libraryDependencies ++= Seq(

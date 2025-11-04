@@ -1,6 +1,8 @@
 package com.yourorg.graviton.client
 
 import com.yourorg.graviton.client.GravitonUploadGatewayClientZIO.UploadGatewayClient
+import io.grpc.Status
+import io.graviton.blobstore.v1.*
 import zio.*
 import zio.http.*
 import zio.json.*
