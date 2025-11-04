@@ -5,7 +5,7 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
-import protocbridge.Target
+import protocbridge.{Target, gens}
 
   lazy val V = new {
     val scala3     = "3.7.3"
@@ -167,9 +167,18 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
         "com.thesamet.scalapb" %% "scalapb-runtime" % V.scalapb % "protobuf",
         "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % V.scalapb,
       ),
-      Compile / PB.targets := Seq(
-        Target(scalapb.gen(flatPackage = false, grpc = true), (Compile / sourceManaged).value / "scalapb")
-      ),
+      Compile / PB.targets := {
+        val out = (Compile / sourceManaged).value / "scalapb"
+        val options = Seq(
+          "grpc",
+          "flat_package=false",
+          "java_conversions=false",
+          "single_line_to_proto_string",
+          "ascii_format_to_string",
+          "lenses"
+        )
+        Seq(Target(gens.scalapb, out, options))
+      },
     )
 
   lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
