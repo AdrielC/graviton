@@ -1,394 +1,168 @@
-# gRPC API
+# Graviton Blobstore v1 gRPC API
 
-Graviton exposes gRPC services for high-performance binary uploads and blob retrieval.
+Graviton Blobstore v1 exposes three coordinated gRPC services beneath the package `io.graviton.blobstore.v1`:
 
-## Services
+- **UploadGateway** – the frames-first ingestion pipe with schema-aware metadata, raw chunk fallback, events, and keepalives.
+- **UploadService** – classic multipart parity for clients mirroring the REST API.
+- **Catalog** – search, dedupe, export, and subscription capabilities over the blob catalogue.
 
-### BlobService
+Every upload can carry structured metadata via `MetadataNamespace`, providing optional schema bytes/content-types alongside the payload bytes/content-type. This powers validation during ingest and rich catalog queries later.
 
-Basic blob operations:
+---
+
+## UploadGateway – Frames-First Streaming
 
 ```protobuf
-service BlobService {
-  // Get a blob by key
-  rpc GetBlob(GetBlobRequest) returns (stream BlobChunk);
-  
-  // Get blob metadata without content
-  rpc StatBlob(StatBlobRequest) returns (BlobMetadata);
-  
-  // Delete a blob
-  rpc DeleteBlob(DeleteBlobRequest) returns (DeleteBlobResponse);
-  
-  // List blobs
-  rpc ListBlobs(ListBlobsRequest) returns (stream BlobMetadata);
+service UploadGateway {
+  rpc Stream (stream ClientFrame) returns (stream ServerFrame);
 }
 
-message GetBlobRequest {
-  bytes key = 1;
-  optional ByteRange range = 2;
+message ClientFrame {
+  oneof kind {
+    StartUpload start    = 1;
+    DataFrame   frame     = 2;
+    RawChunk    chunk     = 3;
+    Complete    complete  = 4;
+    Subscribe   subscribe = 5;
+    Cancel      cancel    = 6;
+    Ping        ping      = 7;
+  }
 }
 
-message BlobChunk {
-  bytes data = 1;
-  int64 offset = 2;
-}
-
-message StatBlobRequest {
-  bytes key = 1;
-}
-
-message BlobMetadata {
-  bytes key = 1;
-  int64 size = 2;
-  string content_type = 3;
-  map<string, string> attributes = 4;
-  google.protobuf.Timestamp created_at = 5;
+message ServerFrame {
+  oneof kind {
+    StartAck start_ack = 1;
+    Ack      ack       = 2;
+    Progress progress  = 3;
+    Completed completed= 4;
+    Event    event     = 5;
+    Error    error     = 6;
+    Pong     pong      = 7;
+  }
 }
 ```
 
-### UploadService
+### Workflow
 
-Bidirectional streaming upload:
+```text
+1. StartUpload – declare object content-type, TTL hints, and schema-aware metadata namespaces.
+2. DataFrame / RawChunk – stream Graviton frames (preferred) or raw chunks (fallback).
+3. Subscribe – opt into topics such as metadata validation or ingest lifecycle.
+4. Ping / Pong – keep the session alive beyond the negotiated TTL.
+5. Complete – supply optional manifest bytes and expected object hash.
+6. StartAck / Ack / Progress – the server confirms session id, supported frame types, windows, and tracked byte counts.
+7. Event – validation results, dedupe hints, or catalog notifications.
+8. Completed – final document id, canonical blob hash, object MIME type, and optional URL.
+```
+
+`GravitonUploadGatewayClientZIO` (package `com.yourorg.graviton.client`) orchestrates this flow, enforcing ack ordering and surfacing events:
+
+```scala
+val gatewayClient = new GravitonUploadGatewayClientZIO(gatewayStub, uploadServiceStub)
+
+val start = StartUpload(
+  objectContentType = "application/pdf",
+  metadata = List(
+    MetadataNamespace(
+      namespace = "document",
+      schemaContentType = Some("application/json; profile=json-schema"),
+      schemaBytes = Some(Chunk.fromArray(schemaBytes)),
+      dataContentType = "application/json",
+      dataBytes = Chunk.fromArray(metadataBytes),
+    )
+  ),
+)
+
+val frames = ZStream.fromIterable(frameBytes.zipWithIndex).map { case (bytes, idx) =>
+  Left(
+    DataFrame(
+      sessionId = "pending",
+      sequence = idx,
+      offsetBytes = idx.toLong * bytes.length,
+      contentType = "application/graviton-frame",
+      bytes = Chunk.fromArray(bytes),
+      last = idx == frameBytes.length - 1,
+    ),
+  )
+}
+
+for {
+  outcome <- gatewayClient.uploadFrames(start, frames, complete = Complete(sessionId = "pending"))
+  _       <- ZIO.logInfo(s"Stored ${outcome.completed.documentId} hash=${outcome.completed.blobHash}")
+} yield outcome
+```
+
+### Error Semantics
+
+- `SESSION_EXPIRED` – TTL elapsed; register a fresh session.
+- `INVALID_CHECKSUM` – checksum mismatch detected immediately.
+- `PROTOCOL_VIOLATION` – out-of-order sequence numbers, unsupported content-types, or invalid transitions.
+- `UNSUPPORTED_TYPE` – attempted to stream a content-type absent from `StartAck.accepted_content_types`.
+
+The helper client translates these into `UploadGatewayError` variants and ensures that `Ack.acknowledged_sequence` is strictly monotonic.
+
+---
+
+## UploadService – Classic Multipart Parity
 
 ```protobuf
 service UploadService {
-  // Bidirectional streaming upload
-  rpc Upload(stream UploadMessage) returns (stream UploadResponse);
-}
-
-message UploadMessage {
-  oneof message {
-    StartUpload start = 1;
-    UploadChunk chunk = 2;
-    CompleteUpload complete = 3;
-  }
-}
-
-message StartUpload {
-  int64 total_size = 1;
-  map<string, string> attributes = 2;
-}
-
-message UploadChunk {
-  bytes data = 1;
-  int64 offset = 2;
-}
-
-message CompleteUpload {
-  bytes expected_hash = 1;
-}
-
-message UploadResponse {
-  oneof response {
-    UploadStarted started = 1;
-    UploadCredit credit = 2;
-    UploadComplete complete = 3;
-    UploadError error = 4;
-  }
-}
-
-message UploadStarted {
-  string upload_id = 1;
-}
-
-message UploadCredit {
-  int64 bytes = 1;
-}
-
-message UploadComplete {
-  bytes key = 1;
-  int64 size = 2;
-  bytes hash = 3;
+  rpc RegisterUpload (RegisterUploadRequest) returns (RegisterUploadResponse);
+  rpc UploadParts    (stream UploadPartRequest) returns (UploadPartsResponse);
+  rpc CompleteUpload (CompleteUploadRequest) returns (CompleteUploadResponse);
 }
 ```
 
-## Client Usage
+Use the classic service when mirroring REST multipart behaviour or integrating existing chunked upload tooling. `RegisterUploadRequest` carries the object MIME type, optional size, metadata namespaces, and an optional client session id. `UploadPartRequest` includes sequence, offset, checksum, and `last` flags. `CompleteUploadRequest` can embed manifests and expected hashes for parity with frames ingest.
 
-### Scala Client
+`GravitonUploadGatewayClientZIO.uploadViaClassic` bridges to this API, while `GravitonUploadHttpClient` (zio-http based) offers a JSON+streaming alternative for HTTP callers.
+
+---
+
+## Catalog – Search, Dedupe, Export, Subscribe
+
+```protobuf
+service Catalog {
+  rpc Search         (SearchRequest)          returns (stream SearchResult);
+  rpc List           (ListRequest)            returns (ListResponse);
+  rpc Get            (GetRequest)             returns (GetResponse);
+  rpc FindDuplicates (FindDuplicatesRequest)  returns (stream DuplicateGroup);
+  rpc Export         (ExportRequest)          returns (stream ExportChunk);
+  rpc Subscribe      (SubscribeRequest)       returns (stream CatalogEvent);
+}
+```
+
+Highlights:
+
+- **Search** – Combine deterministic filters (hash, content-type, size ranges, namespaces) with OR groups and optional full-text hooks. Results include namespace summaries.
+- **FindDuplicates** – Group objects by hash or hash-prefix+size for dedupe workflows.
+- **Export** – Stream manifests and Graviton frames for migrations; pipe the frames straight into `UploadGateway`.
+- **Subscribe** – Receive catalog events (validation, ingest completion, dedupe findings) for reactive automation.
+
+`GravitonCatalogClientZIO` provides ergonomic wrappers:
 
 ```scala
-import graviton.proto.blob.*
-import io.grpc.ManagedChannelBuilder
+val catalog = new GravitonCatalogClientZIO(catalogStub)
 
-// Create channel
-val channel = ManagedChannelBuilder
-  .forAddress("localhost", 50051)
-  .usePlaintext()
-  .build()
+val results = catalog
+  .search(SearchFilters(hashes = Chunk("sha256:..."), contentTypes = Chunk("application/pdf"), sizeRange = Some(0L -> 1048576L)))
+  .runCollect
 
-// Create client
-val client = ZIO.succeed(BlobServiceGrpc.stub(channel))
+val duplicates = catalog.findDuplicates(FindDuplicatesRequest(hashPrefix = "sha256:abcd"))
 
-// Get a blob
-def getBlob(key: BinaryKey): ZStream[Any, StatusException, Chunk[Byte]] =
-  for {
-    stub <- ZStream.fromZIO(client)
-    request = GetBlobRequest(key = key.bytes)
-    chunk <- ZStream.fromIterator(stub.getBlob(request))
-  } yield Chunk.fromArray(chunk.data.toByteArray)
-
-// Upload a blob
-def uploadBlob(
-  data: ZStream[Any, Throwable, Byte]
-): ZIO[Any, StatusException, BinaryKey] =
-  for {
-    stub <- client
-    
-    // Start upload
-    startMsg = UploadMessage(
-      message = UploadMessage.Message.Start(
-        StartUpload(totalSize = data.size)
-      )
-    )
-    
-    // Stream chunks
-    chunks = data.chunks.map { chunk =>
-      UploadMessage(
-        message = UploadMessage.Message.Chunk(
-          UploadChunk(data = ByteString.copyFrom(chunk.toArray))
-        )
-      )
-    }
-    
-    // Complete upload
-    completeMsg = UploadMessage(
-      message = UploadMessage.Message.Complete(CompleteUpload())
-    )
-    
-    // Send all messages
-    responses <- ZStream.fromIterable(startMsg +: chunks :+ completeMsg)
-      .via(stub.upload)
-      .runCollect
-    
-    // Extract key from completion response
-    key <- responses.collectFirst {
-      case UploadResponse(UploadResponse.Response.Complete(c)) => 
-        BinaryKey.fromBytes(c.key.toByteArray)
-    }.toZIO
-  } yield key
+val exportPlan = ExportPlan(documentIds = Chunk("doc-001"), includeFrames = true)
+val exportStream = catalog.export(exportPlan)
 ```
 
-### Python Client
+Pair `exportStream` with `GravitonUploadGatewayClientZIO.uploadFrames` to migrate content without decoding frames.
 
-```python
-import grpc
-from graviton.proto import blob_pb2, blob_pb2_grpc
+---
 
-# Create channel
-channel = grpc.insecure_channel('localhost:50051')
-stub = blob_pb2_grpc.BlobServiceStub(channel)
+## Practical Guidance
 
-# Get a blob
-def get_blob(key: bytes) -> bytes:
-    request = blob_pb2.GetBlobRequest(key=key)
-    chunks = stub.GetBlob(request)
-    return b''.join(chunk.data for chunk in chunks)
+- Prefer `UploadGateway` for new ingest paths; reserve `RawChunk` for legacy fallbacks.
+- Attach JSON/CBOR schemas inside `MetadataNamespace` to receive `metadata.validation` events.
+- Subscribe to event topics to power dedupe quarantines or compliance checks.
+- Use `Catalog.FindDuplicates` before finalising uploads and leverage `Catalog.Export` + `UploadGateway` for parity checks or migrations.
 
-# Upload a blob
-def upload_blob(data: bytes) -> bytes:
-    upload_stub = blob_pb2_grpc.UploadServiceStub(channel)
-    
-    def request_iterator():
-        # Start
-        yield blob_pb2.UploadMessage(
-            start=blob_pb2.StartUpload(total_size=len(data))
-        )
-        
-        # Chunks (1MB each)
-        chunk_size = 1024 * 1024
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i:i + chunk_size]
-            yield blob_pb2.UploadMessage(
-                chunk=blob_pb2.UploadChunk(data=chunk, offset=i)
-            )
-        
-        # Complete
-        yield blob_pb2.UploadMessage(
-            complete=blob_pb2.CompleteUpload()
-        )
-    
-    # Send and receive
-    responses = upload_stub.Upload(request_iterator())
-    
-    for response in responses:
-        if response.HasField('complete'):
-            return response.complete.key
-```
-
-### Go Client
-
-```go
-package main
-
-import (
-    "context"
-    "io"
-    
-    pb "graviton/proto"
-    "google.golang.org/grpc"
-)
-
-func GetBlob(ctx context.Context, client pb.BlobServiceClient, key []byte) ([]byte, error) {
-    stream, err := client.GetBlob(ctx, &pb.GetBlobRequest{Key: key})
-    if err != nil {
-        return nil, err
-    }
-    
-    var data []byte
-    for {
-        chunk, err := stream.Recv()
-        if err == io.EOF {
-            break
-        }
-        if err != nil {
-            return nil, err
-        }
-        data = append(data, chunk.Data...)
-    }
-    
-    return data, nil
-}
-
-func UploadBlob(ctx context.Context, client pb.UploadServiceClient, data []byte) ([]byte, error) {
-    stream, err := client.Upload(ctx)
-    if err != nil {
-        return nil, err
-    }
-    
-    // Start
-    err = stream.Send(&pb.UploadMessage{
-        Message: &pb.UploadMessage_Start{
-            Start: &pb.StartUpload{TotalSize: int64(len(data))},
-        },
-    })
-    if err != nil {
-        return nil, err
-    }
-    
-    // Chunks
-    chunkSize := 1024 * 1024  // 1MB
-    for i := 0; i < len(data); i += chunkSize {
-        end := i + chunkSize
-        if end > len(data) {
-            end = len(data)
-        }
-        
-        err = stream.Send(&pb.UploadMessage{
-            Message: &pb.UploadMessage_Chunk{
-                Chunk: &pb.UploadChunk{
-                    Data: data[i:end],
-                    Offset: int64(i),
-                },
-            },
-        })
-        if err != nil {
-            return nil, err
-        }
-    }
-    
-    // Complete
-    err = stream.Send(&pb.UploadMessage{
-        Message: &pb.UploadMessage_Complete{
-            Complete: &pb.CompleteUpload{},
-        },
-    })
-    if err != nil {
-        return nil, err
-    }
-    
-    // Receive completion
-    for {
-        resp, err := stream.Recv()
-        if err == io.EOF {
-            break
-        }
-        if err != nil {
-            return nil, err
-        }
-        
-        if complete := resp.GetComplete(); complete != nil {
-            return complete.Key, nil
-        }
-    }
-    
-    return nil, io.ErrUnexpectedEOF
-}
-```
-
-## Error Handling
-
-### Status Codes
-
-| Code | Description | Retry? |
-|------|-------------|--------|
-| `OK` | Success | N/A |
-| `NOT_FOUND` | Blob doesn't exist | No |
-| `ALREADY_EXISTS` | Key collision | No |
-| `RESOURCE_EXHAUSTED` | Quota exceeded | After delay |
-| `UNAVAILABLE` | Temporary failure | Yes |
-| `DEADLINE_EXCEEDED` | Timeout | Yes |
-| `INVALID_ARGUMENT` | Bad request | No |
-| `INTERNAL` | Server error | Maybe |
-
-### Retry Logic
-
-```scala
-def withRetry[R, E, A](
-  effect: ZIO[R, StatusException, A],
-  maxRetries: Int = 3
-): ZIO[R, StatusException, A] =
-  effect.retry(
-    Schedule.exponentialBackoff(1.second, 2.0)
-      && Schedule.recurs(maxRetries)
-      && Schedule.recurWhile { e =>
-        e.getStatus.getCode match
-          case Status.Code.UNAVAILABLE => true
-          case Status.Code.DEADLINE_EXCEEDED => true
-          case Status.Code.RESOURCE_EXHAUSTED => true
-          case _ => false
-      }
-  )
-
-// Usage
-val result = withRetry(getBlob(key))
-```
-
-## Authentication
-
-### TLS
-
-```scala
-val channel = NettyChannelBuilder
-  .forAddress("graviton.example.com", 443)
-  .useTransportSecurity()
-  .build()
-```
-
-### Metadata/Headers
-
-```scala
-val metadata = new Metadata()
-metadata.put(
-  Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER),
-  s"Bearer $token"
-)
-
-val client = MetadataUtils.attachHeaders(stub, metadata)
-```
-
-## Performance Tips
-
-- **Use streaming**: For blobs > 1MB
-- **Batch stat calls**: Query metadata in bulk
-- **Reuse channels**: One channel per server
-- **Set deadlines**: Prevent hanging requests
-- **Compress requests**: Enable gRPC compression
-
-## See Also
-
-- **[HTTP API](./http)** — REST endpoints
-- **[Getting Started](../guide/getting-started)** — Quick start guide
-
-::: tip
-For large uploads, use the bidirectional streaming `Upload` RPC for better flow control!
-:::
+For HTTP parity and JSON payloads, see [HTTP API](./http). For module wiring and build notes, consult [Protocol Modules](../modules/protocol).
