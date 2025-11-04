@@ -1,9 +1,11 @@
-package com.yourorg.graviton.client
+package ai.hylo.graviton.client
 
-import com.yourorg.graviton.client.GravitonCatalogClientZIO.*
-import com.yourorg.graviton.client.GravitonUploadGatewayClientZIO.UploadGatewayClient
+import com.google.protobuf.ByteString
+import ai.hylo.graviton.client.GravitonCatalogClientZIO.*
+import ai.hylo.graviton.client.GravitonUploadGatewayClientZIO.UploadGatewayClient
 import io.grpc.Status
-import io.graviton.blobstore.v1.*
+import io.graviton.blobstore.v1.catalog.*
+import io.graviton.blobstore.v1.upload.*
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -49,8 +51,9 @@ object GravitonCatalogClientZIOSpec extends ZIOSpecDefault {
       },
       test("export manifest and frames can be re-uploaded through frames path") {
         val manifestChunk =
-          ExportChunk(ExportChunk.Kind.Manifest(Manifest("application/vnd.graviton.manifest+json", Chunk.fromArray("{}".getBytes))))
-        val frameChunk    = ExportChunk(ExportChunk.Kind.Frame(ExportFrame("application/graviton-frame", Chunk.fromArray("block".getBytes))))
+          ExportChunk(ExportChunk.Kind.Manifest(Manifest("application/vnd.graviton.manifest+json", ByteString.copyFrom("{}".getBytes))))
+        val frameChunk    =
+          ExportChunk(ExportChunk.Kind.Frame(ExportFrame("application/graviton-frame", ByteString.copyFrom("block".getBytes))))
 
         val catalogStub = new CatalogClient {
           override def search(request: SearchRequest): ZStream[Any, Status, SearchResult]                   = ZStream.empty
@@ -74,20 +77,20 @@ object GravitonCatalogClientZIOSpec extends ZIOSpecDefault {
                               ),
                             )
           uploadSvc       = new InMemoryUploadService
-          gatewayClient   = new GravitonUploadGatewayClientZIO(gatewayStub, uploadSvc)
+          gatewayClient   = new GravitonUploadGatewayClientZIO(gatewayStub, uploadSvc)(using Clock.ClockLive)
           catalogClient   = new GravitonCatalogClientZIO(catalogStub)
           exportedFrames <- catalogClient.exportData(ExportPlan(documentIds = Chunk("doc"))).runCollect
           _              <- gatewayClient.uploadFrames(
                               StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
                               ZStream.fromIterable(
-                                exportedFrames.collect { case ExportChunk(ExportChunk.Kind.Frame(f)) =>
+                                exportedFrames.collect { case ExportChunk(kind = ExportChunk.Kind.Frame(frame)) =>
                                   Left(
                                     DataFrame(
                                       sessionId = "sess",
                                       sequence = 0L,
                                       offsetBytes = 0L,
-                                      contentType = f.contentType,
-                                      bytes = f.bytes,
+                                      contentType = frame.contentType,
+                                      bytes = frame.bytes,
                                       last = true,
                                     )
                                   )
@@ -129,9 +132,11 @@ object GravitonCatalogClientZIOSpec extends ZIOSpecDefault {
   private final case class RecordingGateway(ref: Ref[Chunk[ClientFrame]], responses: Chunk[ServerFrame]) extends UploadGatewayClient {
     override def stream(requests: ZStream[Any, Throwable, ClientFrame]): ZStream[Any, Status, ServerFrame] =
       ZStream.unwrap {
-        requests.runCollect.flatMap { collected =>
-          ref.set(collected) *> ZIO.succeed(ZStream.fromChunk(responses))
-        }
+        requests.runCollect
+          .mapError(Status.fromThrowable)
+          .flatMap { collected =>
+            ref.set(collected) *> ZIO.succeed(ZStream.fromChunk(responses))
+          }
       }
   }
 
@@ -140,7 +145,11 @@ object GravitonCatalogClientZIOSpec extends ZIOSpecDefault {
       ZIO.succeed(RegisterUploadResponse(sessionId = request.clientSessionId.getOrElse("session"), ttlSeconds = 30L))
 
     override def uploadParts(request: ZStream[Any, Throwable, UploadPartRequest]): ZStream[Any, Status, UploadPartsResponse] =
-      ZStream.unwrap(request.runDrain.as(ZStream.empty))
+      ZStream.unwrap(
+        request.runDrain
+          .mapError(Status.fromThrowable)
+          .as(ZStream.empty: ZStream[Any, Status, UploadPartsResponse])
+      )
 
     override def completeUpload(request: CompleteUploadRequest): IO[Status, CompleteUploadResponse] =
       ZIO.succeed(

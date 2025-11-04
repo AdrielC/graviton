@@ -55,7 +55,7 @@ message ServerFrame {
 8. Completed – final document id, canonical blob hash, object MIME type, and optional URL.
 ```
 
-`GravitonUploadGatewayClientZIO` (package `com.yourorg.graviton.client`) orchestrates this flow, enforcing ack ordering and surfacing events:
+`GravitonUploadGatewayClientZIO` (package `ai.hylo.graviton.client`) orchestrates this flow, enforcing ack ordering and surfacing events:
 
 ```scala
 val gatewayClient = new GravitonUploadGatewayClientZIO(gatewayStub, uploadServiceStub)

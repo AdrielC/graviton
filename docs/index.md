@@ -11,10 +11,10 @@ hero:
   actions:
     - theme: brand
       text: 🚀 Get Started
-      link: /guide/getting-started
+      link: guide/getting-started
     - theme: alt
       text: 📖 Architecture
-      link: /architecture
+      link: architecture
     - theme: alt
       text: ⚡ GitHub
       link: https://github.com/AdrielC/graviton
@@ -83,31 +83,31 @@ Architecture, manifests, and operations pages include interactive Mermaid diagra
 ## 📚 Next Steps
 
 :::tip 🎯 New to Graviton?
-Start with the [Getting Started Guide](/guide/getting-started) for a hands-on introduction!
+Start with the [Getting Started Guide](guide/getting-started) for a hands-on introduction!
 :::
 
 <div class="grid-container">
-  <a href="/architecture" class="feature-card">
+  <a href="architecture" class="feature-card">
     <h3>🏗️ Architecture</h3>
     <p>Understand the module-by-module breakdown and system design</p>
   </a>
   
-  <a href="/end-to-end-upload" class="feature-card">
+  <a href="end-to-end-upload" class="feature-card">
     <h3>📤 Upload Flow</h3>
     <p>Follow a binary blob through the entire ingest pipeline</p>
   </a>
   
-  <a href="/api" class="feature-card">
+  <a href="api" class="feature-card">
     <h3>🔌 API Reference</h3>
     <p>Explore gRPC and HTTP endpoints with examples</p>
   </a>
   
-  <a href="/dev/contributing" class="feature-card">
+  <a href="dev/contributing" class="feature-card">
     <h3>🤝 Contributing</h3>
     <p>Join the community and help build the future of storage</p>
   </a>
 
-  <a href="/dev/scalajs" class="feature-card">
+  <a href="dev/scalajs" class="feature-card">
     <h3>🧪 Scala.js Playbook</h3>
     <p>Run the Laminar dashboard locally with live reload and shared models</p>
   </a>

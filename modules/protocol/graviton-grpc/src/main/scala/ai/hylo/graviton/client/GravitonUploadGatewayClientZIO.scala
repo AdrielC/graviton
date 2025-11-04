@@ -1,7 +1,8 @@
-package com.yourorg.graviton.client
+package ai.hylo.graviton.client
 
 import io.grpc.Status
-import io.graviton.blobstore.v1.*
+import io.graviton.blobstore.v1.common.*
+import io.graviton.blobstore.v1.upload.*
 import zio.*
 import zio.stream.*
 
@@ -18,21 +19,24 @@ final class GravitonUploadGatewayClientZIO(
     complete: Complete,
     subscribe: Option[Subscribe] = None,
     pingInterval: Option[Duration] = None,
-  ): IO[UploadGatewayError, UploadOutcome] =
-    val startStream     = ZStream.succeed(ClientFrame(ClientFrame.Kind.Start(start)))
-    val subscribeStream = subscribe.fold(ZStream.empty[ClientFrame]) { sub =>
-      ZStream.succeed(ClientFrame(ClientFrame.Kind.Subscribe(sub)))
-    }
-    val chunkStream     = frames.map {
+  ): IO[UploadGatewayError, UploadOutcome] = {
+    val startStream                                           = ZStream.succeed(ClientFrame(ClientFrame.Kind.Start(start)))
+    val subscribeStream: ZStream[Any, Throwable, ClientFrame] =
+      subscribe match
+        case Some(sub) => ZStream.succeed(ClientFrame(ClientFrame.Kind.Subscribe(sub)))
+        case None      => ZStream.empty
+    val chunkStream                                           = frames.map {
       case Left(frame) => ClientFrame(ClientFrame.Kind.Frame(frame))
       case Right(raw)  => ClientFrame(ClientFrame.Kind.Chunk(raw))
     }
-    val completeStream  = ZStream.succeed(ClientFrame(ClientFrame.Kind.Complete(complete)))
-    val pingStream      = pingInterval.fold(ZStream.empty[ClientFrame]) { interval =>
-      ZStream.fromSchedule(Schedule.spaced(interval)).map { _ =>
-        ClientFrame(ClientFrame.Kind.Ping(Ping(sessionId = start.clientSessionId.getOrElse(""))))
-      }
-    }
+    val completeStream                                        = ZStream.succeed(ClientFrame(ClientFrame.Kind.Complete(complete)))
+    val pingStream: ZStream[Any, Throwable, ClientFrame]      =
+      pingInterval match
+        case Some(interval) =>
+          ZStream.fromSchedule(Schedule.spaced(interval)).map { _ =>
+            ClientFrame(ClientFrame.Kind.Ping(Ping(sessionId = start.clientSessionId.getOrElse(""))))
+          }
+        case None           => ZStream.empty
 
     val outbound = startStream ++ subscribeStream ++ chunkStream ++ completeStream ++ pingStream
 
@@ -41,6 +45,7 @@ final class GravitonUploadGatewayClientZIO(
       .mapError(UploadGatewayError.TransportFailure.apply)
       .runCollect
       .flatMap(UploadOutcome.fromFrames)
+  }
 
   def uploadViaClassic(
     request: RegisterUploadRequest,
@@ -49,13 +54,13 @@ final class GravitonUploadGatewayClientZIO(
   ): IO[UploadGatewayError, CompleteUploadResponse] =
     for {
       registered <- service.registerUpload(request).mapError(UploadGatewayError.TransportFailure.apply)
-      _ <- service
-             .uploadParts(ZStream.fromIterable(parts))
-             .mapError(UploadGatewayError.TransportFailure.apply)
-             .runDrain
-      result <- service
-                 .completeUpload(complete.copy(sessionId = registered.sessionId))
-                 .mapError(UploadGatewayError.TransportFailure.apply)
+      _          <- service
+                      .uploadParts(ZStream.fromIterable(parts))
+                      .mapError(UploadGatewayError.TransportFailure.apply)
+                      .runDrain
+      result     <- service
+                      .completeUpload(complete.copy(sessionId = registered.sessionId))
+                      .mapError(UploadGatewayError.TransportFailure.apply)
     } yield result
 
 object GravitonUploadGatewayClientZIO:
@@ -109,28 +114,28 @@ object GravitonUploadGatewayClientZIO:
     )
 
     def fromFrames(frames: Chunk[ServerFrame]): IO[UploadGatewayError, UploadOutcome] =
-      frames
-        .foldLeftZIO(Accumulator()) { (state, frame) =>
+      ZIO
+        .foldLeft(frames)(Accumulator()) { (state, frame) =>
           frame.kind match
-            case ServerFrame.Kind.StartAck(value) => ZIO.succeed(state.copy(startAck = Some(value)))
-            case ServerFrame.Kind.Ack(value) =>
+            case ServerFrame.Kind.StartAck(value)  => ZIO.succeed(state.copy(startAck = Some(value)))
+            case ServerFrame.Kind.Ack(value)       =>
               if value.acknowledgedSequence <= state.lastAck then
                 ZIO.fail(UploadGatewayError.AckOutOfOrder(state.lastAck, value.acknowledgedSequence))
               else ZIO.succeed(state.copy(lastAck = value.acknowledgedSequence, acknowledgements = state.acknowledgements :+ value))
-            case ServerFrame.Kind.Progress(value) => ZIO.succeed(state.copy(progress = state.progress :+ value))
+            case ServerFrame.Kind.Progress(value)  => ZIO.succeed(state.copy(progress = state.progress :+ value))
             case ServerFrame.Kind.Completed(value) => ZIO.succeed(state.copy(completed = Some(value)))
-            case ServerFrame.Kind.Event(value) => ZIO.succeed(state.copy(events = state.events :+ value))
-            case ServerFrame.Kind.Error(value) =>
+            case ServerFrame.Kind.Event(value)     => ZIO.succeed(state.copy(events = state.events :+ value))
+            case ServerFrame.Kind.Error(value)     =>
               value.code match
                 case Error.Code.SESSION_EXPIRED => ZIO.fail(UploadGatewayError.SessionExpired(value.details.get("reason")))
                 case _                          => ZIO.fail(UploadGatewayError.RemoteFailure(value))
-            case ServerFrame.Kind.Pong(_)  => ZIO.succeed(state)
-            case ServerFrame.Kind.Empty    => ZIO.succeed(state)
+            case ServerFrame.Kind.Pong(_)          => ZIO.succeed(state)
+            case ServerFrame.Kind.Empty            => ZIO.succeed(state)
         }
         .flatMap { acc =>
           (acc.startAck, acc.completed) match
             case (Some(startAck), Some(completed)) =>
               ZIO.succeed(UploadOutcome(startAck, acc.acknowledgements, acc.progress, acc.events, completed))
-            case (None, _) => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not receive StartAck"))
-            case (_, None) => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not complete"))
+            case (None, _)                         => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not receive StartAck"))
+            case (_, None)                         => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not complete"))
         }
