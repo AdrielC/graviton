@@ -10,85 +10,96 @@ final class GravitonUploadGatewayClientZIO(
   service: GravitonUploadGatewayClientZIO.UploadServiceClient,
 )(using clock: Clock)
 
-  import GravitonUploadGatewayClientZIO.*
+import GravitonUploadGatewayClientZIO.*
 
-  def uploadFrames(
-    start: StartUpload,
-    frames: ZStream[Any, Throwable, Either[DataFrame, RawChunk]],
-    complete: Complete,
-    subscribe: Option[Subscribe] = None,
-    pingInterval: Option[Duration] = None,
-  ): IO[UploadGatewayError, UploadOutcome] =
-    val startStream      = ZStream.succeed(ClientFrame(ClientFrame.Kind.Start(start)))
-    val subscribeStream  = subscribe.fold(ZStream.empty[ClientFrame])(sub => ZStream.succeed(ClientFrame(ClientFrame.Kind.Subscribe(sub))))
-    val chunkStream      = frames.map {
-      case Left(frame) => ClientFrame(ClientFrame.Kind.Frame(frame))
-      case Right(raw)  => ClientFrame(ClientFrame.Kind.Chunk(raw))
-    }
-    val completeStream   = ZStream.succeed(ClientFrame(ClientFrame.Kind.Complete(complete)))
-    val pingStream       = pingInterval.fold(ZStream.empty[ClientFrame]) { interval =>
-      ZStream.fromSchedule(Schedule.spaced(interval)).map(_ => ClientFrame(ClientFrame.Kind.Ping(Ping(sessionId = start.clientSessionId.getOrElse("")))))
-    }
+def uploadFrames(
+  start: StartUpload,
+  frames: ZStream[Any, Throwable, Either[DataFrame, RawChunk]],
+  complete: Complete,
+  subscribe: Option[Subscribe] = None,
+  pingInterval: Option[Duration] = None,
+): IO[UploadGatewayError, UploadOutcome] =
+  val startStream     = ZStream.succeed(ClientFrame(ClientFrame.Kind.Start(start)))
+  val subscribeStream = subscribe.fold(ZStream.empty[ClientFrame])(sub => ZStream.succeed(ClientFrame(ClientFrame.Kind.Subscribe(sub))))
+  val chunkStream     = frames.map {
+    case Left(frame) => ClientFrame(ClientFrame.Kind.Frame(frame))
+    case Right(raw)  => ClientFrame(ClientFrame.Kind.Chunk(raw))
+  }
+  val completeStream  = ZStream.succeed(ClientFrame(ClientFrame.Kind.Complete(complete)))
+  val pingStream      = pingInterval.fold(ZStream.empty[ClientFrame]) { interval =>
+    ZStream
+      .fromSchedule(Schedule.spaced(interval))
+      .map(_ => ClientFrame(ClientFrame.Kind.Ping(Ping(sessionId = start.clientSessionId.getOrElse("")))))
+  }
 
-    val outbound: ZStream[Any, Throwable, ClientFrame] =
-      (startStream ++ subscribeStream ++ chunkStream ++ completeStream ++ pingStream)
+  val outbound: ZStream[Any, Throwable, ClientFrame] =
+    (startStream ++ subscribeStream ++ chunkStream ++ completeStream ++ pingStream)
 
-    val responseStream: ZStream[Any, UploadGatewayError, ServerFrame] =
-      gateway
-        .stream(outbound)
-        .mapError(UploadGatewayError.TransportFailure.apply)
+  val responseStream: ZStream[Any, UploadGatewayError, ServerFrame] =
+    gateway
+      .stream(outbound)
+      .mapError(UploadGatewayError.TransportFailure.apply)
 
-    responseStream.runCollect.flatMap { frames =>
-      UploadOutcome.fromFrames(frames)
-    }
+  responseStream.runCollect.flatMap { frames =>
+    UploadOutcome.fromFrames(frames)
+  }
 
-  def uploadViaClassic(
-    request: RegisterUploadRequest,
-    parts: Chunk[UploadPartRequest],
-    complete: CompleteUploadRequest,
-  ): IO[UploadGatewayError, CompleteUploadResponse] =
-    for {
-      registered <- service.registerUpload(request).mapError(UploadGatewayError.TransportFailure.apply)
-      _ <- service
-             .uploadParts(ZStream.fromIterable(parts))
-             .mapError(UploadGatewayError.TransportFailure.apply)
-             .runDrain
-      result <- service
-                  .completeUpload(complete.copy(sessionId = registered.sessionId))
-                  .mapError(UploadGatewayError.TransportFailure.apply)
-    } yield result
+def uploadViaClassic(
+  request: RegisterUploadRequest,
+  parts: Chunk[UploadPartRequest],
+  complete: CompleteUploadRequest,
+): IO[UploadGatewayError, CompleteUploadResponse] =
+  for {
+    registered <- service.registerUpload(request).mapError(UploadGatewayError.TransportFailure.apply)
+    _          <- service
+                    .uploadParts(ZStream.fromIterable(parts))
+                    .mapError(UploadGatewayError.TransportFailure.apply)
+                    .runDrain
+    result     <- service
+                    .completeUpload(complete.copy(sessionId = registered.sessionId))
+                    .mapError(UploadGatewayError.TransportFailure.apply)
+  } yield result
 
-object GravitonUploadGatewayClientZIO:
+object GravitonUploadGatewayClientZIO {
 
-  trait UploadGatewayClient:
+  trait UploadGatewayClient {
     def stream(requests: ZStream[Any, Throwable, ClientFrame]): ZStream[Any, Status, ServerFrame]
+  }
 
-  trait UploadServiceClient:
+  trait UploadServiceClient {
     def registerUpload(request: RegisterUploadRequest): IO[Status, RegisterUploadResponse]
     def uploadParts(request: ZStream[Any, Throwable, UploadPartRequest]): ZStream[Any, Status, UploadPartsResponse]
     def completeUpload(request: CompleteUploadRequest): IO[Status, CompleteUploadResponse]
+  }
 
-  sealed trait UploadGatewayError extends Throwable:
+  sealed trait UploadGatewayError extends Throwable {
     def message: String
     override def getMessage: String = message
+  }
 
-  object UploadGatewayError:
-    final case class TransportFailure(status: Status) extends UploadGatewayError:
+  object UploadGatewayError {
+    final case class TransportFailure(status: Status) extends UploadGatewayError {
       override def message: String = Option(status.getDescription).getOrElse(status.getCode.name())
+    }
 
-    final case class StreamFailure(cause: Throwable) extends UploadGatewayError:
+    final case class StreamFailure(cause: Throwable) extends UploadGatewayError {
       override def message: String = Option(cause.getMessage).getOrElse("stream failure")
+    }
 
-    final case class RemoteFailure(error: Error) extends UploadGatewayError:
+    final case class RemoteFailure(error: Error) extends UploadGatewayError {
       override def message: String = s"${error.code.name}: ${error.message}"
+    }
 
-    final case class AckOutOfOrder(previous: Long, observed: Long) extends UploadGatewayError:
+    final case class AckOutOfOrder(previous: Long, observed: Long) extends UploadGatewayError {
       override def message: String = s"Ack sequence $observed is not greater than $previous"
+    }
 
     final case class MissingCompletion(message: String) extends UploadGatewayError
 
-    final case class SessionExpired(details: Option[String]) extends UploadGatewayError:
+    final case class SessionExpired(details: Option[String]) extends UploadGatewayError {
       override def message: String = details.getOrElse("Upload session expired")
+    }
+  }
 
   final case class UploadOutcome(
     startAck: StartAck,
@@ -98,7 +109,7 @@ object GravitonUploadGatewayClientZIO:
     completed: Completed,
   )
 
-  object UploadOutcome:
+  object UploadOutcome {
     private final case class Accumulator(
       startAck: Option[StartAck] = None,
       lastAck: Long = -1L,
@@ -142,6 +153,8 @@ object GravitonUploadGatewayClientZIO:
           (acc.startAck, acc.completed) match
             case (Some(startAck), Some(completed)) =>
               ZIO.succeed(UploadOutcome(startAck, acc.acknowledgements, acc.progress, acc.events, completed))
-            case (None, _) => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not receive StartAck"))
-            case (_, None) => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not complete"))
+            case (None, _)                         => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not receive StartAck"))
+            case (_, None)                         => ZIO.fail(UploadGatewayError.MissingCompletion("Upload did not complete"))
         }
+  }
+}
