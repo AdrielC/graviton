@@ -6,10 +6,16 @@ import zio.schema.*
 import zio.schema.DynamicValue
 import scala.collection.immutable.ListMap
 // import scala.compiletime.ops.string
-import BinaryAttributeKey.{ConfirmedKeys, AdvertisedKeys}
+import BinaryAttributeKey.{ConfirmedKeys, AdvertisedKeys, NoPrefix}
 import cats.Monoid
 import cats.implicits.*
 import zio.json.*
+
+
+import io.github.iltotore.iron.{zio as ironZio}
+import ironZio.*
+
+import BinaryAttributeKey.{Server, Client, NoPrefix}
 
 
 final case class BinaryAttribute[+A](value: A, source: String):
@@ -17,6 +23,8 @@ final case class BinaryAttribute[+A](value: A, source: String):
   def withSource(s: String): BinaryAttribute[A] = copy(source = s + (if (s == source) then "" else ":update"))
   def withNewValue[B](v: B)(using ev: B =!= (? >: A)): BinaryAttribute[B] = copy(value = v, source = source + ":update")
   def withValue[AA >: A](v: AA): BinaryAttribute[AA] = copy(value = v, source = source + (if (v == value) then "" else ":update"))
+
+  def id: String = source
 end BinaryAttribute
 
 private final case class DynamicAttr(value: DynamicValue, source: String):
@@ -34,62 +42,71 @@ private object DynamicAttr:
       .getOrElse(y).value, x.source)
 
 
-  def from[A](attr: BinaryAttribute[A])(using Schema[A]): DynamicAttr =
+  def from[A: Schema](attr: BinaryAttribute[A]): DynamicAttr =
     DynamicAttr(
-      DynamicValue.fromSchemaAndValue(Schema[A], attr.value),
+      DynamicValue.fromSchemaAndValue(summon[Schema[A]], attr.value),
       attr.source,
     )
 
 final case class BinaryAttributes private[graviton] (
-  advertised: Map[BinaryAttributeKey[String & Singleton], DynamicAttr],
-  confirmed: Map[BinaryAttributeKey[String & Singleton], DynamicAttr],
+  advertised: Map[BinaryAttributeKey[?], DynamicAttr],
+  confirmed: Map[BinaryAttributeKey[?], DynamicAttr],
 ):
   self =>
   
-  def getAdvertised[A, K <: Name: AdvertisedKeys](k: BinaryAttributeKey.Aux[A, K]): Option[BinaryAttribute[A]] =
+  transparent inline def getAdvertised[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P])(
+    using AdvertisedKeys[K, P] =:= true
+    ): Option[BinaryAttribute[A]] =
     advertised.get(k).flatMap(_.to[A](using k.schema))
     .orElse(k.schema.defaultValue.toOption.map(BinaryAttribute[A](_, "default")))
 
-  def getConfirmed[A, K <: Name: ConfirmedKeys](k: BinaryAttributeKey.Aux[A, K]): Option[BinaryAttribute[A]] =
+  transparent inline def getConfirmed[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P])(
+    using ConfirmedKeys[K, P] =:= true): Option[BinaryAttribute[A]] =
     confirmed.get(k).flatMap(_.to[A](using k.schema))
     .orElse(k.schema.defaultValue.toOption.map(BinaryAttribute[A](_, "default")))
 
-  def putAdvertised[A, K <: Name: AdvertisedKeys](k: BinaryAttributeKey.Aux[A, K], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
-    self.copy(advertised = advertised.updated(k, DynamicAttr.from(attr)))
+  transparent inline def putAdvertised[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P], 
+    attr: BinaryAttribute[A]
+  )(using AdvertisedKeys[K, P] =:= true): BinaryAttributes =
+    self.copy(advertised = advertised.updated(k, DynamicAttr.from(attr)(using k.schema)))
 
-  def putConfirmed[A, K <: Name: ConfirmedKeys](k: BinaryAttributeKey.Aux[A, K], attr: BinaryAttribute[A])(using Schema[A]): BinaryAttributes =
-    self.copy(confirmed = confirmed.updated(k, DynamicAttr.from(attr)))
+  transparent inline def putConfirmed[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P], 
+    attr: BinaryAttribute[A]
+  )(using ConfirmedKeys[K, P] =:= true): BinaryAttributes =
+    self.copy(confirmed = confirmed.updated(k, DynamicAttr.from(attr)(using k.schema)))
 
-  def updateAdvertised[A: Schema, K <: Name: AdvertisedKeys](
-    k: BinaryAttributeKey.Aux[A, K]
-    )(f: BinaryAttribute[A] => BinaryAttribute[A],
-    default: Option[A] = None,
-    ): BinaryAttributes =
-    getAdvertised[A, K](k).map { a => 
+  inline def updateAdvertised[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P]
+    )(
+      f: BinaryAttribute[A] => BinaryAttribute[A],
+      default: Option[A] = None,
+    )(using AdvertisedKeys[K, P] =:= true): BinaryAttributes =
+    getAdvertised(k).map { a => 
       val v = f(a)
-      self.putAdvertised[A, K](k, v)
+      putAdvertised(k, v)
     }.getOrElse(default.fold(self){ a => 
-      given Schema[A] = k.schema
-      val id = BinaryAttributeKey.Client.default[A].id
-      self.putAdvertised[A, K](k, BinaryAttribute(a, id))
-     })
+      k.default.map(_.source).fold(self){ defId => 
+        putAdvertised(k, BinaryAttribute(a, defId))
+      }
+    })
 
-  def updateConfirmed[A: Schema, K <: Name: ConfirmedKeys](
-    k: BinaryAttributeKey.Aux[A, K]
-  )(
+  inline def updateConfirmed[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P],
     f: BinaryAttribute[A] => BinaryAttribute[A],
     default: Option[A] = None,
-  ): BinaryAttributes =
-    getConfirmed[A, K](k).map { a => 
-      val v = f(a)
-      self.putConfirmed[A, K](k, v)
-    }.getOrElse(default.fold(self){ a => 
-      given Schema[A] = k.schema
-      val id = BinaryAttributeKey.Server.default[A].id
-      self.putConfirmed[A, K](k, BinaryAttribute(a, id))
-     })
+  )(using (ConfirmedKeys[K, P] =:= true)): BinaryAttributes =
+    given Monoid[A] = scala.compiletime.summonInline[Monoid[A]]
+    getConfirmed(k).fold(
+      default.fold(self){ a => 
+        putConfirmed(k, k.withDefault(a).toAttribute(Some(a)))
+      }
+    ) { a => putConfirmed(k, f(a)) }
 
-  def ++(other: BinaryAttributes): BinaryAttributes =
+  inline def ++(other: BinaryAttributes): BinaryAttributes =
     self.copy(
       advertised = advertised |+| other.advertised,
       confirmed = confirmed |+| other.confirmed,
@@ -98,32 +115,45 @@ final case class BinaryAttributes private[graviton] (
 object BinaryAttributes:
   val empty: BinaryAttributes = BinaryAttributes(ListMap.empty, ListMap.empty)
 
-  def advertised[A, K <: Name: AdvertisedKeys](k: BinaryAttributeKey.Aux[A, K], value: A, source: String)(using Schema[A]): BinaryAttributes =
+  def advertised[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P],
+     value: A, 
+     source: String
+  )(using AdvertisedKeys[K, P] =:= true): BinaryAttributes =
     empty.putAdvertised(k, BinaryAttribute(value, source))
 
-  def confirmed[A, K <: Name: ConfirmedKeys](k: BinaryAttributeKey.Aux[A, K], value: A, source: String)(using Schema[A]): BinaryAttributes =
+  def confirmed[A, K <: Name, P <: Name](
+    k: BinaryAttributeKey.Aux[A, K, P], 
+    value: A, 
+    source: String
+  )(using ConfirmedKeys[K, P] =:= true): BinaryAttributes =
     empty.putConfirmed(k, BinaryAttribute(value, source))
 
   private final val FilenamePattern  = "^[^\\/\\r\\n]+$".r
   private final val MediaTypePattern = "^[\\w.+-]+/[\\w.+-]+$".r
 
   private[graviton] object fiber:
+    transparent inline def forks: Server.Aux[Int, "forks", NoPrefix] = 
+      BinaryAttributeKey.Server.forks
+    // transparent inline def name = forks.fullName
 
     val current: FiberRef[BinaryAttributes] = 
-      Unsafe.unsafely:
-        FiberRef.unsafe.make(
-          empty,
-          a => a.updateConfirmed(BinaryAttributeKey.Server.forks
-          )(
-            _.map(_ + 1), Some(0)),
-          (a, b) => a ++ b,
-        )
+      Unsafe.unsafe:
+        unsafe ?=>
+          FiberRef.unsafe.make[BinaryAttributes](
+            empty,
+            (a: BinaryAttributes) => a.updateConfirmed(
+               Server.forked[Int],
+              _.map(_ + 1), 
+              Some(0)),
+            (a, b) => a ++ b
+          )
       
 
     def withCurrent(attrs: BinaryAttributes): RIO[Scope, Unit] =
       fiber.current.locally(attrs)(ZIO.unit)
 
-  def validate(attrs: BinaryAttributes): IO[GravitonError, Unit] =
+  final def validate(attrs: BinaryAttributes): IO[GravitonError, Unit] =
     def validateAll(
       values: List[String],
       pattern: scala.util.matching.Regex,
@@ -134,14 +164,20 @@ object BinaryAttributes:
         else ZIO.fail(GravitonError.PolicyViolation(msg))
       }
 
-    val filenames = List(
-      attrs.getAdvertised(BinaryAttributeKey.Client.fileName).map(_.value),
-      attrs.getConfirmed(BinaryAttributeKey.Server.fileName).map(_.value),
+    transparent inline def clientFilename = Client.fileName
+    transparent inline def serverFilename = Server.fileName
+    transparent inline def clientContentType = Client.contentType
+    transparent inline def serverContentType = Server.contentType
+
+
+    val filenames = List( 
+      attrs.getAdvertised(clientFilename).map(_.value),
+      attrs.getConfirmed(serverFilename).map(_.value),
     ).flatten
 
     val mediaTypes = List(
-      attrs.getAdvertised(BinaryAttributeKey.Client.contentType).map(_.value),
-      attrs.getConfirmed(BinaryAttributeKey.Server.contentType).map(_.value),
+      attrs.getAdvertised(clientContentType).map(_.value),
+      attrs.getConfirmed(serverContentType).map(_.value),
     ).flatten
 
     for

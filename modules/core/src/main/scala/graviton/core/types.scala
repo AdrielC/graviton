@@ -23,5 +23,5 @@ given [K: Schema, V: Schema] => Schema[NonEmptyMap[K, V]] =
     nem => Right(nem.toList)
   )
 
-type Name = String & Singleton
+type Name = String
 

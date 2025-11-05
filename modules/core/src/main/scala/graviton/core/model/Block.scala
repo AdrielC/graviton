@@ -87,21 +87,21 @@ sealed transparent trait Sized[
       
   end extension
   
-  type B[NN <: N] <: V[NN] = NN match
+  final type B[NN] <: V[NN] = NN match
     case Int  => V[NN]
     case Long => V[NN]
+  end B
+  final type KB[NN] = V[B[NN] * 1024]
+  final type MB[NN] = V[KB[NN] * 1024]
+  final type GB[NN] = V[MB[NN] * 1024]
 
-  type KB[NN <: N] = V[B[NN] * 1024]
-  type MB[NN <: N] = V[KB[NN] * 1024]
-  type GB[NN <: N] = V[MB[NN] * 1024]
+  final type TB[NN] = V[GB[NN] * 1024]
 
-  type TB[NN <: N] = V[GB[NN] * 1024]
-
-  inline def TB[NN <: N]: TB[NN] = V[TB[NN]]
-  inline def GB[NN <: N]: GB[NN] = V[GB[NN]]
-  inline def MB[NN <: N]: MB[NN] = V[MB[NN]]
-  inline def KB[NN <: N]: KB[NN] = V[KB[NN]]
-  inline def B[NN <: N]: B[NN]   = V[B[NN]]
+  final inline def TB[NN <: Int | Long]: TB[NN] = V[TB[NN]]
+  final inline def GB[NN <: Int | Long]: GB[NN] = V[GB[NN]]
+  final inline def MB[NN <: Int | Long]: MB[NN] = V[MB[NN]]
+  final inline def KB[NN <: Int | Long]: KB[NN] = V[KB[NN]]
+  final inline def B[NN <: Int | Long]: B[NN]   = V[B[NN]]
 
 
 
@@ -162,9 +162,9 @@ type SizeLong = SizeLong.T
 object SizeLong extends NonNegativeSize[Long]
 
 
-sealed trait BoundedIntSize[Min <: Int, Max <: Int] extends NonNegativeSize[Int]
+sealed transparent trait BoundedIntSize[Min <: Int, Max <: Int] extends NonNegativeSize[Int]
 
-sealed trait BoundedLongSize[Min <: Long, Max <: Long] extends NonNegativeSize[Long]
+sealed transparent trait BoundedLongSize[Min <: Long, Max <: Long] extends NonNegativeSize[Long]
 
 type BlockSize = BlockSize.T
 object BlockSize extends BoundedIntSize[ByteConstraints.BlockSize.Min, ByteConstraints.BlockSize.Max]

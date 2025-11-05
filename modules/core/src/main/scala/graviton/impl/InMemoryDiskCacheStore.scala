@@ -7,7 +7,8 @@ import zio.*
 import zio.stream.*
 import java.time.OffsetDateTime
 import java.net.URI
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path, Paths}
+import graviton.core.model.FileSize
 
 final case class InMemoryCacheStore(
     cache: Ref.Synchronized[Map[Hash, (
@@ -18,8 +19,8 @@ final case class InMemoryCacheStore(
     ttl: Duration,
     clock: Clock,
     cacheRoot: URI,
-    maxCacheSize: Long,
-    cacheSize: Ref[Long],
+    maxCacheSize: FileSize,
+    cacheSize: Ref[FileSize],
 ) extends CacheStore:
 
 
@@ -27,7 +28,7 @@ final case class InMemoryCacheStore(
         cacheRoot.resolve(Path.of(s"cache/${hash.algo.canonicalName}/${hash.hex}").toUri())
 
 
-    private[graviton] def updateCache(
+    protected def updateCache(
         hash: Hash, 
         bytes: ZIO[Scope, Throwable, Bytes], 
         expiresAt: OffsetDateTime, 
@@ -65,15 +66,11 @@ final case class InMemoryCacheStore(
                 )))
                 yield Bytes(ZStream.unwrapScoped(bts))
 
-
         clock.currentDateTime.zipPar(cache.get.map(_.get(hash))).flatMap: 
             case (now, maybeBytes) =>
                 maybeBytes match
                     case Some((existingBytes, expiresAt, lastAccessedAt)) =>
-                        if (now.isAfter(expiresAt)) || (now.isEqual(expiresAt)) then
-                            cache.update(_.removed(hash))
-                        else
-                            ZIO.unit
+                        updateCache(hash, existingBytes, expiresAt, lastAccessedAt)
                     case None =>
                         updateCache(hash, newBytes, expiresAt, lastAccessedAt)
 
@@ -113,3 +110,89 @@ final case class InMemoryCacheStore(
     def invalidate(hash: Hash): UIO[Unit] =
         cache.update(_.removed(hash)) *>
         ZIO.attemptBlocking(Paths.get(cachePath(hash).toASCIIString()).toFile.delete()).ignoreLogged
+
+object InMemoryCacheStore:
+    object Defaults:
+        inline def oneGB: FileSize = FileSize.GB[1L]
+        inline def defaultClock = Clock.ClockLive
+
+    case class Conf(
+        ttl: Option[Duration],
+        clock: Option[Clock],
+        cacheRoot: Option[URI],
+        maxCacheSize: Option[FileSize],
+    )
+
+    object Conf:
+
+        inline given config: Config[Conf] =
+            (Config.duration("ttl")
+            .withDefault(10.minutes)
+            .optional.??("Time to live for cached items") ++
+            Config.uri("cacheRoot").withDefault(
+                URI.create(java.lang.System.getProperty("user.home"))
+                .resolve(URI.create("/.graviton/cache"))
+            ).optional.??("Root directory for cache") ++
+            Config.long("maxCacheSize")
+            .mapOrFail(FileSize.either(_)
+            .left.map(e => Config.Error.InvalidData(Chunk("maxCacheSize"), e)))
+            .withDefault(Defaults.oneGB)
+            .optional.??("Maximum size of cache"))
+            .map {
+                case (ttl, cacheRoot, maxCacheSize) =>
+                    Conf(
+                        ttl = ttl,
+                        clock = Some(Defaults.defaultClock),
+                        cacheRoot = cacheRoot,
+                        maxCacheSize = maxCacheSize,
+                    )
+            }
+
+            
+    def make(
+        ttl: Duration,
+        clock: Clock,
+        cacheRoot: URI,
+        maxCacheSize: FileSize,
+    ): UIO[InMemoryCacheStore] =
+        for
+            cache <- Ref.Synchronized.make(Map.empty[Hash, (
+                bytes: ZIO[Scope, Nothing, Bytes], 
+                expiresAt: OffsetDateTime, 
+                lastAccessedAt: Option[OffsetDateTime]
+            )])
+            cacheSize <- Ref.make(FileSize.zero)
+        yield InMemoryCacheStore(
+            cache, 
+            ttl, 
+            clock, 
+            cacheRoot, 
+            maxCacheSize, 
+            cacheSize
+        )
+    end make
+
+    def layer(
+        ttl: Duration,
+        clock: Clock,
+        cacheRoot: URI,
+        maxCacheSize: FileSize,
+    ): ULayer[InMemoryCacheStore] =
+        ZLayer.scoped(make(ttl, clock, cacheRoot, maxCacheSize))
+
+    inline def default: ZLayer[Any, Throwable, InMemoryCacheStore] =
+        ZLayer.fromZIO:
+            for
+                conf <- ZIO.config[Conf]
+                cacheHome <- System.property("user.home")
+                c = cacheHome.flatMap(s => scala.util.Try(URI.create(s)).toOption).orElse(conf.cacheRoot)
+                cacheRoot <- ZIO.attempt(c.map(_.resolve(URI.create("/.graviton/cache"))))
+                .flatMap(f => ZIO.attempt(f.getOrElse(Files.createTempDirectory("file:///tmp/graviton-cache").toUri())))
+                store <- make(
+                    conf.ttl.getOrElse(24.hours), 
+                    conf.clock.getOrElse(Defaults.defaultClock), 
+                    cacheRoot,
+                    conf.maxCacheSize.getOrElse(Defaults.oneGB)
+                )
+            yield store
+        
