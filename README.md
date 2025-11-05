@@ -1,125 +1,62 @@
 # Graviton
 
-Graviton is a ZIO‑native **content‑addressable storage (CAS)** layer for immutable binary data. It keeps byte streams deduplicated, replicated, and verifiable so higher‑level products (such as Quasar) can focus on document workflows instead of block management.
+Graviton is a modular content-addressable storage runtime built on the ZIO ecosystem. The repository is structured as a multi-module build so that pure data types, streaming utilities, runtime ports, transport layers, and backend implementations evolve independently.
 
-## Features
-
-* Content‑addressable binary store with BLAKE3 and SHA‑256 hashing strategies.
-* Chunker abstraction with fixed, rolling (FastCDC), and anchored chunking implementations.
-* Pluggable blob stores (filesystem, S3‑compatible, and future drivers) with replica catalogs.
-* ZIO Streams‑based APIs for non‑blocking ingest, range reads, and backpressure control.
-* Structured logging with correlation IDs and ingest/read telemetry suitable for observability pipelines.
-* Prometheus metrics, audit hooks, and health probes for replication and repair workflows.
-* Media type detection and metadata enrichment utilities backed by Apache Tika.
-
-## Core Concepts
-
-Graviton breaks input bytes into deduplicated **Blocks**. Blocks are ordered inside a **Manifest** which defines a logical **Blob**. Blobs are identified by a **BlobKey** (content hash, size, algorithm) and replicated across **Stores**. Detailed definitions for each concept—including invariants, replica lifecycle, and frame formats—live in the [Graviton glossary](docs/src/main/mdoc/concepts.md).
-
-## Architecture
-
-```mermaid
-graph TD
-    C[Client Stream] -->|chunk| CH[Chunker]
-    CH -->|dedupe| BS[BlockStore]
-    BS -->|record| MB[Manifest Builder]
-    MB -->|persist| CAT[Catalog]
-    BS -->|replicate| ST[Stores]
-    CAT -->|resolve| BR[BlockResolver]
-    BR -->|serve| RD[Read Pipeline]
-    RD -->|stream| C
-```
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant BI as BinaryStore
-    participant BL as BlockStore
-    participant RP as Replicator
-    participant RS as BlockResolver
-
-    C->>BI: insert(stream)
-    BI->>BL: chunk & store blocks
-    BL-->>BI: BlockKeys
-    BI->>BI: build manifest & BlobKey
-    BI->>RP: schedule replication
-    C<<--BI: BlobKey / WritableKey
-    C->>BI: openStream(blob)
-    BI->>RS: resolve replicas
-    RS->>C: stream plaintext bytes
-```
-
-## Quickstart
-
-### CLI
+## Building locally
 
 ```bash
-# ingest bytes
-graviton put README.md
-# retrieve the blob using the returned key
-graviton get <binaryKey> > README.copy.md
+sbt compile
 ```
 
-### HTTP Gateway
-
-Assuming the gateway is running on `localhost:8080`:
+To execute the formatter and the unit suites:
 
 ```bash
-# upload bytes (returns BlobKey)
-curl -X POST --data-binary @README.md http://localhost:8080/blobs
-# download the stored blob
-curl http://localhost:8080/blobs/<blobKey> -o README.copy.md
+TESTCONTAINERS=0 ./sbt scalafmtAll test
 ```
 
-Documentation lives under the [docs](docs/index.md) directory and is published as part of the project site. Start with:
-
-* [Installation](docs/src/main/mdoc/getting-started/installation.md)
-* [Quick Start](docs/src/main/mdoc/getting-started/quick-start.md)
-* [Graviton Glossary](docs/src/main/mdoc/concepts.md) for a full tour of the storage vocabulary and invariants.
-
-See [ROADMAP.md](ROADMAP.md) for the path to v0.1.0.
-
-## Logging
-
-Graviton uses [ZIO Logging](https://zio.dev/reference/logging/) for structured
-output. Each major operation logs start, completion and any errors at `info` and
-`error` levels. A correlation ID is attached to every request so entries can be
-traced across layers.
-
-Loggers and log levels are configured via ZIO layers. For example, to route logs
-through SLF4J:
-
-```scala
-import zio.Runtime
-import zio.logging.backend.SLF4J
-
-val runtime = Runtime.removeDefaultLoggers >>> SLF4J.slf4j
-```
-
-The `ZIO_LOG_LEVEL` environment variable controls the minimum level emitted by
-the default console logger.
-
-For verifying log output in tests, use `ZTestLogger` to capture log entries:
-
-```scala
-import zio.test.ZTestLogger
-
-val program =
-  for
-    _     <- myBinaryStore.exists(BinaryId("1"))
-    logs  <- ZTestLogger.logOutput
-  yield assertTrue(logs.nonEmpty)
-
-program.provideLayer(ZTestLogger.default)
-```
-
-## Development
-
-Integration tests that rely on Docker are gated behind the `TESTCONTAINERS`
-environment variable:
+The documentation site is powered by VitePress and includes an interactive Scala.js frontend. Run it locally with:
 
 ```bash
-TESTCONTAINERS=1 ./sbt test
+# Build the interactive frontend
+sbt buildFrontend
+
+# Start the documentation server
+cd docs
+npm install
+npm run docs:dev
 ```
 
-This flag is enabled automatically in CI.
+Visit the [interactive demo](/demo) to explore Graviton's capabilities in your browser!
+
+## Module map
+
+```
+graviton/
+├─ modules/
+│  ├─ graviton-core/        # pure domain types: hashing, keys, locators, ranges, manifests, union-find
+│  ├─ graviton-streams/     # ZIO stream combinators, hashing pipelines, scan/timeseries helpers
+│  ├─ graviton-runtime/     # runtime ports (BlobStore, RangeTracker, policies, constraints, metrics facade)
+│  ├─ protocol/
+│  │  ├─ graviton-proto/    # protobuf definitions for the public RPC APIs
+│  │  ├─ graviton-grpc/     # zio-grpc powered services that implement the protocol surfaces
+│  │  └─ graviton-http/     # zio-http routes for parity with the gRPC services
+│  ├─ backend/
+│  │  ├─ graviton-s3/       # AWS SDK v2 backed object store bindings
+│  │  ├─ graviton-pg/       # PostgreSQL powered object, key-value, and index stores
+│  │  └─ graviton-rocks/    # RocksDB backed key-value primitives with metrics adapters
+│  └─ server/
+│     └─ graviton-server/   # application wiring, shardcake coordination, protocol servers, metrics export
+└─ docs/                    # VitePress documentation (architecture, manifests, API surface, operations)
+```
+
+The [`modules/zio-blocks`](modules/zio-blocks) directory is a git submodule that hosts the content-defined chunking primitives consumed by `graviton-streams`.
+
+## High level flow
+
+1. **Chunk and hash** – `graviton-streams` adapters coordinate the chunking pipeline and drive `MultiHasher` instances defined in `graviton-core`.
+2. **Derive locators** – the pure locator strategies in `graviton-core` derive stable storage paths from binary keys.
+3. **Persist** – backend modules implement `MutableObjectStore` from `graviton-runtime` and provide concrete persistence logic.
+4. **Index and track** – range trackers and replica indexes coordinate with backends via optimistic compare-and-set semantics.
+5. **Serve** – the `graviton-server` module composes HTTP and gRPC frontends, enforces policies, and exports metrics.
+
+Consult the [architecture document](docs/architecture.md) for a detailed walkthrough of the modules, runtime wiring, and extension points.

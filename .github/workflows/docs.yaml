@@ -1,0 +1,97 @@
+name: Publish Docs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build VitePress site with Scala.js
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Determine docs base path
+        shell: bash
+        env:
+          DOCS_BASE_OVERRIDE: ${{ vars.DOCS_BASE }}
+        run: |
+          if [ -n "${DOCS_BASE_OVERRIDE}" ]; then
+            VALUE="${DOCS_BASE_OVERRIDE}"
+          else
+            REPO_NAME="${GITHUB_REPOSITORY##*/}"
+            OWNER_LOWER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+            REPO_LOWER="$(printf '%s' "${REPO_NAME}" | tr '[:upper:]' '[:lower:]')"
+            if [ "${REPO_LOWER}" = "${OWNER_LOWER}.github.io" ]; then
+              VALUE="/"
+            else
+              VALUE="/${REPO_NAME}/"
+            fi
+          fi
+
+          TRIMMED="$(printf '%s' "${VALUE}" | sed -e 's#^/*##' -e 's#/*$##')"
+          if [ -z "${TRIMMED}" ]; then
+            NORMALIZED="/"
+          else
+            NORMALIZED="/${TRIMMED}/"
+          fi
+
+          echo "DOCS_BASE=${NORMALIZED}" >> "${GITHUB_ENV}"
+          echo "Using docs base: ${NORMALIZED}"
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'sbt'
+      
+      - name: Build all docs assets (Scaladoc + Scala.js Frontend)
+        run: |
+          # This compiles the Scala.js frontend and Scaladoc, then copies to docs/public/
+          ./sbt buildDocsAssets
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      
+      - name: Install dependencies
+        run: npm install --prefix docs
+      
+      - name: Build VitePress site (includes Scala.js modules)
+        run: npm run docs:build --prefix docs
+        # This bundles VitePress + copies public/js/* to dist/js/*
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

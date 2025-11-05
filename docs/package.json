@@ -1,5 +1,16 @@
 {
-  "name": "@zio.dev/graviton",
-  "description": "graviton Documentation",
-  "license": "Apache-2.0"
+  "name": "graviton-docs",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "docs:dev": "vitepress dev .",
+    "docs:build": "vitepress build .",
+    "docs:preview": "vitepress preview .",
+    "docs:build-full": "cd .. && sbt buildDocsAssets && cd docs && npm run docs:build"
+  },
+  "devDependencies": {
+    "mermaid": "^10.9.0",
+    "vitepress": "^1.2.2",
+    "vitepress-plugin-mermaid": "^2.0.16"
+  }
 }

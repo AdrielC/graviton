@@ -7,8 +7,11 @@ case class DataColumn(
   scalaType: String,
   db: Column,
   pgType: Option[PgTypeResolver.ColumnInfo],
+  checkConstraints: Seq[DataCheckConstraint] = Seq.empty,
+  domain: Option[String] = None,
 ) {
   def scalaName = NameFormat.sanitizeScalaName(NameFormat.toCamelCase(name))
+  def domainScalaName = domain.map(NameFormat.sanitizeScalaName).map(NameFormat.toPascalCase)
 }
 
 case class DataIndex(
@@ -24,6 +27,7 @@ case class DataTable(
   columns: Seq[DataColumn],
   indices: Seq[DataIndex],
   db: Table,
+  checkConstraints: Seq[DataCheckConstraint] = Seq.empty,
 ) {
   def isView: Boolean = db.isInstanceOf[View]
   def scalaName       = NameFormat.sanitizeScalaName(NameFormat.toPascalCase(name))
@@ -47,6 +51,17 @@ case class DataSchema(
   tables: Seq[DataTable],
   enums: Seq[DataEnum],
   db: Schema,
+  domains: Seq[String] = Seq.empty,
 ) {
   def scalaName = NameFormat.sanitizeScalaName(NameFormat.toCamelCase(name))
 }
+
+enum CheckScope:
+  case Column, Table, Domain
+
+case class DataCheckConstraint(
+  name: String,
+  expression: String,
+  columns: Seq[String],
+  scope: CheckScope,
+)
