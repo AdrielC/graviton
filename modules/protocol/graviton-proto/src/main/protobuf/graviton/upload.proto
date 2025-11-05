@@ -1,36 +1,185 @@
 syntax = "proto3";
 
-package graviton;
+package io.graviton.blobstore.v1;
 
-message StartUpload {
-  string upload_id = 1;
-  uint64 total_size = 2;
-  map<string, string> attributes = 3;
+option java_multiple_files = true;
+option java_package = "io.graviton.blobstore.v1";
+option java_outer_classname = "UploadProto";
+
+import "graviton/common.proto";
+
+// ============================
+// PRIMARY: Unified session pipe
+// ============================
+service UploadGateway {
+  rpc Stream (stream ClientFrame) returns (stream ServerFrame);
 }
 
-message UploadChunk {
-  bytes payload = 1;
-  uint64 offset = 2;
-}
-
-message CompleteUpload {
-  bytes expected_hash = 1;
-}
-
-message UploadAck {
-  string upload_id = 1;
-  uint64 received_bytes = 2;
-}
-
-message UploadMessage {
-  oneof value {
-    StartUpload start = 1;
-    UploadChunk chunk = 2;
-    CompleteUpload complete = 3;
-    UploadAck ack = 4;
+// -------- Client -> Server --------
+message ClientFrame {
+  oneof kind {
+    StartUpload start    = 1;
+    DataFrame  frame     = 2;
+    RawChunk   chunk     = 3;
+    Complete   complete  = 4;
+    Subscribe  subscribe = 5;
+    Cancel     cancel    = 6;
+    Ping       ping      = 7;
   }
 }
 
+message StartUpload {
+  optional uint64 total_size           = 1;
+  string  object_content_type          = 2;
+  repeated MetadataNamespace metadata  = 3;
+  optional string client_session_id    = 4;
+  optional uint64 ttl_hint_seconds     = 5;
+}
+
+message MetadataNamespace {
+  string  namespace               = 1;
+  optional string schema_content_type = 2;
+  optional bytes  schema_bytes        = 3;
+  string  data_content_type       = 4;
+  bytes   data_bytes              = 5;
+}
+
+message DataFrame {
+  string  session_id      = 1;
+  uint64  sequence        = 2;
+  uint64  offset_bytes    = 3;
+  string  content_type    = 4;
+  bytes   bytes           = 5;
+  bool    last            = 6;
+  optional string checksum = 7;
+}
+
+message RawChunk {
+  string  session_id    = 1;
+  uint64  sequence      = 2;
+  uint64  offset_bytes  = 3;
+  bytes   data          = 4;
+  bool    last          = 5;
+  optional string checksum = 6;
+}
+
+message Complete {
+  string  session_id              = 1;
+  optional string expected_object_hash  = 2;
+  optional string manifest_content_type = 3;
+  optional bytes  manifest_bytes        = 4;
+}
+
+message Subscribe {
+  string session_id        = 1;
+  repeated string topics   = 2;
+}
+
+message Cancel {
+  string session_id = 1;
+}
+
+message Ping {
+  string session_id = 1;
+}
+
+// -------- Server -> Client --------
+message ServerFrame {
+  oneof kind {
+    StartAck start_ack = 1;
+    Ack      ack       = 2;
+    Progress progress  = 3;
+    Completed completed = 4;
+    Event    event     = 5;
+    Error    error     = 6;
+    Pong     pong      = 7;
+  }
+}
+
+message StartAck {
+  string  session_id = 1;
+  uint64  ttl_seconds = 2;
+  repeated string accepted_content_types = 3;
+}
+
+message Ack {
+  string session_id            = 1;
+  uint64 acknowledged_sequence = 2;
+  uint64 received_bytes        = 3;
+  optional uint32 window_size  = 4;
+}
+
+message Progress {
+  string session_id = 1;
+  uint64 received   = 2;
+  optional uint64 total = 3;
+  double percent    = 4;
+}
+
+message Completed {
+  string session_id          = 1;
+  string document_id         = 2;
+  string blob_hash           = 3;
+  string object_content_type = 4;
+  optional string final_url  = 5;
+}
+
+message Event {
+  string topic = 1;
+  string message = 2;
+  map<string,string> attributes = 3;
+}
+
+message Pong {
+  string session_id = 1;
+}
+
+// ============================
+// CLASSIC OPS (HTTP parity)
+// ============================
 service UploadService {
-  rpc Upload(stream UploadMessage) returns (stream UploadAck);
+  rpc RegisterUpload (RegisterUploadRequest) returns (RegisterUploadResponse);
+  rpc UploadParts    (stream UploadPartRequest) returns (UploadPartsResponse);
+  rpc CompleteUpload (CompleteUploadRequest) returns (CompleteUploadResponse);
+}
+
+message RegisterUploadRequest {
+  string  object_content_type = 1;
+  optional uint64 total_size  = 2;
+  repeated MetadataNamespace metadata = 3;
+  optional string client_session_id   = 4;
+}
+
+message RegisterUploadResponse {
+  string session_id = 1;
+  uint64 ttl_seconds = 2;
+}
+
+message UploadPartRequest {
+  string  session_id = 1;
+  uint64  sequence   = 2;
+  uint64  offset     = 3;
+  bytes   data       = 4;
+  bool    last       = 5;
+  optional string checksum = 6;
+}
+
+message UploadPartsResponse {
+  string session_id            = 1;
+  uint64 acknowledged_sequence = 2;
+  uint64 received_bytes        = 3;
+}
+
+message CompleteUploadRequest {
+  string  session_id = 1;
+  optional string expected_object_hash = 2;
+  optional string manifest_content_type = 3;
+  optional bytes  manifest_bytes = 4;
+}
+
+message CompleteUploadResponse {
+  string document_id         = 1;
+  string blob_hash           = 2;
+  string object_content_type = 3;
+  optional string final_url  = 4;
 }
