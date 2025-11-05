@@ -5,11 +5,12 @@ import zio.stream.*
 import zio.test.*
 import zio.test.Assertion.*
 import zio.ChunkBuilder
+import graviton.core.scan.FS.*
 
 object HttpChunkedScanSpec extends ZIOSpecDefault:
 
   private def decode(bytes: Chunk[Byte]): Either[Throwable, Chunk[Chunk[Byte]]] =
-    val (_, takes) = HttpChunkedScan.chunkedDecode.runAll(bytes)
+    val takes = HttpChunkedScan.chunkedDecode.runChunk(bytes.toArray.toIndexedSeq)
     takes
       .foldLeft[Either[Throwable, ChunkBuilder[Chunk[Byte]]]](Right(ChunkBuilder.make[Chunk[Byte]]())) { (acc, take) =>
         acc.flatMap { builder =>
