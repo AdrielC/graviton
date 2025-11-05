@@ -5,30 +5,18 @@ import zio.*
 import zio.schema.*
 import zio.schema.DynamicValue
 import scala.collection.immutable.ListMap
-import scala.compiletime.ops.string
+// import scala.compiletime.ops.string
 import BinaryAttributeKey.{ConfirmedKeys, AdvertisedKeys}
 import cats.Monoid
 import cats.implicits.*
 import zio.json.*
-import zio.json.ast.Json
-
-import zio.schema.codec.JsonCodec.jsonEncoder
-
-
-// NotFound is a type class that represents a type that is not found
-// or give me an equivalent type class that represents a type that is not found
-
-import scala.util.NotGiven
-
-
-
 
 
 final case class BinaryAttribute[+A](value: A, source: String):
   def map[B](f: A => B): BinaryAttribute[B] = BinaryAttribute(f(value), source)
   def withSource(s: String): BinaryAttribute[A] = copy(source = s + (if (s == source) then "" else ":update"))
-  def withNewValue[B](v: B)(using ev: NotGiven[B <:< A]): BinaryAttribute[B] = copy(value = v, source = source + ":update")
-  def withValue[AA <: A](v: AA): BinaryAttribute[AA] = copy(value = v, source = source + (if (v == value) then "" else ":update"))
+  def withNewValue[B](v: B)(using ev: B =!= (? >: A)): BinaryAttribute[B] = copy(value = v, source = source + ":update")
+  def withValue[AA >: A](v: AA): BinaryAttribute[AA] = copy(value = v, source = source + (if (v == value) then "" else ":update"))
 end BinaryAttribute
 
 private final case class DynamicAttr(value: DynamicValue, source: String):
@@ -75,22 +63,31 @@ final case class BinaryAttributes private[graviton] (
   def updateAdvertised[A: Schema, K <: Name: AdvertisedKeys](
     k: BinaryAttributeKey.Aux[A, K]
     )(f: BinaryAttribute[A] => BinaryAttribute[A],
-    default: Option[BinaryAttribute[A]] = None,
+    default: Option[A] = None,
     ): BinaryAttributes =
     getAdvertised[A, K](k).map { a => 
       val v = f(a)
       self.putAdvertised[A, K](k, v)
-    }.getOrElse(default.fold(self)(self.putAdvertised[A, K](k, _)))
+    }.getOrElse(default.fold(self){ a => 
+      given Schema[A] = k.schema
+      val id = BinaryAttributeKey.Client.default[A].id
+      self.putAdvertised[A, K](k, BinaryAttribute(a, id))
+     })
 
-  def updateConfirmed[A: Schema, K <: Name: ConfirmedKeys](k: BinaryAttributeKey.Aux[A, K])(
+  def updateConfirmed[A: Schema, K <: Name: ConfirmedKeys](
+    k: BinaryAttributeKey.Aux[A, K]
+  )(
     f: BinaryAttribute[A] => BinaryAttribute[A],
     default: Option[A] = None,
   ): BinaryAttributes =
     getConfirmed[A, K](k).map { a => 
       val v = f(a)
       self.putConfirmed[A, K](k, v)
-    }.getOrElse(default.fold(self)(self.putConfirmed[A, K](k, BinaryAttribute(_,
-     BinaryAttributeKey.Server.default[A]))))
+    }.getOrElse(default.fold(self){ a => 
+      given Schema[A] = k.schema
+      val id = BinaryAttributeKey.Server.default[A].id
+      self.putConfirmed[A, K](k, BinaryAttribute(a, id))
+     })
 
   def ++(other: BinaryAttributes): BinaryAttributes =
     self.copy(
@@ -107,8 +104,8 @@ object BinaryAttributes:
   def confirmed[A, K <: Name: ConfirmedKeys](k: BinaryAttributeKey.Aux[A, K], value: A, source: String)(using Schema[A]): BinaryAttributes =
     empty.putConfirmed(k, BinaryAttribute(value, source))
 
-  private val FilenamePattern  = "^[^\\/\\r\\n]+$".r
-  private val MediaTypePattern = "^[\\w.+-]+/[\\w.+-]+$".r
+  private final val FilenamePattern  = "^[^\\/\\r\\n]+$".r
+  private final val MediaTypePattern = "^[\\w.+-]+/[\\w.+-]+$".r
 
   private[graviton] object fiber:
 
@@ -116,7 +113,9 @@ object BinaryAttributes:
       Unsafe.unsafely:
         FiberRef.unsafe.make(
           empty,
-          a => a.updateConfirmed(BinaryAttributeKey.forks)(_.map(_ + 1)),
+          a => a.updateConfirmed(BinaryAttributeKey.Server.forks
+          )(
+            _.map(_ + 1), Some(0)),
           (a, b) => a ++ b,
         )
       

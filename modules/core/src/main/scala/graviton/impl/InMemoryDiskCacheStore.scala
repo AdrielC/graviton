@@ -7,8 +7,7 @@ import zio.*
 import zio.stream.*
 import java.time.OffsetDateTime
 import java.net.URI
-import java.nio.file.Path
-import graviton.core.BinaryAttributes
+import java.nio.file.{Path, Paths}
 
 final case class InMemoryCacheStore(
     cache: Ref.Synchronized[Map[Hash, (
@@ -24,32 +23,48 @@ final case class InMemoryCacheStore(
 ) extends CacheStore:
 
 
-  private[graviton] def cachePath(hash: Hash): URI =
-    cacheRoot.resolve(Path.of(s"cache/${hash.algo.canonicalName}/${hash.hex}").toUri())
-
-  def fetch(
-    hash: Hash,
-    download: => Task[Bytes],
-    binaryAttributes: BinaryAttributes,
-    useCache: Boolean,
-  ): ZIO[Scope, Throwable, Bytes] =
+    private[graviton] def cachePath(hash: Hash): URI =
+        cacheRoot.resolve(Path.of(s"cache/${hash.algo.canonicalName}/${hash.hex}").toUri())
 
 
-    def updateCache(hash: Hash, bytes: ZIO[Scope, Nothing, Bytes], expiresAt: OffsetDateTime, lastAccessedAt: Option[OffsetDateTime]): UIO[Unit] =
+    private[graviton] def updateCache(
+        hash: Hash, 
+        bytes: ZIO[Scope, Throwable, Bytes], 
+        expiresAt: OffsetDateTime, 
+        lastAccessedAt: Option[OffsetDateTime],
+    )(using Trace): UIO[Unit] =
 
-        def newBytes: ZIO[Scope, Throwable, ZIO[Scope, Nothing, Bytes]] =
+        def newBytes: ZIO[Scope, Nothing, Bytes] =
             ZIO.suspendSucceed:
+
+                val cacheFile = cachePath(hash)
 
                 val sink = 
                     ZSink.count.mapZIO(s => cacheSize.get.filterOrFail(size => s + size > maxCacheSize)(
                                         GravitonError.PolicyViolation("cache size exceeds limit: " + maxCacheSize
                                     )))
-                                    .zipParRight(ZSink.fromFileURI(cachePath(hash)))
-                   tmpSink <- ZIO.succeed(sink)
-                bytes.flatMap(_.run(
+                                    .zipParRight(ZSink.fromFileURI(cacheFile))
+                for 
+                  tmpSink <- ZIO.succeed(sink)
+                  _ <- bytes.flatMap(_.run(tmpSink)).ignoreLogged
+                  onErr = 
+                    ZIO.attemptBlocking(Paths.get(cacheFile).toFile.delete()).ignoreLogged *> 
+                    cache.update(_.removed(hash))
+
+                  bts <- ZIO.succeed(Bytes(ZStream.fromFileURI(cacheFile)))
+                    .cached(ttl).withClock(clock)
+                    .onError(cause => ZIO.logErrorCause(cause) *> onErr)
+                    .ensuring(
+                        ZIO.succeed(Paths.get(cacheFile).toFile.deleteOnExit()) *>
+                        updateCache(hash, bytes, expiresAt, lastAccessedAt)
                     )
-                
-            
+                  _ <- cache.update(_.updated(hash, (
+                    bytes = ZIO.succeed(Bytes(ZStream.unwrapScoped(bts))), 
+                    expiresAt = expiresAt,
+                    lastAccessedAt = None
+                )))
+                yield Bytes(ZStream.unwrapScoped(bts))
+
 
         clock.currentDateTime.zipPar(cache.get.map(_.get(hash))).flatMap: 
             case (now, maybeBytes) =>
@@ -58,24 +73,43 @@ final case class InMemoryCacheStore(
                         if (now.isAfter(expiresAt)) || (now.isEqual(expiresAt)) then
                             cache.update(_.removed(hash))
                         else
-                            cache.update(_.updated(hash, (newBytes, expiresAt, Some(now))))
+                            ZIO.unit
                     case None =>
-                        cache.update(_.updated(hash, (newBytes, expiresAt, Some(now))))
-            
+                        updateCache(hash, newBytes, expiresAt, lastAccessedAt)
 
-    clock.currentDateTime.zipPar(cache.get).flatMap { (now, map) =>
-      map.get(hash) match
-        case Some((bytes, expiresAt, lastAccessedAt)) => 
-            if 
-            ZStream.unwrapScoped(bytes)
-        case None =>
-          for
-            data <- download
-            bytes = Bytes(ZStream.fromChunk(data))
-            _ <- cache.update(_.updated(hash, ZIO.succeed(data)))
-          yield data
-    }
+    def fetch(
+        hash: Hash,
+        download: => Task[Bytes],
+        useCache: Boolean = true,
+    ): ZIO[Scope, Throwable, Bytes] =
 
-  def invalidate(hash: Hash): UIO[Unit] =
-    ???
+        if (useCache) then
+            for
+                now <- clock.currentDateTime
+                map <- cache.get
+                bytes <-
+                    map.get(hash) match
+                        case Some((bytes, expiresAt, lastAccessedAt)) => 
+                            if (now.isAfter(expiresAt)) || (now.isEqual(expiresAt)) then
+                                cache.update(_.removed(hash)) *>
+                                bytes
+                            else
+                                bytes
+                        case None =>
+                            for
+                                bytes <- download.cached(ttl).withClock(clock)
+                                _ <- updateCache(hash, bytes, now.plus(ttl), None)
+                            yield Bytes(ZStream.unwrapScoped(bytes))
+                    end match
+            yield bytes
+            end for
+        else 
+            for
+                bytes <- download
+            yield bytes
+            end for
 
+
+    def invalidate(hash: Hash): UIO[Unit] =
+        cache.update(_.removed(hash)) *>
+        ZIO.attemptBlocking(Paths.get(cachePath(hash).toASCIIString()).toFile.delete()).ignoreLogged

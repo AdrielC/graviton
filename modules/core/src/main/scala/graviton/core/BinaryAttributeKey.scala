@@ -8,7 +8,7 @@ import java.time.Instant
 import zio.schema.meta.MetaSchema
 import zio.schema.meta.ExtensibleMetaSchema
 import zio.constraintless.TypeList.{End, ::}
-import graviton.core.model.{FileSize, BlockSize}
+import graviton.core.model.FileSize
 import scala.compiletime.ops.string.{Substring, +, Matches}
 import scala.compiletime.ops.any.==
 import scala.language.dynamics
@@ -16,8 +16,10 @@ import java.time.OffsetDateTime
 import graviton.HashAlgorithm
 import graviton.domain.HashBytes
 import zio.prelude.NonEmptyMap
+import scala.annotation.publicInBinary
 
-abstract case class BinaryAttributeKey[+N <: String & Singleton](id: N, _schema: Schema[?]) {
+
+abstract case class BinaryAttributeKey[+N <: String & Singleton] @publicInBinary private[graviton] (id: N, _schema: Schema[?]) {
   type ValueType
   type SchemaType = Schema[ValueType]
 
@@ -28,9 +30,13 @@ abstract case class BinaryAttributeKey[+N <: String & Singleton](id: N, _schema:
 }
 object BinaryAttributeKey:
 
-  def apply[A, N <: String & Singleton](id: N)(using s: Schema[A]): Aux[A, N] = new BinaryAttributeKey(id, s) { override type ValueType = A; override type Name = N }
+  def apply[A, N <: Name](id: N)(using s: Schema[A]): Aux[A, N] = 
+    new BinaryAttributeKey[N](id, s) {
+      type ValueType = A
+    }
 
-  transparent inline def apply[A, N <: String & Singleton](using s: Schema[A]): Aux[A, N] = new BinaryAttributeKey(compiletime.constValue[N], s) { override type ValueType = A; override type Name = N }
+  inline def apply[A, N <: Name: ValueOf](s: Schema[A]): Aux[A, N] = 
+    apply[A, N](valueOf[N])(using s)
 
   type Aux[A, K <: Name] = BinaryAttributeKey[K] { type ValueType = A; type SchemaType = Schema[A] }
 
@@ -46,8 +52,10 @@ object BinaryAttributeKey:
   given binaryAttributeKeySchema: Schema[BinaryAttributeKey[? <: String & Singleton]] =
     Schema.CaseClass2[String, Schema[?], BinaryAttributeKey[? <: String & Singleton]](
       TypeId.parse("graviton.core.BinaryAttributeKey"),
-      Schema.Field[BinaryAttributeKey[? <: String & Singleton], String]("id", Schema[String], Chunk.empty[Any], 
-      Validation.minLength(1), r => r.id, (a, id) => new BinaryAttributeKey[a.id.type](id.asInstanceOf[a.id.type], a.schema) { override type ValueType = a.ValueType }),
+      Schema.Field[BinaryAttributeKey[? <: Name], String]("id", Schema[String], Chunk.empty[Any], 
+      Validation.minLength(1), r => r.id, (a, id) => new BinaryAttributeKey[a.id.type](id.asInstanceOf[a.id.type], a.schema) { 
+        override type ValueType = a.ValueType 
+        }),
       Schema.Field[BinaryAttributeKey[? <: String & Singleton], Schema[? >: Nothing <: Any]](
         "schema", 
         metaSchema.asInstanceOf[Schema[Schema[?]]],
@@ -62,46 +70,43 @@ object BinaryAttributeKey:
     
 
   type ConfirmedKeys[T <: Name] = 
-    (Matches[T, "^attr:server$"] == true) =:= true
+    (Matches[T, "^attr:server(?:$|:.*)"] == true) =:= true
   
   type AdvertisedKeys[T <: Name] = 
-    (Matches[T, "^attr:client$"] == false) =:= true
+    (Matches[T, "^attr:client(?:$|:.*)"] == true) =:= true
 
-  type AddNameSpace[NameSpace <: String & Singleton, N <: Name] <: Name =
-    Substring[NameSpace, 0, 1] == ":" match
-      case true => (NameSpace + N) & Name
-      case false => (NameSpace + ":" + N) & Name
+  final type AddNameSpace[NameSpace <: Name, N <: Name] <: Name =
+    Substring[NameSpace, 0, 1] match
+      case ":" => (NameSpace + N) & Name
+      case _ => (NameSpace + ":" + N) & Name
   
   
   transparent trait NamespacedKey[NameSpace <: Name] extends Dynamic:
     self =>
-    type Name = NameSpace
+    type NS = NameSpace
     opaque type Aux[A, K <: Name] <:
-      BinaryAttributeKey.Aux[A, AddNameSpace[Name, K]] & Singleton =
-         BinaryAttributeKey.Aux[A, AddNameSpace[Name, K]]
+      BinaryAttributeKey.Aux[A, AddNameSpace[NS, K]] =
+         BinaryAttributeKey.Aux[A, AddNameSpace[NS, K]]
 
-    transparent inline def contentType: Aux[String, "contentType"] = selectDynamic[String]("contentType")
-    transparent inline def fileSize: Aux[FileSize, "fileSize"] = selectDynamic[FileSize]("fileSize")
-    transparent inline def fileName: Aux[String, "fileName"] = selectDynamic[String]("fileName")
-    transparent inline def fileHash: Aux[NonEmptyMap[HashAlgorithm, HashBytes], "fileHash"] = selectDynamic[NonEmptyMap[HashAlgorithm, HashBytes]]("fileHash")
-    transparent inline def forks: Aux[Int, "forks"] = selectDynamic[Int]("forks")
-    transparent inline def createdAt: Aux[OffsetDateTime, "createdAt"] = selectDynamic[OffsetDateTime]("createdAt")
-    transparent inline def ownerId: Aux[UUID, "ownerId"] = selectDynamic[UUID]("ownerId")
+    inline def contentType: Aux[String, "contentType"] = selectDynamic[String]("contentType")
+    inline def fileSize: Aux[FileSize, "fileSize"] = selectDynamic[FileSize]("fileSize")
+    inline def fileName: Aux[String, "fileName"] = selectDynamic[String]("fileName")
+    inline def fileHash: Aux[NonEmptyMap[HashAlgorithm, HashBytes], "fileHash"] = selectDynamic[NonEmptyMap[HashAlgorithm, HashBytes]]("fileHash")
+    inline def forks: Aux[Int, "forks"] = selectDynamic[Int]("forks")
+    inline def createdAt: Aux[OffsetDateTime, "createdAt"] = selectDynamic[OffsetDateTime]("createdAt")
+    inline def ownerId: Aux[UUID, "ownerId"] = selectDynamic[UUID]("ownerId")
 
-    inline def selectDynamic[V: Schema](name: String)
+    inline def selectDynamic[V](name: String)
     : Aux[V, name.type] =
-      BinaryAttributeKey[V, AddNameSpace[NameSpace, name.type]]
+      given ValueOf[name.type] = new ValueOf[name.type](name)
+      BinaryAttributeKey.apply[V, AddNameSpace[NS, name.type]](
+        compiletime.summonInline[Schema[V]]
+      )
+    end selectDynamic
+  end NamespacedKey
 
-
-  type Server = NamespacedKey["attr:server"]
   object Server extends NamespacedKey["attr:server"]:
-    
   end Server
-
-  type Client = NamespacedKey["attr:client"]
+  
   object Client extends NamespacedKey["attr:client"]:
-  
   end Client
-
-  export Server.{Aux as ServerAux, *}
-  
