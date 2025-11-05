@@ -8,8 +8,6 @@ import zio.stream.*
 import java.time.Instant
 import graviton.domain.{HashBytes, NonNegInt}
 
-// import graviton.chunking.Chunker
-// import graviton.GravitonError.ChunkerFailure
 import graviton.core.BlockManifestEntry
 import graviton.core.FileKey
 import graviton.core.BlockManifest
@@ -53,30 +51,34 @@ final class InMemoryBlockStore private (
 
   def storeBlock(attrs: BinaryAttributes): ZPipeline[Any & Scope, GravitonError, Block, BlockManifestEntry] =
     val algo = HashAlgorithm.SHA256
-    ZPipeline.identity[Block].mapZIO { block =>
-        for
-          hasher <- Hashing.hasher(algo)
-          u      <- hasher.update(block)
-          dig    <- hasher.digest
-          key     = BlockKey(Hash(dig, algo), block.blockSize)
-          state  <- index.get.map(_.get(key))
-          _      <- state match
-                      case Some(st) =>
-                        index.update(
-                          _.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None))
-                        )
-                      case None     =>
-                        val data = Bytes(ZStream.fromChunk(block.bytes))
-                        for
-                          _      <- primary.write(key, data).mapError(e => GravitonError.BackendUnavailable(e.getMessage))
-                          status <- primary.status
-                          _      <- resolver.record(key, BlockSector(primary.id, status))
-                          _      <- index.update(_ + (key -> BlockState(NonNegInt(1), None)))
-                        yield ()
-        yield 
-          // BlockManifestEntry(Index.zero, block.blockSize, key.toBinaryKey)
-          ???
-      }
+    ZPipeline.unwrapScoped:
+      for 
+        hasher <- Hashing.hasher(algo).mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+        pipeline = ZPipeline.identity[Block].mapZIO { block =>
+          for
+            
+            u      <- hasher.update(block)
+            dig    <- hasher.digest
+            key     = BlockKey(Hash(dig, algo), block.blockSize)
+            state  <- index.get.map(_.get(key))
+            _      <- state match
+                        case Some(st) =>
+                          index.update(
+                            _.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None))
+                          )
+                        case None     =>
+                          val data = Bytes(ZStream.fromChunk(block.bytes))
+                          for
+                            _      <- primary.write(key, data).mapError(e => GravitonError.BackendUnavailable(e.getMessage))
+                            status <- primary.status
+                            _      <- resolver.record(key, BlockSector(primary.id, status))
+                            _      <- index.update(_ + (key -> BlockState(NonNegInt(1), None)))
+                          yield ()
+          yield BlockManifestEntry(Index.zero, block.blockSize, key.toBinaryKey)
+        }
+      yield pipeline
+    
+    
 
   def put: ZSink[Any, GravitonError, Byte, Nothing, BlockKey] =
     ZSink.collectAll[Byte].mapZIO { data =>
@@ -151,6 +153,22 @@ final class InMemoryBlockStore private (
     yield toDelete.size
 
 object InMemoryBlockStore:
+
+  def live(backups: Seq[BlobStore] = Nil): URLayer[
+      BlobStore & 
+      BlockResolver, 
+      InMemoryBlockStore] =
+    ZLayer.fromFunction((primary: BlobStore, resolver: BlockResolver) => 
+      ZLayer.fromZIO(make(primary, resolver, backups))
+    ).flatten
+
+  val layer: URLayer[
+    Ref[Map[BlockKey, BlockState]] & 
+    Map[BlobStoreId, BlobStore] & 
+    (BlobStore & BlockResolver), 
+    InMemoryBlockStore] =
+    ZLayer.derive[InMemoryBlockStore]
+
   def make(
     primary: BlobStore,
     resolver: BlockResolver,

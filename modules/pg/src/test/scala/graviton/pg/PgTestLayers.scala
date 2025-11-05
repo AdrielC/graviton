@@ -6,9 +6,7 @@ import com.augustnagro.magnum.magzio.TransactorZIO
 import javax.sql.DataSource
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
-import org.testcontainers.containers.wait.strategy.{WaitStrategy, Wait}
-import java.time.Duration
-import java.nio.file.Path
+import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.containers.PostgreSQLContainerProvider
 import zio.prelude.fx.*
 import zio.prelude.*

@@ -9,7 +9,7 @@ import zio.*
 import zio.stream.ZStream
 import zio.test.*
 
-object BlobRepoSpec extends PgTestSpec {
+object BlobRepoSpec extends PgTestSpec[containers.TestContainer] {
 
   override def spec: Spec[Environment & Scope, Any] =
     suite("BlobRepo")(

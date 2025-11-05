@@ -44,6 +44,8 @@ object FileIngestor:
   def materialize(manifest: Manifest): ZIO[FileIngestor, GravitonError, Bytes] =
     ZIO.serviceWithZIO[FileIngestor](_.materialize(manifest))
 
+end FileIngestor
+
 final case class FileIngestorLive(
   blockStore: BlockStore,
   chunker: Chunker,
@@ -56,47 +58,49 @@ final case class FileIngestorLive(
     advertisedAttributes: BinaryAttributes,
     hashAlgorithm: HashAlgorithm,
   ): IO[GravitonError, IngestResult] =
-    for {
-      _          <- BinaryAttributes.validate(advertisedAttributes)
-      hasher     <- Hashing.hasher(hashAlgorithm)
-      sizeRef    <- Ref.make(Option.empty[FileSize])
-      offsetRef  <- Ref.make[Index](Index.zero)
-      entriesRef <- Ref.make(Chunk.empty[BlockManifestEntry])
-      stream     = bytes
-                      .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
-                      .via(chunker.pipeline)
-                      .tap { (block: Block) =>
-                        hasher.update(block) *> 
-                        sizeRef.update(_.fold(Some(block.fileSize))(o => (block.fileSize ++ o)))
-                      }
-                      .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
-                      .mapZIO(block => storeBlock(offsetRef, entriesRef)(block))
-      blockCount <- stream
-                      .runFold(0)((acc, _) => acc + 1)
-                      .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
-      digest     <- hasher.digest
-      size  <- sizeRef.get
-      totalSize          <- ZIO.fromOption(size).mapError(_ => GravitonError.PolicyViolation("file must have bytes"))
-      manifest   <- entriesRef.get.map(entries => BlockManifest(totalSize, NonEmptyMap(hashAlgorithm -> digest), advertisedAttributes, entries))
-      blobKey     = BlobKey(
-                      hash = Hash(digest, hashAlgorithm),
-                      algo = hashAlgorithm,
-                      size = totalSize.value,
-                      mediaTypeHint = advertisedAttributes
-                        .getConfirmed(BinaryAttributeKey.contentType)
-                        .map(_.value)
-                        .orElse(
-                          advertisedAttributes
-                            .getAdvertised(BinaryAttributeKey.contentType)
-                            .map(_.value)
-                        ),
-                    )
-      attributes  = advertisedAttributes ++ BinaryAttributes.confirmed(
-                      BinaryAttributeKey.size,
-                      totalSize,
-                      IngestSource,
-                    )
-    } yield IngestResult(blobKey, manifest, attributes, blockCount)
+    ZIO.scoped:
+      for {
+        _          <- BinaryAttributes.validate(advertisedAttributes)
+        hasher     <- Hashing.hasher(hashAlgorithm)
+          .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+        sizeRef    <- Ref.make(Option.empty[FileSize])
+        offsetRef  <- Ref.make[Index](Index.zero)
+        entriesRef <- Ref.make(Chunk.empty[BlockManifestEntry])
+        stream     = bytes
+                        .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+                        .via(chunker.pipeline)
+                        .tap { (block: Block) =>
+                          hasher.update(block) *> 
+                          sizeRef.update(_.fold(Some(block.fileSize))(o => (block.fileSize ++ o)))
+                        }
+                        .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+                        .mapZIO(block => storeBlock(offsetRef, entriesRef)(block))
+        blockCount <- stream
+                        .runFold(0)((acc, _) => acc + 1)
+                        .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+        digest     <- hasher.digest
+        size  <- sizeRef.get
+        totalSize          <- ZIO.fromOption(size).mapError(_ => GravitonError.PolicyViolation("file must have bytes"))
+        manifest   <- entriesRef.get.map(entries => BlockManifest(totalSize, NonEmptyMap(hashAlgorithm -> digest), advertisedAttributes, entries))
+        blobKey     = BlobKey(
+                        hash = Hash(digest, hashAlgorithm),
+                        algo = hashAlgorithm,
+                        size = totalSize.value,
+                        mediaTypeHint = advertisedAttributes
+                          .getConfirmed(BinaryAttributeKey.contentType)
+                          .map(_.value)
+                          .orElse(
+                            advertisedAttributes
+                              .getAdvertised(BinaryAttributeKey.contentType)
+                              .map(_.value)
+                          ),
+                      )
+        attributes  = advertisedAttributes ++ BinaryAttributes.confirmed(
+                        BinaryAttributeKey.size,
+                        totalSize,
+                        IngestSource,
+                      )
+      } yield IngestResult(blobKey, manifest, attributes, blockCount)
 
   private def storeBlock(
     offsetRef: Ref[Index],

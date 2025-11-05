@@ -22,3 +22,6 @@ given [K: Schema, V: Schema] => Schema[NonEmptyMap[K, V]] =
     NonEmptyMap.fromIterableOption(_).toRight("NonEmptyMap cannot be empty"), 
     nem => Right(nem.toList)
   )
+
+type Name = String & Singleton
+

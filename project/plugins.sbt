@@ -12,7 +12,7 @@ addSbtPlugin("org.scalameta" % "sbt-scalafmt"  % "2.5.5")
 addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.3.1")
 addSbtPlugin("org.typelevel" % "sbt-tpolecat"  % "0.5.2")
 
-resolvers ++= Resolver.sonatypeOssRepos("public")
+resolvers += Resolver.sonatypeCentralSnapshots
 
 // Resolve eviction between transitive plugin deps requiring different
 // scala-parser-combinators versions (1.x vs 2.x) in the build definition

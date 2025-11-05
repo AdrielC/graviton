@@ -13,8 +13,23 @@ import graviton.Manifest
 import graviton.BlockKey
 import graviton.core.BlockStore
 import graviton.core.BinaryKeyMatcher
+import graviton.ingest.FileIngestorLive
+import graviton.chunking.Chunker
+import graviton.impl.InMemoryBlockResolver
+// DiskCacheStore
 
-object FileIngestorSpec extends ZIOSpecDefault {
+import graviton.fs.DiskCacheStore
+
+object FileIngestorSpec extends ZIOSpec[FileIngestor] {
+
+  transparent inline def bootstrap: ZLayer[Any, Any, FileIngestor] =
+    ZLayer.make[FileIngestor](
+      InMemoryBlockStore.layer,
+      Chunker.default,
+      InMemoryBlockResolver.default.reloadableManual,
+      DiskCacheStore.default,
+      FileIngestorLive.layer,
+    )
 
   private def withBlockStore[R, E, A](effect: BlockStore => ZIO[R, E, A]): ZIO[R, E, A] =
     for {
@@ -37,7 +52,7 @@ object FileIngestorSpec extends ZIOSpecDefault {
           val chunker = FixedChunker(4)
           for {
             result <- FileIngestor.ingest(bytesOf(payload), BinaryAttributes.empty, HashAlgorithm.Blake3)
-            data   <- FileIngestor.materialize(result.manifest: Manifest)
+            data   <- FileIngestor.materialize(result.manifest)
             text   <- data.runCollect.map(bytes => new String(bytes.toArray, "UTF-8"))
           } yield assertTrue(text == payload) && assertTrue(result.totalBlocks > 0)
         }

@@ -6,10 +6,11 @@ import graviton.db.*
 import com.augustnagro.magnum.magzio.TransactorZIO
 import com.augustnagro.magnum.sql
 import zio.*
-import zio.json.ast.Json
 import zio.test.*
 
-object BlockRepoMoreSpec extends PgTestSpec {
+import pg.TestContainer
+
+object BlockRepoMoreSpec extends PgTestSpec[TestContainer] {
 
   override def spec: Spec[Environment & Scope, Any] =
     suite("BlockRepo - more")(

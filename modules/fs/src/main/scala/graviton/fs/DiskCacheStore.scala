@@ -2,10 +2,13 @@ package graviton.fs
 
 import graviton.*
 import zio.*
+import zio.ZLayer.Derive.Default
 import zio.cache.*
 import zio.stream.*
 import zio.Duration
 import java.nio.file.{Files, Path}
+import io.github.iltotore.iron.constraint.string.ValidURL
+import java.net.URI
 
 /**
  * Local-disk [[CacheStore]] backed by [[zio.cache.Cache]]. Cached entries are
@@ -13,10 +16,13 @@ import java.nio.file.{Files, Path}
  * before being served.
  */
 final class DiskCacheStore private (
-  root: Path,
+  root: URI,
   cache: Cache[Hash, Throwable, Chunk[Byte]],
   loaderRef: FiberRef[Hash => Task[Chunk[Byte]]],
 ) extends CacheStore:
+
+  private def pathFor(hash: Hash): Path =
+    Path.of(root.toASCIIString()).resolve(hash.hex)
 
   private def fromChunk(ch: Chunk[Byte]): Bytes = Bytes(ZStream.fromChunk(ch))
 
@@ -38,15 +44,33 @@ final class DiskCacheStore private (
 
   def invalidate(hash: Hash): UIO[Unit] =
     cache.invalidate(hash) *>
-      ZIO.attempt(Files.deleteIfExists(root.resolve(hash.hex))).ignore
+      ZIO.attempt(Files.deleteIfExists(pathFor(hash)))
+      .mapError(e => GravitonError.NotFound(s"failed to invalidate cache for hash ${hash.hex}", e))
+      .ignoreLogged
 
 object DiskCacheStore:
+
+  case class Conf(
+    root: URI,
+    capacity: Int = 1024,
+    ttl: Duration = Duration.Infinity,
+  )
+
+  object Conf:
+
+    given config: Config[Conf] =
+
+      (Config.uri("root").withDefault(URI.create("file:///tmp/graviton/cache")) ++
+      Config.int("capacity").withDefault(1024) ++
+      Config.duration("ttl").withDefault(Duration.Infinity))
+      .map(Conf(_, _, _))
+
   private def verify(hash: Hash, data: Chunk[Byte]): Task[Unit] =
     for
       dig <- Hashing.compute(Bytes(ZStream.fromChunk(data)), hash.algo)
       _   <- ZIO
                .fail(RuntimeException("hash mismatch"))
-               .unless(dig == hash.bytes)
+               .unless(dig.toList == hash.bytes.toList)
     yield ()
 
   private def loader(
@@ -92,8 +116,22 @@ object DiskCacheStore:
     yield DiskCacheStore(root, cache, ref)
 
   def layer(
-    root: Path,
+    root: URI,
     capacity: Int = 1024,
     ttl: Duration = Duration.Infinity,
-  ): ZLayer[Any, Nothing, CacheStore] =
-    ZLayer.scoped(make(root, capacity, ttl))
+  ): ZLayer[Any, Nothing, DiskCacheStore] =
+    ZLayer.scoped(make(Path.of(root.toASCIIString()), capacity, ttl))
+
+  def default: ULayer[DiskCacheStore] =
+    ZLayer.fromZIO:
+      for
+        root <- ZIO.config[Conf]
+        layer <- make(Path.of(root.root.toASCIIString()), root.capacity, root.ttl)
+      yield layer
+    
+    
+    layer(
+      Path.of(System.getProperty("user.home"), ".graviton", "cache"),
+      capacity = 1024,
+      ttl = Duration.Infinity,
+    )

@@ -9,7 +9,7 @@ import zio.*
 import zio.json.ast.Json
 import zio.test.*
 
-object StoreRepoMoreSpec extends PgTestSpec {
+object StoreRepoMoreSpec extends PgTestSpec[containers.TestContainer] {
 
   private def sampleRow(seed: Int, status: StoreStatus): StoreRow =
     StoreRow(

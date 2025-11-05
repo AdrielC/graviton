@@ -6,10 +6,11 @@ import graviton.db.*
 import com.augustnagro.magnum.magzio.TransactorZIO
 import com.augustnagro.magnum.sql
 import zio.json.ast.Json
+import org.testcontainers.containers.PostgreSQLContainer
 
-trait PgTestSpec extends ZIOSpec[ConfigProvider] {
+trait PgTestSpec[C <: PostgreSQLContainer[C]: {PgTestLayers, Tag}] extends ZIOSpec[ConfigProvider] {
 
-  override protected def bootstrap: ZLayer[Any, Any, ConfigProvider] =
+  def bootstrap: ZLayer[Any, Any, ConfigProvider] =
     ZLayer.succeed(PgTestConfig.provider)
 
   protected val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
@@ -21,7 +22,7 @@ trait PgTestSpec extends ZIOSpec[ConfigProvider] {
   protected def repoLayer: ZLayer[Any, Throwable, TransactorZIO & StoreRepo & BlockRepo & BlobRepo] =
     ZLayer.make[TransactorZIO & StoreRepo & BlockRepo & BlobRepo](
       PgTestConfig.layer,
-      PgTestLayers.layer[TestContainer],
+      PgTestLayers.layer[C],
       StoreRepoLive.layer,
       BlockRepoLive.layer,
       BlobRepoLive.layer,

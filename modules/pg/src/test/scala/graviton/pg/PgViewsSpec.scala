@@ -8,7 +8,7 @@ import com.augustnagro.magnum.sql
 import zio.*
 import zio.test.*
 
-object PgViewsSpec extends PgTestSpec {
+object PgViewsSpec extends PgTestSpec[containers.TestContainer] {
 
   override def spec: Spec[Environment & Scope, Any] =
     suite("PG Views")(

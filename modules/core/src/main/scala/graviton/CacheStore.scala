@@ -24,7 +24,7 @@ trait CacheStore:
     hash: Hash,
     download: => Task[Bytes],
     useCache: Boolean = true,
-  ): Task[Bytes]
+  ): ZIO[Scope, Throwable, Bytes]
 
   /** Remove any cached value associated with the supplied hash. */
   def invalidate(hash: Hash): UIO[Unit]

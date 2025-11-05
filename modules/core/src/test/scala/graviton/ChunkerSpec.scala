@@ -79,7 +79,12 @@ case object ChunkerSpec extends ZIOSpecDefault:
       val stream = ZStream.fromChunk(Chunk.fromArray(bytes))
       val pack   = TokenPack.fromStrings("none", List("zzz"))
       stream
-        .via(ZPipeline.anchoredCdc(pack, avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2, anchorBonus = 0))
+        .via(
+          ZPipeline.anchoredCdc(
+            pack, 
+            avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2.toInt, 
+            anchorBonus = 0
+        ))
         .runCollect
         .map { chunks =>
           assertTrue(chunks.forall(_.bytes.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))
