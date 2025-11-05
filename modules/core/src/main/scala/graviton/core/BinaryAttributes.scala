@@ -6,16 +6,12 @@ import zio.schema.*
 import zio.schema.DynamicValue
 import scala.collection.immutable.ListMap
 // import scala.compiletime.ops.string
-import BinaryAttributeKey.{ConfirmedKeys, AdvertisedKeys, NoPrefix}
+import BinaryAttributeKey.{ConfirmedKeys, AdvertisedKeys}
 import cats.Monoid
 import cats.implicits.*
 import zio.json.*
 
-
-import io.github.iltotore.iron.{zio as ironZio}
-import ironZio.*
-
-import BinaryAttributeKey.{Server, Client, NoPrefix}
+import BinaryAttributeKey.{Server, Client}
 
 
 final case class BinaryAttribute[+A](value: A, source: String):
@@ -133,25 +129,24 @@ object BinaryAttributes:
   private final val MediaTypePattern = "^[\\w.+-]+/[\\w.+-]+$".r
 
   private[graviton] object fiber:
-    transparent inline def forks: Server.Aux[Int, "forks", NoPrefix] = 
+    transparent inline def forks: BinaryAttributeKey.Aux[Int, "forks", "attr:server"] = 
       BinaryAttributeKey.Server.forks
     // transparent inline def name = forks.fullName
 
-    val current: FiberRef[BinaryAttributes] = 
-      Unsafe.unsafe:
-        unsafe ?=>
-          FiberRef.unsafe.make[BinaryAttributes](
-            empty,
-            (a: BinaryAttributes) => a.updateConfirmed(
-               Server.forked[Int],
-              _.map(_ + 1), 
-              Some(0)),
-            (a, b) => a ++ b
-          )
-      
+    inline def current: FiberRef[BinaryAttributes] = 
+      Unsafe.unsafely:
+        FiberRef.unsafe.make[BinaryAttributes](
+          empty,
+          (a: BinaryAttributes) => a.updateConfirmed(
+              forks,
+            _.map(_ + 1), 
+            Some(0)),
+          (a, b) => a ++ b
+        )
+    
 
-    def withCurrent(attrs: BinaryAttributes): RIO[Scope, Unit] =
-      fiber.current.locally(attrs)(ZIO.unit)
+  inline def withCurrent(attrs: BinaryAttributes): RIO[Scope, Unit] =
+    fiber.current.locally(attrs)(ZIO.unit)
 
   final def validate(attrs: BinaryAttributes): IO[GravitonError, Unit] =
     def validateAll(

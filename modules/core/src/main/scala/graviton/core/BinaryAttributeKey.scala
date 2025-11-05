@@ -9,13 +9,13 @@ import zio.schema.meta.MetaSchema
 import zio.schema.meta.ExtensibleMetaSchema
 import zio.constraintless.TypeList.{End, ::}
 import scala.compiletime.ops.string.{Matches, Length, +}
+import scala.compiletime.ops.boolean.||
 import scala.language.dynamics
 import scala.annotation.publicInBinary
-import cats.implicits.*
+
 
 import cats.Monoid
 
-import BinaryAttributeKey.AddNameSpace
 import BinaryAttributeKey.foldName
 
 sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
@@ -37,10 +37,10 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
 
   type FullName = FN
   
-  given FullName: ValueOf[FullName] = 
+  inline given FullName: ValueOf[FullName] = 
     ValueOf(foldName[Prefix, Nm](prefix, id))
 
-  def fullName: FullName = FullName.value
+  inline def fullName: FullName = FullName.value
 
   def schema: Schema[A] = _schema.asInstanceOf[Schema[A]]
 
@@ -48,7 +48,7 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
     val nm = foldName(fullName, "default")
     schema.defaultValue.toOption.map(BinaryAttribute[A](_, nm))
 
-  def defaultValue[AA >: A: Monoid]: Option[AA] = 
+  inline def defaultValue[AA >: A: Monoid]: Option[AA] = 
     default.map(_.value)
     .orElse(Some(Monoid.empty[AA]))
 
@@ -66,7 +66,9 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
 
   def coerce[B](using s: Schema[B]): Either[String, BinaryAttributeKey.Aux[B, Nm, Prefix]] = 
     schema.coerce(s).map(s => 
-      BinaryAttributeKey.apply[B, Nm, Prefix]
+      BinaryAttributeKey.apply[B, Nm, Prefix](
+        Nm.value, Prefix.value
+      )(using s)
     )
 }
 object BinaryAttributeKey:
@@ -103,57 +105,35 @@ object BinaryAttributeKey:
   end AddNameSpace
 
 
-  final type NoPrefix = "" & Singleton
+  final type NoPrefix = "" & Singleton & Name
   given NoPrefix: ValueOf[NoPrefix] = ValueOf("")
 
 
-  def apply[A, N <: Name](_id: N)(using s: Schema[A]): Aux[A, N, NoPrefix] = 
-    new BinaryAttributeKey[A](_id, NoPrefix.value, s) {
+  def apply[A, N <: Name & Singleton](_id: N)(using s: Schema[A]): Aux[A, N, NoPrefix] = 
+    (new BinaryAttributeKey[A](_id, NoPrefix.value, s) {
       override final type ValueType = A
       override final type SchemaType = Schema[ValueType]
-      override type Prefix = NoPrefix
-      override type Nm = N
       override type FN = AddNameSpace[Prefix, Nm]
       override type FullName = FN
-    }
+    }).asInstanceOf[Aux[A, N, NoPrefix]]
 
-  def apply[A, N <: Name: ValueOf, P <: Name: ValueOf](
+  def apply[A, N <: Name, P <: Name](
     _id: N, 
     _prefix: P
     )(using s: Schema[A]): Aux[A, N, P] = 
-      new BinaryAttributeKey[A](_id, _prefix, s) {
+      (new BinaryAttributeKey[A](_id, _prefix, s) {
         override final type ValueType = A
         override final type SchemaType = Schema[ValueType]
-
+        // override type Prefix = P
         override type FN = AddNameSpace[Prefix, Nm]
         override final type FullName = FN
+        // override type Nm = N
+      }).asInstanceOf[Aux[A, N, P]]
 
-        override type Prefix = P
-        override type Nm = N
-        
-      }
-
-  final inline def apply[A, N <: Name: ValueOf](s: Schema[A]): Aux[A, N, NoPrefix] {
-    type ValueType = A
-    type SchemaType = Schema[ValueType]
-    type Nm = N
-    type Prefix = NoPrefix
-    type FN = AddNameSpace[Prefix, Nm]
-    type FullName = FN
-  } = apply[A, N, NoPrefix](using summon[ValueOf[N]], NoPrefix, s)
-
-  final inline def apply[A, N <: Name: ValueOf, P <: Name: ValueOf](using s: Schema[A]): Aux[A, N, P] {
-    type ValueType = A
-    type SchemaType = Schema[ValueType]
-    type Nm = N
-    type Prefix = P
-    type FN = AddNameSpace[Prefix, Nm]
-    type FullName = FN
-  } = apply[A, N, P](valueOf[N], valueOf[P])(using summon[ValueOf[N]], summon[ValueOf[P]], s)
 
   final type Aux[A, K <: Name, P <: Name] = BinaryAttributeKey[A] { 
     type ValueType = A
-    type SchemaType = Schema[ValueType]
+    type SchemaType = Schema[A]
     type Nm = K
     type Prefix = P
     type FN = AddNameSpace[Prefix, Nm]
@@ -194,8 +174,6 @@ object BinaryAttributeKey:
           override final type ValueType = Any
           type FN = AddNameSpace[Prefix, Nm]
           type FullName = FN
-          inline given FullName: ValueOf[FullName] = 
-            ValueOf(foldName[Prefix, Nm](Prefix.value, Nm.value))
         }),
       Schema.Field[BinaryAttributeKey[? <: Any], Schema[? >: Nothing <: Any]](
         "schema", 
@@ -206,71 +184,55 @@ object BinaryAttributeKey:
       (a, schema) => BinaryAttributeKey[a.ValueType, a.id.type](a.id)(using schema.asInstanceOf[Schema[a.ValueType]]),
       ),
       (id, prefix, schema) => BinaryAttributeKey(id, prefix
-      )(using ValueOf(id), ValueOf(prefix), schema),
+      )(using schema),
       Chunk.empty[Any],
     )
     
   final type ConfirmedKeys[T <: Name, P <: Name] <: Boolean = P match
-    case Name => Matches[T, "server*"] | Matches[P, "server*"]
+    case Name => Matches[T, "confirmed*"] || Matches[P, "attr:server"]
   end ConfirmedKeys
   
   final type AdvertisedKeys[T <: Name, P <: Name] <: Boolean = P match
-    case Name => Matches[T, "client*"] | Matches[P, "client*"]
+    case Name => Matches[T, "advertised*"] || Matches[P, "attr:client"]
   end AdvertisedKeys
 
 
-  inline given [NS <: Name: ValueOf, N <: Name: ValueOf] => (
+  inline given [NS <: Name, N <: Name] => (
     NS: ValueOf[NS], N: ValueOf[N]) => ValueOf[AddNameSpace[NS, N]] = 
       new ValueOf[AddNameSpace[NS, N]]((
         foldName[NS, N](NS.value, N.value)
       ))
 
-  transparent trait NamespacedKey[NameSpace <: Name & Singleton: ValueOf] extends Dynamic:
+  transparent trait NamespacedKey[NameSpace <: Name & Singleton](
+    using NameSpace: ValueOf[NameSpace]
+  ) extends Dynamic:
 
+    type NS = NameSpace
 
-    type ToPrefix[P <: Name & Singleton | NoPrefix | AddNameSpace[?, ?]] = P match
+    type ToPrefix[P <: (NoPrefix | Name)] = P match
       case NoPrefix => NameSpace
-      case AddNameSpace[n, p] => AddNameSpace[n, p]
       case Name => AddNameSpace[NameSpace, P]
 
-    final type Aux[A, K <: Name, P <: (NoPrefix | Name)] = 
-
-        BinaryAttributeKey.Aux[A, K, ToPrefix[P]] {
-          type ValueType = A
-          type SchemaType = Schema[A]
-          type Nm = K
-          type PF = ToPrefix[P]
-          type Prefix = PF
-          type FN = AddNameSpace[Prefix, Nm]
-          type FullName = FN
-        }
-
     transparent inline def applyDynamic[
-      V, N <: Name: ValueOf, P <: Name: ValueOf](schema: Schema[V])
-    : Aux[V, N, P] =
+      V, N <: Name & Singleton, P <: (NoPrefix | Name)](schema: Schema[V])
+    : Aux[V, N, ToPrefix[P]] =
       BinaryAttributeKey.apply[V, N, ToPrefix[P]](
-        using 
-        summon[ValueOf[N]], 
-        ValueOf(compiletime.constValue[ToPrefix[P]]), 
-        schema
-      )
+        valueOf[N], valueOf[ToPrefix[P]]
+      )(using schema)
     end applyDynamic
 
 
-    transparent inline def selectDynamic[V: Schema](name: Name): Aux[V, name.type, NoPrefix] =
-      given ValueOf[name.type] = ValueOf(name)
-      new BinaryAttributeKey[V, name.type, ToPrefix[NoPrefix]](
-        using ValueOf(name),
-        ValueOf(compiletime.constValue[ToPrefix[NoPrefix]]),
-        summon[Schema[V]]
+    def selectDynamic[V: Schema](name: Name): Aux[V, name.type, NameSpace] =
+      (new BinaryAttributeKey[V](
+        name, 
+      NameSpace.value, 
+      summon[Schema[V]]
       ) {
         override final type ValueType = V
-        override final type SchemaType = Schema[ValueType]
-        override type Prefix = NameSpace
-        override type Nm = name.type
+        override final type SchemaType = Schema[V]
         override type FN = AddNameSpace[Prefix, Nm]
         override type FullName = FN
-      }
+      }).asInstanceOf[Aux[V, name.type, NameSpace]]
     end selectDynamic
 
     final inline transparent def fileName = selectDynamic[String]("fileName")
