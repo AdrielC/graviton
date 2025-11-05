@@ -233,12 +233,14 @@ object BinaryAttributeKey:
       case AddNameSpace[n, p] => AddNameSpace[n, p]
       case Name => AddNameSpace[NameSpace, P]
 
-    final type Aux[A, K <: Name, P <: (Name | Nothing | NoPrefix | AddNameSpace[?, ?])] = 
+    final type Aux[A, K <: Name, P <: (NoPrefix | Name)] = 
 
         BinaryAttributeKey.Aux[A, K, ToPrefix[P]] {
           type ValueType = A
           type SchemaType = Schema[A]
           type Nm = K
+          type PF = ToPrefix[P]
+          type Prefix = PF
           type FN = AddNameSpace[Prefix, Nm]
           type FullName = FN
         }
