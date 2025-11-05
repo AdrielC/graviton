@@ -3,46 +3,46 @@ layout: home
 
 hero:
   name: "⚡ Graviton"
-  text: "Content-Addressable Storage"
-  tagline: "Built on ZIO • Modular • Blazingly Fast"
+  text: "Content-Addressable Storage Runtime"
+  tagline: "Built on ZIO • Streaming ingest • Backend agnostic"
   image:
     src: /logo.svg
     alt: Graviton Logo
   actions:
     - theme: brand
       text: 🚀 Get Started
-      link: /guide/getting-started
+      link: guide/getting-started
     - theme: alt
       text: 📖 Architecture
-      link: /architecture
+      link: architecture
     - theme: alt
       text: ⚡ GitHub
       link: https://github.com/AdrielC/graviton
 
 features:
   - icon: 🎯
-    title: Content-Addressable
-    details: Deduplicate at scale with content-defined chunking and cryptographic hashing. Store once, reference forever.
-  - icon: ⚡
-    title: Blazingly Fast
-    details: Built on ZIO for maximum concurrency and efficiency. Stream terabytes without breaking a sweat.
+    title: Verified Content Keys
+    details: Content-defined chunking and cryptographic hashing ensure every blob is stored and addressed by its bytes.
+  - icon: 🔄
+    title: Stream-First Runtime
+    details: ZIO Streams power ingestion, hashing, and replication so large payloads flow without buffering.
   - icon: 🔧
-    title: Modular Design
-    details: Pluggable backends (S3, PostgreSQL, RocksDB), flexible protocols (gRPC, HTTP), and independent evolution.
+    title: Modular Backends
+    details: Swap persistence layers with S3, PostgreSQL, RocksDB, or new implementations without touching the core types.
   - icon: 🔐
-    title: Type-Safe
-    details: Leverages Scala 3, ZIO, and refined types for compile-time guarantees. If it compiles, it works.
+    title: Strong Typing
+    details: Scala 3, refined types, and schema derivation guard invariants across transports and storage boundaries.
   - icon: 📊
-    title: Observable
-    details: Prometheus metrics, structured logging, and correlation IDs built-in. Know what's happening in production.
-  - icon: 🌐
-    title: Production-Ready
-    details: Replication, backpressure, graceful degradation, and zero-downtime deployments out of the box.
+    title: Built-In Observability
+    details: Structured logging, Prometheus metrics, and correlation IDs surface ingestion and retrieval behaviour.
+  - icon: 🛠️
+    title: Operations Ready
+    details: Replication policies, backpressure, and failure recovery hooks keep clusters responsive under load.
 ---
 
-## 🛰️ Hyperdrive Telemetry
+## 📡 Operations Snapshot
 
-Get a taste of the Graviton control room. The live HUD keeps a pulse on ingest throughput, deduplication ratios, replication health, and the latest runtime chatter—rendered in neon, constantly shifting, and entirely in-browser.
+Track ingest throughput, deduplication ratios, replica health, and runtime events directly in the docs. The live HUD mirrors the data surfaced by the runtime's Prometheus exporters so you can see what operators monitor day to day.
 
 <NeonHud />
 
@@ -64,56 +64,50 @@ cd docs && npm install && npm run docs:dev
 
 ## 🚀 Why Graviton?
 
-Graviton is a **content-addressable storage runtime** that provides a stable ingest and retrieval pipeline for large binary payloads. The system is **modular by design** so that hashing, chunking, persistence, replication, and protocol concerns evolve independently.
+Graviton is a **content-addressable storage runtime** that coordinates chunking, hashing, replication, and retrieval for large binary payloads. Each concern lives in an isolated module so hashing algorithms, network protocols, and storage backends can evolve independently.
 
 ::: info Visualize the pipelines
-Every architecture and operations page now ships with live Mermaid diagrams. No extra setup required—VitePress renders them client-side with our neon skins so you can trace ingest, replication, and backend selection at a glance.
+Architecture, manifests, and operations pages include interactive Mermaid diagrams rendered client-side in VitePress. Follow ingest, replication, and backend selection without leaving the browser.
 :::
 
 ### Key Features
 
-- **Zero-Copy Streaming**: Process terabytes without loading into memory
-- **Content-Defined Chunking**: FastCDC for optimal deduplication
-- **Multiple Backends**: S3, PostgreSQL, RocksDB, and more
-- **Type-Safe Schema**: Compile-time guarantees with ZIO Schema
-- **Observable**: Prometheus metrics and structured logging
-- **Replicated**: Multi-region support with eventual consistency
-- **Schema Insights**: Interactive schema explorer powered by Scala.js + ZIO on the docs site
+- **Streaming ingest and retrieval** with ZIO Streams and zero-copy pipelines
+- **Content-defined chunking** via FastCDC and multi-hash verification
+- **Pluggable storage backends** for S3, PostgreSQL, RocksDB, and future targets
+- **Strongly-typed schemas** shared across HTTP, gRPC, and Scala.js clients
+- **Integrated observability** with Prometheus metrics and structured logging
+- **Replica coordination** through policies that balance durability and latency
+- **Schema explorer** powered by the Scala.js dashboard embedded in the docs
 
 ## 📚 Next Steps
 
 :::tip 🎯 New to Graviton?
-Start with the [Getting Started Guide](/guide/getting-started) for a hands-on introduction!
+Start with the [Getting Started Guide](guide/getting-started) for a hands-on introduction!
 :::
 
-## ✨ Launch the Quantum Command Center
-
-Need warp-speed navigation? Hit `⌘K` / `Ctrl+K` (or click the floating button) to summon the Quantum Command Center—an omnipresent command palette with synthwave vibes, hyperspace unlocks, and instant jumps to the hottest docs.
-
-<QuantumConsole />
-
 <div class="grid-container">
-  <a href="/architecture" class="feature-card">
+  <a href="architecture" class="feature-card">
     <h3>🏗️ Architecture</h3>
     <p>Understand the module-by-module breakdown and system design</p>
   </a>
   
-  <a href="/end-to-end-upload" class="feature-card">
+  <a href="end-to-end-upload" class="feature-card">
     <h3>📤 Upload Flow</h3>
     <p>Follow a binary blob through the entire ingest pipeline</p>
   </a>
   
-  <a href="/api" class="feature-card">
+  <a href="api" class="feature-card">
     <h3>🔌 API Reference</h3>
     <p>Explore gRPC and HTTP endpoints with examples</p>
   </a>
   
-  <a href="/dev/contributing" class="feature-card">
+  <a href="dev/contributing" class="feature-card">
     <h3>🤝 Contributing</h3>
     <p>Join the community and help build the future of storage</p>
   </a>
 
-  <a href="/dev/scalajs" class="feature-card">
+  <a href="dev/scalajs" class="feature-card">
     <h3>🧪 Scala.js Playbook</h3>
     <p>Run the Laminar dashboard locally with live reload and shared models</p>
   </a>

@@ -8,12 +8,17 @@ addSbtPlugin("dev.zio" % "zio-sbt-ci"        % zioSbtVersion)
 addSbtPlugin("dev.zio" % "zio-sbt-website"   % zioSbtVersion)
 
 // Semantic versioning from git tags
-addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.0")
+addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.0.1")
+addSbtPlugin("com.thesamet"  % "sbt-protoc" % "1.0.6")
 
-addSbtPlugin("ch.epfl.scala" % "sbt-scalafix"  % "0.14.3")
-addSbtPlugin("org.scalameta" % "sbt-scalafmt"  % "2.5.5")
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.3.1")
-addSbtPlugin("org.typelevel" % "sbt-tpolecat"  % "0.5.2")
+addSbtPlugin("ch.epfl.scala"  % "sbt-scalafix"  % "0.14.0")
+addSbtPlugin("org.scalameta"  % "sbt-scalafmt"  % "2.5.5")
+addSbtPlugin("org.scoverage"  % "sbt-scoverage" % "2.3.1")
+addSbtPlugin("org.typelevel"  % "sbt-tpolecat"  % "0.5.2")
+
+resolvers ++= Resolver.sonatypeOssRepos("public")
+
+libraryDependencies += "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-codegen" % "0.6.3"
 
 // Scala.js for frontend
 addSbtPlugin("org.scala-js"       % "sbt-scalajs"              % "1.17.0")

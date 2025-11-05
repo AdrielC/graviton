@@ -5,9 +5,9 @@ The protocol modules expose Graviton’s functionality over HTTP, gRPC, and shar
 | Module | Description | Notes |
 | --- | --- | --- |
 | `protocol/graviton-shared` | Cross-platform data models (`ApiModels`) and a minimal `HttpClient` interface used by Scala.js. | JSON codecs derive from zio-json so they can compile to both JVM and JS targets. |
-| `protocol/graviton-proto` | Protobuf contracts for the gRPC services. | The `.proto` files live under `src/main/protobuf/graviton`; code generation is handled via sbt. |
-| `protocol/graviton-grpc` | Skeleton service implementations for blob ingest, retrieval, and admin endpoints. | Wrap the runtime `BlobStore` and return placeholder responses where business logic is pending. |
-| `protocol/graviton-http` | zio-http routes and JSON codecs for REST-style access. | Current handlers respond with `Response.text("ok")`; authentication middleware is a no-op stub. |
+| `protocol/graviton-proto` | Protobuf contracts for the gRPC services. | The `.proto` files live under `src/main/protobuf/graviton`; sbt-scalaPB + zio-grpc generate `io.graviton.blobstore.v1` stubs. |
+| `protocol/graviton-grpc` | zio-grpc clients and service shells for blob ingest and catalog access. | Ships `GravitonUploadGatewayClientZIO`, `GravitonCatalogClientZIO`, and placeholder runtime bindings. |
+| `protocol/graviton-http` | zio-http clients, routes, and JSON codecs for REST-style access. | Provides `GravitonUploadHttpClient` for multipart lifecycles; server handlers still return stub responses. |
 
 ## Shared models (`graviton-shared`)
 
@@ -16,12 +16,14 @@ The protocol modules expose Graviton’s functionality over HTTP, gRPC, and shar
 
 ## gRPC services (`graviton-grpc`)
 
-- `BlobServiceImpl` and `UploadServiceImpl` delegate directly to a `BlobStore`. Upload currently streams chunks into `blobStore.put`; additional validation (hashing, manifests) will be added.
-- `AdminServiceImpl` exposes a simple `health` call returning a static status string.
-- Generated service interfaces from `graviton-proto` will wrap these implementations once the wiring is complete in `graviton-server`.
+- `GravitonUploadGatewayClientZIO` wraps the generated `UploadGateway`/`UploadService` stubs, enforces ack ordering, detects TTL expiry, and exposes classic multipart helpers.
+- `GravitonCatalogClientZIO` layers ergonomic ZIO APIs over the Catalog service (search, dedupe, export, subscribe).
+- Service shells (`BlobServiceImpl`, `UploadServiceImpl`, `AdminServiceImpl`) still delegate to `BlobStore`; wiring to the new upload model remains pending.
+- Code generation is managed via sbt-scalaPB with zio-grpc targets baked into the `graviton-proto` project.
 
 ## HTTP surface (`graviton-http`)
 
+- `GravitonUploadHttpClient` wires the REST counterpart of `UploadService`, streaming multipart bodies over zio-http and keeping blob hashes aligned with the frames path.
 - `HttpApi` constructs a zio-http `Handler` graph. At the moment it replies with `Response.text("ok")`; route composition and request decoding are still TODO.
 - `AuthMiddleware.optional` is a placeholder that simply returns the wrapped handler. Replace it with token validation once authn/authz is designed.
 - `JsonCodecs` demonstrates how zio-schema will be leveraged for automatic schema derivation and request validation.

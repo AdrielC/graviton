@@ -120,19 +120,30 @@ POST /api/v1/uploads
 Content-Type: application/json
 
 {
-  "total_size": 104857600,
-  "attributes": {
-    "content-type": "video/mp4",
-    "filename": "movie.mp4"
-  }
+  "fileName": "movie.mp4",
+  "totalSize": 104857600,
+  "mediaType": "video/mp4",
+  "metadata": {
+    "ingest": {
+      "operator": "cli",
+      "source": "demo"
+    }
+  },
+  "preferredChunkSize": 5242880,
+  "partChecksums": {
+    "1": "sha256:abcd..."
+  },
+  "wholeFileChecksum": "sha256:ffff..."
 }
 ```
 
 **Response:**
 ```json
 {
-  "upload_id": "upload-abc123",
-  "expires_at": "2025-10-30T13:00:00Z"
+  "uploadId": "upload-abc123",
+  "chunkSize": 5242880,
+  "maxChunks": 256,
+  "expiresAtEpochSeconds": 1730738400
 }
 ```
 
@@ -149,9 +160,9 @@ Content-Length: 5242880
 **Response:**
 ```json
 {
-  "part_number": 1,
-  "etag": "etag-xyz789",
-  "size": 5242880
+  "partNumber": 1,
+  "acknowledgedSequence": 42,
+  "receivedBytes": 22020096
 }
 ```
 
@@ -163,18 +174,20 @@ Content-Type: application/json
 
 {
   "parts": [
-    {"part_number": 1, "etag": "etag-xyz789"},
-    {"part_number": 2, "etag": "etag-abc456"}
-  ]
+    {"partNumber": 1, "offset": 0, "size": 5242880, "checksum": "sha256:abcd..."},
+    {"partNumber": 2, "offset": 5242880, "size": 5242880, "checksum": "sha256:efgh..."}
+  ],
+  "expectedChecksum": "sha256:beef..."
 }
 ```
 
 **Response:**
 ```json
 {
-  "key": "0123456789abcdef...",
-  "size": 104857600,
-  "hash": "sha256:abcd1234..."
+  "documentId": "doc-0123456789abcdef",
+  "attributes": {
+    "content-type": "video/mp4"
+  }
 }
 ```
 
