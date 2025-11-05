@@ -1,0 +1,115 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Radial gradient for quasar glow -->
+    <radialGradient id="quasarGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:1" />
+      <stop offset="40%" style="stop-color:#00ff41;stop-opacity:0.8" />
+      <stop offset="70%" style="stop-color:#b967ff;stop-opacity:0.5" />
+      <stop offset="100%" style="stop-color:#ff6ac1;stop-opacity:0.1" />
+    </radialGradient>
+    
+    <!-- Outer glow filter -->
+    <filter id="outerGlow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Inner energy glow -->
+    <filter id="energyGlow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+        0 0 0 2 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Linear gradient for energy streams -->
+    <linearGradient id="energyStream" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffff;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#00ff41;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#b967ff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background dark space -->
+  <circle cx="60" cy="60" r="58" fill="#0a0e14" opacity="0.9"/>
+  
+  <!-- Outer accretion disk (rotated ellipses) -->
+  <ellipse cx="60" cy="60" rx="50" ry="15" 
+    fill="none" stroke="url(#energyStream)" stroke-width="1.5" opacity="0.4"
+    transform="rotate(15 60 60)"/>
+  <ellipse cx="60" cy="60" rx="50" ry="15" 
+    fill="none" stroke="url(#energyStream)" stroke-width="1.5" opacity="0.4"
+    transform="rotate(-15 60 60)"/>
+  
+  <!-- Energy field rings -->
+  <circle cx="60" cy="60" r="45" 
+    fill="none" stroke="#00ff41" stroke-width="1" opacity="0.3"
+    filter="url(#energyGlow)"/>
+  <circle cx="60" cy="60" r="38" 
+    fill="none" stroke="#00ffff" stroke-width="1" opacity="0.4"
+    filter="url(#energyGlow)"/>
+  <circle cx="60" cy="60" r="31" 
+    fill="none" stroke="#b967ff" stroke-width="1" opacity="0.3"
+    filter="url(#energyGlow)"/>
+  
+  <!-- Central quasar core -->
+  <circle cx="60" cy="60" r="24" 
+    fill="url(#quasarGlow)" 
+    filter="url(#outerGlow)"/>
+  
+  <!-- Bright center singularity -->
+  <circle cx="60" cy="60" r="18" 
+    fill="#00ffff" opacity="0.9"
+    filter="url(#energyGlow)"/>
+  <circle cx="60" cy="60" r="12" 
+    fill="#00ff41" opacity="0.95"
+    filter="url(#energyGlow)"/>
+  <circle cx="60" cy="60" r="6" 
+    fill="#ffffff" opacity="0.98"/>
+  
+  <!-- Energy jets (top and bottom) -->
+  <path d="M 60 0 L 56 35 L 60 30 L 64 35 Z" 
+    fill="url(#energyStream)" opacity="0.7"
+    filter="url(#energyGlow)"/>
+  <path d="M 60 120 L 56 85 L 60 90 L 64 85 Z" 
+    fill="url(#energyStream)" opacity="0.7"
+    filter="url(#energyGlow)"/>
+  
+  <!-- Gravitational lensing effect (curved light paths) -->
+  <path d="M 20 40 Q 40 50 30 60" 
+    stroke="#00ffff" stroke-width="1.5" fill="none" opacity="0.5"
+    filter="url(#energyGlow)"/>
+  <path d="M 100 40 Q 80 50 90 60" 
+    stroke="#00ffff" stroke-width="1.5" fill="none" opacity="0.5"
+    filter="url(#energyGlow)"/>
+  <path d="M 20 80 Q 40 70 30 60" 
+    stroke="#b967ff" stroke-width="1.5" fill="none" opacity="0.5"
+    filter="url(#energyGlow)"/>
+  <path d="M 100 80 Q 80 70 90 60" 
+    stroke="#b967ff" stroke-width="1.5" fill="none" opacity="0.5"
+    filter="url(#energyGlow)"/>
+  
+  <!-- Stellar matter particles being drawn in -->
+  <circle cx="25" cy="35" r="2" fill="#00ff41" opacity="0.8" filter="url(#outerGlow)"/>
+  <circle cx="95" cy="35" r="2" fill="#00ffff" opacity="0.8" filter="url(#outerGlow)"/>
+  <circle cx="25" cy="85" r="2" fill="#b967ff" opacity="0.8" filter="url(#outerGlow)"/>
+  <circle cx="95" cy="85" r="2" fill="#ff6ac1" opacity="0.8" filter="url(#outerGlow)"/>
+  <circle cx="15" cy="60" r="1.5" fill="#00ff41" opacity="0.6"/>
+  <circle cx="105" cy="60" r="1.5" fill="#00ffff" opacity="0.6"/>
+  <circle cx="60" cy="15" r="1.5" fill="#b967ff" opacity="0.6"/>
+  <circle cx="60" cy="105" r="1.5" fill="#ff6ac1" opacity="0.6"/>
+  
+  <!-- Outer frame ring -->
+  <circle cx="60" cy="60" r="58" 
+    fill="none" stroke="url(#energyStream)" stroke-width="2"
+    opacity="0.6" filter="url(#outerGlow)"/>
+</svg>

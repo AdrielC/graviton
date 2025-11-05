@@ -33,7 +33,7 @@ jobs:
       - name: Test
         run: ./sbt test
 
-  docs:
+  docs-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,5 +42,14 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
-      - name: Docs build
-        run: ./sbt docs/mdoc
+      - name: Build Scala.js Frontend
+        run: ./sbt buildFrontend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install docs dependencies
+        run: npm install --prefix docs
+      - name: Build docs (verification only)
+        run: npm run docs:build --prefix docs

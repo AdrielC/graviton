@@ -14,7 +14,8 @@ object PgTypeResolver {
       typname: String,
       arrayElemType: Option[String],
       enumLabels: Option[Seq[String]],
-      rangeSubType: Option[String]
+      rangeSubType: Option[String],
+      domainName: Option[String],
   )
 
   private val columnQuery =
@@ -64,11 +65,15 @@ object PgTypeResolver {
   private val enumQuery =
     "SELECT enumlabel FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid WHERE t.typname = ? ORDER BY e.enumsortorder"
 
+  private val domainQuery =
+    "SELECT domain_name FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?"
+
   def resolveColumns(schema: String, table: String, source: Connection): Map[String, ColumnInfo] = {
     val ps: PreparedStatement = source.prepareStatement(columnQuery)
     ps.setString(1, schema)
     ps.setString(2, table)
     val rs = ps.executeQuery()
+    val domainPs = source.prepareStatement(domainQuery)
     val buf = mutable.Map.empty[String, ColumnInfo]
     while (rs.next()) {
       val column        = rs.getString("columnName")
@@ -78,10 +83,12 @@ object PgTypeResolver {
       val arrayElemType = Option(rs.getString("array_elem_type"))
       val rangeSubtype  = Option(rs.getString("range_subtype"))
       val enumLabels = enumLabelsFor(if (typtype == "e") typname else arrayElemType.orNull, source)
-      buf += column -> ColumnInfo(typtype, typcategory, typname, arrayElemType, enumLabels, rangeSubtype)
+      val domainName   = domainNameFor(domainPs, schema, table, column)
+      buf += column -> ColumnInfo(typtype, typcategory, typname, arrayElemType, enumLabels, rangeSubtype, domainName)
     }
     rs.close()
     ps.close()
+    domainPs.close()
     buf.toMap
   }
 
@@ -96,4 +103,13 @@ object PgTypeResolver {
       ps.close()
       if (list.isEmpty) None else Some(list.toList)
     }
+
+  private def domainNameFor(ps: PreparedStatement, schema: String, table: String, column: String): Option[String] = {
+    ps.setString(1, schema)
+    ps.setString(2, table)
+    ps.setString(3, column)
+    val rs = ps.executeQuery()
+    try if (rs.next()) Option(rs.getString(1)).filter(_.nonEmpty) else None
+    finally rs.close()
+  }
 }
