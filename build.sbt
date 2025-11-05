@@ -160,54 +160,56 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     )
   )
 
-  lazy val proto = (project in file("modules/protocol/graviton-proto"))
-    .settings(
-      baseSettings,
-      name := "graviton-proto",
-      libraryDependencies ++= Seq(
-        "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % Version.scalapbVersion,
-        "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0" % "protobuf",
-        "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0"
-      ),
-      Compile / PB.targets := Seq(
-        scalapb.gen(
-          flatPackage = false,
-          javaConversions = false,
-          grpc = true,
-          singleLineToProtoString = true,
-          asciiFormatToString = true,
-          lenses = true
-        ) -> (Compile / sourceManaged).value / "scalapb",
-        scalapb.zio_grpc.ZioCodeGenerator -> (Compile / sourceManaged).value / "scalapb"
-      )
+lazy val proto = (project in file("modules/protocol/graviton-proto"))
+  .settings(
+    baseSettings,
+    name := "graviton-proto",
+    libraryDependencies ++= Seq(
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % Version.scalapbVersion,
+      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0" % "protobuf",
+      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0"
+    ),
+    Compile / PB.targets := Seq(
+      scalapb.gen(
+        flatPackage = false,
+        javaConversions = false,
+        grpc = true,
+        singleLineToProtoString = true,
+        asciiFormatToString = true,
+        lenses = true
+      ) -> (Compile / sourceManaged).value / "scalapb",
+      scalapb.zio_grpc.ZioCodeGenerator -> (Compile / sourceManaged).value / "scalapb"
     )
+  )
 
-  lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
-    .dependsOn(runtime, proto)
-    .settings(
-      baseSettings,
-      name := "graviton-grpc",
-      libraryDependencies ++= Seq(
-        "dev.zio" %% "zio"          % V.zio,
-        "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
-        "io.grpc" % "grpc-netty" % V.grpc,
-        "dev.zio" %% "zio-test"         % V.zio % Test,
-        "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
-        "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
-      ),
-    )
+lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
+  .dependsOn(runtime, proto)
+  .settings(
+    baseSettings,
+    name := "graviton-grpc",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"          % V.zio,
+      "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
+      "io.grpc" % "grpc-netty" % V.grpc,
+      "io.grpc" % "grpc-api" % V.grpc,
+      "dev.zio" %% "zio-test"         % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
+    ),
+  )
 
-  lazy val http = (project in file("modules/protocol/graviton-http"))
-    .dependsOn(runtime, grpc)
+lazy val http = (project in file("modules/protocol/graviton-http"))
+  .dependsOn(runtime, grpc)
   .settings(baseSettings,
     name := "graviton-http",
     libraryDependencies ++= Seq(
-        "dev.zio" %% "zio"               % V.zio,
-        "dev.zio" %% "zio-http"          % V.zioHttp,
-        "dev.zio" %% "zio-json"          % "0.7.3",
-        "dev.zio" %% "zio-test"          % V.zio % Test,
-        "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
-        "dev.zio" %% "zio-test-magnolia" % V.zio % Test
+      "dev.zio" %% "zio"        % V.zio,
+      "dev.zio" %% "zio-http"   % V.zioHttp,
+      "dev.zio" %% "zio-schema" % V.zioSchema,
+      "dev.zio" %% "zio-json"   % "0.7.3",
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test
     )
   )
 

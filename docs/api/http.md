@@ -389,6 +389,29 @@ def multipart_upload(url: str, file_path: str, chunk_size: int = 5*1024*1024):
         return complete_resp.json()
 ```
 
+### Scala (ZIO)
+
+```scala
+import graviton.protocol.http.UploadNodeHttpClient
+import graviton.protocol.http.UploadNodeHttpClient.*
+import zio.*
+import zio.http.Client
+import zio.stream.ZStream
+
+val app = for {
+  config <- UploadNodeHttpClient.Config.fromString("http://localhost:8080").orDie
+  client <- UploadNodeHttpClient.make(config)
+  payload = ZStream.fromFileName("/tmp/archive.tar")
+  result <- client.uploadStream(
+              attributes = Map("content-type" -> "application/x-tar"),
+              data = payload,
+              contentLength = Some(128L * 1024 * 1024)
+            )
+} yield result
+
+Runtime.default.unsafeRun(app.provideLayer(Client.default))
+```
+
 ### JavaScript (fetch)
 
 ```javascript
@@ -509,9 +532,9 @@ graviton {
 
 ## See Also
 
-- **[gRPC API](./grpc)** — High-performance binary protocol
-- **[Getting Started](../guide/getting-started)** — Quick start guide
-- **[Authentication](../ops/deployment#authentication)** — Security setup
+- **[gRPC API](./grpc)** ? High-performance binary protocol
+- **[Getting Started](../guide/getting-started)** ? Quick start guide
+- **[Authentication](../ops/deployment#authentication)** ? Security setup
 
 ::: tip
 Use multipart upload for files > 100MB for better reliability and progress tracking!
