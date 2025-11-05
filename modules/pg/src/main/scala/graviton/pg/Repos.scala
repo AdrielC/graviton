@@ -39,15 +39,9 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
       for
         total       <- Ref.make(cursor.getOrElse(Cursor.initial))
         firstCursor <- total.get
-        limit        =
-          cursor
-            .flatMap(_.total)
-            .getOrElse(Max(Long.MaxValue))
-            .value
-            .min(cursor.map(_.offset).getOrElse(firstCursor.pageSize))
-            .min(firstCursor.pageSize)
+        pageSize     = firstCursor.pageSize
         rows         = {
-          ZStream.paginateChunkZIO(0) { offset =>
+          ZStream.paginateChunkZIO(0L) { offset =>
             for {
               totalNow                    <- total.get
               (rows, newTotal, newOffset) <-
@@ -65,21 +59,21 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
                     FROM store
                     WHERE status = ${StoreStatus.Active}
                     ORDER BY updated_at DESC
-                    LIMIT $limit
+                    LIMIT $pageSize
                     OFFSET $offset
                   """
                     .query[(StoreRow, Long)]
                     .run()
 
-                  val newTotal  = rows.headOption.map(_._2).orElse(totalNow.total).getOrElse(0L)
+                  val newTotal  = rows.headOption.map(_._2).getOrElse(0L)
                   val newOffset = offset + rows.size
                   (Chunk.fromIterable(rows.view.map(_._1)), newTotal, newOffset)
                 }
 
               current <- total.get
-              _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
+              _       <- total.set(current.withTotal(Max(newTotal)).next(rows.size.toLong))
 
-            } yield (rows, Option(newOffset).filter(_ => newOffset < limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
+            } yield (rows, Option(newOffset).filter(_ => newOffset < newTotal && rows.nonEmpty))
           }
         }
       yield rows
@@ -168,6 +162,7 @@ final class BlobRepoLive(xa: TransactorZIO) extends BlobRepo:
               sql"""
                   INSERT INTO manifest_entry (blob_id, seq, block_algo_id, block_hash, offset_bytes, size_bytes)
                   VALUES ($blobId, $idx, $algoId, $hash, $offset, $len)
+                  RETURNING block_algo_id, block_hash
                 """.returning[BlockKey].run()
             }.map(Chunk.fromIterable)
           }
