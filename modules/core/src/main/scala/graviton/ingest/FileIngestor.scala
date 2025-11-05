@@ -87,16 +87,44 @@ final case class FileIngestorLive(
                         algo = hashAlgorithm,
                         size = totalSize.value,
                         mediaTypeHint = advertisedAttributes
-                          .getConfirmed(BinaryAttributeKey.contentType)
+                          .getConfirmed(
+                            BinaryAttributeKey.Server
+                              .contentType
+                              .asInstanceOf[
+                                BinaryAttributeKey.Aux[
+                                  String,
+                                  "contentType",
+                                  "attr:server",
+                                ]
+                              ]
+                          )
                           .map(_.value)
                           .orElse(
                             advertisedAttributes
-                              .getAdvertised(BinaryAttributeKey.contentType)
+                              .getAdvertised(
+                                BinaryAttributeKey.Client
+                                  .contentType
+                                  .asInstanceOf[
+                                    BinaryAttributeKey.Aux[
+                                      String,
+                                      "contentType",
+                                      "attr:client",
+                                    ]
+                                  ]
+                              )
                               .map(_.value)
                           ),
                       )
         attributes  = advertisedAttributes ++ BinaryAttributes.confirmed(
-                        BinaryAttributeKey.size,
+                        BinaryAttributeKey.Server
+                          .selectDynamic[FileSize]("size")
+                          .asInstanceOf[
+                            BinaryAttributeKey.Aux[
+                              FileSize,
+                              "size",
+                              "attr:server",
+                            ]
+                          ],
                         totalSize,
                         IngestSource,
                       )
