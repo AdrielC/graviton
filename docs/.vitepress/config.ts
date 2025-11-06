@@ -73,6 +73,16 @@ export default withMermaid(defineConfig({
         tokens[idx].attrJoin('class', 'vp-doc-table graviton-table')
         return original(tokens, idx, options, env, self)
       }
+
+      const fence = md.renderer.rules.fence ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+      md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+        const token = tokens[idx]
+        const info = token.info?.trim()
+        if (info && info.startsWith('hocon')) {
+          token.info = info.replace(/^hocon/, 'ini')
+        }
+        return fence(tokens, idx, options, env, self)
+      }
     }
   },
   mermaid: {
