@@ -222,28 +222,16 @@ object CodeGenerator {
 
       case _ =>
         val namedTuple  = renderNamedTuple(primaryKeyColumns)
-        val tupleType   = renderTupleType(primaryKeyColumns)
         val tupleCtor   = renderTupleCtor(primaryKeyColumns)
         val idCodecName = "given_DbCodec_Id"
 
-        sb.append(s"  opaque type Id <: Tuple = $tupleType\n")
-        sb.append(s"  type Tupled = $namedTuple\n\n")
+        sb.append(s"  opaque type Id = $namedTuple\n\n")
 
         sb.append("  object Id:\n")
-        sb.append(s"    def fromTuple(tuple: Tupled): Id = tuple\n")
-        sb.append(s"    def toTuple(id: Id): Tupled      = id\n")
-        sb.append(s"    def apply($tupleCtor): Id        = fromTuple(${renderNamedTupleLiteralFromParams(primaryKeyColumns)})\n\n")
+        sb.append(s"    def apply($tupleCtor): Id = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
 
         val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
         sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
-
-        sb.append("  extension (id: Id)\n")
-        primaryKeyColumns.foreach { column =>
-          val accessor = column.scalaName
-          val body     = renderIdComponentAccessor(table.scalaName, column, "id")
-          sb.append(s"    def $accessor: ${renderColumnType(column, forceRequired = true)} = $body\n")
-        }
-        sb.append("\n")
 
     if (!table.isView) {
       val autoPrimaryKey =
@@ -418,21 +406,18 @@ object CodeGenerator {
 
   private def renderCodecToId(tableName: String, columns: Seq[DataColumn], valueExpr: String): String =
     columns.toList match
-      case Nil => s"$tableName.Id.fromTuple(EmptyTuple)"
+      case Nil => "()"
       case single :: Nil =>
-        val literal = renderNamedTupleLiteral(columns, _ => valueExpr)
-        s"$tableName.Id.fromTuple($literal)"
+        renderNamedTupleLiteral(columns, _ => valueExpr)
       case _ =>
-        val literal = renderNamedTupleLiteralFromTuple(columns, valueExpr)
-        s"$tableName.Id.fromTuple($literal)"
+        renderNamedTupleLiteralFromTuple(columns, valueExpr)
 
   private def renderCodecFromId(tableName: String, columns: Seq[DataColumn], idExpr: String): String =
     columns.toList match
-      case Nil => "EmptyTuple"
-      case single :: Nil => s"$tableName.Id.toTuple($idExpr).${single.scalaName}"
+      case Nil => "()"
+      case single :: Nil => s"$idExpr.${single.scalaName}"
       case _ =>
-        val namedExpr = s"$tableName.Id.toTuple($idExpr)"
-        renderPlainTupleFromNamed(namedExpr, columns)
+        renderPlainTupleFromNamed(idExpr, columns)
 
   private def renderIdSchemaSource(tableName: String, columns: Seq[DataColumn]): String = {
     val schemaType = renderCodecPlainType(columns)
@@ -456,9 +441,6 @@ object CodeGenerator {
       case Nil => "EmptyTuple"
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
-
-  private def renderIdComponentAccessor(tableName: String, column: DataColumn, idExpr: String): String =
-    s"$tableName.Id.toTuple($idExpr).${column.scalaName}"
 
   private def renderZioSchemas(schema: DataSchema, validationMap: Map[String, TableValidationRender]): String = {
     val sb = new StringBuilder
