@@ -7,13 +7,12 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.zip.InflaterInputStream
 import graviton.GravitonError
 
-
 /**
  * Chunker that splits a PDF on `stream` boundaries and emits uncompressed
  * stream data.
  */
 object PdfChunker extends Chunker:
-  val name                                             = "pdf"
+  val name                                                 = "pdf"
   val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
     ZPipeline
       .fromChannel {

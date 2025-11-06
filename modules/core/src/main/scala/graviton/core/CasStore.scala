@@ -9,5 +9,5 @@ trait CasStore extends KeyedStore:
   def insert: ZSink[Any, Throwable, Byte, Byte, FileKey.CasKey.FileKey]
   def findBinary(key: FileKey.CasKey[? <: Size]): IO[Throwable, Option[Bytes]]
   def readAttributes(
-    key: FileKey.CasKey[? <: Size],
+    key: FileKey.CasKey[? <: Size]
   ): IO[Throwable, Option[BinaryAttributes]]

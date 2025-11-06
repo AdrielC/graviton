@@ -4,7 +4,7 @@ import graviton.*
 import zio.*
 import zio.ZLayer.Derive.Default
 
-final case class InMemoryBlockResolver (
+final case class InMemoryBlockResolver(
   state: Ref[Map[BlockKey, Set[BlockSector]]]
 ) extends BlockResolver:
   def record(key: BlockKey, sector: BlockSector): UIO[Unit] =
@@ -19,13 +19,14 @@ final case class InMemoryBlockResolver (
     }
 
 object InMemoryBlockResolver:
-  
-  given Default.WithContext[Any, Nothing, Map[BlockKey, Set[BlockSector]]] = 
+
+  given Default.WithContext[Any, Nothing, Map[BlockKey, Set[BlockSector]]] =
     Default.succeed(Map.empty[BlockKey, Set[BlockSector]])
 
   given Default.WithContext[Any, Nothing, InMemoryBlockResolver] =
-    Default.deriveDefaultRef[Map[BlockKey, Set[BlockSector]]]
-    .map(InMemoryBlockResolver(_))
+    Default
+      .deriveDefaultRef[Map[BlockKey, Set[BlockSector]]]
+      .map(InMemoryBlockResolver(_))
 
   transparent inline def layer(
     state: Map[BlockKey, Set[BlockSector]]

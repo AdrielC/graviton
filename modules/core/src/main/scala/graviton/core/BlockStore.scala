@@ -4,7 +4,6 @@ package core
 import zio.*
 import graviton.core.model.*
 
-
 trait BlockStore extends FileStore:
 
   def putBlock(block: Block): ZIO[Any, Throwable, BlockKey]

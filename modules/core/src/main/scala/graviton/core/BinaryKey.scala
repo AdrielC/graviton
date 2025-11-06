@@ -14,8 +14,6 @@ import zio.schema.validation.Validation
 // import graviton.BlockKey
 import graviton.core.model.*
 
-
-
 /**
  * Identifier for binary content. Keys can either be content addressed
  * (`CasKey`) or writable user supplied keys such as randomly generated UUIDs
@@ -26,8 +24,8 @@ sealed trait BinaryKey derives Schema:
 
   /** Render this key as a URI-like string. */
   def renderKey: String = this match
-    case CasKey.BlockKey(hash, size)    => s"cas/block/${hash.algo.canonicalName}/${hash.hex}/${size}"
-    case CasKey.FileKey(hash, size)     => s"cas/file/${hash.algo.canonicalName}/${hash.hex}/${size}"
+    case CasKey.BlockKey(hash, size)    => s"cas/block/${hash.algo.canonicalName}/${hash.hex}/$size"
+    case CasKey.FileKey(hash, size)     => s"cas/file/${hash.algo.canonicalName}/${hash.hex}/$size"
     case WritableKey.Random(id)         => s"uuid/${id.toString}"
     case WritableKey.Static(name)       => s"user/$name"
     case WritableKey.Scoped(scope, key) =>
@@ -44,14 +42,14 @@ object BinaryKey:
   /** Content addressed key – represents the digest of some content. */
   enum CasKey[+S] extends BinaryKey:
     case BlockKey(hash: Hash, size: BlockSize) extends CasKey[BlockSize]
-    case FileKey(hash: Hash, size: FileSize) extends CasKey[FileSize]
+    case FileKey(hash: Hash, size: FileSize)   extends CasKey[FileSize]
   end CasKey
 
   /** Keys that can be written to by clients. */
   sealed trait WritableKey extends BinaryKey
 
   object WritableKey:
-    private[graviton] final case class Random(id: UUID)       extends WritableKey
+    private[graviton] final case class Random(id: UUID)    extends WritableKey
     private[graviton] final case class Static(key: String) extends WritableKey
     private[graviton] final case class Scoped(
       scope: ListMap[String, NonEmptyChunk[String]],

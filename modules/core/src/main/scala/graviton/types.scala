@@ -17,11 +17,10 @@ transparent trait RefinedTypeExt[A: Schema, C] extends RefinedType[A, C]:
 
   given Schema[T] =
     summon[Schema[A]]
-        .annotate(rtc)
-        .transformOrFail(either(_), a => Right(a.value))
+      .annotate(rtc)
+      .transformOrFail(either(_), a => Right(a.value))
 
 end RefinedTypeExt
-
 
 object domain:
 
@@ -138,26 +137,26 @@ object domain:
 
     type Inc[N <: NonNegInt] <: NonNegInt =
       N match
-        case 0            => One
+        case 0   => One
         case Max => N
-        case _            =>
+        case _   =>
           N + 1 < 0 match
             case true  => Max
             case false => (N + 1) & T
 
     type Dec[N <: NonNegInt] <: NonNegInt =
       N match
-        case 0            => N
+        case 0   => N
         case Min => N
-        case _            =>
+        case _   =>
           N - 1 < 0 match
             case true  => Min
             case false => (N - 1) & T
 
     transparent inline final def zero: T = applyUnsafe(compiletime.constValue[0])
-    transparent inline final def one: T = applyUnsafe(compiletime.constValue[1])  
-    transparent inline final def max: T = applyUnsafe(compiletime.constValue[Int.MaxValue.type])
-    transparent inline final def min: T = applyUnsafe(compiletime.constValue[0])
+    transparent inline final def one: T  = applyUnsafe(compiletime.constValue[1])
+    transparent inline final def max: T  = applyUnsafe(compiletime.constValue[Int.MaxValue.type])
+    transparent inline final def min: T  = applyUnsafe(compiletime.constValue[0])
     final type Zero = 0 & T
     final type One  = 1 & T
     final type Max  = Int.MaxValue.type & T
@@ -193,16 +192,15 @@ object domain:
         case n: Nat.Succ[n] => fromNat(n.prev).inc
 
     type FromNat[N <: Nat[?]] <: NonNegInt = N match
-      case Nat.Zero => NonNegInt.Zero
-      case Nat.One => NonNegInt.One
-      case Nat.Succ[n]   => Inc[FromNat[n]]
-
+      case Nat.Zero    => NonNegInt.Zero
+      case Nat.One     => NonNegInt.One
+      case Nat.Succ[n] => Inc[FromNat[n]]
 
   end NonNegInt
 
   enum Nat[+N <: Nat[N]]:
-    case Zero()              extends Nat[Nothing]
-    case One()               extends Nat[Nat.Zero]
+    case Zero()                     extends Nat[Nothing]
+    case One()                      extends Nat[Nat.Zero]
     case Succ[N <: Nat[N]](prev: N) extends Nat[N]
 
   end Nat
@@ -210,9 +208,9 @@ object domain:
   object Nat:
 
     type Prev[N <: Nat[N]] <: Nat[?] = N match
-      case Nat.Zero => N
-      case Nat.One => Nat.Zero
-      case Nat.Succ[n]   => n
+      case Nat.Zero    => N
+      case Nat.One     => Nat.Zero
+      case Nat.Succ[n] => n
 
     type Next[N <: NonNegInt, From <: Nat[?]] <: Nat[?] =
       N match

@@ -7,11 +7,11 @@ trait Discrete[A]:
 
   def succ(x: A): A
   def pred(x: A): A
-  
-  def succOption(x: A)(using p: PartialOrd[A]): Option[A] = 
+
+  def succOption(x: A)(using p: PartialOrd[A]): Option[A] =
     if p.lessOrEqual(succ(x), x) then None else Some(succ(x))
 
-  def predOption(x: A)(using p: PartialOrd[A]): Option[A] = 
+  def predOption(x: A)(using p: PartialOrd[A]): Option[A] =
     if p.greaterOrEqual(pred(x), x) then None else Some(pred(x))
 
   /** Returns true if `x` and `y` are consecutive. */

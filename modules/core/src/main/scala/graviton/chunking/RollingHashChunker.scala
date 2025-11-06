@@ -16,7 +16,7 @@ object RollingHashChunker:
 
   def apply(cfg: Config): Chunker =
     new Chunker:
-      val name                                             =
+      val name                                                 =
         s"rolling(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
       val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
         ZPipeline

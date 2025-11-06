@@ -20,13 +20,12 @@ object IngestPipeline:
    * Strict one-block-per-frame semantics.
    */
   val pipeline: ZPipeline[Any, GravitonError, Block, Frame] =
-    
-    ZChannel.unwrapScoped {
-      Ref.make[Option[FileSize]](Option.empty[FileSize]).map {
-        (total: Ref[Option[FileSize]]) =>
-          
+    ZChannel
+      .unwrapScoped {
+        Ref.make[Option[FileSize]](Option.empty[FileSize]).map { (total: Ref[Option[FileSize]]) =>
+
           def loop(conf: IngestConfig): ZChannel[Any, Throwable, Chunk[Block], Any, Throwable, Chunk[Frame], Any] =
-            
+
             def framePayload(block: Block): Frame =
               val hashId = Algorithms.HashIds.fromAlgo(conf.hashAlgorithm)
               val trunc  = truncatedHash(conf.hashAlgorithm, block, conf.framing.truncatedHashBytes)
@@ -48,7 +47,6 @@ object IngestPipeline:
 
             end framePayload
 
-
             def guardSize(block: Block): ZIO[Any, GravitonError.PolicyViolation, Unit] =
               conf.maxBytes match
                 case None        => ZIO.unit
@@ -58,32 +56,28 @@ object IngestPipeline:
                     else ZIO.fail(GravitonError.PolicyViolation("ingest size exceeds limit: " + limit))
                   }
             end guardSize
-              
 
-            
             ZChannel.readWith(
               (in: Chunk[Block]) =>
-                
-                ZChannel.unwrap(ZIO.foldLeft(in)(ZChannel.unit: ZChannel[Any, Throwable, Chunk[Block], Any, Throwable, Chunk[Frame], Any]) { (acc, block) =>
-                  (guardSize(block)).flatMap { _ =>
+                ZChannel.unwrap(ZIO.foldLeft(in)(ZChannel.unit: ZChannel[Any, Throwable, Chunk[Block], Any, Throwable, Chunk[Frame], Any]) {
+                  (acc, block) =>
+                    (guardSize(block)).flatMap { _ =>
+                      ZIO.succeed {
+                        val frame = framePayload(block)
+                        if frame.payload.isEmpty then ZChannel.unit
+                        else acc *> ZChannel.write(Chunk.single(frame)) *> loop(conf)
+                      }
 
-                    ZIO.succeed {
-                      val frame = framePayload(block)
-                      if frame.payload.isEmpty then ZChannel.unit
-                      else acc *> ZChannel.write(Chunk.single(frame)) *> loop(conf)
                     }
-                    
-                    
-                  }
                 }),
               (err: Throwable) => ZChannel.fail(err),
               (_: Any) => ZChannel.unit,
             )
 
           end loop
-          
+
           ZChannel.fromZIO(IngestConfig.fiberRef.get).flatMap(conf => loop(conf))
+        }
       }
-    }
-    .toPipeline
-    .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+      .toPipeline
+      .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))

@@ -21,7 +21,7 @@ object EncryptionSpec extends ZIOSpecDefault:
                      Bytes(ZStream.fromIterable(data.toIndexedSeq)),
                      HashAlgorithm.SHA256,
                    )
-      size      = Size.applyUnsafe(data.length)
+      size       = Size.applyUnsafe(data.length)
     yield BlockKey(Hash(HashBytes.applyUnsafe(hashBytes), HashAlgorithm.SHA256), BlockSize.applyUnsafe(size))
 
   def spec =

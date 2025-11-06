@@ -16,12 +16,12 @@ transparent trait SubtypeExt[A, C] extends RefinedSubtype[A, C]:
 
 end SubtypeExt
 
-
 given [K: Schema, V: Schema] => Schema[NonEmptyMap[K, V]] =
-  Schema.list[((K, V))].transformOrFail(
-    NonEmptyMap.fromIterableOption(_).toRight("NonEmptyMap cannot be empty"), 
-    nem => Right(nem.toList)
-  )
+  Schema
+    .list[((K, V))]
+    .transformOrFail(
+      NonEmptyMap.fromIterableOption(_).toRight("NonEmptyMap cannot be empty"),
+      nem => Right(nem.toList),
+    )
 
 type Name = String
-
