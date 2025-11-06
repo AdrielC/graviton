@@ -1,5 +1,14 @@
 package graviton.core
 
+import graviton.core.model.{
+  ByteConstraints,
+  BlockIndex as ModelBlockIndex,
+  BlockSize as ModelBlockSize,
+  ChunkCount as ModelChunkCount,
+  ChunkIndex as ModelChunkIndex,
+  FileSize as ModelFileSize,
+  UploadChunkSize as ModelChunkSize,
+}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
@@ -12,11 +21,12 @@ object types:
   type HexLower         = String :| (Match["[0-9a-f]+"] & MinLength[2])
   type Mime             = String :| Match["[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+(;.*)?"]
   type Size             = Long :| numeric.Greater[-1]
-  type ChunkSize        = Int :| numeric.Greater[0]
-  type ChunkIndex       = Long :| numeric.Greater[-1]
-  type ChunkCount       = Long :| numeric.Greater[-1]
-  type BlockSize        = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
-  type BlockIndex       = Long :| numeric.Greater[-1]
+  type FileSize         = ModelFileSize
+  type ChunkSize        = ModelChunkSize
+  type ChunkIndex       = ModelChunkIndex
+  type ChunkCount       = ModelChunkCount
+  type BlockSize        = ModelBlockSize
+  type BlockIndex       = ModelBlockIndex
   type CompressionLevel = Int :| (numeric.Greater[-1] & numeric.LessEqual[22])
   type KekId            = String :| (Match["[A-Za-z0-9:_-]{4,128}"] & MinLength[4])
   type NonceLength      = Int :| (numeric.Greater[0] & numeric.LessEqual[32])
@@ -24,7 +34,7 @@ object types:
   type PathSegment      = String :| (Match["[^/]+"] & MinLength[1])
   type FileSegment      = String :| (Match["[^/]+"] & MinLength[1])
 
-  val MaxBlockBytes: Int = 16 * 1024 * 1024
+  val MaxBlockBytes: Int = ByteConstraints.MaxBlockBytes
 
   private val Sha256HexLength = 64
   private val Md5HexLength    = 32
@@ -49,18 +59,13 @@ object types:
 
   given Schema[BlockIndex] =
     Schema[Long].transformOrFail(
-      value =>
-        if value >= 0 then Right(value.asInstanceOf[BlockIndex])
-        else Left(s"Block index must be ? 0, got $value"),
+      value => ByteConstraints.refineBlockIndex(value),
       refined => Right(refined.asInstanceOf[Long]),
     )
 
   given Schema[BlockSize] =
     Schema[Int].transformOrFail(
-      value =>
-        if value <= 0 then Left(s"Block size must be > 0, got $value")
-        else if value > MaxBlockBytes then Left(s"Block size must be ? $MaxBlockBytes, got $value")
-        else Right(value.asInstanceOf[BlockSize]),
+      value => ByteConstraints.refineBlockSize(value),
       refined => Right(refined.asInstanceOf[Int]),
     )
 
