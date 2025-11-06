@@ -24,8 +24,8 @@ object FileStoreSpec extends ZIOSpecDefault:
     test("invalid attributes are rejected by BinaryAttributes.validate") {
       val attrs =
         BinaryAttributes
-          .advertised(BinaryAttributeKey.filename, "bad/name", "client") ++
-          BinaryAttributes.advertised(BinaryAttributeKey.contentType, "not/a^type", "client")
+          .advertised(BinaryAttributeKey.Client.fileName, "bad/name", "client") ++
+          BinaryAttributes.advertised(BinaryAttributeKey.Client.contentType, "not/a^type", "client")
       BinaryAttributes.validate(attrs).exit.map(exit => assertTrue(exit.isFailure))
     },
   )

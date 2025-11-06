@@ -9,6 +9,7 @@ import graviton.GravitonError
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.{zio as _, *}
 
+
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
@@ -17,26 +18,29 @@ trait Chunker:
 object Chunker:
 
   type ValidBounds[Min <: Int, Avg <: Int, Max <: Int] = (
-    Constraint[Min, Greater[0]],
-    Constraint[Avg, Greater[Min]],
-    Constraint[Max, GreaterEqual[Avg]],
+    Constraint[Int, Greater[0]],
+    Constraint[Int, GreaterEqual[Min]],
+    Constraint[Int, GreaterEqual[Avg]],
   )
+    
 
   /** Chunk size bounds used by algorithms such as FastCDC. */
-  final case class Bounds[Min <: Int, Avg <: Min, Max <: Avg](
-    min: Min :| Greater[0],
-    avg: Avg :| GreaterEqual[Min],
-    max: Max :| GreaterEqual[Avg],
+  final case class Bounds[Min <: Int, Avg <: Int, Max <: Int](
+    min: ((Min) :| Greater[0]),
+    avg: ((Avg) :| Greater[Min]),
+    max: ((Max) :| Greater[Avg])
   )
   object Bounds:
+    
+
 
     // @scala.annotation.publicInBinary
     // inline def apply[Min <: Int, Avg <: Int, Max <: Int](
     //   using Min: RuntimeConstraint[Min, Greater[0]], Avg: RuntimeConstraint[Avg, GreaterEqual[Min]], Max: RuntimeConstraint[Max, GreaterEqual[Avg]]
     // ): Bounds[Min, Avg, Max] =
     //   Bounds(
-    //     compiletime.constValue[Min].refineUnsafe[Greater[0]],
-    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]],
+    //     compiletime.constValue[Min].refineUnsafe[Greater[0]], 
+    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]], 
     //     compiletime.constValue[Max].refineUnsafe[GreaterEqual[Avg]]
     //   )
   end Bounds
@@ -44,13 +48,13 @@ object Chunker:
   /** Strategy tag for telemetry & selection. */
   enum Strategy:
     case Fixed(size: Int)
-    case FastCDC(bounds: Bounds[Int, Int, Int], normalization: Int = 2, window: Int = 64)
-    case Rolling(bounds: Bounds[Int, Int, Int], window: Int = 48)
+    case FastCDC[Min <: Int, Avg <: Int, Max <: Int](bounds: Bounds[Min, Avg, Max], normalization: Int = 2, window: Int = 64)
+    case Rolling[Min <: Int, Avg <: Int, Max <: Int](bounds: Bounds[Min, Avg, Max], window: Int = 48)
     case TokenAware(tokens: Set[String] :| Length[Greater[0]], maxChunkSize: Int :| Greater[0])
     case AnchoredCdc(
       pack: AnchoredCdcPipeline.TokenPack,
       avgSize: Int :| Greater[0],
-      anchorBonus: Int :| Greater[1],
+      anchorBonus: Int :| GreaterEqual[0],
     )
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])
@@ -115,18 +119,26 @@ object Chunker:
       )
   end fromStrategy
 
-  inline val _min                          = 1024
-  inline def _avg: Int :| Greater[1024]    = 1048576
-  inline def _max: Int :| Greater[1048576] = 1073741824
 
-  inline def default: ULayer[Chunker] = ZLayer.succeed(
-    fromStrategy(
-      Strategy.Smart(
-        Strategy.Rolling(
-          Bounds(_min, _avg, _max)
-        ),
-        List.empty,
-      )
-    )
+  final type Min = 1024
+  final type Avg = 1048576
+  final type Max = 1073741824
+
+  val _min: (Min :| Greater[0]) = valueOf[Min].assume[Greater[0]]
+  val _avg: (Avg :| Greater[Min]) = valueOf[Avg].assume[Greater[Min]]
+  val _max: (Max :| Greater[Avg]) = valueOf[Max].assume[Greater[Avg]]
+
+  def bounds = Bounds[_min.type, _avg.type, _max.type](_min, _avg, _max)
+
+  def rolling: Chunker = fromStrategy(Strategy.Smart(
+    Strategy.Rolling(
+      bounds
+    ),
+    List.empty,
+  ))
+
+
+  def default: ULayer[Chunker] = ZLayer.succeed(
+    rolling
   )
 end Chunker

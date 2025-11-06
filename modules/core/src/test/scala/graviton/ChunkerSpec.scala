@@ -8,8 +8,9 @@ import zio.stream.*
 import zio.test.*
 import java.util.zip.{Deflater, DeflaterOutputStream}
 import java.io.ByteArrayOutputStream
-import graviton.domain.HashBytes
+// import graviton.domain.HashBytes
 import io.github.iltotore.iron.autoRefine
+
 
 case object ChunkerSpec extends ZIOSpecDefault:
 
@@ -80,11 +81,10 @@ case object ChunkerSpec extends ZIOSpecDefault:
       stream
         .via(
           ZPipeline.anchoredCdc(
-            pack,
-            avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2.toInt,
-            anchorBonus = 0,
-          )
-        )
+            pack, 
+            avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2.toInt, 
+            anchorBonus = 1
+        ))
         .runCollect
         .map { chunks =>
           assertTrue(chunks.forall(_.bytes.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))

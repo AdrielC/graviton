@@ -2,10 +2,11 @@ package graviton
 
 import zio.*
 import zio.stream.*
-import graviton.core.BinaryAttributes
-import graviton.core.BlockManifestEntry
+
 import graviton.core.model.Block
 import graviton.BlockKey
+
+
 
 trait BlockStore:
   /**
@@ -16,10 +17,10 @@ trait BlockStore:
    *  - peels any leftover Byte beyond the block boundary
    *  - treats BinaryAttributes as ingest hints/claims
    */
-  def storeBlock(attrs: BinaryAttributes): ZPipeline[Any & Scope, GravitonError, Block, BlockManifestEntry]
+  def putBlock(block: Block): ZIO[Any, Throwable, BlockKey]
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey]
-
+  
   def get(
     key: BlockKey,
     range: Option[ByteRange] = None,

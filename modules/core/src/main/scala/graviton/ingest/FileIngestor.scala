@@ -10,7 +10,7 @@ import graviton.Manifest
 import zio.*
 import zio.stream.*
 
-import graviton.core.BlockStore
+import graviton.BlockStore
 import graviton.core.model.FileSize
 import graviton.core.model.Index
 import graviton.core.BlockManifestEntry
@@ -29,6 +29,7 @@ trait FileIngestor:
     bytes: Bytes,
     advertisedAttributes: BinaryAttributes = BinaryAttributes.empty,
     hashAlgorithm: HashAlgorithm = HashAlgorithm.SHA256,
+    chunker: Option[Chunker] = None,
   ): IO[GravitonError, IngestResult]
 
   def materialize(manifest: Manifest): IO[GravitonError, Bytes]
@@ -38,8 +39,9 @@ object FileIngestor:
     bytes: Bytes,
     advertisedAttributes: BinaryAttributes = BinaryAttributes.empty,
     hashAlgorithm: HashAlgorithm = HashAlgorithm.SHA256,
+    chunker: Option[Chunker] = None,
   ): ZIO[FileIngestor, GravitonError, IngestResult] =
-    ZIO.serviceWithZIO[FileIngestor](_.ingest(bytes, advertisedAttributes, hashAlgorithm))
+    ZIO.serviceWithZIO[FileIngestor](_.ingest(bytes, advertisedAttributes, hashAlgorithm, chunker))
 
   def materialize(manifest: Manifest): ZIO[FileIngestor, GravitonError, Bytes] =
     ZIO.serviceWithZIO[FileIngestor](_.materialize(manifest))
@@ -48,7 +50,7 @@ end FileIngestor
 
 final case class FileIngestorLive(
   blockStore: BlockStore,
-  chunker: Chunker,
+  _chunker: Chunker,
 ) extends FileIngestor:
 
   private val IngestSource = "file-ingestor"
@@ -57,22 +59,23 @@ final case class FileIngestorLive(
     bytes: Bytes,
     advertisedAttributes: BinaryAttributes,
     hashAlgorithm: HashAlgorithm,
+    chunker: Option[Chunker] = None,
   ): IO[GravitonError, IngestResult] =
     ZIO.scoped:
       for {
         _          <- BinaryAttributes.validate(advertisedAttributes)
-        hasher     <- Hashing
-                        .hasher(hashAlgorithm)
-                        .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
+        hasher     <- Hashing.hasher(hashAlgorithm)
+          .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
         sizeRef    <- Ref.make(Option.empty[FileSize])
         offsetRef  <- Ref.make[Index](Index.zero)
         entriesRef <- Ref.make(Chunk.empty[BlockManifestEntry])
-        stream      = bytes
+        chunker    <- chunker.fold(ZIO.succeed(_chunker))(ZIO.succeed)
+        stream     = bytes
                         .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
                         .via(chunker.pipeline)
                         .tap { (block: Block) =>
-                          hasher.update(block) *>
-                            sizeRef.update(_.fold(Some(block.fileSize))(o => (block.fileSize ++ o)))
+                          hasher.update(block) *> 
+                          sizeRef.update(_.fold(Some(block.fileSize))(o => (block.fileSize ++ o)))
                         }
                         .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
                         .mapZIO(block => storeBlock(offsetRef, entriesRef)(block))
@@ -80,17 +83,17 @@ final case class FileIngestorLive(
                         .runFold(0)((acc, _) => acc + 1)
                         .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
         digest     <- hasher.digest
-        size       <- sizeRef.get
-        totalSize  <- ZIO.fromOption(size).mapError(_ => GravitonError.PolicyViolation("file must have bytes"))
-        manifest   <-
-          entriesRef.get.map(entries => BlockManifest(totalSize, NonEmptyMap(hashAlgorithm -> digest), advertisedAttributes, entries))
+        size  <- sizeRef.get
+        totalSize          <- ZIO.fromOption(size).mapError(_ => GravitonError.PolicyViolation("file must have bytes"))
+        manifest   <- entriesRef.get.map(entries => BlockManifest(totalSize, NonEmptyMap(hashAlgorithm -> digest), advertisedAttributes, entries))
         blobKey     = BlobKey(
                         hash = Hash(digest, hashAlgorithm),
                         algo = hashAlgorithm,
                         size = totalSize.value,
                         mediaTypeHint = advertisedAttributes
                           .getConfirmed(
-                            BinaryAttributeKey.Server.contentType
+                            BinaryAttributeKey.Server
+                              .contentType
                               .asInstanceOf[
                                 BinaryAttributeKey.Aux[
                                   String,
@@ -103,7 +106,8 @@ final case class FileIngestorLive(
                           .orElse(
                             advertisedAttributes
                               .getAdvertised(
-                                BinaryAttributeKey.Client.contentType
+                                BinaryAttributeKey.Client
+                                  .contentType
                                   .asInstanceOf[
                                     BinaryAttributeKey.Aux[
                                       String,
@@ -137,8 +141,7 @@ final case class FileIngestorLive(
     block: Block
   ): IO[GravitonError, BlockKey] =
     for {
-      key    <- blockStore
-                  .putBlock(block)
+      key  <- blockStore.putBlock(block)
                   .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
       offset <- offsetRef.getAndUpdate(i => (i ++ Index.applyUnsafe(block.blockSize.value.toLong)).getOrElse(Index.zero))
       _      <- entriesRef.update(_ :+ BlockManifestEntry(offset, block.blockSize, key.toBinaryKey))
@@ -149,7 +152,7 @@ final case class FileIngestorLive(
       .fromIterable(manifest.entries)
       .mapZIO { entry =>
         blockStore
-          .getBlock(BlockKey(entry.block.hash, entry.block.size), None)
+          .get(BlockKey(entry.block.hash, entry.block.size), None)
           .mapError(err => GravitonError.BackendUnavailable(Option(err.getMessage).getOrElse(err.toString)))
           .flatMap {
             case Some(bytes) => ZIO.succeed(bytes)
@@ -160,8 +163,8 @@ final case class FileIngestorLive(
           }
       }
       .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage).getOrElse(e.toString)))
-    ZIO.succeed(Bytes(stream.flattenChunks))
+    ZIO.succeed(stream.flattenBytes)
 
 object FileIngestorLive:
-  val layer: URLayer[BlockStore & Chunker, FileIngestor] =
-    ZLayer.fromFunction(FileIngestorLive.apply)
+  val layer: URLayer[BlockStore & Chunker, FileIngestorLive] =
+    ZLayer.derive[FileIngestorLive]
