@@ -44,9 +44,10 @@ final class DiskCacheStore private (
 
   def invalidate(hash: Hash): UIO[Unit] =
     cache.invalidate(hash) *>
-      ZIO.attempt(Files.deleteIfExists(pathFor(hash)))
-      .mapError(e => GravitonError.NotFound(s"failed to invalidate cache for hash ${hash.hex}", e))
-      .ignoreLogged
+      ZIO
+        .attempt(Files.deleteIfExists(pathFor(hash)))
+        .mapError(e => GravitonError.NotFound(s"failed to invalidate cache for hash ${hash.hex}", e))
+        .ignoreLogged
 
 object DiskCacheStore:
 
@@ -61,9 +62,9 @@ object DiskCacheStore:
     given config: Config[Conf] =
 
       (Config.uri("root").withDefault(URI.create("file:///tmp/graviton/cache")) ++
-      Config.int("capacity").withDefault(1024) ++
-      Config.duration("ttl").withDefault(Duration.Infinity))
-      .map(Conf(_, _, _))
+        Config.int("capacity").withDefault(1024) ++
+        Config.duration("ttl").withDefault(Duration.Infinity))
+        .map(Conf(_, _, _))
 
   private def verify(hash: Hash, data: Chunk[Byte]): Task[Unit] =
     for
@@ -125,11 +126,10 @@ object DiskCacheStore:
   def default: ULayer[DiskCacheStore] =
     ZLayer.fromZIO:
       for
-        root <- ZIO.config[Conf]
+        root  <- ZIO.config[Conf]
         layer <- make(Path.of(root.root.toASCIIString()), root.capacity, root.ttl)
       yield layer
-    
-    
+
     layer(
       Path.of(System.getProperty("user.home"), ".graviton", "cache"),
       capacity = 1024,

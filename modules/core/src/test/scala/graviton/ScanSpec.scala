@@ -58,7 +58,7 @@ object ScanSpec extends ZIOSpecDefault:
         val sum = s + i
         (sum, Chunk.single(sum))
       }(_ => Chunk.empty)
-      inline val composed = stateless.andThen(stateful)
+      inline val composed  = stateless.andThen(stateful)
       for out <- ZStream(1, 2).via(composed.toPipeline).runCollect
       yield assertTrue(composed.initial.head.asInstanceOf[Int] == 0) &&
         assertTrue(out == Chunk(2, 5))

@@ -4,11 +4,12 @@ import graviton.core.model.Block
 import zio.*
 import zio.stream.*
 import graviton.GravitonError
+
 /** Simple fixed-size chunker. */
 object FixedChunker:
   def apply(size: Int): Chunker =
     new Chunker:
-      val name                                             = s"fixed($size)"
+      val name                                                 = s"fixed($size)"
       val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
         ZPipeline
           .fromChannel {

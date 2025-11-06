@@ -9,7 +9,6 @@ import graviton.GravitonError
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.{zio as _, *}
 
-
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
@@ -22,25 +21,22 @@ object Chunker:
     Constraint[Avg, Greater[Min]],
     Constraint[Max, GreaterEqual[Avg]],
   )
-    
 
   /** Chunk size bounds used by algorithms such as FastCDC. */
   final case class Bounds[Min <: Int, Avg <: Min, Max <: Avg](
     min: Min :| Greater[0],
     avg: Avg :| GreaterEqual[Min],
-    max: Max :| GreaterEqual[Avg]
+    max: Max :| GreaterEqual[Avg],
   )
   object Bounds:
-    
-
 
     // @scala.annotation.publicInBinary
     // inline def apply[Min <: Int, Avg <: Int, Max <: Int](
     //   using Min: RuntimeConstraint[Min, Greater[0]], Avg: RuntimeConstraint[Avg, GreaterEqual[Min]], Max: RuntimeConstraint[Max, GreaterEqual[Avg]]
     // ): Bounds[Min, Avg, Max] =
     //   Bounds(
-    //     compiletime.constValue[Min].refineUnsafe[Greater[0]], 
-    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]], 
+    //     compiletime.constValue[Min].refineUnsafe[Greater[0]],
+    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]],
     //     compiletime.constValue[Max].refineUnsafe[GreaterEqual[Avg]]
     //   )
   end Bounds
@@ -119,9 +115,8 @@ object Chunker:
       )
   end fromStrategy
 
-
-  inline val _min = 1024
-  inline def _avg: Int :| Greater[1024] = 1048576
+  inline val _min                          = 1024
+  inline def _avg: Int :| Greater[1024]    = 1048576
   inline def _max: Int :| Greater[1048576] = 1073741824
 
   inline def default: ULayer[Chunker] = ZLayer.succeed(

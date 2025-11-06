@@ -142,7 +142,7 @@ object FreeScan:
     right: FreeScan.Aux[I, O2, S2],
   ) extends FreeScan[I, (O, O2)]:
     override final type State = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
-    transparent inline def compile: Scan.Aux[I, (O, O2), State] = 
+    transparent inline def compile: Scan.Aux[I, (O, O2), State] =
       ???
 
   final case class Product[I1, O1, S1 <: Matchable, I2, O2, S2 <: Matchable](

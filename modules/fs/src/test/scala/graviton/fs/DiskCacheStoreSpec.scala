@@ -21,7 +21,7 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
+          digest    <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = true)
@@ -39,7 +39,7 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
                          Bytes(ZStream.fromIterable(data)),
                          HashAlgorithm.SHA256,
                        )
-          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
+          digest    <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
           hash       = Hash(digest, HashAlgorithm.SHA256)
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
           _         <- store.fetch(hash, remote, useCache = false)

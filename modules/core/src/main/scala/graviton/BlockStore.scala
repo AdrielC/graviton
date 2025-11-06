@@ -7,8 +7,6 @@ import graviton.core.BlockManifestEntry
 import graviton.core.model.Block
 import graviton.BlockKey
 
-
-
 trait BlockStore:
   /**
    * Build a one-block sink that:
@@ -19,9 +17,9 @@ trait BlockStore:
    *  - treats BinaryAttributes as ingest hints/claims
    */
   def storeBlock(attrs: BinaryAttributes): ZPipeline[Any & Scope, GravitonError, Block, BlockManifestEntry]
-  
+
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey]
-  
+
   def get(
     key: BlockKey,
     range: Option[ByteRange] = None,

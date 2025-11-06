@@ -40,7 +40,7 @@ object FileIngestorSpec extends ZIOSpec[FileIngestor] {
                       resolver = resolver,
                     )
       result     <- effect(blockStore: BlockStore)
-    } yield result  
+    } yield result
 
   private def bytesOf(str: String): Bytes = Bytes(ZStream.fromChunk(Chunk.fromArray(str.getBytes("UTF-8"))))
 
@@ -77,11 +77,12 @@ object FileIngestorSpec extends ZIOSpec[FileIngestor] {
         withBlockStore { blockStore =>
           val chunker = FixedChunker(8)
           for {
-            _     <- FileIngestor.ingest(bytesOf(sample), 
-            BinaryAttributes.empty, HashAlgorithm.Blake3)
-            keys  <- blockStore.listKeys(
-              BinaryKeyMatcher.ByAlg(HashAlgorithm.Blake3)
-            ).runCollect
+            _     <- FileIngestor.ingest(bytesOf(sample), BinaryAttributes.empty, HashAlgorithm.Blake3)
+            keys  <- blockStore
+                       .listKeys(
+                         BinaryKeyMatcher.ByAlg(HashAlgorithm.Blake3)
+                       )
+                       .runCollect
             unique = keys.distinct
           } yield assertTrue(unique.size == keys.size)
         }

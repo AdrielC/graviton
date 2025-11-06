@@ -11,7 +11,6 @@ import graviton.core.BinaryKey
 import graviton.core.model.BlockLength
 import graviton.core.model.Index
 
-
 /**
  * Ordered manifest describing how to reassemble a file from blocks.
  */
@@ -22,29 +21,30 @@ final case class BlockManifestEntry(
 )
 
 object BlockManifestEntry:
-  given Schema[BlockManifestEntry] = DeriveSchema.gen[BlockManifestEntry]
-  given Conversion[ManifestEntry, BlockManifestEntry] = (entry: ManifestEntry) => BlockManifestEntry(
-    entry.offset, 
-    entry.size, 
-    entry.block.toBinaryKey
-  )
+  given Schema[BlockManifestEntry]                    = DeriveSchema.gen[BlockManifestEntry]
+  given Conversion[ManifestEntry, BlockManifestEntry] = (entry: ManifestEntry) =>
+    BlockManifestEntry(
+      entry.offset,
+      entry.size,
+      entry.block.toBinaryKey,
+    )
 end BlockManifestEntry
 
 final case class BlockManifest(
   fileSize: FileSize,
   fileHash: NonEmptyMap[HashAlgorithm, HashBytes],
   binaryAttributes: BinaryAttributes,
-  entries: Chunk[BlockManifestEntry]
+  entries: Chunk[BlockManifestEntry],
 )
 
 object BlockManifest:
-  given Conversion[Manifest, BlockManifest] = (manifest: Manifest) => BlockManifest(
-    manifest.fileSize, 
-    manifest.fileHash, 
-    manifest.binaryAttributes, 
-    manifest.entries.map(a => a: BlockManifestEntry)
-  )
-  
+  given Conversion[Manifest, BlockManifest] = (manifest: Manifest) =>
+    BlockManifest(
+      manifest.fileSize,
+      manifest.fileHash,
+      manifest.binaryAttributes,
+      manifest.entries.map(a => a: BlockManifestEntry),
+    )
 
   given Schema[BlockManifest] = DeriveSchema.gen[BlockManifest]
 

@@ -1,6 +1,5 @@
 package graviton
 
-
 enum GravitonError(msg: String, cause: Option[Throwable] = None) extends Exception(cause.fold(msg)(e => s"$msg: ${e.getMessage}")):
   case NotFound(msg: String, cause: Option[Throwable] = None)           extends GravitonError(msg, cause)
   case BackendUnavailable(msg: String, cause: Option[Throwable] = None) extends GravitonError(msg, cause)

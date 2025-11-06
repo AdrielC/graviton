@@ -6,8 +6,6 @@ import zio.test.*
 import graviton.*
 import java.nio.file.Files
 
-
-
 import graviton.domain.HashBytes
 import graviton.core.model.Block
 
@@ -22,7 +20,7 @@ object FileSystemBlobStoreSpec extends ZIOSpecDefault:
                      Bytes(ZStream.fromChunk(data)),
                      HashAlgorithm.SHA256,
                    )
-        digest   <- ZIO.fromEither(HashBytes.either(hash)).mapError(e => new RuntimeException(e))
+        digest  <- ZIO.fromEither(HashBytes.either(hash)).mapError(e => new RuntimeException(e))
         sizeR    = data.blockSize
         key      = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
         _       <- store.write(key, Bytes(ZStream.fromChunk(data)))
@@ -34,21 +32,21 @@ object FileSystemBlobStoreSpec extends ZIOSpecDefault:
     },
     test("partial read") {
       for
-        tmp   <- ZIO.attempt(Files.createTempDirectory("fs-store"))
-        store <- FileSystemBlobStore.make(tmp)
-        data   = Block.applyUnsafe(Chunk.fromArray("hello".getBytes))
-        hash  <- Hashing.compute(
-                   Bytes(ZStream.fromChunk(data)),
-                   HashAlgorithm.SHA256,
-                 )
+        tmp    <- ZIO.attempt(Files.createTempDirectory("fs-store"))
+        store  <- FileSystemBlobStore.make(tmp)
+        data    = Block.applyUnsafe(Chunk.fromArray("hello".getBytes))
+        hash   <- Hashing.compute(
+                    Bytes(ZStream.fromChunk(data)),
+                    HashAlgorithm.SHA256,
+                  )
         digest <- ZIO.fromEither(HashBytes.either(hash)).mapError(e => new RuntimeException(e))
-        sizeR  = data.blockSize
-        key    = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
-        _     <- store.write(key, Bytes(ZStream.fromChunk(data)))
-        read  <- store
-                   .read(key, Some(ByteRange(1, 4)))
-                   .someOrFailException
-                   .flatMap(_.runCollect)
+        sizeR   = data.blockSize
+        key     = BlockKey(Hash(digest, HashAlgorithm.SHA256), sizeR)
+        _      <- store.write(key, Bytes(ZStream.fromChunk(data)))
+        read   <- store
+                    .read(key, Some(ByteRange(1, 4)))
+                    .someOrFailException
+                    .flatMap(_.runCollect)
       yield assertTrue(new String(read.toArray) == "ell")
     },
   )

@@ -22,26 +22,28 @@ final case class ManifestEntry(
 )
 
 object ManifestEntry:
-  given Schema[ManifestEntry] = DeriveSchema.gen[ManifestEntry]
-  given Conversion[BlockManifestEntry, ManifestEntry] = (entry: BlockManifestEntry) => ManifestEntry(
-    entry.offset,
-    entry.size,
-    entry.block,
-  )
+  given Schema[ManifestEntry]                         = DeriveSchema.gen[ManifestEntry]
+  given Conversion[BlockManifestEntry, ManifestEntry] = (entry: BlockManifestEntry) =>
+    ManifestEntry(
+      entry.offset,
+      entry.size,
+      entry.block,
+    )
 
 final case class Manifest(
   fileSize: FileSize,
   fileHash: NonEmptyMap[HashAlgorithm, HashBytes],
   binaryAttributes: BinaryAttributes,
-  entries: Chunk[ManifestEntry]
+  entries: Chunk[ManifestEntry],
 )
 
 object Manifest:
   given Schema[Manifest] = DeriveSchema.gen[Manifest]
 
-  given Conversion[BlockManifest, Manifest] = (manifest: BlockManifest) => Manifest(
-    manifest.fileSize, 
-    manifest.fileHash, 
-    manifest.binaryAttributes, 
-    manifest.entries.map(a => a: ManifestEntry)
-  )
+  given Conversion[BlockManifest, Manifest] = (manifest: BlockManifest) =>
+    Manifest(
+      manifest.fileSize,
+      manifest.fileHash,
+      manifest.binaryAttributes,
+      manifest.entries.map(a => a: ManifestEntry),
+    )

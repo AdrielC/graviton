@@ -71,7 +71,7 @@ trait Hasher:
   self =>
 
   import Hasher.Hashable
-  
+
   def algorithm: HashAlgorithm
   def update(chunk: Hashable): UIO[Unit]
   def snapshot: UIO[HashBytes]
@@ -82,46 +82,52 @@ object Hasher:
   type Hashable = Array[Byte] | Chunk[Byte] | Byte | ByteBuffer | ByteVector
 
   /** MessageDigest backed hasher (SHA family). */
-  def messageDigest(jcaName: String, algo: HashAlgorithm): ZIO[Scope, Throwable, Hasher] = 
+  def messageDigest(jcaName: String, algo: HashAlgorithm): ZIO[Scope, Throwable, Hasher] =
     for {
       pool <- ZPool.make(
-        ZIO.log(s"Creating pool for $jcaName")
-        .zipRight(ZIO.attempt(MessageDigest.getInstance(jcaName))), 
-        size = 10
-      )
-      out <- ZIO.scopeWith[Any, Throwable, Hasher] { scope =>
-        ZIO.log(s"Creating hasher for $jcaName").as(new Hasher {
-            def algorithm: HashAlgorithm              = algo
-            def update(chunk: Hashable): UIO[Unit] =
-              chunk match
-                case array: Array[Byte] => scope.extend(pool.get.map(_.update(array)).orDie)
-                case chunk: Chunk[Byte] => scope.extend(pool.get.map(_.update(chunk.toArray)).orDie)
-                case byte: Byte => scope.extend(pool.get.map(_.update(Array(byte))).orDie)
-                case byteBuffer: ByteBuffer => scope.extend(pool.get.map(_.update(byteBuffer.toArray)).orDie)
-                case byteVector: ByteVector => scope.extend(pool.get.map(_.update(byteVector.toArray)).orDie)
-            def snapshot: UIO[HashBytes]            =
-              scope.extend(pool.get.map(md => HashBytes.applyUnsafe(Chunk.fromArray(md.clone().asInstanceOf[MessageDigest].digest()))).orDie)
-            def digest: UIO[HashBytes]              =
-              scope.extend(pool.get.map(md => HashBytes.applyUnsafe(  Chunk.fromArray(md.digest()))).orDie)
-        })
-      }
+                ZIO
+                  .log(s"Creating pool for $jcaName")
+                  .zipRight(ZIO.attempt(MessageDigest.getInstance(jcaName))),
+                size = 10,
+              )
+      out  <- ZIO.scopeWith[Any, Throwable, Hasher] { scope =>
+                ZIO
+                  .log(s"Creating hasher for $jcaName")
+                  .as(new Hasher {
+                    def algorithm: HashAlgorithm           = algo
+                    def update(chunk: Hashable): UIO[Unit] =
+                      chunk match
+                        case array: Array[Byte]     => scope.extend(pool.get.map(_.update(array)).orDie)
+                        case chunk: Chunk[Byte]     => scope.extend(pool.get.map(_.update(chunk.toArray)).orDie)
+                        case byte: Byte             => scope.extend(pool.get.map(_.update(Array(byte))).orDie)
+                        case byteBuffer: ByteBuffer => scope.extend(pool.get.map(_.update(byteBuffer.toArray)).orDie)
+                        case byteVector: ByteVector => scope.extend(pool.get.map(_.update(byteVector.toArray)).orDie)
+                    def snapshot: UIO[HashBytes]           =
+                      scope.extend(
+                        pool.get.map(md => HashBytes.applyUnsafe(Chunk.fromArray(md.clone().asInstanceOf[MessageDigest].digest()))).orDie
+                      )
+                    def digest: UIO[HashBytes]             =
+                      scope.extend(pool.get.map(md => HashBytes.applyUnsafe(Chunk.fromArray(md.digest()))).orDie)
+                  })
+              }
     } yield out
 
   /** Pure-Java Blake3 hasher. */
-  def blake3: ZIO[Scope, Throwable, Hasher] = 
+  def blake3: ZIO[Scope, Throwable, Hasher] =
     for
       blake3 <- ZPool.make(ZIO.attempt(Blake3.newInstance()), size = 10)
       hasher <- ZIO.scopeWith[Any, Throwable, Hasher] { scope =>
-        ZIO.succeed(new Hasher:
-          def algorithm: HashAlgorithm                                 = HashAlgorithm.Blake3
-          def update(chunk: Hashable): UIO[Unit]                     = chunk match
-            case array: Array[Byte] => scope.extend(blake3.get.map(_.update(array)).orDie)
-            case chunk: Chunk[Byte] => scope.extend(blake3.get.map(_.update(chunk.toArray)).orDie)
-            case byte: Byte => scope.extend(blake3.get.map(_.update(Array(byte))).orDie)
-            case byteBuffer: ByteBuffer => scope.extend(blake3.get.map(_.update(byteBuffer.toArray)).orDie)
-            case byteVector: ByteVector => scope.extend(blake3.get.map(_.update(byteVector.toArray)).orDie)
-          def snapshot: UIO[HashBytes]                               = scope.extend(blake3.get.map(bl => HashBytes.applyUnsafe(Chunk.fromArray(bl.digest())))).orDie
-          def digest: UIO[HashBytes]                                 = scope.extend(blake3.get.map(bl => HashBytes.applyUnsafe(Chunk.fromArray(bl.digest())))).orDie
-        )
-      }
+                  ZIO.succeed(new Hasher:
+                    def algorithm: HashAlgorithm           = HashAlgorithm.Blake3
+                    def update(chunk: Hashable): UIO[Unit] = chunk match
+                      case array: Array[Byte]     => scope.extend(blake3.get.map(_.update(array)).orDie)
+                      case chunk: Chunk[Byte]     => scope.extend(blake3.get.map(_.update(chunk.toArray)).orDie)
+                      case byte: Byte             => scope.extend(blake3.get.map(_.update(Array(byte))).orDie)
+                      case byteBuffer: ByteBuffer => scope.extend(blake3.get.map(_.update(byteBuffer.toArray)).orDie)
+                      case byteVector: ByteVector => scope.extend(blake3.get.map(_.update(byteVector.toArray)).orDie)
+                    def snapshot: UIO[HashBytes]           =
+                      scope.extend(blake3.get.map(bl => HashBytes.applyUnsafe(Chunk.fromArray(bl.digest())))).orDie
+                    def digest: UIO[HashBytes]             =
+                      scope.extend(blake3.get.map(bl => HashBytes.applyUnsafe(Chunk.fromArray(bl.digest())))).orDie)
+                }
     yield hasher

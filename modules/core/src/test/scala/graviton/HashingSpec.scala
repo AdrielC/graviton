@@ -27,10 +27,9 @@ object HashingSpec extends ZIOSpecDefault:
       val stream = Blocks(
         ZStream.fromChunks(
           Chunk(
-      Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
+            Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
             Block.applyUnsafe(Chunk.fromArray("cd".getBytes)),
           )
-          
         )
       )
       for
