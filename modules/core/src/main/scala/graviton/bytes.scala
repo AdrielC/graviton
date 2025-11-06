@@ -4,12 +4,16 @@ import zio.stream.*
 import graviton.core.model.Block
 
 
+
+extension (stream: ZStream[Any, Throwable, Bytes])
+  def flattenBytes: Bytes = Bytes(stream.flatten)
+
+
 opaque type Bytes <: ZStream[Any, Throwable, Byte] =
   ZStream[Any, Throwable, Byte]
 
 object Bytes:
   inline def apply(stream: ZStream[Any, Throwable, Byte]): Bytes = stream
-
 
 
 opaque type Blocks <: ZStream[Any, Throwable, Block] =

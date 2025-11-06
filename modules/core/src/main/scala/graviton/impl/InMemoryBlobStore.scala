@@ -4,6 +4,8 @@ import graviton.*
 import zio.*
 import zio.stream.*
 
+import java.util.UUID
+
 final class InMemoryBlobStore private (
   ref: Ref[Map[BlockKey, Chunk[Byte]]],
   val id: BlobStoreId,
@@ -36,3 +38,9 @@ object InMemoryBlobStore:
     Ref
       .make(Map.empty[BlockKey, Chunk[Byte]])
       .map(new InMemoryBlobStore(_, BlobStoreId(id)))
+
+  def layer: ZLayer[Any, Nothing, BlobStore] =
+    ZLayer.fromZIO:
+      Random.nextUUID.flatMap { (uuid: UUID) => 
+        make("mem-" + uuid.toString)
+      }

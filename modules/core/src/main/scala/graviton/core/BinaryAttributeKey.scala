@@ -11,18 +11,17 @@ import zio.constraintless.TypeList.{End, ::}
 import scala.compiletime.ops.string.{Matches, Length, +}
 import scala.compiletime.ops.boolean.||
 import scala.language.dynamics
-import scala.annotation.publicInBinary
 
 
 import cats.Monoid
 
-import BinaryAttributeKey.foldName
+import graviton.core.BinaryAttributeKey.foldNameRuntime
 
-sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
+sealed trait BinaryAttributeKey[A](
   final val id: Name, 
   final val prefix: Name, 
   final val _schema: Schema[? <: A]
-) {
+) extends Dynamic {
   self =>
   type ValueType <: A
   type SchemaType = Schema[ValueType]
@@ -36,17 +35,14 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
   type FN = BinaryAttributeKey.AddNameSpace[Prefix, Nm]
 
   type FullName = FN
-  
-  inline given FullName: ValueOf[FullName] = 
-    ValueOf(foldName[Prefix, Nm](prefix, id))
 
-  inline def fullName: FullName = FullName.value
+  def fullName: FN = foldNameRuntime[Prefix, Nm](prefix, id)
 
   def schema: Schema[A] = _schema.asInstanceOf[Schema[A]]
 
-  inline def default: Option[BinaryAttribute[A]] = 
-    val nm = foldName(fullName, "default")
-    schema.defaultValue.toOption.map(BinaryAttribute[A](_, nm))
+  def default: Option[BinaryAttribute[A]] = 
+    val name = fullName
+    schema.defaultValue.toOption.map(BinaryAttribute[A](_, name))
 
   inline def defaultValue[AA >: A: Monoid]: Option[AA] = 
     default.map(_.value)
@@ -58,11 +54,11 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
       override final type SchemaType = Schema[ValueType]
     }
   
-  inline def toAttribute[AA >: A: Monoid](value: Option[AA]): BinaryAttribute[AA] = 
+  def toAttribute[AA >: A: Monoid](value: Option[AA]): BinaryAttribute[AA] = 
     BinaryAttribute(value.orElse(defaultValue[AA])
     .getOrElse(
       Monoid.empty[AA]), 
-    foldName(fullName, "default"))
+    foldNameRuntime(fullName, "default"))
 
   def coerce[B](using s: Schema[B]): Either[String, BinaryAttributeKey.Aux[B, Nm, Prefix]] = 
     schema.coerce(s).map(s => 
@@ -73,44 +69,63 @@ sealed trait BinaryAttributeKey[A] @publicInBinary private[graviton] (
 }
 object BinaryAttributeKey:
 
+  private def empty: Name = "attr"
 
-  inline transparent def foldName[NS <: Name, N <: Name](ns: NS, n: N): AddNameSpace[NS, N] = 
-    inline compiletime.erasedValue[N] match
-      case _: Nothing => ns.asInstanceOf[AddNameSpace[NS, N]]
-      case _ => 
-        inline ns.length match
-          case 0 => n.length match
-            case 0 => "attr".asInstanceOf["attr" & AddNameSpace[NS, N]]
-            case _ => 
-              inline val name = ns + ":" + n
-              name.asInstanceOf[name.type & AddNameSpace[NS, N]]
-          case _ => n.length match
-            case 0 => ns.asInstanceOf[NS & AddNameSpace[NS, N]]
-            case _ => 
-              inline val name = ns + ":" + n
-              name.asInstanceOf[name.type & AddNameSpace[NS, N]]
-        end match 
+  given [NS <: Name: ValueOf, N <: Name: ValueOf] => ValueOf[AddNameSpace[NS, N]] =
+    new ValueOf[AddNameSpace[NS, N]](
+    foldNameRuntime[NS, N](valueOf[NS], valueOf[N])
+    )
+
+  def foldNameRuntime[NS <: Name, N <: Name](
+    ns: NS, n: N
+  ): Name & AddNameSpace[NS, N] =
+    ns match
+      case NoPrefix => n match
+        case NoPrefix => empty.asInstanceOf[Name & AddNameSpace[NS, N]]
+        case nonEmptyName => nonEmptyName.asInstanceOf[Name & AddNameSpace[NS, N]]
+      case nonEmptyNs => n match
+        case NoPrefix => empty.asInstanceOf[Name & AddNameSpace[NS, N]]
+        case n if n.startsWith(":") => (ns + n).asInstanceOf[Name & AddNameSpace[NS, N]]
+        case n => (ns + ":" + n).asInstanceOf[Name & AddNameSpace[NS, N]]
+
+  inline transparent def foldName[NS <: Name, N <: Name]: 
+    Name & AddNameSpace[NS, N] = 
+    inline compiletime.constValue[NS] match
+      case NoPrefix => 
+        inline compiletime.constValue[N] match
+          case NoPrefix => "attr".asInstanceOf["attr" & Name & AddNameSpace[NS, N]]
+          case nonEmptyName => valueOf[NS].asInstanceOf[NS & Name & AddNameSpace[NS, N]]
+      case nonEmptyNs => 
+        inline compiletime.constValue[N] match
+          case NoPrefix => "attr".asInstanceOf["attr" & Name & AddNameSpace[NS, N]]
+          case n if n.startsWith(":") => valueOf[NS + N].asInstanceOf[(NS + N) & Name & AddNameSpace[NS, N]]
+          case n => valueOf[NS + ":" + N].asInstanceOf[(NS + ":" + N) & Name & AddNameSpace[NS, N]]
   end foldName
 
-  final type AddNameSpace[NS <: Name, N <: Name] <: ((Name) | "attr" | NS | N) =
+  final type AddNameSpace[NS <: Name, N <: Name] <: Name =
     N match 
-      case Nothing => NS
-      case _ => Length[NS] match
-          case 0 => Length[N] match
-            case 0 => "attr"
-            case _ => (NS + ":" + N)
-          case _ => Length[N] match
-            case 0 => NS
-            case _ => (NS + ":" + N)
+      case NoPrefix => Length[NS] match
+        case 0 => "attr"
+        case _ => NS
+      case Name => Length[N] match
+        case 0 => NS
+        case 1 => N match
+          case ":" => NS + N
+          case _ => NS + ":" + N
+        case _ => NS + ":" + N
   end AddNameSpace
+  object AddNameSpace:
+
+    def apply[NS <: Name: ValueOf, N <: Name: ValueOf]: AddNameSpace[NS, N] =
+      foldNameRuntime[NS, N](valueOf[NS], valueOf[N])
 
 
   final type NoPrefix = "" & Singleton & Name
-  given NoPrefix: ValueOf[NoPrefix] = ValueOf("")
+  final val NoPrefix: NoPrefix = ""
 
 
   def apply[A, N <: Name & Singleton](_id: N)(using s: Schema[A]): Aux[A, N, NoPrefix] = 
-    (new BinaryAttributeKey[A](_id, NoPrefix.value, s) {
+    (new BinaryAttributeKey[A](_id, NoPrefix, s) {
       override final type ValueType = A
       override final type SchemaType = Schema[ValueType]
       override type FN = AddNameSpace[Prefix, Nm]
@@ -197,12 +212,6 @@ object BinaryAttributeKey:
   end AdvertisedKeys
 
 
-  inline given [NS <: Name, N <: Name] => (
-    NS: ValueOf[NS], N: ValueOf[N]) => ValueOf[AddNameSpace[NS, N]] = 
-      new ValueOf[AddNameSpace[NS, N]]((
-        foldName[NS, N](NS.value, N.value)
-      ))
-
   transparent trait NamespacedKey[NameSpace <: Name & Singleton](
     using NameSpace: ValueOf[NameSpace]
   ) extends Dynamic:
@@ -213,36 +222,28 @@ object BinaryAttributeKey:
       case NoPrefix => NameSpace
       case Name => AddNameSpace[NameSpace, P]
 
-    transparent inline def applyDynamic[
-      V, N <: Name & Singleton, P <: (NoPrefix | Name)](schema: Schema[V])
+    def applyDynamic[
+      V, N <: Name, P <: (NoPrefix | Name)](schema: Schema[V])(
+        using N: ValueOf[N], P: ValueOf[ToPrefix[P]]
+      )
     : Aux[V, N, ToPrefix[P]] =
       BinaryAttributeKey.apply[V, N, ToPrefix[P]](
-        valueOf[N], valueOf[ToPrefix[P]]
+        N.value, P.value
       )(using schema)
-    end applyDynamic
-
-
+    
+    
     def selectDynamic[V: Schema](name: Name): Aux[V, name.type, NameSpace] =
-      (new BinaryAttributeKey[V](
-        name, 
-      NameSpace.value, 
-      summon[Schema[V]]
-      ) {
-        override final type ValueType = V
-        override final type SchemaType = Schema[V]
-        override type FN = AddNameSpace[Prefix, Nm]
-        override type FullName = FN
-      }).asInstanceOf[Aux[V, name.type, NameSpace]]
-    end selectDynamic
-
-    final inline transparent def fileName = selectDynamic[String]("fileName")
-    final inline transparent def contentType = selectDynamic[ String]("contentType")
-    final inline transparent def forks = selectDynamic[Int]("forks")
-    final inline transparent def version = selectDynamic[String]("version")
-    final inline transparent def build = selectDynamic[String]("build")
-    final inline transparent def buildFp = selectDynamic[String]("buildFp")
-    final inline transparent def buildH = selectDynamic[String]("buildH")
-    final inline transparent def buildImplId = selectDynamic[String]("buildImplId")
+      BinaryAttributeKey.apply[V, name.type, NameSpace](
+        valueOf[name.type], valueOf[NameSpace]
+      )(using Schema[V])
+    
+    final val fileName: Aux[String, "fileName", NameSpace] = selectDynamic[String]("fileName")
+    final val contentType: Aux[String, "contentType", NameSpace] = selectDynamic[String]("contentType")
+    final val forks: Aux[Int, "forks", NameSpace] = selectDynamic[Int]("forks")
+    final val version: Aux[String, "version", NameSpace] = selectDynamic[String]("version")
+    final val build: Aux[String, "build", NameSpace] = selectDynamic[String]("build")
+    final val buildFp: Aux[String, "buildFp", NameSpace] = selectDynamic[String]("buildFp")
+    final val buildH: Aux[String, "buildH", NameSpace] = selectDynamic[String]("buildH")
 
   end NamespacedKey
 

@@ -3,8 +3,6 @@ package graviton
 import zio.*
 import zio.stream.*
 import zio.test.*
-import io.github.iltotore.iron.{zio as _, *}
-import io.github.iltotore.iron.constraint.all.*
 import graviton.core.model.Block
 import graviton.domain.HashBytes
 
@@ -53,12 +51,12 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk("2", "3"))
     },
     test("stateful composed after stateless keeps only stateful state") {
-      inline val stateless = Scan.stateless1((i: Int) => i + 1)
-      inline val stateful  = Scan.stateful(0) { (s: Int, i: Int) =>
+      inline def stateless = Scan.stateless1((i: Int) => i + 1)
+      inline def stateful  = Scan.stateful(0) { (s: Int, i: Int) =>
         val sum = s + i
         (sum, Chunk.single(sum))
       }(_ => Chunk.empty)
-      inline val composed = stateless.andThen(stateful)
+      inline def composed = stateless.andThen(stateful)
       for out <- ZStream(1, 2).via(composed.toPipeline).runCollect
       yield assertTrue(composed.initial.head.asInstanceOf[Int] == 0) &&
         assertTrue(out == Chunk(2, 5))
@@ -85,9 +83,9 @@ object ScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(1, 2, 2, 3))
     },
     test("zip runs two scans in parallel") {
-      val s1     = Scan.stateless1((i: Int) => i + 1)
-      val s2     = Scan.stateless1((i: Int) => i * 2)
-      val zipped = s1.zip(s2)
+      inline def s1     = Scan.stateless1((i: Int) => i + 1)
+      inline def s2     = Scan.stateless1((i: Int) => i * 2)
+      inline def zipped = s1.zip(s2)
       for out <- ZStream(1, 2).via(zipped.toPipeline).runCollect
       yield assertTrue(out == Chunk((2, 2), (3, 4)))
     },

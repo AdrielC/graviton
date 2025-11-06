@@ -129,9 +129,8 @@ object BinaryAttributes:
   private final val MediaTypePattern = "^[\\w.+-]+/[\\w.+-]+$".r
 
   private[graviton] object fiber:
-    transparent inline def forks: BinaryAttributeKey.Aux[Int, "forks", "attr:server"] = 
+    transparent inline def forks = 
       BinaryAttributeKey.Server.forks
-    // transparent inline def name = forks.fullName
 
     inline def current: FiberRef[BinaryAttributes] = 
       Unsafe.unsafely:
@@ -165,14 +164,26 @@ object BinaryAttributes:
     transparent inline def serverContentType = Server.contentType
 
 
-    val filenames = List( 
-      attrs.getAdvertised(clientFilename).map(_.value),
-      attrs.getConfirmed(serverFilename).map(_.value),
+    val filenames = List(
+      attrs.advertised
+        .get(clientFilename)
+        .flatMap(_.to[String](using clientFilename.schema))
+        .map(_.value),
+      attrs.confirmed
+        .get(serverFilename)
+        .flatMap(_.to[String](using serverFilename.schema))
+        .map(_.value),
     ).flatten
 
     val mediaTypes = List(
-      attrs.getAdvertised(clientContentType).map(_.value),
-      attrs.getConfirmed(serverContentType).map(_.value),
+      attrs.advertised
+        .get(clientContentType)
+        .flatMap(_.to[String](using clientContentType.schema))
+        .map(_.value),
+      attrs.confirmed
+        .get(serverContentType)
+        .flatMap(_.to[String](using serverContentType.schema))
+        .map(_.value),
     ).flatten
 
     for

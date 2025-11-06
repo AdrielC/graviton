@@ -10,7 +10,7 @@ import io.github.iltotore.iron.:|
 
 
 import scala.collection.mutable
-import io.github.iltotore.iron.constraint.numeric.Greater
+import io.github.iltotore.iron.constraint.numeric.{Greater, GreaterEqual}
 
 /**
  * Anchored content-defined chunking built on top of an Aho-Corasick tokenizer
@@ -31,7 +31,7 @@ object AnchoredCdcPipeline:
   private final case class Segment(bytes: Chunk[Byte], anchored: Boolean):
     def nonEmpty: Boolean = bytes.nonEmpty
 
-    def weight(anchorBonus: Int :| Greater[0]): Long =
+    def weight(anchorBonus: Int :| GreaterEqual[0]): Long =
       val base   = bytes.length.toLong.max(1L)
       val adjust = if anchored then anchorBonus.toLong else 0L
       (base - adjust).max(1L)
@@ -144,7 +144,7 @@ object AnchoredCdcPipeline:
     def anchoredCdc(
       tokenPack: TokenPack,
       avgSize: Int :| Greater[0],
-      anchorBonus: Int :| Greater[0],
+      anchorBonus: Int :| GreaterEqual[0],
     ): ZPipeline[Any, Throwable, Byte, Block] =
 
       val sink = ZSink.foldWeightedDecompose[Segment, Accumulator](Accumulator.empty)(

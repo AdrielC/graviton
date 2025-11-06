@@ -190,7 +190,8 @@ object Scan:
                   (Some((sc, state2)), os ++ o2)
             }
 
-            val (newState3: Option[(Scan.Aux[O, O2, S2], ToState[S2])], o4: Chunk[O2]) = os.tail.foldLeft((Option.empty[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk.empty[O2]))(loop)
+            val (newState3: Option[(Scan.Aux[O, O2, S2], ToState[S2])], o4: Chunk[O2]) = 
+              os.tail.foldLeft((Option.empty[(Scan.Aux[O, O2, S2], ToState[S2])], Chunk.empty[O2]))(loop)
             
             (toState(s2.drop(1).asInstanceOf[self.State]) ++ 
             Tuple1(Some(newState3.map(_._2).getOrElse(newSc.initial))), o4)
@@ -217,17 +218,24 @@ object Scan:
     transparent inline def zip[O2, S2 <: Matchable](
       that: Scan.Aux[I, O2, S2]
     ): Scan.Aux[I, (O, O2), Tuple.Concat[self.State, ToState[S2]]] =
-      inline val sizeA = self.size
+      
       type CombinedState = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
-      statefulTuple(self.initial ++ that.initial)((st: CombinedState, i: I) =>
+      
+      val combinedState: CombinedState =
+        self.initial ++ that.initial
+      
+      val sizeA: Tuple.Size[CombinedState] = scala.compiletime.constValueOpt[Tuple.Size[CombinedState]]
+        .getOrElse(combinedState.productArity.asInstanceOf[Tuple.Size[CombinedState]])
+
+      statefulTuple(combinedState)((st: CombinedState, i: I) =>
         val (s1, s2)  = st.splitAt(sizeA)
         val (s1b, o1) = self.step(s1.asInstanceOf[self.State], i)
         val (s2b, o2) = that.step(s2.asInstanceOf[that.State], i)
         ((s1b ++ s2b), o1.zip(o2))
       ) { st =>
         val (s1, s2) = st.splitAt(sizeA)
-        self.done(s1.asInstanceOf[self.State])
-        .zip(that.done(s2.asInstanceOf[that.State]))
+        self.done(toState(s1.asInstanceOf[self.S]))
+        .zip(that.done(toState(s2.asInstanceOf[that.S])))
       }
 
     transparent inline def runAll(

@@ -1,7 +1,7 @@
 package graviton
 
 import zio.*
-import zio.stream.*
+// import zio.stream.*
 import zio.test.*
 
 object ComplexFreeScanSpec extends ZIOSpecDefault:

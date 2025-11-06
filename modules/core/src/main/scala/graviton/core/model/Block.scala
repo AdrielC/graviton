@@ -201,12 +201,16 @@ object Block extends SubtypeExt[Chunk[Byte], Length[BlockLength.Constr]]:
     )
 
   extension (block: Block) 
+
+    def toBytesStream: graviton.Bytes = graviton.Bytes(ZStream.fromChunk(block))
     def bytes: NonEmptyChunk[Byte] = NonEmptyChunk.fromChunk(block).get
     def length: Int = block.length
     def blockSize: BlockSize = BlockSize.applyUnsafe(block.length.toInt)
     def fileSize: FileSize   = FileSize.applyUnsafe(block.blockSize.toLong)
 
 end Block
+
+export Block.given
 
 
 
