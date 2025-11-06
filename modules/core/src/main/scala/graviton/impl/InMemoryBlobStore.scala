@@ -41,6 +41,6 @@ object InMemoryBlobStore:
 
   def layer: ZLayer[Any, Nothing, BlobStore] =
     ZLayer.fromZIO:
-      Random.nextUUID.flatMap { (uuid: UUID) => 
+      Random.nextUUID.flatMap { (uuid: UUID) =>
         make("mem-" + uuid.toString)
       }

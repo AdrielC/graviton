@@ -1,7 +1,7 @@
 package graviton
 
 import graviton.chunking.FixedChunker
-import graviton.impl.{InMemoryBlobStore}
+import graviton.impl.InMemoryBlobStore
 import graviton.ingest.FileIngestor
 import zio.*
 import zio.stream.*
@@ -25,7 +25,7 @@ object FileIngestorSpec extends ZIOSpec[Reloadable[FileIngestorLive] & BlockStor
 
   type Environment = Reloadable[FileIngestorLive] & BlockStore
 
-  override inline def bootstrap: ZLayer[Any, Nothing, Environment] =
+  inline override def bootstrap: ZLayer[Any, Nothing, Environment] =
     ZLayer.make[Environment](
       ZLayer.fromZIO(Ref.make(Map.empty[BlockKey, BlockState])),
       ZLayer.succeed(Map.empty[BlobStoreId, BlobStore]),
@@ -44,18 +44,15 @@ object FileIngestorSpec extends ZIOSpec[Reloadable[FileIngestorLive] & BlockStor
   //   } yield result)
   //   .provide(bootstrap)
 
-
   private def withFileIngestor[E, A](effect: ZEnvironment[FileIngestor & BlockStore] => ZIO[Environment, E, A]): ZIO[Any, E, A] =
-      (for {
-        _ <- Reloadable.reload[FileIngestorLive].catchAll(_ => ZIO.die(Throwable("failed to reload block store")))
-        r <- Reloadable.get[FileIngestorLive].catchAll(_ => ZIO.die(Throwable("failed to get block store")))
-        result     <- effect(ZEnvironment(r, r.blockStore))
-      } yield result)
+    (for {
+      _      <- Reloadable.reload[FileIngestorLive].catchAll(_ => ZIO.die(Throwable("failed to reload block store")))
+      r      <- Reloadable.get[FileIngestorLive].catchAll(_ => ZIO.die(Throwable("failed to get block store")))
+      result <- effect(ZEnvironment(r, r.blockStore))
+    } yield result)
       .provide(bootstrap)
-    
 
   private def bytesOf(str: String): Bytes = Bytes(ZStream.fromChunk(Chunk.fromArray(str.getBytes("UTF-8"))))
-  
 
   override def spec: Spec[Scope, Any] =
     suite("FileIngestorSpec")(
@@ -68,7 +65,7 @@ object FileIngestorSpec extends ZIOSpec[Reloadable[FileIngestorLive] & BlockStor
             data   <- FileIngestor.materialize(result.manifest)
             text   <- data.runCollect.map(bytes => new String(bytes.toArray, "UTF-8"))
           } yield assertTrue(text == payload) && assertTrue(result.totalBlocks > 0))
-          .provideEnvironment(env)
+            .provideEnvironment(env)
         }
       },
       test("computes deterministic blob key and manifest offsets") {
@@ -92,14 +89,14 @@ object FileIngestorSpec extends ZIOSpec[Reloadable[FileIngestorLive] & BlockStor
         withFileIngestor { env =>
           val chunker = FixedChunker(8)
           (for {
-            _     <- FileIngestor.ingest(bytesOf(sample), 
-            BinaryAttributes.empty, HashAlgorithm.Blake3, Some(chunker))
+            _          <- FileIngestor.ingest(bytesOf(sample), BinaryAttributes.empty, HashAlgorithm.Blake3, Some(chunker))
             blockStore <- ZIO.service[BlockStore]
-            keys  <- blockStore.list(BlockKeySelector(prefix = None, suffix = None, algorithm = Some(HashAlgorithm.Blake3), size = None))
-            .runCollect
-            unique = keys.distinct
+            keys       <- blockStore
+                            .list(BlockKeySelector(prefix = None, suffix = None, algorithm = Some(HashAlgorithm.Blake3), size = None))
+                            .runCollect
+            unique      = keys.distinct
           } yield assertTrue(unique.size == keys.size))
-          .provideEnvironment(env)
+            .provideEnvironment(env)
         }
       },
     )

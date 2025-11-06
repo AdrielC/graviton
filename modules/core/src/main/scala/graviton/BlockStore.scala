@@ -6,8 +6,6 @@ import zio.stream.*
 import graviton.core.model.Block
 import graviton.BlockKey
 
-
-
 trait BlockStore:
   /**
    * Build a one-block sink that:
@@ -20,7 +18,7 @@ trait BlockStore:
   def putBlock(block: Block): ZIO[Any, Throwable, BlockKey]
 
   def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey]
-  
+
   def get(
     key: BlockKey,
     range: Option[ByteRange] = None,

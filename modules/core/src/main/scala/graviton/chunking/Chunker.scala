@@ -9,7 +9,6 @@ import graviton.GravitonError
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.{zio as _, *}
 
-
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
@@ -22,25 +21,22 @@ object Chunker:
     Constraint[Int, GreaterEqual[Min]],
     Constraint[Int, GreaterEqual[Avg]],
   )
-    
 
   /** Chunk size bounds used by algorithms such as FastCDC. */
   final case class Bounds[Min <: Int, Avg <: Int, Max <: Int](
     min: ((Min) :| Greater[0]),
     avg: ((Avg) :| Greater[Min]),
-    max: ((Max) :| Greater[Avg])
+    max: ((Max) :| Greater[Avg]),
   )
   object Bounds:
-    
-
 
     // @scala.annotation.publicInBinary
     // inline def apply[Min <: Int, Avg <: Int, Max <: Int](
     //   using Min: RuntimeConstraint[Min, Greater[0]], Avg: RuntimeConstraint[Avg, GreaterEqual[Min]], Max: RuntimeConstraint[Max, GreaterEqual[Avg]]
     // ): Bounds[Min, Avg, Max] =
     //   Bounds(
-    //     compiletime.constValue[Min].refineUnsafe[Greater[0]], 
-    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]], 
+    //     compiletime.constValue[Min].refineUnsafe[Greater[0]],
+    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]],
     //     compiletime.constValue[Max].refineUnsafe[GreaterEqual[Avg]]
     //   )
   end Bounds
@@ -119,24 +115,24 @@ object Chunker:
       )
   end fromStrategy
 
-
   final type Min = 1024
   final type Avg = 1048576
   final type Max = 1073741824
 
-  val _min: (Min :| Greater[0]) = valueOf[Min].assume[Greater[0]]
+  val _min: (Min :| Greater[0])   = valueOf[Min].assume[Greater[0]]
   val _avg: (Avg :| Greater[Min]) = valueOf[Avg].assume[Greater[Min]]
   val _max: (Max :| Greater[Avg]) = valueOf[Max].assume[Greater[Avg]]
 
   def bounds = Bounds[_min.type, _avg.type, _max.type](_min, _avg, _max)
 
-  def rolling: Chunker = fromStrategy(Strategy.Smart(
-    Strategy.Rolling(
-      bounds
-    ),
-    List.empty,
-  ))
-
+  def rolling: Chunker = fromStrategy(
+    Strategy.Smart(
+      Strategy.Rolling(
+        bounds
+      ),
+      List.empty,
+    )
+  )
 
   def default: ULayer[Chunker] = ZLayer.succeed(
     rolling

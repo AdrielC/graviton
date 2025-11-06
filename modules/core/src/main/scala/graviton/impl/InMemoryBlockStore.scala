@@ -23,61 +23,67 @@ final class InMemoryBlockStore private (
   def putBlock(block: Block): ZIO[Any, Throwable, BlockKey] =
     val algo = HashAlgorithm.SHA256
     for
-      dig <- Hashing.compute(block.toBytesStream, algo)
-      key = BlockKey(Hash(dig, algo), block.blockSize)
+      dig   <- Hashing.compute(block.toBytesStream, algo)
+      key    = BlockKey(Hash(dig, algo), block.blockSize)
       state <- index.get.map(_.get(key))
-      _ <- state match
-            case Some(st) =>
-              index.update(_.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None)))
-            case None =>
-              index.update(_ + (key -> BlockState(NonNegInt(1), None)))
+      _     <- state match
+                 case Some(st) =>
+                   index.update(_.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None)))
+                 case None     =>
+                   index.update(_ + (key -> BlockState(NonNegInt(1), None)))
     yield key
 
   def storeBlocks: ZPipeline[Any, GravitonError, Block, BlockManifestEntry] =
     val algo = HashAlgorithm.SHA256
     ZPipeline.unwrapScoped:
-      for 
-        hasher <- Hashing.hasher(algo)
-        .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage)
-        .getOrElse(e.toString)))
+      for
+        hasher <- Hashing
+                    .hasher(algo)
+                    .mapError(e =>
+                      GravitonError.BackendUnavailable(
+                        Option(e.getMessage)
+                          .getOrElse(e.toString)
+                      )
+                    )
 
-        fileHasher <- Hashing.hasher(algo)
-                .mapError(e => GravitonError.BackendUnavailable(Option(e.getMessage)
-                .getOrElse(e.toString)))
-        
-        pipeline = ZPipeline.identity[Block].mapZIO { block =>
-          for
-            dig      <- (hasher.update(block) *> hasher.digest) <&> (fileHasher.update(block))
-            key     = BlockKey(Hash(dig, algo), block.blockSize)
-            state  <- index.get.map(_.get(key))
-            _      <- state match
-                        case Some(st) =>
-                          index.update(
-                            _.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None))
+        fileHasher <- Hashing
+                        .hasher(algo)
+                        .mapError(e =>
+                          GravitonError.BackendUnavailable(
+                            Option(e.getMessage)
+                              .getOrElse(e.toString)
                           )
-                        case None     =>
-                          val data = Bytes(ZStream.fromChunk(block.bytes))
-                          for
-                            _      <- primary.write(key, data).mapError(e => GravitonError.BackendUnavailable(e.getMessage))
-                            status <- primary.status
-                            _      <- resolver.record(key, BlockSector(primary.id, status))
-                            _      <- index.update(_ + (key -> BlockState(NonNegInt(1), None)))
-                          yield ()
-          yield BlockManifestEntry(Index.zero, block.blockSize, key.toBinaryKey)
-        }
+                        )
+
+        pipeline = ZPipeline.identity[Block].mapZIO { block =>
+                     for
+                       dig   <- (hasher.update(block) *> hasher.digest) <&> (fileHasher.update(block))
+                       key    = BlockKey(Hash(dig, algo), block.blockSize)
+                       state <- index.get.map(_.get(key))
+                       _     <- state match
+                                  case Some(st) =>
+                                    index.update(
+                                      _.updated(key, st.copy(refs = NonNegInt.applyUnsafe(st.refs.value + 1), unreferencedAt = None))
+                                    )
+                                  case None     =>
+                                    val data = Bytes(ZStream.fromChunk(block.bytes))
+                                    for
+                                      _      <- primary.write(key, data).mapError(e => GravitonError.BackendUnavailable(e.getMessage))
+                                      status <- primary.status
+                                      _      <- resolver.record(key, BlockSector(primary.id, status))
+                                      _      <- index.update(_ + (key -> BlockState(NonNegInt(1), None)))
+                                    yield ()
+                     yield BlockManifestEntry(Index.zero, block.blockSize, key.toBinaryKey)
+                   }
       yield pipeline
-    
-    
 
   def put: ZSink[Any, GravitonError, Byte, Nothing, BlockKey] =
     ZSink.collectAll[Byte].mapZIO { data =>
-      val key = BlockKey(
-        Hash(HashBytes.applyUnsafe(data), 
-      HashAlgorithm.SHA256), BlockSize.applyUnsafe(data.length))
-      index.update(_ + (key -> BlockState(NonNegInt(1), None)))
-      .as(key)
+      val key = BlockKey(Hash(HashBytes.applyUnsafe(data), HashAlgorithm.SHA256), BlockSize.applyUnsafe(data.length))
+      index
+        .update(_ + (key -> BlockState(NonNegInt(1), None)))
+        .as(key)
     }
-
 
   def get(
     key: BlockKey,
@@ -143,19 +149,10 @@ final class InMemoryBlockStore private (
 
 object InMemoryBlockStore:
 
-  def live(backups: Seq[BlobStore] = Nil): URLayer[
-      BlobStore & 
-      BlockResolver, 
-      InMemoryBlockStore] =
-    ZLayer.fromFunction((primary: BlobStore, resolver: BlockResolver) => 
-      ZLayer.fromZIO(make(primary, resolver, backups))
-    ).flatten
+  def live(backups: Seq[BlobStore] = Nil): URLayer[BlobStore & BlockResolver, InMemoryBlockStore] =
+    ZLayer.fromFunction((primary: BlobStore, resolver: BlockResolver) => ZLayer.fromZIO(make(primary, resolver, backups))).flatten
 
-  val layer: URLayer[
-    Ref[Map[BlockKey, BlockState]] & 
-    Map[BlobStoreId, BlobStore] & 
-    (BlobStore & BlockResolver), 
-    InMemoryBlockStore] =
+  val layer: URLayer[Ref[Map[BlockKey, BlockState]] & Map[BlobStoreId, BlobStore] & (BlobStore & BlockResolver), InMemoryBlockStore] =
     ZLayer.derive[InMemoryBlockStore]
 
   def make(
