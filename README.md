@@ -51,6 +51,10 @@ graviton/
 
 The [`modules/zio-blocks`](modules/zio-blocks) directory is a git submodule that hosts the content-defined chunking primitives consumed by `graviton-streams`.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow guidance, coding standards, and required validation steps before opening a pull request.
+
 ## High level flow
 
 1. **Chunk and hash** – `graviton-streams` adapters coordinate the chunking pipeline and drive `MultiHasher` instances defined in `graviton-core`.
