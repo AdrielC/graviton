@@ -9,7 +9,7 @@
 - [x] Expand Prometheus metrics docs with a worked example (`MetricsBlobStore`, publisher/updater, scrape config). (done in 8d3e829 2025-10-01)
 - [x] Document logging: correlation-ID propagation, SLF4J backend setup. (done in 8d3e829 2025-10-01)
 - [ ] Flesh out CLI usage pages: install, options, sample commands and responses.
-- [ ] Introduce a CONTRIBUTING guide (coding style, test commands, doc build).
+- [x] Introduce a CONTRIBUTING guide (coding style, test commands, doc build). (done in 65b8e02 2025-11-24)
 
 **Follow-ups**
 - [ ] Add Apache Tika module page under *Modules*.
