@@ -146,7 +146,8 @@ export default withMermaid(defineConfig({
           { text: 'Runtime Module', link: '/modules/runtime' },
           { text: 'Streams Utilities', link: '/modules/streams' },
           { text: 'Protocol Stack', link: '/modules/protocol' },
-          { text: 'Scala.js Frontend', link: '/modules/frontend' }
+          { text: 'Scala.js Frontend', link: '/modules/frontend' },
+          { text: 'Apache Tika Module', link: '/modules/tika' }
         ]
       },
       {
