@@ -95,14 +95,15 @@ export default withMermaid(defineConfig({
   },
   themeConfig: {
     logo: '/logo.svg',
-    siteTitle: '⚡ Graviton',
+    siteTitle: 'Graviton',
     nav: [
-      { text: '🚀 Guide', link: '/guide/getting-started' },
-      { text: '🏗️ Architecture', link: '/architecture' },
-      { text: '🔌 API', link: '/api' },
-      { text: '🧪 Scala.js', link: '/dev/scalajs' },
-      { text: '🎮 Demo', link: '/demo' },
-      { text: '📚 Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
+      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Streaming', link: '/guide/binary-streaming' },
+      { text: 'Architecture', link: '/architecture' },
+      { text: 'API', link: '/api' },
+      { text: 'Scala.js', link: '/dev/scalajs' },
+      { text: 'Demo', link: '/demo' },
+      { text: 'Scaladoc', link: '/scaladoc/index.html', target: '_blank' }
     ],
     sidebar: [
       {
@@ -126,6 +127,7 @@ export default withMermaid(defineConfig({
         text: 'Ingest Pipeline',
         items: [
           { text: 'End-to-end Upload', link: '/end-to-end-upload' },
+          { text: 'Binary Streaming', link: '/guide/binary-streaming' },
           { text: 'Manifests & Frames', link: '/manifests-and-frames' },
           { text: 'Chunking Strategies', link: '/ingest/chunking' }
         ]
@@ -179,7 +181,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
-          { text: '🎮 Live Demo', link: '/demo' }
+          { text: 'Live Demo', link: '/demo' }
         ]
       }
     ],
@@ -193,20 +195,20 @@ export default withMermaid(defineConfig({
       provider: 'local'
     },
     footer: {
-      message: '⚡ Built with ZIO • Powered by Scala 3',
-      copyright: '🌌 Content-addressable storage, refined. • MIT License'
+      message: 'Built with ZIO • Powered by Scala 3',
+      copyright: 'Content-addressable storage, refined. • MIT License'
     },
     outline: {
       level: [2, 3],
-      label: '📑 On this page'
+      label: 'On this page'
     },
     docFooter: {
       prev: '← Previous',
       next: 'Next →'
     },
-    darkModeSwitchLabel: '🌓 Theme',
+    darkModeSwitchLabel: 'Theme',
     returnToTopLabel: '↑ Back to top',
-    sidebarMenuLabel: '📚 Menu',
+    sidebarMenuLabel: 'Menu',
     externalLinkIcon: true
   }
 }))

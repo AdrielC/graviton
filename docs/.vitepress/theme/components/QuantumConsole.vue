@@ -7,7 +7,7 @@
       aria-haspopup="dialog"
       :aria-expanded="open"
     >
-      ✨ Command Center
+      Command Center
     </button>
 
     <Teleport to="body">
@@ -87,58 +87,58 @@ type ConsoleEntry = {
 
 const entries: ConsoleEntry[] = [
   {
-    label: '🚀 Getting Started',
+    label: 'Getting Started',
     description: 'Spin up Graviton locally and ingest your first payload',
     href: '/guide/getting-started',
-    icon: '🚀',
+    icon: 'GS',
     shortcut: 'G',
     keywords: ['start', 'guide', 'intro', 'quick']
   },
   {
-    label: '🏗️ Architecture',
+    label: 'Architecture',
     description: 'Deep dive into modular ingestion, replication, and stores',
     href: '/architecture',
-    icon: '🏗️',
+    icon: 'AR',
     shortcut: 'A',
     keywords: ['design', 'core', 'diagram', 'system']
   },
   {
-    label: '🛰️ Ingest Pipeline',
+    label: 'Ingest Pipeline',
     description: 'Follow blobs from chunking to manifest emission',
     href: '/end-to-end-upload',
-    icon: '🛰️',
+    icon: 'IP',
     shortcut: 'I',
     keywords: ['ingest', 'upload', 'pipeline']
   },
   {
-    label: '🔌 API Reference',
+    label: 'API Reference',
     description: 'HTTP, gRPC, and protocol guarantees in one place',
     href: '/api',
-    icon: '🔌',
+    icon: 'API',
     shortcut: 'P',
     keywords: ['api', 'grpc', 'http', 'reference']
   },
   {
-    label: '🧠 Chunking Strategies',
+    label: 'Chunking Strategies',
     description: 'Master FastCDC knobs for golden dedup ratios',
     href: '/ingest/chunking',
-    icon: '🧠',
+    icon: 'CS',
     shortcut: 'C',
     keywords: ['chunking', 'fastcdc', 'dedup']
   },
   {
-    label: '📚 Testing Toolkit',
+    label: 'Testing Toolkit',
     description: 'ZIO test suites, fibers, and golden-data harnesses',
     href: '/dev/testing',
-    icon: '🧪',
+    icon: 'TT',
     shortcut: 'T',
     keywords: ['test', 'dev', 'ci', 'tooling']
   },
   {
-    label: '🤝 Contributing',
+    label: 'Contributing',
     description: 'Coding style, docs build, and how to join the crew',
     href: '/dev/contributing',
-    icon: '🤝',
+    icon: 'CT',
     shortcut: 'H',
     keywords: ['contribute', 'community', 'style']
   }

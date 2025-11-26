@@ -66,7 +66,9 @@ Thank you for helping improve Graviton! This guide outlines the workflow, coding
   npm run docs:dev
   ```
 
-- Keep navigation links and code samples in sync with the Scala implementation to prevent regressions in `./sbt docs/mdoc`.
+- Keep navigation links and code samples in sync with the Scala implementation:
+  - Typecheck markdown snippets via `./sbt docs/mdoc checkDocSnippets`.
+  - When editing snippet sources under `docs/snippets/`, run `./sbt syncDocSnippets` to refresh the rendered blocks before committing.
 
 ## Database schema changes
 Schema updates must be reflected in generated bindings so migrations and code stay in lockstep:

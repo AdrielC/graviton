@@ -54,7 +54,7 @@ npm install               # first run only
 npm run docs:dev
 ```
 
-Once VitePress boots at `http://localhost:5173`, open the **🎮 Demo** tab and confirm you can navigate between Dashboard, Explorer, Upload, and Stats without the page reloading. If you deploy the docs somewhere with a sub-path (for example GitHub Pages), the loader picks up the correct base URL automatically—no manual tweaks required.
+Once VitePress boots at `http://localhost:5173`, open the **Demo** tab and confirm you can navigate between Dashboard, Explorer, Upload, and Stats without the page reloading. If you deploy the docs somewhere with a sub-path (for example GitHub Pages), the loader picks up the correct base URL automatically—no manual tweaks required.
 
 ::: tip No Scala.js bundle?
 If the demo reports _“Interactive Demo Not Available”_, rebuild it with `./sbt buildFrontend` and refresh the page. The bundle is committed for convenience, but rebuilding ensures it tracks your local Scala sources.
@@ -94,6 +94,7 @@ Unsafe.unsafe { implicit unsafe =>
 ## What's Next?
 
 - **[Installation Guide](./installation)** — Set up Graviton in your environment
+- **[Binary Streaming Guide](./binary-streaming)** — Learn how blocks, manifests, and chunkers fit together
 - **[Architecture Overview](../architecture)** — Understand the module structure
 - **[Core Concepts](../core/schema)** — Deep dive into schemas, ranges, and scans
 - **[API Reference](../api)** — Explore gRPC and HTTP endpoints

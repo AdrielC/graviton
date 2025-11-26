@@ -46,7 +46,7 @@ onMounted(() => {
 Follow the [Scala.js Playbook](/dev/scalajs) for hot reload, bundling tips, and backend wiring while you iterate on this demo.
 :::
 
-# 🎮 Interactive Demo
+# Interactive Demo
 
 Experience Graviton's capabilities through this interactive Scala.js application!
 
@@ -76,15 +76,15 @@ When this page cannot reach a live server (such as on GitHub Pages), the UI auto
 
 This interactive demo showcases:
 
-- **🏠 Dashboard**: Overview of Graviton's capabilities
-- **🔍 Blob Explorer**: Search and inspect blob metadata and manifests
-- **📤 File Upload**: Interactive chunking visualization with multiple strategies
+- **Dashboard**: Overview of Graviton's capabilities
+- **Blob Explorer**: Search and inspect blob metadata and manifests
+- **File Upload**: Interactive chunking visualization with multiple strategies
   - Compare Fixed-size vs FastCDC (content-defined) chunking
   - See block sharing and deduplication across files in real-time
   - Tune FastCDC bounds with the CAS Chunk Tuner to visualize breakpoints and explore dedup sensitivity
   - View validation results and chunk-level details
-- **🧬 Schema Explorer**: Browse the shared API models, drill into field definitions, and view sample JSON powered by Scala.js and ZIO running in the browser
-- **📊 Statistics**: Real-time system metrics and deduplication ratios
+- **Schema Explorer**: Browse the shared API models, drill into field definitions, and view sample JSON powered by Scala.js and ZIO running in the browser
+- **Statistics**: Real-time system metrics and deduplication ratios
 
 ## Try it yourself
 
