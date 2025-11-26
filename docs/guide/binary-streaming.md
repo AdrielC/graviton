@@ -40,6 +40,7 @@ sequenceDiagram
 
 ## Wiring chunkers, blocks, and manifests
 
+<!-- snippet:binary-streaming-ingest:start -->
 ```scala
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
 import graviton.core.bytes.{HashAlgo, Hasher}
@@ -48,34 +49,43 @@ import graviton.core.model.{BlockBuilder, ByteConstraints}
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
-import zio.*
-import zio.stream.*
+import zio._
+import zio.stream._
 
 final case class Ingest(blockStore: BlockStore):
-  private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Either[String, CanonicalBlock] =
-    for
-      digest <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
-      bits   <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
-      key    <- BinaryKey.block(bits)
-      tracked = attrs
-        .upsertSize(Tracked.now(block.length, Source.Derived))
-        .upsertChunkCount(Tracked.now(1, Source.Derived))
-      canonical <- CanonicalBlock.make(key, block, tracked)
-    yield canonical
+  private def wrapEither[A](either: Either[String, A]): Task[A] =
+    ZIO.fromEither(either.left.map(msg => new IllegalArgumentException(msg)))
+
+  private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
+    wrapEither {
+      for
+        digest     <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
+        bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
+        key        <- BinaryKey.block(bits)
+        chunkCount <- ByteConstraints.refineChunkCount(1L)
+        tracked     = attrs
+                        .upsertSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
+                        .upsertChunkCount(Tracked.now(chunkCount, Source.Derived))
+        canonical  <- CanonicalBlock.make(key, block, tracked)
+      yield canonical
+    }
 
   def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
     val attrs = BinaryAttributes.empty
     val sink  = blockStore.putBlocks()
 
     for
-      chunkSize <- ZIO.fromEither(ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024))
+      chunkSize <- wrapEither(ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024))
       result    <- bytes
-        .via(Chunker.fixed(chunkSize))
-        .mapChunks(BlockBuilder.chunkify(_))
-        .mapZIO(block => ZIO.fromEither(canonicalBlock(block.bytes, attrs)))
-        .run(sink)
+                     .via(Chunker.fixed(chunkSize))
+                     .mapChunks(BlockBuilder.chunkify(_))
+                     .mapZIO(block => canonicalBlock(block.bytes, attrs))
+                     .run(sink)
     yield result
 ```
+<!-- snippet:binary-streaming-ingest:end -->
+
+_Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreamingIngest.scala` (managed via `sbt syncDocSnippets`)._
 
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Hashing before storage** keeps keys stable regardless of backend. The same block hash will deduplicate inside the filesystem, S3, or PostgreSQL stores.

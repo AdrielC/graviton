@@ -89,6 +89,11 @@ After running `./sbt buildFrontend` and `cd docs && npm run docs:dev`:
    - [ ] Without server: friendly error messages appear
    - [ ] Missing JS files: graceful degradation with instructions
 
+### Docs Snippet Verification
+
+- Run `./sbt docs/mdoc checkDocSnippets` to ensure every Scala snippet in the docs typechecks and matches the canonical sources under `docs/snippets/`.
+- When you edit a snippet source file, regenerate the rendered Markdown with `./sbt syncDocSnippets` before committing.
+
 ### Production Build Test
 
 ```bash

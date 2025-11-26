@@ -44,6 +44,8 @@ jobs:
           cache: sbt
       - name: Build Scala.js Frontend
         run: ./sbt buildFrontend
+      - name: Verify docs snippets
+        run: ./sbt docs/mdoc checkDocSnippets
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

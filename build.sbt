@@ -7,6 +7,14 @@ import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
 import scalapb.compiler.Version
+lazy val docSnippetMappings =
+  settingKey[Seq[DocSnippet]]("Mappings between documentation files and compiled snippet sources.")
+
+lazy val syncDocSnippets =
+  taskKey[Unit]("Regenerate documentation snippet blocks from their source files.")
+
+lazy val checkDocSnippets =
+  taskKey[Unit]("Verify that documentation snippet blocks are up to date.")
 
 lazy val V = new {
   val scala3     = "3.7.3"
@@ -104,12 +112,14 @@ buildDocsAssets := Def.sequential(
 
 lazy val docs = (project in file("docs-mdoc"))
   .enablePlugins(MdocPlugin)
+  .dependsOn(core, runtime, streams)
   .settings(
     publish / skip := true,
     name := "graviton-docs",
     mdocIn := (ThisBuild / baseDirectory).value / "docs",
     mdocOut := target.value / "mdoc-out",
-    mdocVariables += "version" -> version.value
+    mdocVariables += "version" -> version.value,
+    Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "docs/snippets/src/main/scala"
   )
 
 lazy val root = (project in file(".")).aggregate(
@@ -128,7 +138,32 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.js,
   frontend,
   docs
-).settings(baseSettings, publish / skip := true, name := "graviton")
+).settings(
+  baseSettings,
+  publish / skip := true,
+  name := "graviton",
+  docSnippetMappings := Seq(
+    DocSnippet(
+      id = "binary-streaming-ingest",
+      docPath = "docs/guide/binary-streaming.md",
+      snippetPath = "docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreamingIngest.scala"
+    )
+  ),
+  syncDocSnippets := {
+    DocSnippetTasks.sync(
+      docSnippetMappings.value,
+      (ThisBuild / baseDirectory).value,
+      Keys.streams.value.log
+    )
+  },
+  checkDocSnippets := {
+    DocSnippetTasks.check(
+      docSnippetMappings.value,
+      (ThisBuild / baseDirectory).value,
+      Keys.streams.value.log
+    )
+  }
+)
 
 lazy val core = (project in file("modules/graviton-core"))
   .settings(baseSettings,
