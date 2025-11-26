@@ -59,6 +59,10 @@
   ```bash
   TESTCONTAINERS=0 ./sbt scalafmtAll test
   ```
+- Keep docs healthy:
+  ```bash
+  ./sbt docs/mdoc checkDocSnippets
+  ```
 - Schema changes **must** be reflected in generated bindings:
   1. Start a local PostgreSQL instance without Docker (e.g. `apt-get install postgresql` then `pg_ctlcluster 16 main start`).
   2. Apply `modules/pg/ddl.sql` to an empty database (for example `psql -d graviton -f modules/pg/ddl.sql`).

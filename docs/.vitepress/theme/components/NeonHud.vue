@@ -2,7 +2,7 @@
   <section class="neon-hud" aria-labelledby="neon-hud-heading" role="status" aria-live="polite">
     <header class="neon-hud__header">
       <div class="neon-hud__title">
-        <span class="neon-hud__glyph">🛰️</span>
+        <span class="neon-hud__glyph">HUD</span>
         <div>
           <p id="neon-hud-heading">Telemetry Feed</p>
           <small>Real-time runtime signals</small>
@@ -75,7 +75,7 @@ const metricDefinitions: MetricDefinition[] = [
     id: 'throughput',
     label: 'Ingest Throughput',
     unit: 'GB/s',
-    icon: '⚡',
+    icon: 'TH',
     base: 12.4,
     variance: 3.6,
     precision: 2
@@ -84,7 +84,7 @@ const metricDefinitions: MetricDefinition[] = [
     id: 'dedup',
     label: 'Deduplication Ratio',
     unit: '×',
-    icon: '♻️',
+    icon: 'DR',
     base: 4.3,
     variance: 0.8,
     precision: 2
@@ -93,7 +93,7 @@ const metricDefinitions: MetricDefinition[] = [
     id: 'latency',
     label: 'Stream Latency',
     unit: 'ms',
-    icon: '🛰️',
+    icon: 'SL',
     base: 18,
     variance: 9,
     precision: 0
@@ -102,7 +102,7 @@ const metricDefinitions: MetricDefinition[] = [
     id: 'replication',
     label: 'Replica Health',
     unit: '%',
-    icon: '🛡️',
+    icon: 'RH',
     base: 99.2,
     variance: 0.6,
     precision: 2
