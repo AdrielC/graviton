@@ -1,6 +1,7 @@
 import sbt._
 import Keys._
 import BuildHelper._
+import _root_.mdoc.MdocPlugin
 import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
@@ -101,6 +102,16 @@ buildDocsAssets := Def.sequential(
   buildFrontend
 ).value
 
+lazy val docs = (project in file("docs-mdoc"))
+  .enablePlugins(MdocPlugin)
+  .settings(
+    publish / skip := true,
+    name := "graviton-docs",
+    mdocIn := (ThisBuild / baseDirectory).value / "docs",
+    mdocOut := target.value / "mdoc-out",
+    mdocVariables += "version" -> version.value
+  )
+
 lazy val root = (project in file(".")).aggregate(
   core,
   zioBlocks,
@@ -115,7 +126,8 @@ lazy val root = (project in file(".")).aggregate(
   server,
   sharedProtocol.jvm,
   sharedProtocol.js,
-  frontend
+  frontend,
+  docs
 ).settings(baseSettings, publish / skip := true, name := "graviton")
 
 lazy val core = (project in file("modules/graviton-core"))
