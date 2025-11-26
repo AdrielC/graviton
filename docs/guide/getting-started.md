@@ -94,6 +94,7 @@ Unsafe.unsafe { implicit unsafe =>
 ## What's Next?
 
 - **[Installation Guide](./installation)** — Set up Graviton in your environment
+- **[Binary Streaming Guide](./binary-streaming)** — Learn how blocks, manifests, and chunkers fit together
 - **[Architecture Overview](../architecture)** — Understand the module structure
 - **[Core Concepts](../core/schema)** — Deep dive into schemas, ranges, and scans
 - **[API Reference](../api)** — Explore gRPC and HTTP endpoints
