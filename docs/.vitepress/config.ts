@@ -98,6 +98,7 @@ export default withMermaid(defineConfig({
     siteTitle: '⚡ Graviton',
     nav: [
       { text: '🚀 Guide', link: '/guide/getting-started' },
+      { text: '📦 Streaming', link: '/guide/binary-streaming' },
       { text: '🏗️ Architecture', link: '/architecture' },
       { text: '🔌 API', link: '/api' },
       { text: '🧪 Scala.js', link: '/dev/scalajs' },
@@ -126,6 +127,7 @@ export default withMermaid(defineConfig({
         text: 'Ingest Pipeline',
         items: [
           { text: 'End-to-end Upload', link: '/end-to-end-upload' },
+          { text: 'Binary Streaming', link: '/guide/binary-streaming' },
           { text: 'Manifests & Frames', link: '/manifests-and-frames' },
           { text: 'Chunking Strategies', link: '/ingest/chunking' }
         ]
