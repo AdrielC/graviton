@@ -11,6 +11,29 @@ Chunking divides byte streams into addressable blocks. Graviton supports:
 - **BuzHash CDC** — Classic rolling hash approach
 - **Rabin fingerprinting** — High-quality boundaries
 
+### Typed Blocks & Upload Chunks
+
+All chunkers in Graviton emit opaque `Block` values (backed by `Chunk[Byte]`) so that size invariants are enforced at the type level.
+
+```scala
+import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
+import graviton.core.model.{Block, BlockBuilder, ByteConstraints}
+import zio.Chunk
+
+val bytes: Chunk[Byte]   = Chunk.fromArray(inputArray)
+val blocks: Chunk[Block] = BlockBuilder.chunkify(bytes)
+
+// Strongly typed helpers
+val firstBlockSize = blocks.headOption.map(_.blockSize) // -> ByteConstraints.BlockSize
+
+val updatedAttributes = blocks.headOption
+  .fold(BinaryAttributes.empty) { block =>
+    BinaryAttributes.empty.upsertSize(Tracked.now(block.fileSize, Source.Derived))
+  }
+```
+
+The same module exposes `ByteConstraints.refine*` helpers for validating raw sizes before constructing blocks or upload chunks. Downstream APIs continue to import `graviton.core.types.BlockSize` / `ChunkCount` as before, but now benefit from these refined guarantees.
+
 ## Fixed-Size Chunking
 
 ### Algorithm
