@@ -2,6 +2,7 @@ package graviton.core.attributes
 
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
+import graviton.core.model.{FileSize, ChunkCount}
 import graviton.core.types.*
 import zio.schema.DeriveSchema
 
@@ -38,7 +39,7 @@ object Tracked:
     else right
 
 final case class BinaryAttributes(
-  size: Option[Tracked[Size]] = None,
+  size: Option[Tracked[FileSize]] = None,
   chunkCount: Option[Tracked[ChunkCount]] = None,
   mime: Option[Tracked[Mime]] = None,
   digests: Map[Algo, Tracked[HexLower]] = Map.empty,
@@ -48,7 +49,7 @@ final case class BinaryAttributes(
   def record(event: String): BinaryAttributes =
     copy(history = history :+ (event -> Instant.now()))
 
-  def upsertSize(value: Tracked[Size]): BinaryAttributes =
+  def upsertSize(value: Tracked[FileSize]): BinaryAttributes =
     copy(size = Some(size.fold(value)(Tracked.merge(_, value))))
 
   def upsertChunkCount(value: Tracked[ChunkCount]): BinaryAttributes =
@@ -70,14 +71,6 @@ final case class BinaryAttributes(
 
 object BinaryAttributes:
   val empty: BinaryAttributes = BinaryAttributes()
-
-final case class BinaryAttributesDiff(
-  size: Option[(Option[Tracked[Size]], Option[Tracked[Size]])],
-  chunkCount: Option[(Option[Tracked[ChunkCount]], Option[Tracked[ChunkCount]])],
-  mime: Option[(Option[Tracked[Mime]], Option[Tracked[Mime]])],
-  digests: Map[Algo, (Option[Tracked[HexLower]], Option[Tracked[HexLower]])],
-  extra: Map[String, (Option[Tracked[String]], Option[Tracked[String]])],
-)
 
 object BinaryAttributesDiff:
   def from(left: BinaryAttributes, right: BinaryAttributes): BinaryAttributesDiff =
@@ -103,6 +96,14 @@ object BinaryAttributesDiff:
       digests = digestDiffs,
       extra = extraDiffs,
     )
+
+final case class BinaryAttributesDiff(
+  size: Option[(Option[Tracked[FileSize]], Option[Tracked[FileSize]])],
+  chunkCount: Option[(Option[Tracked[ChunkCount]], Option[Tracked[ChunkCount]])],
+  mime: Option[(Option[Tracked[Mime]], Option[Tracked[Mime]])],
+  digests: Map[Algo, (Option[Tracked[HexLower]], Option[Tracked[HexLower]])],
+  extra: Map[String, (Option[Tracked[String]], Option[Tracked[String]])],
+)
 
 final case class BlobWriteResult(
   key: BinaryKey,
