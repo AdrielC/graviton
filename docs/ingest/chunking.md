@@ -447,9 +447,9 @@ test("chunk sizes respect bounds") {
 
 ## See Also
 
-- **[Scans & Events](../core/scans)** — Boundary detection
-- **[End-to-end Upload](../end-to-end-upload)** — Complete ingest pipeline
-- **[Performance Tuning](../ops/performance)** — Optimization strategies
+- **[Scans & Events](../core/scans.md)** — Boundary detection
+- **[End-to-end Upload](../end-to-end-upload.md)** — Complete ingest pipeline
+- **[Performance Tuning](../ops/performance.md)** — Optimization strategies
 
 ::: tip
 Start with FastCDC Level2 for most use cases. Profile with your actual data before optimizing!

@@ -532,9 +532,9 @@ graviton {
 
 ## See Also
 
-- **[gRPC API](./grpc)** ? High-performance binary protocol
-- **[Getting Started](../guide/getting-started)** ? Quick start guide
-- **[Authentication](../ops/deployment#authentication)** ? Security setup
+- **[gRPC API](./grpc.md)** ? High-performance binary protocol
+- **[Getting Started](../guide/getting-started.md)** ? Quick start guide
+- **[Authentication](../ops/deployment.md#authentication)** ? Security setup
 
 ::: tip
 Use multipart upload for files > 100MB for better reliability and progress tracking!

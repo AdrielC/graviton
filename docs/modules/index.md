@@ -13,11 +13,11 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 
 ## Quick Links
 
-- [Backend adapters](/modules/backend)
-- [Runtime module](/modules/runtime)
-- [Streams utilities](/modules/streams)
-- [Protocol stack](/modules/protocol)
-- [Scala.js frontend](/modules/frontend)
-- [Apache Tika module](/modules/tika)
+- [Backend adapters](./backend.md)
+- [Runtime module](./runtime.md)
+- [Streams utilities](./streams.md)
+- [Protocol stack](./protocol.md)
+- [Scala.js frontend](../modules/frontend.md)
+- [Apache Tika module](./tika.md)
 
 Each page outlines the responsibilities, current implementation status, and follow-up tasks needed for v0.1.0. Cross-reference the refined TODO list in `AGENTS.md` for the latest engineering priorities.

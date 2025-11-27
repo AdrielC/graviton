@@ -254,9 +254,9 @@ export JAVA_OPTS="-Xmx4g -Xms2g"
 
 ## Next Steps
 
-- **[Configuration Guide](../ops/deployment)** — Advanced configuration options
-- **[Architecture Overview](../architecture)** — Understand the system design
-- **[First Upload](./getting-started#your-first-upload)** — Try uploading data
+- **[Configuration Guide](../ops/deployment.md)** — Advanced configuration options
+- **[Architecture Overview](../architecture.md)** — Understand the system design
+- **[First Upload](./getting-started.md#your-first-upload)** — Try uploading data
 
 ::: tip
 For development, use `TESTCONTAINERS=1` to automatically spin up PostgreSQL in Docker.
