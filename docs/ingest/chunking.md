@@ -28,7 +28,7 @@ val firstBlockSize = blocks.headOption.map(_.blockSize) // -> ByteConstraints.Bl
 
 val updatedAttributes = blocks.headOption
   .fold(BinaryAttributes.empty) { block =>
-    BinaryAttributes.empty.upsertSize(Tracked.now(block.fileSize, Source.Derived))
+    BinaryAttributes.empty.confirmSize(Tracked.now(block.fileSize, Source.Derived))
   }
 ```
 
