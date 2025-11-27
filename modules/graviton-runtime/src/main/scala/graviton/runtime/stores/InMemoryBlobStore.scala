@@ -47,7 +47,13 @@ final class InMemoryBlobStore private (
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
       digest <- ZIO
-                  .fromEither(Hasher.memory(HashAlgo.Sha256).update(bytes.toArray).result)
+                  .fromEither {
+                    for
+                      hasher <- Hasher.messageDigest(HashAlgo.Sha256)
+                      _       = hasher.update(bytes.toArray)
+                      digest <- hasher.result
+                    yield digest
+                  }
                   .mapError(msg => new IllegalArgumentException(msg))
       bits   <- ZIO
                   .fromEither(KeyBits.create(HashAlgo.Sha256, digest, bytes.length.toLong))

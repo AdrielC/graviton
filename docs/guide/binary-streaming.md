@@ -48,6 +48,7 @@ import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
 import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
+import graviton.core.model.Block.*
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -61,7 +62,12 @@ final case class Ingest(blockStore: BlockStore):
   private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
     wrapEither {
       for
-        digest     <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
+        digest     <- Hasher
+                        .messageDigest(HashAlgo.Sha256)
+                        .flatMap { hasher =>
+                          val _ = hasher.update(block.toArray)
+                          hasher.result
+                        }
         bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)
@@ -88,6 +94,7 @@ final case class Ingest(blockStore: BlockStore):
 
 _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreamingIngest.scala` (managed via `sbt syncDocSnippets`)._
 
+- **Backend-specific size caps**: use `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)` whenever you hydrate a backend config (filesystem quota, S3 object cap, etc.). The core `FileSize` refinement only ensures non-negative longs so each store can apply its own ceiling without fighting the type system.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Hashing before storage** keeps keys stable regardless of backend. The same block hash will deduplicate inside the filesystem, S3, or PostgreSQL stores.
 - **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
@@ -122,6 +129,12 @@ Manifests enumerate blocks in order so retrieval is a pure streaming exercise:
 3. `FrameSynthesis` chooses how the manifest and block frames are serialized (plain, compressed, encrypted) before shipping to a `BlobStore` implementation.
 
 For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames.md).
+
+## Frame codecs & streaming
+
+- **Structured frame encoding**: `graviton.runtime.model.BlockFrameCodec.codec` is the canonical `scodec.Codec[BlockFrame]`. It keeps `FrameHeader` lengths honest (payload vs. AAD) and normalizes the authenticated data to a compact binary layout rather than ad-hoc JSON blobs.
+- **Streaming transforms**: `BlockFrameStreams.encode`/`decode` expose `ZPipeline`s so you can push `ZStream[BlockFrame]` over the wire (gRPC, WebSocket, files) without buffering entire manifests. Compose them with compression/encryption pipelines to keep ingestion and replication purely streaming.
+- **Aad helpers**: `BlockFrameCodec.renderAadBytes` mirrors the runtime encoder so external producers (Rust, Go, etc.) can stay byte-for-byte compatible by mimicking the emitted binary format.
 
 ## Chunking strategy quick reference
 

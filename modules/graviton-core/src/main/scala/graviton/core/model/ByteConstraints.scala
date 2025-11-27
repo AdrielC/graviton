@@ -10,15 +10,14 @@ import io.github.iltotore.iron.constraint.numeric
 object ByteConstraints:
 
   val MinBlockBytes: Int       = 1
-  val MaxBlockBytes: Int       = 16 * 1024 * 1024                // 16 MiB
+  val MaxBlockBytes: Int       = 16 * 1024 * 1024 // 16 MiB
   val MinUploadChunkBytes: Int = 1
   val MaxUploadChunkBytes: Int = MaxBlockBytes
   val MinFileBytes: Long       = 0L
-  val MaxFileBytes: Long       = 1L * 1024 * 1024 * 1024 * 1024L // 1 TiB cap for now
 
   type BlockSize       = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
   type UploadChunkSize = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
-  type FileSize        = Long :| (numeric.Greater[-1] & numeric.LessEqual[1099511627776L])
+  type FileSize        = Long :| numeric.Greater[-1]
   type ChunkCount      = Long :| numeric.Greater[-1]
   type ChunkIndex      = Long :| numeric.Greater[-1]
   type BlockIndex      = Long :| numeric.Greater[-1]
@@ -34,9 +33,16 @@ object ByteConstraints:
     else Right(value.asInstanceOf[UploadChunkSize])
 
   def refineFileSize(value: Long): Either[String, FileSize] =
-    if value < 0 then Left(s"File size cannot be negative, got $value")
-    else if value > MaxFileBytes then Left(s"File size exceeds $MaxFileBytes bytes (got $value)")
+    if value < MinFileBytes then Left(s"File size cannot be negative, got $value")
     else Right(value.asInstanceOf[FileSize])
+
+  /**
+   * Enforce a backend defined limit on a file/blob size. Limits vary per store (filesystem, S3,
+   * database LOBs, etc) so we keep the refinement dynamic and let configs call this helper.
+   */
+  def enforceFileLimit(value: Long, maxBytes: Long): Either[String, FileSize] =
+    if value > maxBytes then Left(s"File size exceeds backend limit $maxBytes bytes (got $value)")
+    else refineFileSize(value)
 
   def refineChunkCount(value: Long): Either[String, ChunkCount] =
     if value < 0 then Left(s"Chunk count cannot be negative, got $value")

@@ -2,6 +2,7 @@ import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
 import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
+import graviton.core.model.Block.*
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -15,7 +16,12 @@ final case class Ingest(blockStore: BlockStore):
   private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
     wrapEither {
       for
-        digest     <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
+        digest     <- Hasher
+                        .messageDigest(HashAlgo.Sha256)
+                        .flatMap { hasher =>
+                          val _ = hasher.update(block.toArray)
+                          hasher.result
+                        }
         bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)

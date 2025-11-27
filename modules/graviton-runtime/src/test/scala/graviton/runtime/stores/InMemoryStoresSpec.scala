@@ -50,7 +50,13 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
     val bytes = Chunk.fromArray(text.getBytes(StandardCharsets.UTF_8))
     for
       digest <- ZIO
-                  .fromEither(Hasher.memory(HashAlgo.Sha256).update(bytes.toArray).result)
+                  .fromEither {
+                    for
+                      hasher <- Hasher.messageDigest(HashAlgo.Sha256)
+                      _       = hasher.update(bytes.toArray)
+                      digest <- hasher.result
+                    yield digest
+                  }
                   .mapError(msg => new IllegalArgumentException(msg))
       bits   <- ZIO
                   .fromEither(KeyBits.create(HashAlgo.Sha256, digest, bytes.length.toLong))
