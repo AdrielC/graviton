@@ -60,8 +60,8 @@ final class InMemoryBlobStore private (
                   .fromEither(ByteConstraints.refineChunkCount(deriveChunkCount(bytes.length)))
                   .mapError(msg => new IllegalArgumentException(msg))
       attrs   = plan.attributes
-                  .confirmSize(Tracked.now(size, Source.Derived))
-                  .confirmChunkCount(Tracked.now(count, Source.Derived))
+                  .confirmSize(size)
+                  .confirmChunkCount(count)
       locator = plan.locatorHint.getOrElse(defaultLocator(key))
       stat    = BlobStat(size, digest.value, Instant.now())
       stored  = StoredBlob(bytes, locator, attrs, stat)
