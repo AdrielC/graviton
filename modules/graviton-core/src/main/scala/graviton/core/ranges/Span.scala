@@ -67,6 +67,31 @@ object Span:
     if ord.lteq(start, end) then Right(new Span(start, end))
     else Left("Span start must be <= end")
 
+  def fromBounds[A: Ordering](start: A, end: A, startInclusive: Boolean, endInclusive: Boolean)(
+    using domain: DiscreteDomain[A]
+  ): Either[String, Span[A]] =
+    val ord = summon[Ordering[A]]
+
+    def adjustStart: Either[String, A] =
+      if startInclusive then Right(start)
+      else
+        val next = domain.next(start)
+        if ord.lteq(next, start) then Left("Exclusive lower bound exceeds domain limits")
+        else Right(next)
+
+    def adjustEnd: Either[String, A] =
+      if endInclusive then Right(end)
+      else
+        val prev = domain.previous(end)
+        if ord.gteq(prev, end) then Left("Exclusive upper bound exceeds domain limits")
+        else Right(prev)
+
+    for
+      lower <- adjustStart
+      upper <- adjustEnd
+      span  <- make(lower, upper)
+    yield span
+
   def unsafe[A: Ordering](start: A, end: A): Span[A] = new Span(start, end)
 
   given [A: Ordering]: Ordering[Span[A]] = Ordering.by(span => (span.startInclusive, span.endInclusive))
