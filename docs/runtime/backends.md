@@ -461,9 +461,9 @@ val migration = for {
 
 ## See Also
 
-- **[Ports & Policies](./ports)** — Service interfaces
-- **[Deployment](../ops/deployment)** — Production setup
-- **[Performance](../ops/performance)** — Tuning backends
+- **[Ports & Policies](./ports.md)** — Service interfaces
+- **[Deployment](../ops/deployment.md)** — Production setup
+- **[Performance](../ops/performance.md)** — Tuning backends
 
 ::: tip
 Start with PostgreSQL for simplicity, migrate to S3 when you need scale!

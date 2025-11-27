@@ -93,17 +93,17 @@ Unsafe.unsafe { implicit unsafe =>
 
 ## What's Next?
 
-- **[Installation Guide](./installation)** — Set up Graviton in your environment
-- **[Binary Streaming Guide](./binary-streaming)** — Learn how blocks, manifests, and chunkers fit together
-- **[Architecture Overview](../architecture)** — Understand the module structure
-- **[Core Concepts](../core/schema)** — Deep dive into schemas, ranges, and scans
-- **[API Reference](../api)** — Explore gRPC and HTTP endpoints
+- **[Installation Guide](./installation.md)** — Set up Graviton in your environment
+- **[Binary Streaming Guide](./binary-streaming.md)** — Learn how blocks, manifests, and chunkers fit together
+- **[Architecture Overview](../architecture.md)** — Understand the module structure
+- **[Core Concepts](../core/schema.md)** — Deep dive into schemas, ranges, and scans
+- **[API Reference](../api.md)** — Explore gRPC and HTTP endpoints
 
 ## Need Help?
 
 - [GitHub Issues](https://github.com/AdrielC/graviton/issues) — Report bugs or request features
-- [Contributing Guide](../dev/contributing) — Learn how to contribute
+- [Contributing Guide](../dev/contributing.md) — Learn how to contribute
 
 ::: tip
-Start with the [Architecture Guide](../architecture) to understand how Graviton's modules fit together.
+Start with the [Architecture Guide](../architecture.md) to understand how Graviton's modules fit together.
 :::

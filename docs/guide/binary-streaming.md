@@ -8,9 +8,9 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
 | **Blob** | Logical object addressable via `BinaryKey`. Blobs reference manifests and carry attributes that survive deduplication. | `graviton.runtime.stores.BlobStore` |
-| **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames) |
+| **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
-| **Chunker** | A `ZPipeline[Any, Throwable, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking) |
+| **Chunker** | A `ZPipeline[Any, Throwable, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
 ## End-to-end flow
 
@@ -119,7 +119,7 @@ Manifests enumerate blocks in order so retrieval is a pure streaming exercise:
 2. `BlockManifest.build` validates that offsets never go backwards and that totals match the confirmed size.
 3. `FrameSynthesis` chooses how the manifest and block frames are serialized (plain, compressed, encrypted) before shipping to a `BlobStore` implementation.
 
-For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames).
+For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames.md).
 
 ## Chunking strategy quick reference
 
@@ -128,7 +128,7 @@ For an in-depth look at framing guarantees, encryption plans, and forward compat
 - **Anchored CDC** lets you split on format-aware anchors (PDF `endobj`, ZIP headers) for structured documents.
 - **BuzHash / Rabin** provide classic rolling-hash behavior when cross-language parity matters.
 
-The [Chunking Strategies guide](../ingest/chunking) provides detailed configuration snippets, decision trees, and performance notes.
+The [Chunking Strategies guide](../ingest/chunking.md) provides detailed configuration snippets, decision trees, and performance notes.
 
 ## Retrieval & reassembly
 
@@ -142,6 +142,6 @@ Because manifest offsets and chunk counts are validated during ingest, retrieval
 
 ## Next steps
 
-- Start from [`guide/getting-started`](./getting-started) to build and run the project locally.
-- Dive into [`ingest/chunking`](../ingest/chunking) for algorithm-level tuning.
-- Explore [`runtime/ports`](../runtime/ports) to see how stores, protocols, and schedulers compose inside the runtime.
+- Start from [`guide/getting-started`](./getting-started.md) to build and run the project locally.
+- Dive into [`ingest/chunking`](../ingest/chunking.md) for algorithm-level tuning.
+- Explore [`runtime/ports`](../runtime/ports.md) to see how stores, protocols, and schedulers compose inside the runtime.

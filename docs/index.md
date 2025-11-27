@@ -77,7 +77,7 @@ Architecture, manifests, and operations pages include interactive Mermaid diagra
 ## Next Steps
 
 :::tip New to Graviton?
-Start with the [Getting Started Guide](guide/getting-started) for a hands-on introduction!
+Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on introduction!
 :::
 
 <div class="grid-container">

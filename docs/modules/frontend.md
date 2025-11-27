@@ -3,7 +3,7 @@
 `modules/frontend` delivers the Laminar-based dashboard that powers the `/demo` page. It cross-compiles alongside the JVM codebase, reuses shared protocol models, and emits a bundle that VitePress loads on demand.
 
 :::tip Need a step-by-step loop?
-See the new [Scala.js Playbook](/dev/scalajs) for incremental builds, hot reload, and bundling cheatsheets.
+See the new [Scala.js Playbook](../dev/scalajs.md) for incremental builds, hot reload, and bundling cheatsheets.
 :::
 
 ## Quick Start

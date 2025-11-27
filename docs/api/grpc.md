@@ -165,4 +165,4 @@ Pair `exportStream` with `GravitonUploadGatewayClientZIO.uploadFrames` to migrat
 - Subscribe to event topics to power dedupe quarantines or compliance checks.
 - Use `Catalog.FindDuplicates` before finalising uploads and leverage `Catalog.Export` + `UploadGateway` for parity checks or migrations.
 
-For HTTP parity and JSON payloads, see [HTTP API](./http). For module wiring and build notes, consult [Protocol Modules](../modules/protocol).
+For HTTP parity and JSON payloads, see [HTTP API](./http.md). For module wiring and build notes, consult [Protocol Modules](../modules/protocol.md).

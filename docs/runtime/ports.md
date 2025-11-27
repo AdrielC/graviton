@@ -517,10 +517,10 @@ object PortTests:
 
 ## See Also
 
-- **[Backends](./backends)** — Concrete implementations
-- **[Replication](./replication)** — Replica management
-- **[Deployment](../ops/deployment)** — Production configuration
-- **[Performance](../ops/performance)** — Optimization strategies
+- **[Backends](./backends.md)** — Concrete implementations
+- **[Replication](./replication.md)** — Replica management
+- **[Deployment](../ops/deployment.md)** — Production configuration
+- **[Performance](../ops/performance.md)** — Optimization strategies
 
 ::: tip
 Use dependency injection via ZLayer to swap implementations for testing and development.

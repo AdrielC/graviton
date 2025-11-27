@@ -327,9 +327,9 @@ def upload(tenantId: String, sessionId: String, data: Array[Byte])
 
 ## See Also
 
-- **[Ranges & Boundaries](./ranges)** — Working with byte ranges
-- **[Scans & Events](./scans)** — Event-driven scanning
-- **[Runtime Ports](../runtime/ports)** — Service interfaces
+- **[Ranges & Boundaries](./ranges.md)** — Working with byte ranges
+- **[Scans & Events](./scans.md)** — Event-driven scanning
+- **[Runtime Ports](../runtime/ports.md)** — Service interfaces
 
 ::: tip
 Use `DeriveSchema.gen` for most cases. Only write manual schemas for performance-critical hot paths.
