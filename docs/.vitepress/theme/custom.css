@@ -2466,6 +2466,189 @@ body.konami-mode .VPNavBarTitle .logo {
   gap: 1.5rem;
 }
 
+.pipeline-timeline {
+  margin-top: 2rem;
+  padding: 1.75rem;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  background: rgba(10, 14, 20, 0.82);
+  box-shadow: 0 30px 60px rgba(0, 255, 65, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.timeline-title h3 {
+  margin: 0;
+  color: var(--vp-c-brand-1);
+}
+
+.timeline-title p {
+  margin: 0.35rem 0 0;
+  color: var(--vp-c-text-2);
+  max-width: 48ch;
+}
+
+.timeline-controls {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.timeline-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.timeline-metric {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.9rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 255, 65, 0.18);
+  background: rgba(0, 255, 65, 0.06);
+}
+
+.metric-icon {
+  font-size: 1.5rem;
+}
+
+.metric-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.metric-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--vp-c-brand-1);
+}
+
+.metric-label {
+  font-size: 0.85rem;
+  color: var(--vp-c-text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.timeline-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  position: relative;
+  padding-left: 1rem;
+}
+
+.timeline-stream::before {
+  content: '';
+  position: absolute;
+  left: 0.35rem;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 2px;
+  background: linear-gradient(var(--vp-c-brand-1), transparent 60%);
+  opacity: 0.5;
+}
+
+.timeline-event {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  background: rgba(0, 255, 65, 0.04);
+  position: relative;
+}
+
+.timeline-event::before {
+  content: '';
+  position: absolute;
+  left: -1rem;
+  top: 1.4rem;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--vp-c-brand-1);
+  box-shadow: 0 0 12px var(--vp-c-brand-1);
+}
+
+.timeline-event.advisory {
+  border-color: rgba(255, 200, 0, 0.5);
+  background: rgba(255, 200, 0, 0.08);
+}
+
+.timeline-event.critical {
+  border-color: rgba(255, 72, 72, 0.6);
+  background: rgba(255, 72, 72, 0.08);
+}
+
+.event-icon {
+  font-size: 1.75rem;
+  filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.35));
+}
+
+.event-body h4 {
+  margin: 0;
+  color: var(--vp-c-text-1);
+}
+
+.event-stage {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+}
+
+.event-summary {
+  margin: 0.35rem 0 0.75rem;
+  color: var(--vp-c-text-2);
+}
+
+.event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.meta-pill {
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  font-size: 0.8rem;
+  color: var(--vp-c-text-1);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.timeline-toggle,
+.timeline-nudge {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .pipeline-timeline {
+    padding: 1.25rem;
+  }
+
+  .timeline-header {
+    flex-direction: column;
+  }
+
+  .timeline-controls {
+    width: 100%;
+  }
+}
+
 .boost-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
