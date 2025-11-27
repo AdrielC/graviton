@@ -1,11 +1,57 @@
 package graviton.runtime.model
 
-import graviton.core.model.FileSize
-import graviton.core.types.given
+import graviton.core.model.ByteConstraints
+import graviton.core.types.FileSize
 import java.time.Instant
-import zio.schema.DeriveSchema
+import zio.Chunk
+import zio.schema.{Schema, TypeId}
+import zio.schema.validation.Validation
 
 final case class BlobStat(size: FileSize, etag: String, lastModified: Instant)
 
 object BlobStat:
-  given zio.schema.Schema[BlobStat] = DeriveSchema.gen[BlobStat]
+  private val fileSizeSchema: Schema[FileSize] =
+    Schema[Long].transformOrFail(
+      value => ByteConstraints.refineFileSize(value),
+      refined => Right(refined.asInstanceOf[Long]),
+    )
+
+  private val sizeField: Schema.Field[BlobStat, FileSize] =
+    Schema.Field(
+      name0 = "size",
+      schema0 = fileSizeSchema,
+      annotations0 = Chunk.empty,
+      validation0 = Validation.succeed,
+      get0 = _.size,
+      set0 = (blob, value) => blob.copy(size = value),
+    )
+
+  private val etagField: Schema.Field[BlobStat, String] =
+    Schema.Field(
+      name0 = "etag",
+      schema0 = Schema[String],
+      annotations0 = Chunk.empty,
+      validation0 = Validation.succeed,
+      get0 = _.etag,
+      set0 = (blob, value) => blob.copy(etag = value),
+    )
+
+  private val lastModifiedField: Schema.Field[BlobStat, Instant] =
+    Schema.Field(
+      name0 = "lastModified",
+      schema0 = Schema[Instant],
+      annotations0 = Chunk.empty,
+      validation0 = Validation.succeed,
+      get0 = _.lastModified,
+      set0 = (blob, value) => blob.copy(lastModified = value),
+    )
+
+  given Schema[BlobStat] =
+    Schema.CaseClass3(
+      id0 = TypeId.Structural,
+      field01 = sizeField,
+      field02 = etagField,
+      field03 = lastModifiedField,
+      construct0 = (size, etag, modified) => BlobStat(size, etag, modified),
+      annotations0 = Chunk.empty,
+    )

@@ -67,18 +67,24 @@ lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder
 generateDocs := {
   val log = Keys.streams.value.log
   val targetDir = file("docs/public/scaladoc")
-  
+
   log.info("Generating Scaladoc for core modules...")
-  
-  // Generate docs for key modules (use LocalProject to avoid ambiguity)
-  val coreDoc = (LocalProject("core") / Compile / doc).value
-  val streamsDoc = (LocalProject("streams") / Compile / doc).value
-  val runtimeDoc = (LocalProject("runtime") / Compile / doc).value
-  
-  log.info("Copying core module docs to docs folder...")
+
+  val moduleDocs = List(
+    "core" -> (LocalProject("core") / Compile / doc).value,
+    "streams" -> (LocalProject("streams") / Compile / doc).value,
+    "runtime" -> (LocalProject("runtime") / Compile / doc).value
+  )
+
   IO.delete(targetDir)
-  IO.copyDirectory(coreDoc, targetDir)
-  
+  IO.createDirectory(targetDir)
+
+  moduleDocs.foreach { case (name, srcDir) =>
+    val dest = targetDir / name
+    log.info(s"Copying $name scaladoc to $dest")
+    IO.copyDirectory(srcDir, dest, overwrite = true, preserveLastModified = true)
+  }
+
   log.info(s"Scaladoc copied to $targetDir")
 }
 
@@ -173,6 +179,7 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
       "io.getkyo" %% "kyo-data" % "0.19.0",
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
+      "dev.zio" %% "zio-json" % "0.7.3",
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
@@ -206,6 +213,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
+      "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,

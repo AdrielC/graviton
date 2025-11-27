@@ -125,8 +125,6 @@ object BinaryAttr:
 
   given Tag[FileSize]                    =
     scala.compiletime.summonInline[Tag[Long]].asInstanceOf[Tag[FileSize]]
-  given Tag[ChunkCount]                  =
-    scala.compiletime.summonInline[Tag[Long]].asInstanceOf[Tag[ChunkCount]]
   given Tag[Mime]                        = Tag.derive
   given Tag[HexLower]                    = Tag.derive
   given Tag[Algo]                        = Tag.derive
