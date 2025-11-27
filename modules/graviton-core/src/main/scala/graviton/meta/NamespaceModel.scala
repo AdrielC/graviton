@@ -2,6 +2,7 @@ package graviton.meta
 
 import zio.schema.DynamicValue.Record
 
+/** Metadata describing a namespace’s schema provenance (embedded next to each block of DynamicValue data). */
 final case class NamespaceHeader(
   id: Option[SchemaId],
   schema: Option[SchemaId],

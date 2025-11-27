@@ -1,6 +1,7 @@
 package graviton.core.macros
 
 import graviton.core.locator.BlobLocator
+import graviton.core.ranges.Span
 import graviton.core.types.*
 import scala.quoted.*
 
@@ -12,6 +13,9 @@ object Interpolators:
 
     inline def locator(inline args: Any*): BlobLocator =
       ${ locatorImpl('sc, 'args) }
+
+    inline def span(inline args: Any*): Span[Long] =
+      ${ spanImpl('sc, 'args) }
 
   private def hexImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[HexLower] =
     import quotes.reflect.report
@@ -37,6 +41,24 @@ object Interpolators:
         report.error("locator literal must match '<scheme>://<bucket>/<path>' with lowercase scheme")
         '{ BlobLocator("", "", "") }
 
+  private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
+    argsExpr match
+      case Varargs(Seq()) =>
+        scExpr.value match
+          case Some(ctx) =>
+            SpanHelper.parseEither(ctx.parts.mkString) match
+              case Right((start, end)) => '{ Span.unsafe[Long](${ Expr(start) }, ${ Expr(end) }) }
+              case Left(err)           =>
+                quotes.reflect.report.error(err)
+                '{ Span.unsafe[Long](0L, -1L) }
+          case None =>
+            runtimeSpan(scExpr, argsExpr)
+      case _ =>
+        runtimeSpan(scExpr, argsExpr)
+
+  private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
+    '{ Interpolators.SpanHelper.parse(${ scExpr }.s(${ argsExpr }*)) }
+
   private val locatorPattern = """([a-z0-9+.-]+)://([^/]+)/(.+)""".r
 
   private def extractLiteralParts(scExpr: Expr[StringContext])(using Quotes): List[String] =
@@ -50,3 +72,26 @@ object Interpolators:
     argsExpr match
       case Varargs(Seq()) => ()
       case _              => quotes.reflect.report.error(s"$name interpolator does not support arguments")
+
+  private[macros] object SpanHelper:
+    def parse(input: String): Span[Long] =
+      parseEither(input) match
+        case Right((start, end)) => Span.unsafe(start, end)
+        case Left(err)           => throw IllegalArgumentException(err)
+
+    def parseEither(input: String): Either[String, (Long, Long)] =
+      val trimmed = input.trim
+      val parts   = trimmed.split("\\.\\.", 2)
+      if parts.length != 2 then Left(s"Span literal '$input' must use '..' to separate bounds")
+      else
+        val startPart = parts(0).trim
+        val endPart   = parts(1).trim
+        for
+          start <- parseLong(startPart)
+          end   <- parseLong(endPart)
+          _     <- Span.make(start, end)
+        yield (start, end)
+
+    private def parseLong(value: String): Either[String, Long] =
+      try Right(java.lang.Long.parseLong(value))
+      catch case _: NumberFormatException => Left(s"Span bound '$value' is not a valid integer")

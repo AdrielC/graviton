@@ -1,7 +1,7 @@
 package graviton.runtime.model
 
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
-import graviton.core.bytes.{HashAlgo, Hasher}
+import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
 import zio.*
@@ -37,23 +37,18 @@ object BlockFrameCodecSpec extends ZIOSpecDefault:
   private def canonicalBlock(label: String): IO[Throwable, CanonicalBlock] =
     val bytes = Chunk.fromArray(label.getBytes(StandardCharsets.UTF_8))
     for
-      digest <- ZIO
-                  .fromEither {
-                    for
-                      hasher <- Hasher.messageDigest(HashAlgo.default)
-                      _       = hasher.update(bytes.toArray)
-                      digest <- hasher.result
-                    yield digest
-                  }
-                  .mapError(msg => new IllegalArgumentException(msg))
-      bits   <- ZIO
-                  .fromEither(KeyBits.create(HashAlgo.default, digest, bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      attrs   = BinaryAttributes.empty.confirmSize(
-                  Tracked.now(ByteConstraints.unsafeFileSize(bytes.length.toLong), Source.Derived)
-                )
-      block  <- ZIO
-                  .fromEither(CanonicalBlock.make(key, bytes, attrs))
-                  .mapError(msg => new IllegalArgumentException(msg))
+      algoHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+      (algo, hasher) = algoHasher
+      _              = hasher.update(bytes.toArray)
+      digest        <- ZIO.fromEither(hasher.result).mapError(msg => new IllegalArgumentException(msg))
+      bits          <- ZIO
+                         .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                         .mapError(msg => new IllegalArgumentException(msg))
+      key           <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+      attrs          = BinaryAttributes.empty.confirmSize(
+                         Tracked.now(ByteConstraints.unsafeFileSize(bytes.length.toLong), Source.Derived)
+                       )
+      block         <- ZIO
+                         .fromEither(CanonicalBlock.make(key, bytes, attrs))
+                         .mapError(msg => new IllegalArgumentException(msg))
     yield block

@@ -49,20 +49,15 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
   private def canonical(text: String): IO[Throwable, CanonicalBlock] =
     val bytes = Chunk.fromArray(text.getBytes(StandardCharsets.UTF_8))
     for
-      digest <- ZIO
-                  .fromEither {
-                    for
-                      hasher <- Hasher.messageDigest(HashAlgo.default)
-                      _       = hasher.update(bytes.toArray)
-                      digest <- hasher.result
-                    yield digest
-                  }
-                  .mapError(msg => new IllegalArgumentException(msg))
-      bits   <- ZIO
-                  .fromEither(KeyBits.create(HashAlgo.default, digest, bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      block  <- ZIO
-                  .fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty))
-                  .mapError(msg => new IllegalArgumentException(msg))
+      algoHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+      (algo, hasher) = algoHasher
+      _              = hasher.update(bytes.toArray)
+      digest        <- ZIO.fromEither(hasher.result).mapError(msg => new IllegalArgumentException(msg))
+      bits          <- ZIO
+                         .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                         .mapError(msg => new IllegalArgumentException(msg))
+      key           <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+      block         <- ZIO
+                         .fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty))
+                         .mapError(msg => new IllegalArgumentException(msg))
     yield block

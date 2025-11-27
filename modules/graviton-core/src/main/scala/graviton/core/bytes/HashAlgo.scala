@@ -12,7 +12,19 @@ enum HashAlgo(val hexLength: Int, val jceNames: List[String]) derives CanEqual:
 object HashAlgo:
   given zio.schema.Schema[HashAlgo] = DeriveSchema.gen[HashAlgo]
 
+  /** Preferred hash order (BLAKE3 first, then SHA-256 for FIPS environments, finally SHA-1 for legacy). */
+  val preferredOrder: List[HashAlgo] = List(HashAlgo.Blake3, HashAlgo.Sha256, HashAlgo.Sha1)
+
+  /** Primary build-time default (kept as BLAKE3 for performance). */
   val default: HashAlgo = HashAlgo.Blake3
+
+  /** Detects the first available provider from [[preferredOrder]]. */
+  lazy val runtimeDefault: HashAlgo =
+    Hasher.acquirePreferred(preferredOrder).fold(_ => HashAlgo.Sha256, _._1)
+
+  /** Convenience hook to obtain both the algorithm and the instantiated hasher following [[preferredOrder]]. */
+  def runtimeHasher: Either[String, (HashAlgo, Hasher)] =
+    Hasher.acquirePreferred(preferredOrder)
 
   def fromString(value: String): Option[HashAlgo] =
     value.toLowerCase match
