@@ -17,7 +17,7 @@ import zio.schema.Schema
 import java.util.regex.Pattern
 
 object types:
-  type Algo             = String :| Match["(sha-256|blake3|md5)"]
+  type Algo             = String :| Match["(sha-256|sha-1|blake3|md5)"]
   type HexLower         = String :| (Match["[0-9a-f]+"] & MinLength[2])
   type Mime             = String :| Match["[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+(;.*)?"]
   type Size             = Long :| numeric.Greater[-1]
@@ -37,6 +37,7 @@ object types:
   val MaxBlockBytes: Int = ByteConstraints.MaxBlockBytes
 
   private val Sha256HexLength = 64
+  private val Sha1HexLength   = 40
   private val Md5HexLength    = 32
   private val KekIdPattern    = Pattern.compile("^[A-Za-z0-9:_-]{4,128}$")
 
@@ -44,6 +45,8 @@ object types:
     algo match
       case "sha-256" =>
         Either.cond(hex.length == Sha256HexLength, (), s"sha-256 requires $Sha256HexLength hex chars, got ${hex.length}")
+      case "sha-1"   =>
+        Either.cond(hex.length == Sha1HexLength, (), s"sha-1 requires $Sha1HexLength hex chars, got ${hex.length}")
       case "md5"     =>
         Either.cond(hex.length == Md5HexLength, (), s"md5 requires $Md5HexLength hex chars, got ${hex.length}")
       case "blake3"  => Right(())

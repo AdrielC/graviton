@@ -10,13 +10,13 @@ import graviton.core.scan.FS.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import zio.test.Assertion.*
-
 import java.nio.charset.StandardCharsets
+import zio.test.Assertion.*
 
 object FreeScanV2Spec extends ZIOSpecDefault:
 
-  private val ascii = StandardCharsets.US_ASCII
+  private val ascii           = StandardCharsets.US_ASCII
+  private val runtimeHashAlgo = HashAlgo.runtimeDefault
 
   private def chunk(str: String): Chunk[Byte] = Chunk.fromArray(str.getBytes(ascii))
 
@@ -65,12 +65,12 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         assertTrue(outputs == List("abc", "de"))
       },
       test("manifest builder aggregates entries") {
-        val digestHex = "0" * 64
+        val digestHex = "0" * runtimeHashAlgo.hexLength
 
         for
-          digest   <- ZIO.fromEither(Digest.make(HashAlgo.Sha256, digestHex))
-          keyBits1 <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, 10L))
-          keyBits2 <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, 5L))
+          digest   <- ZIO.fromEither(Digest.make(runtimeHashAlgo, digestHex))
+          keyBits1 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 10L))
+          keyBits2 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 5L))
           entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
           entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
           outputs   = buildManifest.runChunk(List(entry1, entry2))
@@ -82,11 +82,16 @@ object FreeScanV2Spec extends ZIOSpecDefault:
       },
       test("hashBytes emits padded digest on flush") {
         val data     = chunk("hi")
-        val outputs  = hashBytes(HashAlgo.Sha256).runChunk(List(data))
-        val expected = "6869" + ("0" * 60)
+        val outputs  = hashBytes(runtimeHashAlgo).runChunk(List(data))
+        val expected =
+          for
+            hasher <- Hasher.messageDigest(runtimeHashAlgo)
+            _       = hasher.update("hi".getBytes(StandardCharsets.UTF_8))
+            digest <- hasher.result
+          yield digest
 
         for
-          digest <- ZIO.fromEither(Digest.make(HashAlgo.Sha256, expected))
+          digest <- ZIO.fromEither(expected)
           result <- ZIO.fromOption(outputs.lastOption)
         yield assertTrue(result == Right(digest))
       },
