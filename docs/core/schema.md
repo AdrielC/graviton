@@ -195,21 +195,23 @@ object BinaryKey:
 Metadata attached to blobs:
 
 ```scala
-enum BinaryAttributeKey:
-  case ContentType
-  case Encoding
-  case OriginalName
-  case UploadTimestamp
-  case CustomAttribute(name: String)
+enum BinaryAttributeKey[A]:
+  case Size extends BinaryAttributeKey[FileSize]
+  case ChunkCount extends BinaryAttributeKey[ChunkCount]
+  case Mime extends BinaryAttributeKey[Mime]
+  case Digest(algo: Algo) extends BinaryAttributeKey[HexLower]
+  case Custom(name: String) extends BinaryAttributeKey[String]
 
 final case class BinaryAttributes(
-  advertised: Map[BinaryAttributeKey, String],
-  confirmed: Map[BinaryAttributeKey, String]
+  advertised: ListMap[BinaryAttributeKey[?], Tracked[?]],
+  confirmed: ListMap[BinaryAttributeKey[?], Tracked[?]]
 ):
-  def get(key: BinaryAttributeKey): Option[String] =
+  def advertise[A](key: BinaryAttributeKey[A], value: Tracked[A]): BinaryAttributes
+  def confirm[A](key: BinaryAttributeKey[A], value: Tracked[A]): BinaryAttributes
+  def get[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
     confirmed.get(key).orElse(advertised.get(key))
   
-  def validate: IO[ValidationError, BinaryAttributes]
+  def validate: Either[ValidationError, BinaryAttributes]
 ```
 
 ### Confirmed vs Advertised
