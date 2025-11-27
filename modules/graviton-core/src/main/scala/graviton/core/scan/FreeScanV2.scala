@@ -122,7 +122,7 @@ object FS:
     }(_ => Chunk.empty)
 
   def hashBytes(algo: HashAlgo): FreeScan[Prim, Chunk[Byte], Either[String, Digest]] =
-    fold[Chunk[Byte], Either[String, Digest], Hasher](Hasher.memory(algo)) { (hasher, chunk) =>
+    fold[Chunk[Byte], Either[String, Digest], Hasher](Hasher.unsafeMessageDigest(algo)) { (hasher, chunk) =>
       val updated = hasher.update(chunk.toArray)
       (updated, Chunk.empty)
     }(hasher => Chunk(hasher.result))

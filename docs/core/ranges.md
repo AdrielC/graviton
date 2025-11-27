@@ -72,6 +72,19 @@ object Span:
     Span(interval.start.value, interval.length)
 ```
 
+### Span interpolator
+
+For ergonomics, the `span"…"` interpolator builds `Span[Long]` instances directly at the call site. By default it assumes
+inclusive bounds (`span"0..42"`), but you can opt into half-open windows using bracket/parenthesis markers:
+
+```scala
+import graviton.core.macros.Interpolators.*
+
+val closed   = span"[0..42]"   // inclusive on both ends
+val halfOpen = span"[0..42)"   // exclusive upper bound (=> Span.unsafe(0, 41))
+val runtime  = span"$offset..${offset + length - 1}" // falls back to runtime parsing when arguments are present
+```
+
 ## RangeSet Algebra
 
 ### Construction

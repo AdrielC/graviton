@@ -14,11 +14,12 @@ object ByteConstraintsSpec extends ZIOSpecDefault:
         val result = ByteConstraints.refineBlockSize(ByteConstraints.MaxBlockBytes + 1)
         assertTrue(result.isLeft)
       },
-      test("FileSize enforces lower and upper bounds") {
-        val within = ByteConstraints.refineFileSize(128L)
-        val below  = ByteConstraints.refineFileSize(ByteConstraints.MinFileBytes - 1)
-        val above  = ByteConstraints.refineFileSize(ByteConstraints.MaxFileBytes + 1)
-        assertTrue(within.isRight && below.isLeft && above.isLeft)
+      test("FileSize enforces non-negativity and backend limits") {
+        val within       = ByteConstraints.refineFileSize(128L)
+        val below        = ByteConstraints.refineFileSize(ByteConstraints.MinFileBytes - 1)
+        val exceedsLimit = ByteConstraints.enforceFileLimit(2048L, 1024L)
+        val withinLimit  = ByteConstraints.enforceFileLimit(512L, 1024L)
+        assertTrue(within.isRight && below.isLeft && exceedsLimit.isLeft && withinLimit.isRight)
       },
       test("ChunkCount disallows negatives") {
         val valid   = ByteConstraints.refineChunkCount(0L)

@@ -1,7 +1,8 @@
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
-import graviton.core.bytes.{HashAlgo, Hasher}
+import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
+import graviton.core.model.Block.*
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -15,14 +16,16 @@ final case class Ingest(blockStore: BlockStore):
   private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
     wrapEither {
       for
-        digest     <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
-        bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
-        key        <- BinaryKey.block(bits)
-        chunkCount <- ByteConstraints.refineChunkCount(1L)
-        confirmed   = attrs
-                        .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
-                        .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
-        canonical  <- CanonicalBlock.make(key, block, confirmed)
+        (algo, hasher) <- Hasher.systemDefault
+        _               = hasher.update(block.toArray)
+        digest         <- hasher.result
+        bits           <- KeyBits.create(algo, digest, block.length.toLong)
+        key            <- BinaryKey.block(bits)
+        chunkCount     <- ByteConstraints.refineChunkCount(1L)
+        confirmed       = attrs
+                            .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
+                            .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+        canonical      <- CanonicalBlock.make(key, block, confirmed)
       yield canonical
     }
 

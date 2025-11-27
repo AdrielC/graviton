@@ -3,8 +3,6 @@ package graviton.runtime.model
 import graviton.core.keys.BinaryKey
 import zio.Chunk
 
-import java.nio.charset.StandardCharsets
-
 object BlockFramer:
   val FrameVersion: Byte = 1
 
@@ -28,7 +26,7 @@ object BlockFramer:
       _                                           <- ensureNonNegative(index, "blockIndex")
       aadPlan                                      = aadPlanFor(plan.frame.encryption)
       aadModel                                     = buildAad(index, context, aadPlan)
-      aadBytes                                     = renderAad(aadModel)
+      aadBytes                                    <- BlockFrameCodec.renderAadBytes(aadModel)
       compressed                                  <- applyCompression(block.bytes, plan.frame.compression)
       (ciphertext, tag, headerKeyId, headerNonce) <- applyEncryption(compressed, plan.frame.encryption)
       algorithm                                    = algorithmFor(plan.frame)
@@ -59,41 +57,6 @@ object BlockFramer:
       else aadPlan.extra.map { case (k, v) => FrameAadEntry(k, v) }
 
     FrameAad(orgId, blobKey, blockIndex, context.policyTag, extras)
-
-  private def renderAad(aad: FrameAad): Chunk[Byte] =
-    val builder = new StringBuilder
-    builder.append('{')
-
-    var first = true
-
-    def appendField(name: String, value: String): Unit =
-      if first then first = false else builder.append(',')
-      builder.append('"')
-      builder.append(name)
-      builder.append('"')
-      builder.append(':')
-      builder.append('"')
-      builder.append(escape(value))
-      builder.append('"')
-
-    aad.orgId.foreach(v => appendField("orgId", v))
-    aad.blobKey.foreach(key => appendField("blobKey", key.toString))
-    aad.blockIndex.foreach(idx => appendField("blockIndex", idx.toString))
-    aad.policyTag.foreach(tag => appendField("policyTag", tag))
-    if aad.extra.nonEmpty then
-      val values = aad.extra.map(entry => s"${escape(entry.key)}=${escape(entry.value)}").mkString(";")
-      appendField("extra", values)
-
-    builder.append('}')
-
-    Chunk.fromArray(builder.toString.getBytes(StandardCharsets.UTF_8))
-
-  private def escape(value: String): String =
-    value.flatMap {
-      case '"'  => "\\\""
-      case '\\' => "\\\\"
-      case ch   => ch.toString
-    }
 
   private def applyCompression(
     payload: Chunk[Byte],

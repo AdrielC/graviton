@@ -1,36 +1,38 @@
 package graviton.core.model
 
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 import zio.{Chunk, NonEmptyChunk}
 
-opaque type UploadChunk = Chunk[Byte]
+type UploadChunk = Chunk[Byte] :| UploadChunk.Constraint
 
 object UploadChunk:
+  type Constraint = MinLength[1] & MaxLength[16777216]
+
   inline def maxBytes: Int = ByteConstraints.MaxUploadChunkBytes
 
   def fromChunk(chunk: Chunk[Byte]): Either[String, UploadChunk] =
-    if chunk.isEmpty then Left("Upload chunk cannot be empty")
-    else if chunk.length > ByteConstraints.MaxUploadChunkBytes then
-      Left(s"Upload chunk exceeds ${ByteConstraints.MaxUploadChunkBytes} bytes (got ${chunk.length})")
-    else Right(chunk)
+    chunk.refineEither[Constraint]
 
-  inline def unsafe(chunk: Chunk[Byte]): UploadChunk = chunk
+  inline def unsafe(chunk: Chunk[Byte]): UploadChunk =
+    chunk.asInstanceOf[UploadChunk]
 
   extension (chunk: UploadChunk)
     def bytes: Chunk[Byte] = chunk
     def length: Int        = chunk.length
 
-opaque type Block = Chunk[Byte]
+type Block = Chunk[Byte] :| Block.Constraint
 
 object Block:
+  type Constraint = MinLength[1] & MaxLength[16777216]
+
   inline def maxBytes: Int = ByteConstraints.MaxBlockBytes
 
   def fromChunk(chunk: Chunk[Byte]): Either[String, Block] =
-    if chunk.isEmpty then Left("Block cannot be empty")
-    else if chunk.length > ByteConstraints.MaxBlockBytes then
-      Left(s"Block exceeds ${ByteConstraints.MaxBlockBytes} bytes (got ${chunk.length})")
-    else Right(chunk)
+    chunk.refineEither[Constraint]
 
-  inline def unsafe(chunk: Chunk[Byte]): Block = chunk
+  inline def unsafe(chunk: Chunk[Byte]): Block =
+    chunk.asInstanceOf[Block]
 
   extension (block: Block)
     def bytes: Chunk[Byte]                 = block

@@ -45,9 +45,10 @@ sequenceDiagram
 <!-- snippet:binary-streaming-ingest:start -->
 ```scala
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
-import graviton.core.bytes.{HashAlgo, Hasher}
+import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
+import graviton.core.model.Block.*
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -61,14 +62,16 @@ final case class Ingest(blockStore: BlockStore):
   private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
     wrapEither {
       for
-        digest     <- Hasher.memory(HashAlgo.Sha256).update(block.toArray).result
-        bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
-        key        <- BinaryKey.block(bits)
-        chunkCount <- ByteConstraints.refineChunkCount(1L)
-        confirmed   = attrs
-                        .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
-                        .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
-        canonical  <- CanonicalBlock.make(key, block, confirmed)
+        (algo, hasher) <- Hasher.systemDefault
+        _               = hasher.update(block.toArray)
+        digest         <- hasher.result
+        bits           <- KeyBits.create(algo, digest, block.length.toLong)
+        key            <- BinaryKey.block(bits)
+        chunkCount     <- ByteConstraints.refineChunkCount(1L)
+        confirmed       = attrs
+                            .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
+                            .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+        canonical      <- CanonicalBlock.make(key, block, confirmed)
       yield canonical
     }
 
@@ -88,8 +91,10 @@ final case class Ingest(blockStore: BlockStore):
 
 _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreamingIngest.scala` (managed via `sbt syncDocSnippets`)._
 
+- **Backend-specific size caps**: use `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)` whenever you hydrate a backend config (filesystem quota, S3 object cap, etc.). The core `FileSize` refinement only ensures non-negative longs so each store can apply its own ceiling without fighting the type system.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
-- **Hashing before storage** keeps keys stable regardless of backend. The same block hash will deduplicate inside the filesystem, S3, or PostgreSQL stores.
+- **FreeScan-powered chunking**: `Chunker.fixed` is backed by `FreeScanV2.fixedChunker` so state machines stay declarative and optimisable before we lower them to ZIO pipelines.
+- **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` (currently BLAKE3) is the runtime’s default, but you can still opt into SHA-256 for FIPS-bound workflows.
 - **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
 
 ## Attribute lifecycle
@@ -123,6 +128,12 @@ Manifests enumerate blocks in order so retrieval is a pure streaming exercise:
 
 For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames.md).
 
+## Frame codecs & streaming
+
+- **Structured frame encoding**: `graviton.runtime.model.BlockFrameCodec.codec` is the canonical `scodec.Codec[BlockFrame]`. It keeps `FrameHeader` lengths honest (payload vs. AAD) and normalizes the authenticated data to a compact binary layout rather than ad-hoc JSON blobs.
+- **Streaming transforms**: `BlockFrameStreams.encode`/`decode` expose `ZPipeline`s so you can push `ZStream[BlockFrame]` over the wire (gRPC, WebSocket, files) without buffering entire manifests. Compose them with compression/encryption pipelines to keep ingestion and replication purely streaming.
+- **Aad helpers**: `BlockFrameCodec.renderAadBytes` mirrors the runtime encoder so external producers (Rust, Go, etc.) can stay byte-for-byte compatible by mimicking the emitted binary format.
+
 ## Chunking strategy quick reference
 
 - **Fixed-size** chunking maximizes throughput and predictable offsets. Use for append-only logs or when deduplication is irrelevant.
@@ -141,6 +152,12 @@ Fetching a blob reverses the ingest pipeline:
 3. Blocks are reassembled into a `ZStream[Byte]`. Partial reads use manifest offsets so large blobs can seek without decoding the entire payload.
 
 Because manifest offsets and chunk counts are validated during ingest, retrieval never needs to buffer the whole object; the runtime can resume from any block boundary and still honor encryption or compression frames.
+
+## Namespace metadata as DynamicValue
+
+- **Canonical form**: each namespace resolves to a `NamespaceBlock` whose `data` field is a `zio.schema.DynamicValue.Record`. `NamespacesDyn` just hangs on to a map of `NamespaceUrn -> NamespaceBlock` plus a routing table of schema IDs for migrations.
+- **Typed helpers**: `DynamicRecordCodec.toRecord` / `fromRecord` wrap `Schema.toDynamic` and `Schema.fromDynamic` so system schemas can keep compiling down to DynamicValue while remaining typesafe.
+- **Encoding**: `DynamicJsonCodec.encodeDynamic/decodeDynamicRecord` bridge DynamicValue ↔ `zio.json.ast.Json`. For system namespaces the flow is JSON → typed meta → DynamicValue.Record; for tenant namespaces you can skip the typed hop and work directly with DynamicValue once validation succeeds.
 
 ## Next steps
 
