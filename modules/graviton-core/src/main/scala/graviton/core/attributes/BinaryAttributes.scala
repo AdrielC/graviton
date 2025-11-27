@@ -68,37 +68,72 @@ object BinaryAttributes:
       case InvalidCustomKey(name) =>
         s"Custom attribute name '$name' must match ${BinaryAttributes.customKeyPattern}"
 
-  private type AttrMap = ListMap[BinaryAttributeKey[?], BinaryAttributeValue[?]]
-
   private val customKeyPattern = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
 
-  private[attributes] def write[A](
-    map: AttrMap,
-    key: BinaryAttributeKey[A],
-    value: Tracked[A],
-  ): AttrMap =
-    map.get(key) match
-      case Some(existing) =>
-        map.updated(key, existing.asInstanceOf[BinaryAttributeValue[A]].merge(value))
-      case None           =>
-        map.updated(key, BinaryAttributeValue(value))
+  object BinaryAttributesRow:
+    import kyo.Record.`~`
 
-  private[attributes] def read[A](map: AttrMap, key: BinaryAttributeKey[A]): Option[Tracked[A]] =
-    map.get(key).map(_.asInstanceOf[BinaryAttributeValue[A]].tracked)
+    type Fields =
+      "size" ~ Option[Tracked[FileSize]] & "chunkCount" ~ Option[Tracked[ChunkCount]] & "mime" ~ Option[Tracked[Mime]] &
+        "digests" ~ Map[Algo, Tracked[HexLower]] & "custom" ~ Map[String, Tracked[String]]
 
-  private[attributes] def materialize(map: AttrMap): ListMap[BinaryAttributeKey[?], Tracked[?]] =
-    ListMap.from(map.iterator.map { case (key, entry) => key -> entry.tracked })
+    type Record = kyo.Record[Fields]
+
+    val empty: Record =
+      apply(
+        size = None,
+        chunkCount = None,
+        mime = None,
+        digests = Map.empty,
+        custom = Map.empty,
+      )
+
+    def apply(
+      size: Option[Tracked[FileSize]],
+      chunkCount: Option[Tracked[ChunkCount]],
+      mime: Option[Tracked[Mime]],
+      digests: Map[Algo, Tracked[HexLower]],
+      custom: Map[String, Tracked[String]],
+    ): Record =
+      ("size" ~ size) &
+        ("chunkCount" ~ chunkCount) &
+        ("mime" ~ mime) &
+        ("digests" ~ digests) &
+        ("custom" ~ custom)
+
+    def update(
+      record: Record
+    )(
+      size: Option[Tracked[FileSize]] = size(record),
+      chunkCount: Option[Tracked[ChunkCount]] = chunkCount(record),
+      mime: Option[Tracked[Mime]] = mime(record),
+      digests: Map[Algo, Tracked[HexLower]] = digests(record),
+      custom: Map[String, Tracked[String]] = custom(record),
+    ): Record =
+      apply(size, chunkCount, mime, digests, custom)
+
+    def size(record: Record): Option[Tracked[FileSize]] =
+      record.selectDynamic("size").asInstanceOf[Option[Tracked[FileSize]]]
+
+    def chunkCount(record: Record): Option[Tracked[ChunkCount]] =
+      record.selectDynamic("chunkCount").asInstanceOf[Option[Tracked[ChunkCount]]]
+
+    def mime(record: Record): Option[Tracked[Mime]] =
+      record.selectDynamic("mime").asInstanceOf[Option[Tracked[Mime]]]
+
+    def digests(record: Record): Map[Algo, Tracked[HexLower]] =
+      record.selectDynamic("digests").asInstanceOf[Map[Algo, Tracked[HexLower]]]
+
+    def custom(record: Record): Map[String, Tracked[String]] =
+      record.selectDynamic("custom").asInstanceOf[Map[String, Tracked[String]]]
+  end BinaryAttributesRow
 
   private[attributes] def isValidCustomKey(name: String): Boolean =
     name.nonEmpty && name.length <= 64 && name.matches(customKeyPattern)
 
-private final case class BinaryAttributeValue[A](tracked: Tracked[A]):
-  def merge(next: Tracked[A]): BinaryAttributeValue[A] =
-    BinaryAttributeValue(Tracked.merge(tracked, next))
-
 final case class BinaryAttributes private (
-  advertised: BinaryAttributes.AttrMap = ListMap.empty,
-  confirmed: BinaryAttributes.AttrMap = ListMap.empty,
+  advertised: BinaryAttributes.BinaryAttributesRow.Record = BinaryAttributes.BinaryAttributesRow.empty,
+  confirmed: BinaryAttributes.BinaryAttributesRow.Record = BinaryAttributes.BinaryAttributesRow.empty,
   history: Vector[(String, Instant)] = Vector.empty,
 ):
   import BinaryAttributes.*
@@ -167,13 +202,67 @@ final case class BinaryAttributes private (
     materialize(confirmed)
 
   def validate: Either[ValidationError, BinaryAttributes] =
-    (advertised.keysIterator ++ confirmed.keysIterator)
+    (BinaryAttributesRow.custom(advertised).keysIterator ++ BinaryAttributesRow.custom(confirmed).keysIterator)
       .collectFirst {
-        case BinaryAttributeKey.Custom(name) if !isValidCustomKey(name) =>
+        case name if !isValidCustomKey(name) =>
           ValidationError.InvalidCustomKey(name)
       }
       .map(Left(_))
       .getOrElse(Right(this))
+
+  private def write[A](
+    record: BinaryAttributesRow.Record,
+    key: BinaryAttributeKey[A],
+    value: Tracked[A],
+  ): BinaryAttributesRow.Record =
+    key match
+      case BinaryAttributeKey.Size         =>
+        BinaryAttributesRow.update(record)(size = mergeTracked(BinaryAttributesRow.size(record), value))
+      case BinaryAttributeKey.ChunkCount   =>
+        BinaryAttributesRow.update(record)(chunkCount = mergeTracked(BinaryAttributesRow.chunkCount(record), value))
+      case BinaryAttributeKey.Mime         =>
+        BinaryAttributesRow.update(record)(mime = mergeTracked(BinaryAttributesRow.mime(record), value))
+      case BinaryAttributeKey.Digest(algo) =>
+        val merged = mergeEntry(BinaryAttributesRow.digests(record), algo, value)
+        BinaryAttributesRow.update(record)(digests = merged)
+      case BinaryAttributeKey.Custom(name) =>
+        val merged = mergeEntry(BinaryAttributesRow.custom(record), name, value)
+        BinaryAttributesRow.update(record)(custom = merged)
+
+  private def read[A](record: BinaryAttributesRow.Record, key: BinaryAttributeKey[A]): Option[Tracked[A]] =
+    key match
+      case BinaryAttributeKey.Size         => BinaryAttributesRow.size(record)
+      case BinaryAttributeKey.ChunkCount   => BinaryAttributesRow.chunkCount(record)
+      case BinaryAttributeKey.Mime         => BinaryAttributesRow.mime(record)
+      case BinaryAttributeKey.Digest(algo) =>
+        BinaryAttributesRow.digests(record).get(algo)
+      case BinaryAttributeKey.Custom(name) =>
+        BinaryAttributesRow.custom(record).get(name)
+
+  private def materialize(record: BinaryAttributesRow.Record): ListMap[BinaryAttributeKey[?], Tracked[?]] =
+    import scala.collection.mutable.ListBuffer
+    val buffer = ListBuffer.empty[(BinaryAttributeKey[?], Tracked[?])]
+    BinaryAttributesRow.size(record).foreach(value => buffer += (BinaryAttributeKey.Size -> value))
+    BinaryAttributesRow.chunkCount(record).foreach(value => buffer += (BinaryAttributeKey.ChunkCount -> value))
+    BinaryAttributesRow.mime(record).foreach(value => buffer += (BinaryAttributeKey.Mime -> value))
+    BinaryAttributesRow.digests(record).foreach { case (algo, value) =>
+      buffer += (BinaryAttributeKey.Digest(algo) -> value)
+    }
+    BinaryAttributesRow.custom(record).foreach { case (name, value) =>
+      buffer += (BinaryAttributeKey.Custom(name) -> value)
+    }
+    ListMap.from(buffer)
+
+  private def mergeTracked[A](current: Option[Tracked[A]], next: Tracked[A]): Option[Tracked[A]] =
+    current match
+      case Some(existing) => Some(Tracked.merge(existing, next))
+      case None           => Some(next)
+
+  private def mergeEntry[K, A](entries: Map[K, Tracked[A]], key: K, next: Tracked[A]): Map[K, Tracked[A]] =
+    entries.updatedWith(key) {
+      case Some(existing) => Some(Tracked.merge(existing, next))
+      case None           => Some(next)
+    }
 
 final case class BlobWriteResult(
   key: BinaryKey,

@@ -21,8 +21,8 @@ object DynamicJsonCodecSpec extends ZIOSpecDefault:
         val meta    = TestMeta("scanner", "scan123.pdf", "1.2.3.4")
         val dynamic = SchemaDef.toDynamicRecord(TestMeta.schema, meta).toOption.get
 
-        val jsonEither = DynamicJsonCodec.encodeDynamic(TestMeta.schema, dynamic)
-        val expectedJson = Json.Obj(
+        val jsonEither     = DynamicJsonCodec.encodeDynamic(TestMeta.schema, dynamic)
+        val expectedJson   = Json.Obj(
           "source"       -> Json.Str("scanner"),
           "originalName" -> Json.Str("scan123.pdf"),
           "clientIp"     -> Json.Str("1.2.3.4"),

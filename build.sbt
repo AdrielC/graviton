@@ -171,6 +171,7 @@ lazy val core = (project in file("modules/graviton-core"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-schema"  % V.zioSchema,
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
+      "io.getkyo" %% "kyo-data" % "0.19.0",
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "org.scodec" %% "scodec-core" % "2.3.3",
