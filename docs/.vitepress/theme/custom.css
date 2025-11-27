@@ -579,7 +579,7 @@ div[class*='language-']:hover code {
 /* Terminal-style command blocks */
 div[class*='language-bash']::before,
 div[class*='language-shell']::before {
-  content: '? ';
+  content: '$ ';
   color: var(--vp-c-brand-1);
   position: absolute;
   left: 1rem;
@@ -2217,8 +2217,17 @@ body.konami-mode .VPNavBarTitle .logo {
 }
 
 .file-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.9rem;
   color: var(--vp-c-text-2);
+}
+
+.file-meta-divider {
+  opacity: 0.7;
+  font-size: 0.85em;
 }
 
 .expand-icon {
@@ -2265,13 +2274,32 @@ body.konami-mode .VPNavBarTitle .logo {
   border-left: 3px solid #ff0000;
 }
 
+.validation-item.warning {
+  background: rgba(255, 200, 0, 0.08);
+  border-left: 3px solid #ffc800;
+}
+
 .validation-item.success {
   background: rgba(0, 255, 0, 0.05);
   border-left: 3px solid #00ff00;
 }
 
 .validation-icon {
-  font-size: 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.validation-item.error .validation-icon {
+  color: #ff7b7b;
+}
+
+.validation-item.warning .validation-icon {
+  color: #ffd166;
+}
+
+.validation-item.success .validation-icon {
+  color: #7bffb6;
 }
 
 .chunks-table-wrapper {
@@ -2380,6 +2408,48 @@ body.konami-mode .VPNavBarTitle .logo {
 
   .upload-area {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .file-upload,
+  .chunker-selection,
+  .global-stats,
+  .file-analysis {
+    padding: 1.25rem;
+  }
+
+  .chunker-buttons {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .upload-area {
+    padding: 1.25rem;
+  }
+
+  .file-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .expand-icon {
+    align-self: flex-end;
+  }
+
+  .stats-grid-compact {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  #matrix-canvas,
+  #particle-canvas,
+  #aurora-overlay {
+    display: none !important;
+  }
+
+  body::before,
+  .VPDoc::after {
+    opacity: 0.2;
   }
 }
 
