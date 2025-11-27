@@ -220,21 +220,70 @@ final case class BinaryAttributes(
 - **Confirmed**: Server-validated attributes (e.g., actual size, hash)
 
 ```scala
-for {
-  advertised <- client.uploadBlob(bytes, attributes = Map(
-    ContentType -> "application/pdf",
-    OriginalName -> "document.pdf"
-  ))
-  
-  // Server confirms actual attributes
-  confirmed <- store.getAttributes(key).map { attrs =>
-    attrs.copy(confirmed = Map(
-      ContentType -> detectMimeType(bytes),
-      ActualSize -> bytes.length.toString
-    ))
-  }
-} yield confirmed
+import graviton.core.attributes.{BinaryAttributeKey, BinaryAttributes, Source, Tracked}
+import graviton.core.bytes.HashAlgo
+
+val advertised = BinaryAttributes.empty
+  .advertise(BinaryAttributeKey.Mime, Tracked.now("application/pdf", Source.ProvidedUser))
+  .advertise(BinaryAttributeKey.Custom("original-name"), Tracked.now("document.pdf", Source.ProvidedUser))
+
+val confirmed = advertised
+  .confirmSize(Tracked.now(fileSize, Source.Derived))
+  .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+  .confirmDigest(HashAlgo.Sha256, Tracked.now(blobDigest, Source.Verified))
 ```
+
+### Tracked provenance
+
+`Tracked[A]` keeps the attribute value, its source, and the timestamp so merges favour the most trustworthy, most recent data:
+
+- **Sources rank**: `Verified > ProvidedUser > ProvidedSystem > Derived > Sniffed`.
+- **Merges**: identical ranks fall back to the later timestamp, so late-arriving telemetry can replace earlier guesses.
+- **History**: `BinaryAttributes.record("event")` appends to the mutable history vector for audit logs.
+
+Even when attributes later move into a schema-based diff (see below), `Tracked` remains the provenance layer so you always know *why* a field changed.
+
+### Schema-driven diffs
+
+`BinaryAttributeKey` values are type aware, which means we can hang a `zio.schema.Schema` off each key and project the advertised/confirmed maps into `DynamicValue.Record`s. From there, `zio.schema.diff.Diff` will produce structured change sets without hand-written comparison logic.
+
+```scala
+import graviton.core.attributes.{BinaryAttributeKey, BinaryAttributes, Tracked}
+import graviton.core.model.{ChunkCount, FileSize}
+import graviton.core.types.{HexLower, Mime}
+import zio.schema.{DynamicValue, Schema}
+import zio.schema.diff.Diff
+import zio.Chunk
+import graviton.core.bytes.HashAlgo
+import scala.collection.immutable.ListMap
+
+val registry: Map[BinaryAttributeKey[?], Schema[Tracked[?]]] = Map(
+  BinaryAttributeKey.Size       -> Schema[Tracked[FileSize]],
+  BinaryAttributeKey.ChunkCount -> Schema[Tracked[ChunkCount]],
+  BinaryAttributeKey.Mime       -> Schema[Tracked[Mime]],
+  BinaryAttributeKey.Digest(HashAlgo.Sha256) -> Schema[Tracked[HexLower]],
+)
+
+def toDynamic(entries: ListMap[BinaryAttributeKey[?], Tracked[?]]): DynamicValue.Record =
+  val fields =
+    entries.map { case (key, tracked) =>
+      val schema = registry(key).asInstanceOf[Schema[Tracked[Any]]]
+      DynamicValue.Field(key.identifier, schema.toDynamic(tracked))
+    }
+  DynamicValue.Record(typeId = (), Chunk.fromIterable(fields))
+
+val advertisedDiff =
+  Diff.diff(toDynamic(clientAttrs.advertisedEntries), toDynamic(serverAttrs.advertisedEntries))
+
+val confirmedDiff =
+  Diff.diff(toDynamic(clientAttrs.confirmedEntries), toDynamic(serverAttrs.confirmedEntries))
+```
+
+Nothing prevents you from serializing the `DynamicValue` into `zio-json` or feeding it through a JSON diff tool (e.g., diffson) for presentation. The key advantages of the schema-driven approach:
+
+- Each attribute key controls its own codec and validation.
+- Diffs remain structured (not string-based), so you can render UI-specific highlights or run policy checks directly on changed fields.
+- Provenance metadata from `Tracked` travels with the value, so reviewers see *what* changed and *who/what reported it*.
 
 ## Schema Registry
 
