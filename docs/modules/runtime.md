@@ -40,6 +40,23 @@ These abstractions will be composed by higher-level services (CLI ingest, HTTP g
 
 Backend adapters obtain a `MetricsRegistry` and emit events via module-specific metric helpers (see `PgMetrics`, `S3Metrics`). The runtime module stays vendor-neutral by restricting itself to key naming conventions.
 
+## Reference implementations
+
+- `InMemoryBlockStore` provides a deterministic, thread-safe `BlockStore` backed by a `Ref[Map[BinaryKey.Block, CanonicalBlock]]`. It deduplicates blocks, assembles `BlockManifest`s, and produces frame metadata via `BlockFramer` so higher layers can exercise the full ingest flow without wiring external storage.
+- `InMemoryBlobStore` offers a complementary `BlobStore` that hashes payloads (SHA-256), confirms size/chunk-count attributes, records `BlobStat` data, and returns `BlobWriteResult`s with a `memory://` locator scheme.
+
+Both stores live under `graviton.runtime.stores` and expose `make` helpers plus `ZLayer`s for quick wiring:
+
+```scala
+import graviton.runtime.stores.{InMemoryBlockStore, InMemoryBlobStore}
+import zio.*
+
+val blockStoreLayer: ULayer[BlockStore] = InMemoryBlockStore.layer
+val blobStoreLayer:  ULayer[BlobStore]  = InMemoryBlobStore.layer
+```
+
+Because they only depend on `ZIO` primitives, these stores are ideal for unit tests, integration tests, and CLI prototypes that should not touch S3/PostgreSQL yet.
+
 ## Usage
 
 1. Choose the backend layers you need (e.g., `S3Layers.live`, `PgLayers.live`).

@@ -204,7 +204,10 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
-      "dev.zio" %% "zio-metrics-connectors" % "2.2.1"
+      "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
     )
   )
 
