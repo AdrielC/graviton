@@ -2,6 +2,7 @@ package graviton.core.macros
 
 import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
+import graviton.core.ranges.given
 import graviton.core.types.*
 import scala.quoted.*
 
@@ -47,8 +48,9 @@ object Interpolators:
         scExpr.value match
           case Some(ctx) =>
             SpanHelper.parseEither(ctx.parts.mkString) match
-              case Right((start, end)) => '{ Span.unsafe[Long](${ Expr(start) }, ${ Expr(end) }) }
-              case Left(err)           =>
+              case Right(span) =>
+                '{ Span.unsafe[Long](${ Expr(span.startInclusive) }, ${ Expr(span.endInclusive) }) }
+              case Left(err)   =>
                 quotes.reflect.report.error(err)
                 '{ Span.unsafe[Long](0L, -1L) }
           case None      =>
@@ -76,21 +78,36 @@ object Interpolators:
   private[macros] object SpanHelper:
     def parse(input: String): Span[Long] =
       parseEither(input) match
-        case Right((start, end)) => Span.unsafe(start, end)
-        case Left(err)           => throw IllegalArgumentException(err)
+        case Right(span) => span
+        case Left(err)   => throw IllegalArgumentException(err)
 
-    def parseEither(input: String): Either[String, (Long, Long)] =
+    def parseEither(input: String): Either[String, Span[Long]] =
       val trimmed = input.trim
-      val parts   = trimmed.split("\\.\\.", 2)
-      if parts.length != 2 then Left(s"Span literal '$input' must use '..' to separate bounds")
+      if trimmed.isEmpty then Left("Span literal cannot be empty")
       else
-        val startPart = parts(0).trim
-        val endPart   = parts(1).trim
-        for
-          start <- parseLong(startPart)
-          end   <- parseLong(endPart)
-          _     <- Span.make(start, end)
-        yield (start, end)
+        val (startInclusive, afterStart) =
+          trimmed.head match
+            case '[' => (true, trimmed.tail)
+            case '(' => (false, trimmed.tail)
+            case _   => (true, trimmed)
+
+        val (core, endInclusive) =
+          afterStart.lastOption match
+            case Some(']') => (afterStart.init, true)
+            case Some(')') => (afterStart.init, false)
+            case _         => (afterStart, true)
+
+        val parts = core.split("\\.\\.", 2)
+        if parts.length != 2 then Left(s"Span literal '$input' must use '..' to separate bounds")
+        else
+          val startPart = parts(0).trim
+          val endPart   = parts(1).trim
+
+          for
+            start <- parseLong(startPart)
+            end   <- parseLong(endPart)
+            span  <- Span.fromBounds(start, end, startInclusive, endInclusive)
+          yield span
 
     private def parseLong(value: String): Either[String, Long] =
       try Right(java.lang.Long.parseLong(value))
