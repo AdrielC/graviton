@@ -2,11 +2,12 @@ package graviton.core.attributes
 
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
-import graviton.core.model.{FileSize, ChunkCount}
+import graviton.core.model.{ChunkCount, FileSize}
 import graviton.core.types.*
 import zio.schema.DeriveSchema
 
 import java.time.Instant
+import scala.collection.immutable.ListMap
 
 enum Source:
   case Sniffed, Derived, ProvidedUser, ProvidedSystem, Verified
@@ -38,72 +39,141 @@ object Tracked:
     else if left.at.isAfter(right.at) then left
     else right
 
-final case class BinaryAttributes(
-  size: Option[Tracked[FileSize]] = None,
-  chunkCount: Option[Tracked[ChunkCount]] = None,
-  mime: Option[Tracked[Mime]] = None,
-  digests: Map[Algo, Tracked[HexLower]] = Map.empty,
-  extra: Map[String, Tracked[String]] = Map.empty,
-  history: Vector[(String, Instant)] = Vector.empty,
-):
-  def record(event: String): BinaryAttributes =
-    copy(history = history :+ (event -> Instant.now()))
+sealed trait BinaryAttributeKey[A] extends Product with Serializable:
+  def identifier: String
 
-  def upsertSize(value: Tracked[FileSize]): BinaryAttributes =
-    copy(size = Some(size.fold(value)(Tracked.merge(_, value))))
+object BinaryAttributeKey:
+  case object Size extends BinaryAttributeKey[FileSize]:
+    val identifier = "graviton.size"
 
-  def upsertChunkCount(value: Tracked[ChunkCount]): BinaryAttributes =
-    copy(chunkCount = Some(chunkCount.fold(value)(Tracked.merge(_, value))))
+  case object ChunkCount extends BinaryAttributeKey[ChunkCount]:
+    val identifier = "graviton.chunk-count"
 
-  def upsertMime(value: Tracked[Mime]): BinaryAttributes =
-    copy(mime = Some(mime.fold(value)(Tracked.merge(_, value))))
+  case object Mime extends BinaryAttributeKey[Mime]:
+    val identifier = "graviton.mime"
 
-  def upsertDigest(algo: Algo, value: Tracked[HexLower]): BinaryAttributes =
-    val merged = digests.get(algo).fold(value)(Tracked.merge(_, value))
-    copy(digests = digests.updated(algo, merged))
+  final case class Digest(algo: Algo) extends BinaryAttributeKey[HexLower]:
+    val identifier: String = s"graviton.digest.$algo"
 
-  def upsertExtra(key: String, value: Tracked[String]): BinaryAttributes =
-    val merged = extra.get(key).fold(value)(Tracked.merge(_, value))
-    copy(extra = extra.updated(key, merged))
-
-  def diff(that: BinaryAttributes): BinaryAttributesDiff =
-    BinaryAttributesDiff.from(this, that)
+  final case class Custom(name: String) extends BinaryAttributeKey[String]:
+    val identifier: String = s"user.$name"
 
 object BinaryAttributes:
   val empty: BinaryAttributes = BinaryAttributes()
 
-object BinaryAttributesDiff:
-  def from(left: BinaryAttributes, right: BinaryAttributes): BinaryAttributesDiff =
-    val digestKeys = left.digests.keySet union right.digests.keySet
-    val extraKeys  = left.extra.keySet union right.extra.keySet
+  enum ValidationError derives CanEqual:
+    case InvalidCustomKey(name: String)
 
-    val digestDiffs: Map[Algo, (Option[Tracked[HexLower]], Option[Tracked[HexLower]])] =
-      digestKeys.flatMap { key =>
-        val pair = (left.digests.get(key), right.digests.get(key))
-        Option.when(pair._1 != pair._2)((key, pair))
-      }.toMap
+    def message: String = this match
+      case InvalidCustomKey(name) =>
+        s"Custom attribute name '$name' must match ${BinaryAttributes.customKeyPattern}"
 
-    val extraDiffs: Map[String, (Option[Tracked[String]], Option[Tracked[String]])] =
-      extraKeys.flatMap { key =>
-        val pair = (left.extra.get(key), right.extra.get(key))
-        Option.when(pair._1 != pair._2)((key, pair))
-      }.toMap
+  private type AttrMap = ListMap[BinaryAttributeKey[?], BinaryAttributeValue[?]]
 
-    BinaryAttributesDiff(
-      size = Option.when(left.size != right.size)((left.size, right.size)),
-      chunkCount = Option.when(left.chunkCount != right.chunkCount)((left.chunkCount, right.chunkCount)),
-      mime = Option.when(left.mime != right.mime)((left.mime, right.mime)),
-      digests = digestDiffs,
-      extra = extraDiffs,
-    )
+  private val customKeyPattern = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
 
-final case class BinaryAttributesDiff(
-  size: Option[(Option[Tracked[FileSize]], Option[Tracked[FileSize]])],
-  chunkCount: Option[(Option[Tracked[ChunkCount]], Option[Tracked[ChunkCount]])],
-  mime: Option[(Option[Tracked[Mime]], Option[Tracked[Mime]])],
-  digests: Map[Algo, (Option[Tracked[HexLower]], Option[Tracked[HexLower]])],
-  extra: Map[String, (Option[Tracked[String]], Option[Tracked[String]])],
-)
+  private[attributes] def write[A](
+    map: AttrMap,
+    key: BinaryAttributeKey[A],
+    value: Tracked[A],
+  ): AttrMap =
+    map.get(key) match
+      case Some(existing) =>
+        map.updated(key, existing.asInstanceOf[BinaryAttributeValue[A]].merge(value))
+      case None           =>
+        map.updated(key, BinaryAttributeValue(value))
+
+  private[attributes] def read[A](map: AttrMap, key: BinaryAttributeKey[A]): Option[Tracked[A]] =
+    map.get(key).map(_.asInstanceOf[BinaryAttributeValue[A]].tracked)
+
+  private[attributes] def materialize(map: AttrMap): ListMap[BinaryAttributeKey[?], Tracked[?]] =
+    ListMap.from(map.iterator.map { case (key, entry) => key -> entry.tracked })
+
+  private[attributes] def isValidCustomKey(name: String): Boolean =
+    name.nonEmpty && name.length <= 64 && name.matches(customKeyPattern)
+
+private final case class BinaryAttributeValue[A](tracked: Tracked[A]):
+  def merge(next: Tracked[A]): BinaryAttributeValue[A] =
+    BinaryAttributeValue(Tracked.merge(tracked, next))
+
+final case class BinaryAttributes private (
+  advertised: BinaryAttributes.AttrMap = ListMap.empty,
+  confirmed: BinaryAttributes.AttrMap = ListMap.empty,
+  history: Vector[(String, Instant)] = Vector.empty,
+):
+  import BinaryAttributes.*
+
+  def record(event: String): BinaryAttributes =
+    copy(history = history :+ (event -> Instant.now()))
+
+  def advertise[A](key: BinaryAttributeKey[A], value: Tracked[A]): BinaryAttributes =
+    copy(advertised = write(advertised, key, value))
+
+  def confirm[A](key: BinaryAttributeKey[A], value: Tracked[A]): BinaryAttributes =
+    copy(confirmed = write(confirmed, key, value))
+
+  def advertiseSize(value: Tracked[FileSize]): BinaryAttributes =
+    advertise(BinaryAttributeKey.Size, value)
+
+  def confirmSize(value: Tracked[FileSize]): BinaryAttributes =
+    confirm(BinaryAttributeKey.Size, value)
+
+  def advertiseChunkCount(value: Tracked[ChunkCount]): BinaryAttributes =
+    advertise(BinaryAttributeKey.ChunkCount, value)
+
+  def confirmChunkCount(value: Tracked[ChunkCount]): BinaryAttributes =
+    confirm(BinaryAttributeKey.ChunkCount, value)
+
+  def advertiseMime(value: Tracked[Mime]): BinaryAttributes =
+    advertise(BinaryAttributeKey.Mime, value)
+
+  def confirmMime(value: Tracked[Mime]): BinaryAttributes =
+    confirm(BinaryAttributeKey.Mime, value)
+
+  def advertiseDigest(algo: Algo, value: Tracked[HexLower]): BinaryAttributes =
+    advertise(BinaryAttributeKey.Digest(algo), value)
+
+  def confirmDigest(algo: Algo, value: Tracked[HexLower]): BinaryAttributes =
+    confirm(BinaryAttributeKey.Digest(algo), value)
+
+  def advertiseCustom(name: String, value: Tracked[String]): BinaryAttributes =
+    advertise(BinaryAttributeKey.Custom(name), value)
+
+  def confirmCustom(name: String, value: Tracked[String]): BinaryAttributes =
+    confirm(BinaryAttributeKey.Custom(name), value)
+
+  def get[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
+    confirmedValue(key).orElse(advertisedValue(key))
+
+  def confirmedValue[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
+    read(confirmed, key)
+
+  def advertisedValue[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
+    read(advertised, key)
+
+  def size: Option[Tracked[FileSize]] = get(BinaryAttributeKey.Size)
+
+  def chunkCount: Option[Tracked[ChunkCount]] = get(BinaryAttributeKey.ChunkCount)
+
+  def mime: Option[Tracked[Mime]] = get(BinaryAttributeKey.Mime)
+
+  def digest(algo: Algo): Option[Tracked[HexLower]] =
+    get(BinaryAttributeKey.Digest(algo))
+
+  def advertisedEntries: ListMap[BinaryAttributeKey[?], Tracked[?]] =
+    materialize(advertised)
+
+  def confirmedEntries: ListMap[BinaryAttributeKey[?], Tracked[?]] =
+    materialize(confirmed)
+
+  def validate: Either[ValidationError, BinaryAttributes] =
+    (advertised.keysIterator ++ confirmed.keysIterator)
+      .collectFirst {
+        case BinaryAttributeKey.Custom(name) if !isValidCustomKey(name) =>
+          ValidationError.InvalidCustomKey(name)
+      }
+      .map(Left(_))
+      .getOrElse(Right(this))
 
 final case class BlobWriteResult(
   key: BinaryKey,

@@ -555,9 +555,9 @@ spec:
 
 ## See Also
 
-- **[Performance Tuning](./performance)** — Optimization strategies
-- **[Backends](../runtime/backends)** — Storage configuration
-- **[Installation](../guide/installation)** — Setup guide
+- **[Performance Tuning](./performance.md)** — Optimization strategies
+- **[Backends](../runtime/backends.md)** — Storage configuration
+- **[Installation](../guide/installation.md)** — Setup guide
 
 ::: warning
 Always test your deployment in a staging environment first!

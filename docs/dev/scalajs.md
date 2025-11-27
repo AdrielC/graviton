@@ -79,7 +79,7 @@ When the API cannot be reached the UI falls back to simulated demo data, so you 
 
 ## Next Steps
 
-- Extend `modules/frontend` with new Laminar components (see the refreshed [Scala.js Frontend module doc](/modules/frontend)).
-- Explore the [Interactive Demo](/demo) for layout inspiration - its CSS now lives in `docs/.vitepress/theme/custom.css` for reuse.
+- Extend `modules/frontend` with new Laminar components (see the refreshed [Scala.js Frontend module doc](../modules/frontend.md)).
+- Explore the [Interactive Demo](../demo.md) for layout inspiration - its CSS now lives in `docs/.vitepress/theme/custom.css` for reuse.
 - Wire live metrics into the docs via the Vue components under `.vitepress/theme/components/`.
 - Use the Schema Explorer route (`#/schema`) to validate shared models and view sample payloads served entirely from Scala.js + ZIO.

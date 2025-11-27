@@ -515,10 +515,10 @@ graviton {
 
 ## See Also
 
-- **[Ports & Policies](./ports)** — ReplicaIndex interface
-- **[Backends](./backends)** — Storage implementations
-- **[Performance](../ops/performance)** — Replication overhead
-- **[Deployment](../ops/deployment)** — Multi-node setup
+- **[Ports & Policies](./ports.md)** — ReplicaIndex interface
+- **[Backends](./backends.md)** — Storage implementations
+- **[Performance](../ops/performance.md)** — Replication overhead
+- **[Deployment](../ops/deployment.md)** — Multi-node setup
 
 ::: warning
 Always test replication failures before deploying to production!

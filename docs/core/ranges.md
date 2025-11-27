@@ -378,10 +378,10 @@ test("intersection is associative") {
 
 ## See Also
 
-- **[Schema & Types](./schema)** — Type definitions
-- **[Scans & Events](./scans)** — Span-based scanning
-- **[Backends](../runtime/backends)** — Range-based storage
-- **[Replication](../runtime/replication)** — Gap repair
+- **[Schema & Types](./schema.md)** — Type definitions
+- **[Scans & Events](./scans.md)** — Span-based scanning
+- **[Backends](../runtime/backends.md)** — Range-based storage
+- **[Replication](../runtime/replication.md)** — Gap repair
 
 ::: warning
 Always normalize RangeSets after mutations to maintain invariants!

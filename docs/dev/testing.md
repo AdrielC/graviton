@@ -551,9 +551,9 @@ test("with output") {
 
 ## See Also
 
-- **[Contributing](./contributing)** — Development workflow
-- **[Performance](../ops/performance)** — Performance testing
-- **[Architecture](../architecture)** — System design
+- **[Contributing](./contributing.md)** — Development workflow
+- **[Performance](../ops/performance.md)** — Performance testing
+- **[Architecture](../architecture.md)** — System design
 
 ::: tip
 Run tests frequently during development. Fast feedback is key!

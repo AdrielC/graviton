@@ -1,7 +1,7 @@
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
 import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.{BlockBuilder, ByteConstraints}
+import graviton.core.model.ByteConstraints
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -19,10 +19,10 @@ final case class Ingest(blockStore: BlockStore):
         bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)
-        tracked     = attrs
-                        .upsertSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
-                        .upsertChunkCount(Tracked.now(chunkCount, Source.Derived))
-        canonical  <- CanonicalBlock.make(key, block, tracked)
+        confirmed   = attrs
+                        .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
+                        .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+        canonical  <- CanonicalBlock.make(key, block, confirmed)
       yield canonical
     }
 
@@ -34,7 +34,6 @@ final case class Ingest(blockStore: BlockStore):
       chunkSize <- wrapEither(ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024))
       result    <- bytes
                      .via(Chunker.fixed(chunkSize))
-                     .mapChunks(BlockBuilder.chunkify(_))
                      .mapZIO(block => canonicalBlock(block.bytes, attrs))
                      .run(sink)
     yield result

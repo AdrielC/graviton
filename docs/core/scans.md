@@ -612,9 +612,9 @@ def metered[F[_], G[_], I, O, S <: Rec](
 
 ## See Also
 
-- **[Schema & Types](./schema)** — Type-level programming with named tuples
-- **[Ranges & Boundaries](./ranges)** — Span operations
-- **[Chunking Strategies](../ingest/chunking)** — CDC algorithms
+- **[Schema & Types](./schema.md)** — Type-level programming with named tuples
+- **[Ranges & Boundaries](./ranges.md)** — Span operations
+- **[Chunking Strategies](../ingest/chunking.md)** — CDC algorithms
 
 ::: tip
 Scans are **pure** and **deterministic** — same inputs always produce same outputs. Use `FreeScan` for composition, interpret to `ZPipeline` for execution.
