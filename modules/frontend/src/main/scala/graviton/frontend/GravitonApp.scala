@@ -228,6 +228,7 @@ object GravitonApp {
             ),
           ),
         ),
+        DemoBoostPanel(api),
       )
 
     case Page.Explorer =>
