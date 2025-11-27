@@ -6,37 +6,61 @@ Graviton separates pure domain logic from effectful runtime code.
 
 ```mermaid
 flowchart LR
-  subgraph Clients
-    CLI
-    SDKs
-    Integrations
+  classDef client fill:#dff4ff,stroke:#0077b6,color:#002233;
+  classDef transport fill:#f4f0ff,stroke:#6a4c93,color:#1a1326;
+  classDef runtime fill:#fef3c7,stroke:#d97706,color:#78350f;
+  classDef backend fill:#ecfdf3,stroke:#16a34a,color:#064e3b;
+  classDef ops fill:#fdf2f8,stroke:#db2777,color:#831843;
+
+  subgraph Clients["Clients"]
+    cli["CLI"]
+    sdks["SDKs"]
+    integ["Integrations"]
   end
 
-  subgraph Transports
-    HTTP
-    GRPC
+  subgraph Transports["Protocol Surfaces"]
+    http["HTTP Gateway"]
+    grpc["gRPC Gateway"]
   end
 
-  subgraph Runtime[Runtime Ports]
-    Ingest[Ingest Service]
-    Retrieval[Retrieval Service]
-    ManifestSvc[Manifest Service]
-    MetricsSvc[Metrics & Telemetry]
+  subgraph Runtime["Runtime Ports & Services"]
+    ingest["Ingest Service"]
+    retrieve["Retrieval Service"]
+    manifest["Manifest Builder"]
+    metrics["Metrics Facade"]
   end
 
-  subgraph Backends
-    S3[(S3 Blob Store)]
-    PG[(PostgreSQL Metadata)]
-    Rocks[(RocksDB Hot Cache)]
+  subgraph Backends["Storage Backends"]
+    s3["S3 Blob Store"]
+    pg["PostgreSQL Metadata"]
+    rocks["RocksDB Hot Cache"]
   end
 
-  Clients --> Transports
-  Transports --> Runtime
-  Runtime -->|Store Blocks| S3
-  Runtime -->|Persist Manifests| PG
-  Runtime -->|Warm Cache| Rocks
-  Runtime -->|Emit Metrics| MetricsSvc
-  MetricsSvc --> Observability[(Prometheus + Structured Logs)]
+  observability["Prometheus + Structured Logs"]
+
+  cli --> http
+  cli --> grpc
+  sdks --> http
+  sdks --> grpc
+  integ --> http
+  integ --> grpc
+  http --> ingest
+  grpc --> ingest
+  http --> retrieve
+  grpc --> retrieve
+  ingest --> manifest
+  manifest --> pg
+  ingest -->|Blocks| s3
+  retrieve -->|Cache| rocks
+  metrics --> observability
+  ingest --> metrics
+  retrieve --> metrics
+
+  class cli,sdks,integ client
+  class http,grpc transport
+  class ingest,retrieve,manifest,metrics runtime
+  class s3,pg,rocks backend
+  class observability ops
 ```
 
 ## Core
