@@ -9,11 +9,20 @@ Production deployment strategies for Graviton.
 Simplest setup for development or small deployments:
 
 ```mermaid
-graph LR
-    Client --> LoadBalancer
-    LoadBalancer --> Graviton[Graviton Server]
-    Graviton --> PostgreSQL
-    Graviton --> LocalDisk[Local RocksDB]
+flowchart LR
+    classDef edge stroke:#64748b,color:#0f172a;
+    classDef compute fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
+    classDef storage fill:#ecfdf3,stroke:#047857,color:#064e3b;
+
+    client(["Client"]):::compute
+    balancer["Local/HAProxy"]:::compute
+    server["Graviton Server"]:::compute
+    pg["PostgreSQL"]:::storage
+    rocks["RocksDB (Local Disk)"]:::storage
+
+    client --> balancer --> server
+    server --> pg
+    server --> rocks
 ```
 
 **Pros:**
@@ -31,17 +40,29 @@ graph LR
 Scale compute separately from storage:
 
 ```mermaid
-graph TB
-    Client --> LB[Load Balancer]
-    LB --> G1[Graviton 1]
-    LB --> G2[Graviton 2]
-    LB --> G3[Graviton 3]
-    G1 --> S3[AWS S3]
-    G2 --> S3
-    G3 --> S3
-    G1 --> PG[PostgreSQL]
-    G2 --> PG
-    G3 --> PG
+flowchart TB
+    classDef edge stroke:#475569,color:#0f172a;
+    classDef compute fill:#ede9fe,stroke:#6d28d9,color:#2e1065;
+    classDef storage fill:#f0fdfa,stroke:#0f766e,color:#064e3b;
+
+    client(["Clients"]):::compute
+    lb["Global Load Balancer"]:::compute
+    g1["Graviton #1"]:::compute
+    g2["Graviton #2"]:::compute
+    g3["Graviton #3"]:::compute
+    s3["AWS S3 Bucket"]:::storage
+    pg["PostgreSQL Cluster"]:::storage
+
+    client --> lb
+    lb --> g1
+    lb --> g2
+    lb --> g3
+    g1 --> s3
+    g2 --> s3
+    g3 --> s3
+    g1 --> pg
+    g2 --> pg
+    g3 --> pg
 ```
 
 **Pros:**
@@ -58,14 +79,27 @@ graph TB
 Partition data across nodes:
 
 ```mermaid
-graph TB
-    Client --> Router[Shard Router]
-    Router --> Shard1[Shard 1]
-    Router --> Shard2[Shard 2]
-    Router --> Shard3[Shard 3]
-    Shard1 --> S3_1[S3 Bucket 1]
-    Shard2 --> S3_2[S3 Bucket 2]
-    Shard3 --> S3_3[S3 Bucket 3]
+flowchart TB
+    classDef router fill:#fef9c3,stroke:#ca8a04,color:#713f12;
+    classDef shard fill:#e0f2fe,stroke:#0ea5e9,color:#0c4a6e;
+    classDef storage fill:#ecfccb,stroke:#65a30d,color:#365314;
+
+    client(["Clients"])
+    router["Shard Router"]:::router
+    shard1["Shard 1\n(Compute + Cache)"]:::shard
+    shard2["Shard 2"]:::shard
+    shard3["Shard 3"]:::shard
+    bucket1["S3 Bucket 1"]:::storage
+    bucket2["S3 Bucket 2"]:::storage
+    bucket3["S3 Bucket 3"]:::storage
+
+    client --> router
+    router --> shard1
+    router --> shard2
+    router --> shard3
+    shard1 --> bucket1
+    shard2 --> bucket2
+    shard3 --> bucket3
 ```
 
 **Pros:**

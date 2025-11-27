@@ -321,6 +321,20 @@ test("upload with full stack") {
 }.provide(TestLayers.fullStack)
 ```
 
+### In-memory stores
+
+The runtime module ships `InMemoryBlockStore` and `InMemoryBlobStore` implementations so tests do not need S3 or PostgreSQL:
+
+```scala
+import graviton.runtime.stores.{InMemoryBlockStore, InMemoryBlobStore}
+import zio.*
+
+val blockStoreLayer: ULayer[BlockStore] = InMemoryBlockStore.layer
+val blobStoreLayer:  ULayer[BlobStore]  = InMemoryBlobStore.layer
+```
+
+Because both stores use `Ref`-backed maps, they deduplicate data, materialize manifests, and expose `BlobStat`s just like the production traits, making them ideal for unit, integration, and CLI smoke tests.
+
 ## Performance Tests
 
 ### Benchmarking
