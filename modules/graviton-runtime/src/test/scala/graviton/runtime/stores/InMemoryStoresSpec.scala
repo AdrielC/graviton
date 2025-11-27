@@ -52,14 +52,14 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
       digest <- ZIO
                   .fromEither {
                     for
-                      hasher <- Hasher.messageDigest(HashAlgo.Sha256)
+                      hasher <- Hasher.messageDigest(HashAlgo.default)
                       _       = hasher.update(bytes.toArray)
                       digest <- hasher.result
                     yield digest
                   }
                   .mapError(msg => new IllegalArgumentException(msg))
       bits   <- ZIO
-                  .fromEither(KeyBits.create(HashAlgo.Sha256, digest, bytes.length.toLong))
+                  .fromEither(KeyBits.create(HashAlgo.default, digest, bytes.length.toLong))
                   .mapError(msg => new IllegalArgumentException(msg))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
       block  <- ZIO

@@ -67,9 +67,9 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val digestHex = "0" * 64
 
         for
-          digest   <- ZIO.fromEither(Digest.make(HashAlgo.Sha256, digestHex))
-          keyBits1 <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, 10L))
-          keyBits2 <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, 5L))
+          digest   <- ZIO.fromEither(Digest.make(HashAlgo.default, digestHex))
+          keyBits1 <- ZIO.fromEither(KeyBits.create(HashAlgo.default, digest, 10L))
+          keyBits2 <- ZIO.fromEither(KeyBits.create(HashAlgo.default, digest, 5L))
           entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
           entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
           outputs   = buildManifest.runChunk(List(entry1, entry2))
@@ -81,10 +81,10 @@ object FreeScanV2Spec extends ZIOSpecDefault:
       },
       test("hashBytes emits padded digest on flush") {
         val data     = chunk("hi")
-        val outputs  = hashBytes(HashAlgo.Sha256).runChunk(List(data))
+        val outputs  = hashBytes(HashAlgo.default).runChunk(List(data))
         val expected =
           for
-            hasher <- Hasher.messageDigest(HashAlgo.Sha256)
+            hasher <- Hasher.messageDigest(HashAlgo.default)
             _       = hasher.update("hi".getBytes(StandardCharsets.UTF_8))
             digest <- hasher.result
           yield digest

@@ -63,12 +63,12 @@ final case class Ingest(blockStore: BlockStore):
     wrapEither {
       for
         digest     <- Hasher
-                        .messageDigest(HashAlgo.Sha256)
+                        .messageDigest(HashAlgo.default)
                         .flatMap { hasher =>
                           val _ = hasher.update(block.toArray)
                           hasher.result
                         }
-        bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
+        bits       <- KeyBits.create(HashAlgo.default, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)
         confirmed   = attrs
@@ -96,7 +96,8 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 
 - **Backend-specific size caps**: use `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)` whenever you hydrate a backend config (filesystem quota, S3 object cap, etc.). The core `FileSize` refinement only ensures non-negative longs so each store can apply its own ceiling without fighting the type system.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
-- **Hashing before storage** keeps keys stable regardless of backend. The same block hash will deduplicate inside the filesystem, S3, or PostgreSQL stores.
+- **FreeScan-powered chunking**: `Chunker.fixed` is backed by `FreeScanV2.fixedChunker` so state machines stay declarative and optimisable before we lower them to ZIO pipelines.
+- **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` (currently BLAKE3) is the runtime’s default, but you can still opt into SHA-256 for FIPS-bound workflows.
 - **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
 
 ## Attribute lifecycle
@@ -154,6 +155,12 @@ Fetching a blob reverses the ingest pipeline:
 3. Blocks are reassembled into a `ZStream[Byte]`. Partial reads use manifest offsets so large blobs can seek without decoding the entire payload.
 
 Because manifest offsets and chunk counts are validated during ingest, retrieval never needs to buffer the whole object; the runtime can resume from any block boundary and still honor encryption or compression frames.
+
+## Namespace metadata as DynamicValue
+
+- **Canonical form**: each namespace resolves to a `NamespaceBlock` whose `data` field is a `zio.schema.DynamicValue.Record`. `NamespacesDyn` just hangs on to a map of `NamespaceUrn -> NamespaceBlock` plus a routing table of schema IDs for migrations.
+- **Typed helpers**: `DynamicRecordCodec.toRecord` / `fromRecord` wrap `Schema.toDynamic` and `Schema.fromDynamic` so system schemas can keep compiling down to DynamicValue while remaining typesafe.
+- **Encoding**: `DynamicJsonCodec.encodeDynamic/decodeDynamicRecord` bridge DynamicValue ↔ `zio.json.ast.Json`. For system namespaces the flow is JSON → typed meta → DynamicValue.Record; for tenant namespaces you can skip the typed hop and work directly with DynamicValue once validation succeeds.
 
 ## Next steps
 

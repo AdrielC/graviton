@@ -17,12 +17,12 @@ final case class Ingest(blockStore: BlockStore):
     wrapEither {
       for
         digest     <- Hasher
-                        .messageDigest(HashAlgo.Sha256)
+                        .messageDigest(HashAlgo.default)
                         .flatMap { hasher =>
                           val _ = hasher.update(block.toArray)
                           hasher.result
                         }
-        bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
+        bits       <- KeyBits.create(HashAlgo.default, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)
         confirmed   = attrs

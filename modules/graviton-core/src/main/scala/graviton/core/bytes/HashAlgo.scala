@@ -12,6 +12,8 @@ enum HashAlgo(val hexLength: Int, val jceNames: List[String]) derives CanEqual:
 object HashAlgo:
   given zio.schema.Schema[HashAlgo] = DeriveSchema.gen[HashAlgo]
 
+  val default: HashAlgo = HashAlgo.Blake3
+
   def fromString(value: String): Option[HashAlgo] =
     value.toLowerCase match
       case "sha256" | "sha-256" => Some(HashAlgo.Sha256)
