@@ -51,9 +51,9 @@ object Interpolators:
               case Left(err)           =>
                 quotes.reflect.report.error(err)
                 '{ Span.unsafe[Long](0L, -1L) }
-          case None =>
+          case None      =>
             runtimeSpan(scExpr, argsExpr)
-      case _ =>
+      case _              =>
         runtimeSpan(scExpr, argsExpr)
 
   private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
