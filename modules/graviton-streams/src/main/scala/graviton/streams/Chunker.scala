@@ -1,8 +1,9 @@
 package graviton.streams
 
-import graviton.core.model.{Block, BlockBuilder, ByteConstraints}
+import graviton.core.model.{Block, ByteConstraints}
+import graviton.core.scan.FreeScanV2.FS
 import graviton.core.types.*
-import zio.{FiberRef, Unsafe, ZIO}
+import zio.{Chunk, FiberRef, Unsafe, ZIO}
 import zio.stream.ZPipeline
 
 import scala.Conversion
@@ -28,12 +29,21 @@ object Chunker:
     current.locally(chunker)(effect)
 
   def fixed(size: ChunkSize, label: Option[String] = None): Chunker =
-    val sizeBytes = size
-    val pipeline  =
+    val sizeBytes    = size
+    val scanPipeline =
       ZPipeline
-        .rechunk(sizeBytes)
-        .mapChunks(BlockBuilder.chunkify(_))
-    SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), pipeline)
+        .mapChunks[Byte, Chunk[Byte]](chunk => Chunk.single(chunk))
+        .andThen(FS.fixedChunker(sizeBytes).optimize.toPipeline)
+        .mapChunksZIO { chunks =>
+          ZIO
+            .foreach(chunks) { bytes =>
+              ZIO
+                .fromEither(Block.fromChunk(bytes))
+                .mapError(msg => new IllegalArgumentException(msg))
+            }
+            .map(blocks => Chunk.fromIterable(blocks))
+        }
+    SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), scanPipeline)
 
   given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Throwable, Byte, Block]] with
     def apply(chunker: Chunker): ZPipeline[Any, Throwable, Byte, Block] =
