@@ -1,7 +1,6 @@
 package graviton.core.manifest
 
-import graviton.core.bytes.{Digest, HashAlgo}
-import graviton.core.keys.{BinaryKey, KeyBits, ViewTransform}
+import graviton.core.codec.BinaryKeyCodec
 import graviton.core.ranges.Span
 
 import scodec.*
@@ -28,12 +27,6 @@ object FramedManifest:
           second.decode(remainder).map { case DecodeResult(b, tail) => DecodeResult((a, b), tail) }
         }
 
-  private val hashAlgoCodec: Codec[HashAlgo] =
-    mappedEnum(uint8, HashAlgo.Sha256 -> 0, HashAlgo.Blake3 -> 1)
-
-  private val digestCodec: Codec[(HashAlgo, String)] =
-    combine(hashAlgoCodec, variableSizeBytes(uint16, utf8))
-
   private val versionCodec: Codec[Unit] =
     uint8.exmap(
       {
@@ -59,26 +52,6 @@ object FramedManifest:
       value => Attempt.successful(value),
     )
 
-  private val byteFlag: Codec[Boolean] =
-    uint8.exmap(
-      {
-        case 0     => Attempt.successful(false)
-        case 1     => Attempt.successful(true)
-        case other => Attempt.failure(Err(s"Invalid optional flag $other"))
-      },
-      flag => Attempt.successful(if flag then 1 else 0),
-    )
-
-  private val keyBitsCodec: Codec[KeyBits] =
-    combine(digestCodec, nonNegativeLong("key size")).exmap(
-      { case ((algo, value), size) =>
-        val digestEither = Digest.make(algo, value)
-        val keyBits      = digestEither.flatMap(digest => KeyBits.create(algo, digest, size))
-        Attempt.fromEither(keyBits.left.map(Err(_)))
-      },
-      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.value), keyBits.size)),
-    )
-
   private val attributesCodec: Codec[Map[String, String]] =
     listOfN(uint16, combine(variableSizeBytes(uint16, utf8), variableSizeBytes(uint16, utf8))).exmap(
       pairs =>
@@ -98,53 +71,8 @@ object FramedManifest:
       map => Attempt.successful(map.toList.sortBy(_._1)),
     )
 
-  private val viewCodec: Codec[ViewTransform] =
-    combine(combine(variableSizeBytes(uint16, utf8), attributesCodec), optional(byteFlag, variableSizeBytes(uint16, utf8))).xmap(
-      { case ((name, args), scope) => ViewTransform(name, args, scope) },
-      view => ((view.name, view.args), view.scope),
-    )
-
-  private val binaryKeyCodec: Codec[BinaryKey] =
-    discriminated[BinaryKey]
-      .by(uint8)
-      .typecase(
-        0,
-        keyBitsCodec.exmap(
-          bits => Attempt.fromEither(BinaryKey.blob(bits).left.map(Err(_))),
-          key => Attempt.successful(key.bits),
-        ),
-      )
-      .typecase(
-        1,
-        keyBitsCodec.exmap(
-          bits => Attempt.fromEither(BinaryKey.block(bits).left.map(Err(_))),
-          key => Attempt.successful(key.bits),
-        ),
-      )
-      .typecase(
-        2,
-        keyBitsCodec.exmap(
-          bits => Attempt.fromEither(BinaryKey.chunk(bits).left.map(Err(_))),
-          key => Attempt.successful(key.bits),
-        ),
-      )
-      .typecase(
-        3,
-        keyBitsCodec.exmap(
-          bits => Attempt.fromEither(BinaryKey.manifest(bits).left.map(Err(_))),
-          key => Attempt.successful(key.bits),
-        ),
-      )
-      .typecase(
-        4,
-        combine(keyBitsCodec, viewCodec).exmap(
-          { case (bits, view) => Attempt.fromEither(BinaryKey.view(bits, view).left.map(Err(_))) },
-          key => Attempt.successful((key.bits, key.transform)),
-        ),
-      )
-
   private val manifestEntryCodec: Codec[ManifestEntry] =
-    combine(combine(combine(binaryKeyCodec, int64), int64), attributesCodec).exmap(
+    combine(combine(combine(BinaryKeyCodec.codec, int64), int64), attributesCodec).exmap(
       { case (((key, start), end), attrs) =>
         Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, attrs)).left.map(Err(_)))
       },

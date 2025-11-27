@@ -10,9 +10,8 @@ import graviton.core.scan.FS.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import zio.test.Assertion.*
-
 import java.nio.charset.StandardCharsets
+import zio.test.Assertion.*
 
 object FreeScanV2Spec extends ZIOSpecDefault:
 
@@ -83,10 +82,15 @@ object FreeScanV2Spec extends ZIOSpecDefault:
       test("hashBytes emits padded digest on flush") {
         val data     = chunk("hi")
         val outputs  = hashBytes(HashAlgo.Sha256).runChunk(List(data))
-        val expected = "6869" + ("0" * 60)
+        val expected =
+          for
+            hasher <- Hasher.messageDigest(HashAlgo.Sha256)
+            _       = hasher.update("hi".getBytes(StandardCharsets.UTF_8))
+            digest <- hasher.result
+          yield digest
 
         for
-          digest <- ZIO.fromEither(Digest.make(HashAlgo.Sha256, expected))
+          digest <- ZIO.fromEither(expected)
           result <- ZIO.fromOption(outputs.lastOption)
         yield assertTrue(result == Right(digest))
       },
