@@ -69,6 +69,18 @@ object types:
       refined => Right(refined.asInstanceOf[Int]),
     )
 
+  given Schema[FileSize] =
+    Schema[Long].transformOrFail(
+      value => ByteConstraints.refineFileSize(value),
+      refined => Right(refined.asInstanceOf[Long]),
+    )
+
+  given Schema[ChunkCount] =
+    Schema[Long].transformOrFail(
+      value => ByteConstraints.refineChunkCount(value),
+      refined => Right(refined.asInstanceOf[Long]),
+    )
+
   given Schema[CompressionLevel] =
     Schema[Int].transformOrFail(
       value =>

@@ -8,9 +8,9 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
 | **Blob** | Logical object addressable via `BinaryKey`. Blobs reference manifests and carry attributes that survive deduplication. | `graviton.runtime.stores.BlobStore` |
-| **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames) |
+| **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
-| **Chunker** | A `ZPipeline[Any, Throwable, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking) |
+| **Chunker** | A `ZPipeline[Any, Throwable, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
 ## End-to-end flow
 
@@ -45,7 +45,7 @@ sequenceDiagram
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
 import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.{BlockBuilder, ByteConstraints}
+import graviton.core.model.ByteConstraints
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -63,10 +63,10 @@ final case class Ingest(blockStore: BlockStore):
         bits       <- KeyBits.create(HashAlgo.Sha256, digest, block.length.toLong)
         key        <- BinaryKey.block(bits)
         chunkCount <- ByteConstraints.refineChunkCount(1L)
-        tracked     = attrs
-                        .upsertSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
-                        .upsertChunkCount(Tracked.now(chunkCount, Source.Derived))
-        canonical  <- CanonicalBlock.make(key, block, tracked)
+        confirmed   = attrs
+                        .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
+                        .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+        canonical  <- CanonicalBlock.make(key, block, confirmed)
       yield canonical
     }
 
@@ -78,7 +78,6 @@ final case class Ingest(blockStore: BlockStore):
       chunkSize <- wrapEither(ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024))
       result    <- bytes
                      .via(Chunker.fixed(chunkSize))
-                     .mapChunks(BlockBuilder.chunkify(_))
                      .mapZIO(block => canonicalBlock(block.bytes, attrs))
                      .run(sink)
     yield result
@@ -97,17 +96,20 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 
 ```scala
 import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
+import graviton.core.bytes.HashAlgo
 
 val initial = BinaryAttributes.empty
-  .upsertMime(Tracked.now("application/pdf", Source.ProvidedUser))
+  .advertiseMime(Tracked.now("application/pdf", Source.ProvidedUser))
 
 val confirmed = initial
-  .upsertSize(Tracked.now(fileSize, Source.Derived))
-  .upsertChunkCount(Tracked.now(blockCount, Source.Derived))
-  .upsertDigest(HashAlgo.Sha256, Tracked.now(blobDigest, Source.Verified))
+  .confirmSize(Tracked.now(fileSize, Source.Derived))
+  .confirmChunkCount(Tracked.now(blockCount, Source.Derived))
+  .confirmDigest(HashAlgo.Sha256, Tracked.now(blobDigest, Source.Verified))
 ```
 
 When the manifest is sealed, the confirmed attributes are persisted next to the blob key. Reads return the merged view so callers always see verified data when available.
+
+Need structured change reports? The [`Schema-driven diffs`](../core/schema.md#schema-driven-diffs) section shows how to hang `zio.schema.Schema` instances off each `BinaryAttributeKey`, convert the advertised/confirmed maps into `DynamicValue.Record`s, and run `zio.schema.diff.Diff` (or even JSON diff tools) without giving up the `Tracked` provenance we rely on during ingest.
 
 ## Manifest composition and frames
 
@@ -117,7 +119,7 @@ Manifests enumerate blocks in order so retrieval is a pure streaming exercise:
 2. `BlockManifest.build` validates that offsets never go backwards and that totals match the confirmed size.
 3. `FrameSynthesis` chooses how the manifest and block frames are serialized (plain, compressed, encrypted) before shipping to a `BlobStore` implementation.
 
-For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames).
+For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames.md).
 
 ## Chunking strategy quick reference
 
@@ -126,7 +128,7 @@ For an in-depth look at framing guarantees, encryption plans, and forward compat
 - **Anchored CDC** lets you split on format-aware anchors (PDF `endobj`, ZIP headers) for structured documents.
 - **BuzHash / Rabin** provide classic rolling-hash behavior when cross-language parity matters.
 
-The [Chunking Strategies guide](../ingest/chunking) provides detailed configuration snippets, decision trees, and performance notes.
+The [Chunking Strategies guide](../ingest/chunking.md) provides detailed configuration snippets, decision trees, and performance notes.
 
 ## Retrieval & reassembly
 
@@ -140,6 +142,6 @@ Because manifest offsets and chunk counts are validated during ingest, retrieval
 
 ## Next steps
 
-- Start from [`guide/getting-started`](./getting-started) to build and run the project locally.
-- Dive into [`ingest/chunking`](../ingest/chunking) for algorithm-level tuning.
-- Explore [`runtime/ports`](../runtime/ports) to see how stores, protocols, and schedulers compose inside the runtime.
+- Start from [`guide/getting-started`](./getting-started.md) to build and run the project locally.
+- Dive into [`ingest/chunking`](../ingest/chunking.md) for algorithm-level tuning.
+- Explore [`runtime/ports`](../runtime/ports.md) to see how stores, protocols, and schedulers compose inside the runtime.

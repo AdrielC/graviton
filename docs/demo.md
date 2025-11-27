@@ -43,7 +43,7 @@ onMounted(() => {
 <!-- Demo styles provided via docs/.vitepress/theme/custom.css -->
 
 :::tip Scala.js Loop
-Follow the [Scala.js Playbook](/dev/scalajs) for hot reload, bundling tips, and backend wiring while you iterate on this demo.
+Follow the [Scala.js Playbook](./dev/scalajs.md) for hot reload, bundling tips, and backend wiring while you iterate on this demo.
 :::
 
 # Interactive Demo

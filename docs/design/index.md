@@ -6,27 +6,27 @@ This section contains detailed design documents for major Graviton features and 
 
 ### Core System
 
-- **Scan Composition Model** — Event-driven stream processing (see [Scans & Events](../core/scans))
-- **Range Algebra** — Byte range operations and tracking (see [Ranges & Boundaries](../core/ranges))
-- **Content-Defined Chunking** — FastCDC and anchored chunking strategies (see [Chunking Strategies](../ingest/chunking))
-- **Replication Model** — Replica placement and repair (see [Replication & Repair](../runtime/replication))
+- **Scan Composition Model** — Event-driven stream processing (see [Scans & Events](../core/scans.md))
+- **Range Algebra** — Byte range operations and tracking (see [Ranges & Boundaries](../core/ranges.md))
+- **Content-Defined Chunking** — FastCDC and anchored chunking strategies (see [Chunking Strategies](../ingest/chunking.md))
+- **Replication Model** — Replica placement and repair (see [Replication & Repair](../runtime/replication.md))
 
 ### Schema & Types
 
 - **Schema Evolution** — Forward-compatible manifest format (planned)
-- **Binary Attributes** — Advertised vs confirmed metadata (see [Schema & Types](../core/schema))
+- **Binary Attributes** — Advertised vs confirmed metadata (see [Schema & Types](../core/schema.md))
 - **Hashing Strategy** — Multi-algorithm support and key derivation (planned)
 
 ### Storage & Performance
 
-- **Hybrid Backend Architecture** — PostgreSQL + S3 design (see [Backends](../runtime/backends))
+- **Hybrid Backend Architecture** — PostgreSQL + S3 design (see [Backends](../runtime/backends.md))
 - **Tiered Storage** — Hot/warm/cold data management (planned)
 - **Deduplication Index** — Block-level dedup tracking (planned)
 - **Compression Strategy** — When and how to compress (planned)
 
 ### Operations
 
-- **Metrics Architecture** — Prometheus integration and key metrics (see [Constraints & Metrics](../constraints-and-metrics))
+- **Metrics Architecture** — Prometheus integration and key metrics (see [Constraints & Metrics](../constraints-and-metrics.md))
 - **Rate Limiting** — Token bucket implementation (planned)
 - **Authentication Model** — JWT, API keys, and signed URLs (planned)
 - **Multi-tenancy** — Isolation and quota management (planned)
@@ -155,9 +155,9 @@ Links to related designs, issues, or documentation.
 
 ## See Also
 
-- **[Architecture](../architecture)** — System overview
-- **[Contributing](../dev/contributing)** — Development process
-- **[API Reference](../api)** — Current API surface
+- **[Architecture](../architecture.md)** — System overview
+- **[Contributing](../dev/contributing.md)** — Development process
+- **[API Reference](../api.md)** — Current API surface
 
 ::: tip
 When in doubt, write a design doc before implementing a major feature!

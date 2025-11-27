@@ -455,9 +455,9 @@ class GravitonLoadTest extends Simulation {
 
 ## See Also
 
-- **[Deployment](./deployment)** — Production setup
-- **[Backends](../runtime/backends)** — Storage configuration
-- **[Chunking](../ingest/chunking)** — Algorithm selection
+- **[Deployment](./deployment.md)** — Production setup
+- **[Backends](../runtime/backends.md)** — Storage configuration
+- **[Chunking](../ingest/chunking.md)** — Algorithm selection
 
 ::: tip
 Always profile with realistic workloads before optimizing!
