@@ -398,20 +398,39 @@ final class TieredBlobStore(
 ### Decision Matrix
 
 ```mermaid
-graph TD
-    A[Choose Backend] --> B{Scale?}
-    B -->|Single node| C{Performance?}
-    B -->|Multi-node| D{Complexity tolerance?}
-    
-    C -->|Critical| E[RocksDB]
-    C -->|Moderate| F[PostgreSQL]
-    
-    D -->|Low| G[S3]
-    D -->|High| H[PostgreSQL + S3]
-    
-    E --> I{Backup needs?}
-    I -->|Simple| J[RocksDB + S3 sync]
-    I -->|Complex| K[PostgreSQL]
+flowchart TD
+    classDef decision fill:#fff8e1,stroke:#b45309,color:#78350f;
+    classDef action fill:#ecfdf5,stroke:#059669,color:#064e3b;
+    classDef hybrid fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
+
+    start([Choose Backend]):::decision
+    scale{Deployment scale?}:::decision
+    perf{Throughput & latency priority?}:::decision
+    complexity{Operational complexity tolerance?}:::decision
+    backup{Backup / DR requirements?}:::decision
+
+    rocks[RocksDB]:::action
+    postgres[PostgreSQL]:::action
+    s3[S3 Blob Store]:::action
+    hybridNode[PostgreSQL + S3]:::hybrid
+    sync[RocksDB + S3 sync job]:::hybrid
+
+    start --> scale
+    scale -->|Single node| perf
+    scale -->|Multi node| complexity
+
+    perf -->|Critical latency| rocks
+    perf -->|Balanced| postgres
+
+    complexity -->|Prefer managed| s3
+    complexity -->|Can operate databases| hybridNode
+
+    rocks --> backup
+    postgres --> backup
+    hybridNode --> backup
+
+    backup -->|Simple| sync
+    backup -->|Advanced reporting| postgres
 ```
 
 ### Recommendations
