@@ -67,18 +67,24 @@ lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder
 generateDocs := {
   val log = Keys.streams.value.log
   val targetDir = file("docs/public/scaladoc")
-  
+
   log.info("Generating Scaladoc for core modules...")
-  
-  // Generate docs for key modules (use LocalProject to avoid ambiguity)
-  val coreDoc = (LocalProject("core") / Compile / doc).value
-  val streamsDoc = (LocalProject("streams") / Compile / doc).value
-  val runtimeDoc = (LocalProject("runtime") / Compile / doc).value
-  
-  log.info("Copying core module docs to docs folder...")
+
+  val moduleDocs = List(
+    "core" -> (LocalProject("core") / Compile / doc).value,
+    "streams" -> (LocalProject("streams") / Compile / doc).value,
+    "runtime" -> (LocalProject("runtime") / Compile / doc).value
+  )
+
   IO.delete(targetDir)
-  IO.copyDirectory(coreDoc, targetDir)
-  
+  IO.createDirectory(targetDir)
+
+  moduleDocs.foreach { case (name, srcDir) =>
+    val dest = targetDir / name
+    log.info(s"Copying $name scaladoc to $dest")
+    IO.copyDirectory(srcDir, dest, overwrite = true, preserveLastModified = true)
+  }
+
   log.info(s"Scaladoc copied to $targetDir")
 }
 

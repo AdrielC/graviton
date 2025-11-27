@@ -1,7 +1,7 @@
 package graviton.meta
 
-import scala.collection.immutable.ListMap
 import java.util.Base64
+import scala.collection.immutable.ListMap
 
 import zio.Chunk
 import zio.json.ast.Json
@@ -9,6 +9,9 @@ import zio.schema.DynamicValue
 import zio.schema.DynamicValue.Record
 import zio.schema.{Schema, StandardType, TypeId}
 
+/**
+ * Helpers for converting strongly typed metadata into canonical [[DynamicValue.Record]] instances.
+ */
 object DynamicRecordCodec:
 
   def toRecord[A](schema: Schema[A], value: A): Either[String, Record] =
@@ -19,6 +22,10 @@ object DynamicRecordCodec:
   def fromRecord[A](schema: Schema[A], record: Record): Either[String, A] =
     schema.fromDynamic(record).left.map(_.toString)
 
+/**
+ * Lossless conversions between [[DynamicValue.Record]] and `zio-json` ASTs. These helpers stay entirely inside the
+ * schema/DynamicValue world so that Graviton can treat JSON, Protobuf, etc. as presentation formats.
+ */
 object DynamicJsonCodec:
 
   inline private def widen[A](typ: StandardType[A]): StandardType[Any] =
@@ -118,8 +125,8 @@ object DynamicJsonCodec:
 
   private def jsonToDynamic(json: Json): Either[String, DynamicValue] =
     json match
-      case Json.Obj(fields) =>
-        fields
+      case obj: Json.Obj =>
+        obj.fields
           .foldLeft[Either[String, ListMap[String, DynamicValue]]](Right(ListMap.empty)) { case (acc, (k, v)) =>
             for
               map <- acc
@@ -128,8 +135,8 @@ object DynamicJsonCodec:
           }
           .map(map => DynamicValue.Record(TypeId.Structural, map))
 
-      case Json.Arr(elements) =>
-        elements
+      case arr: Json.Arr =>
+        arr.elements
           .foldLeft[Either[String, List[DynamicValue]]](Right(List.empty)) { case (acc, value) =>
             for
               list <- acc
@@ -145,17 +152,28 @@ object DynamicJsonCodec:
         Right(DynamicValue.Primitive(value, widen(StandardType.StringType)))
 
       case Json.Num(value) =>
-        Right(DynamicValue.Primitive(value, widen(StandardType.BigDecimalType)))
+        val decimal = value
+        if decimal.scale == 0 then
+          try
+            val longVal = decimal.longValueExact()
+            Right(DynamicValue.Primitive(longVal, widen(StandardType.LongType)))
+          catch
+            case _: ArithmeticException =>
+              Right(DynamicValue.Primitive(decimal, widen(StandardType.BigDecimalType)))
+        else Right(DynamicValue.Primitive(decimal, widen(StandardType.BigDecimalType)))
 
       case Json.Null =>
         Right(DynamicValue.NoneValue)
+
+      case null =>
+        Left("JSON node was null")
 
   private def primitiveToString(value: DynamicValue): Either[String, String] =
     value match
       case DynamicValue.Primitive(str: String, _) => Right(str)
       case other                                  => Left(s"Dictionary key must be a string, received $other")
 
-  private def primitiveToJson(value: Any, typ: StandardType[_]): Either[String, Json] =
+  private def primitiveToJson(value: Any, typ: StandardType[?]): Either[String, Json] =
     typ match
       case StandardType.UnitType           => Right(Json.Null)
       case StandardType.StringType         => Right(Json.Str(value.asInstanceOf[String]))

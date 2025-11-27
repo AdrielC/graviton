@@ -42,3 +42,14 @@ object Hasher:
           case None           => MessageDigest.getInstance(name)
       Right(md)
     catch case NonFatal(err) => Left(err)
+
+  def acquirePreferred(preferred: List[HashAlgo]): Either[String, (HashAlgo, Hasher)] =
+    val attempts = preferred.map(algo => algo -> messageDigest(algo))
+    attempts.collectFirst { case (algo, Right(hasher)) => algo -> hasher }.toRight {
+      val diagnostics =
+        attempts.collect { case (algo, Left(err)) => s"$algo -> $err" }
+      s"No MessageDigest provider found for preferred algorithms. Details: ${diagnostics.mkString("; ")}"
+    }
+
+  def systemDefault: Either[String, (HashAlgo, Hasher)] =
+    acquirePreferred(HashAlgo.preferredOrder)

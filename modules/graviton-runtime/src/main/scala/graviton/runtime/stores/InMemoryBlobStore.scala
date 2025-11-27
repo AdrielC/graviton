@@ -46,32 +46,27 @@ final class InMemoryBlobStore private (
 
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
-      digest <- ZIO
-                  .fromEither {
-                    for
-                      hasher <- Hasher.messageDigest(HashAlgo.default)
-                      _       = hasher.update(bytes.toArray)
-                      digest <- hasher.result
-                    yield digest
-                  }
-                  .mapError(msg => new IllegalArgumentException(msg))
-      bits   <- ZIO
-                  .fromEither(KeyBits.create(HashAlgo.default, digest, bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      key    <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
-      size   <- ZIO
-                  .fromEither(ByteConstraints.refineFileSize(bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      count  <- ZIO
-                  .fromEither(ByteConstraints.refineChunkCount(deriveChunkCount(bytes.length)))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      attrs   = plan.attributes
-                  .confirmSize(Tracked.now(size, Source.Derived))
-                  .confirmChunkCount(Tracked.now(count, Source.Derived))
-      locator = plan.locatorHint.getOrElse(defaultLocator(key))
-      stat    = BlobStat(size, digest.value, Instant.now())
-      stored  = StoredBlob(bytes, locator, attrs, stat)
-      _      <- blobs.update(_.updated(key, stored))
+      algoHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+      (algo, hasher) = algoHasher
+      _              = hasher.update(bytes.toArray)
+      digest        <- ZIO.fromEither(hasher.result).mapError(msg => new IllegalArgumentException(msg))
+      bits          <- ZIO
+                         .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                         .mapError(msg => new IllegalArgumentException(msg))
+      key           <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
+      size          <- ZIO
+                         .fromEither(ByteConstraints.refineFileSize(bytes.length.toLong))
+                         .mapError(msg => new IllegalArgumentException(msg))
+      count         <- ZIO
+                         .fromEither(ByteConstraints.refineChunkCount(deriveChunkCount(bytes.length)))
+                         .mapError(msg => new IllegalArgumentException(msg))
+      attrs          = plan.attributes
+                         .confirmSize(Tracked.now(size, Source.Derived))
+                         .confirmChunkCount(Tracked.now(count, Source.Derived))
+      locator        = plan.locatorHint.getOrElse(defaultLocator(key))
+      stat           = BlobStat(size, digest.value, Instant.now())
+      stored         = StoredBlob(bytes, locator, attrs, stat)
+      _             <- blobs.update(_.updated(key, stored))
     yield BlobWriteResult(key, locator, attrs)
 
   private def deriveChunkCount(length: Int): Long =
