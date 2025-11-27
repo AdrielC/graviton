@@ -166,22 +166,25 @@ object BlobExplorer {
             div(
               cls   := "chunks-list",
               h4("🧩 Chunks"),
-              table(
-                thead(
-                  tr(
-                    th("Offset"),
-                    th("Size"),
-                    th("Hash"),
-                  )
-                ),
-                tbody(
-                  manifest.chunks.map { chunk =>
+              div(
+                cls := "table-scroll manifest-table-wrapper",
+                table(
+                  thead(
                     tr(
-                      td(formatBytes(chunk.offset)),
-                      td(formatBytes(chunk.size)),
-                      td(code(chunk.hash.take(16) + "...")),
+                      th("Offset"),
+                      th("Size"),
+                      th("Hash"),
                     )
-                  }
+                  ),
+                  tbody(
+                    manifest.chunks.map { chunk =>
+                      tr(
+                        td(formatBytes(chunk.offset)),
+                        td(formatBytes(chunk.size)),
+                        td(code(chunk.hash.take(16) + "...")),
+                      )
+                    }
+                  ),
                 ),
               ),
             ),

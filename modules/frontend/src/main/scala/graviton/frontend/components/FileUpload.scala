@@ -694,7 +694,7 @@ object FileUpload {
               cls := "chunks-section",
               h5(s"?? Chunks (${analysis.chunks.length})"),
               div(
-                cls := "chunks-table-wrapper",
+                cls := "chunks-table-wrapper table-scroll",
                 table(
                   cls := "chunks-table",
                   thead(

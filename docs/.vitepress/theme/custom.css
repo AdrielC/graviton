@@ -120,6 +120,34 @@
   text-shadow: 0 0 8px var(--vp-c-cyan);
 }
 
+/* Responsive tables */
+.vp-doc table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.vp-doc table thead th {
+  white-space: nowrap;
+}
+
+.table-scroll,
+.manifest-table-wrapper,
+.schema-fields-table-wrapper,
+.chunks-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.5rem;
+}
+
+.table-scroll table {
+  min-width: 640px;
+}
+
 .vp-doc a::after {
   content: '';
   position: absolute;
@@ -2353,4 +2381,107 @@ body.konami-mode .VPNavBarTitle .logo {
   .upload-area {
     flex-direction: column;
   }
+}
+
+/* Demo boost lab */
+.demo-boost-panel {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  border-radius: 16px;
+  background: rgba(10, 14, 20, 0.85);
+  box-shadow: 0 30px 60px rgba(0, 255, 65, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.boost-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.boost-metric {
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgba(0, 255, 65, 0.06);
+  border: 1px solid rgba(0, 255, 65, 0.16);
+  box-shadow: inset 0 0 20px rgba(0, 255, 65, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.boost-metric strong {
+  font-size: 1.4rem;
+  color: var(--vp-c-brand-1);
+}
+
+.boost-metric meter {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.boost-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.boost-btn {
+  flex: 1 1 180px;
+}
+
+.autopilot-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.boost-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.range-control {
+  width: 100%;
+}
+
+.boost-activity {
+  border: 1px solid rgba(0, 255, 65, 0.15);
+  border-radius: 12px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.activity-feed {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.activity-feed li {
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.12);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9rem;
 }
