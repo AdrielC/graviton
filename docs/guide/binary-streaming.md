@@ -17,19 +17,21 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 ```mermaid
 sequenceDiagram
   autonumber
+  actor Client
   participant Src as Byte Source
   participant Chunker as Chunker / ZPipeline
   participant Blocks as BlockStore
   participant Manifest as Manifest Builder
   participant Blob as BlobStore
-  participant Client as Caller
 
+  Client->>Src: Provide upload stream
   Src->>Chunker: Stream[Byte]
-  Chunker->>Blocks: CanonicalBlock (dedup check)
+  Chunker->>Blocks: CanonicalBlock (dedupe check)
+  Chunker-->>Manifest: Chunk stats
   Blocks-->>Manifest: StoredBlock + offsets
-  Chunker-->>Manifest: Chunk count, rolling hash
-  Manifest->>Blob: BlockManifest + attributes
-  Blob-->>Client: BlobWriteResult (key, locator, confirmed attrs)
+  Manifest->>Blob: BlockManifest + confirmed attrs
+  Blob-->>Client: BlobWriteResult (key, locator)
+  note over Client,Blob: Client can now read via BlobStore.get
 ```
 
 1. A byte source (`ZStream` from files, HTTP bodies, etc.) feeds a chunker chosen for size vs deduplication trade-offs.

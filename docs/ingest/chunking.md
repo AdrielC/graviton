@@ -265,16 +265,31 @@ object BuzHash:
 ### Decision Tree
 
 ```mermaid
-graph TD
-    A[Need chunking?] -->|No| B[Stream directly]
-    A -->|Yes| C[Need deduplication?]
-    C -->|No| D[Fixed-size]
-    C -->|Yes| E[Format-aware?]
-    E -->|Yes| F[Anchored CDC]
-    E -->|No| G[Performance priority?]
-    G -->|Speed| H[FastCDC Level1]
-    G -->|Dedup| I[FastCDC Level3]
-    G -->|Balanced| J[FastCDC Level2]
+flowchart TD
+    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f;
+    classDef action fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
+
+    need((Need chunking?)):::decision
+    direct[Stream directly]:::action
+    dedup{Need deduplication?}:::decision
+    format{Format-aware anchors available?}:::decision
+    priority{Priority?}:::decision
+
+    fixed[Fixed-size]:::action
+    anchored[Anchored CDC]:::action
+    fast1[FastCDC (speed)]:::action
+    fast2[FastCDC (balanced)]:::action
+    fast3[FastCDC (dedup)]:::action
+
+    need -->|No| direct
+    need -->|Yes| dedup
+    dedup -->|No| fixed
+    dedup -->|Yes| format
+    format -->|Yes| anchored
+    format -->|No| priority
+    priority -->|Speed| fast1
+    priority -->|Balanced| fast2
+    priority -->|Dedup| fast3
 ```
 
 ### Recommendations

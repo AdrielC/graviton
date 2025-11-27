@@ -145,27 +145,30 @@ object SchemaViewer {
                 span(cls := "schema-chip", s"Version: ${schema.version}"),
                 schema.summary.map(text => span(cls := "schema-summary-inline", text)).getOrElse(emptyNode),
               ),
-              table(
-                cls := "schema-fields-table",
-                thead(
-                  tr(
-                    th("Field"),
-                    th("Type"),
-                    th("Cardinality"),
-                    th("Nullable"),
-                    th("Description"),
-                  )
-                ),
-                tbody(
-                  schema.fields.map { field =>
+              div(
+                cls := "table-scroll schema-fields-table-wrapper",
+                table(
+                  cls := "schema-fields-table",
+                  thead(
                     tr(
-                      td(field.name),
-                      td(field.dataType),
-                      td(field.cardinality),
-                      td(if field.nullable then "Yes" else "No"),
-                      td(field.description.getOrElse("—")),
+                      th("Field"),
+                      th("Type"),
+                      th("Cardinality"),
+                      th("Nullable"),
+                      th("Description"),
                     )
-                  }
+                  ),
+                  tbody(
+                    schema.fields.map { field =>
+                      tr(
+                        td(field.name),
+                        td(field.dataType),
+                        td(field.cardinality),
+                        td(if field.nullable then "Yes" else "No"),
+                        td(field.description.getOrElse("—")),
+                      )
+                    }
+                  ),
                 ),
               ),
               schema.sampleJson.fold(emptyNode) { json =>

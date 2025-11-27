@@ -25,12 +25,27 @@ cd docs && npm run docs:dev
 
 ## Architecture
 
-```
-Laminar Components --.
-Shared Models (JS) --+--> GravitonApp --> Laminar Router (waypoint)
-Shared Models (JVM) --'                    |
-                                          +--> Pages: Dashboard / Explorer / Upload / Stats
-GravitonApi (ZIO HTTP client) ------------'
+```mermaid
+flowchart LR
+  classDef layer fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
+  classDef shared fill:#fdf2f8,stroke:#be185d,color:#701a34;
+  classDef runtime fill:#fef3c7,stroke:#b45309,color:#78350f;
+
+  laminar["Laminar Components"]:::layer
+  sharedJS["Shared Models (JS)"]:::shared
+  sharedJVM["Shared Models (JVM)"]:::shared
+  app["GravitonApp"]:::layer
+  router["Laminar Router<br/>(Waypoint)"]:::layer
+  pages["Bundled Views:<br/>Dashboard · Explorer · Upload · Stats · Schema"]:::layer
+  api["GravitonApi<br/>(ZIO HTTP client)"]:::runtime
+
+  sharedJS --> app
+  sharedJVM --> app
+  laminar --> app
+  app --> router
+  router --> pages
+  app --> pages
+  api --> app
 ```
 
 ### Bundled Views
@@ -40,6 +55,7 @@ GravitonApi (ZIO HTTP client) ------------'
 - **Upload** - Client-side chunking sandbox visualising FastCDC behaviour.
 - **Stats** - Aggregated counters pulled through ZIO calls to the API.
 - **Schema** - Schema explorer that renders shared models and sample JSON directly in Scala.js.
+- **Demo Boost Lab** - New control surface that lets you simulate ingest bursts, tune concurrency, and watch live activity events without running a real cluster.
 
 ### Entry Points
 
