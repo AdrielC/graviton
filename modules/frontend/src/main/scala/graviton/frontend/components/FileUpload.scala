@@ -205,7 +205,7 @@ object FileUpload {
 
       div(
         cls := "fastcdc-config",
-        h4("?? CAS Chunk Tuner"),
+        h4("CAS Chunk Tuner"),
         p(
           cls := "config-help",
           "Adjust FastCDC boundaries to explore how chunk sizes change. Smaller windows create more dedup-friendly blocks; larger windows reduce manifest overhead.",
@@ -432,7 +432,7 @@ object FileUpload {
 
     div(
       cls := "file-upload",
-      h2("?? File Upload & Chunking Demo"),
+      h2("File Upload & Chunking Lab"),
       p(
         cls := "upload-intro",
         """
@@ -444,7 +444,7 @@ object FileUpload {
       // Chunker selection
       div(
         cls := "chunker-selection",
-        h3("?? Chunker Strategy"),
+        h3("Chunker Strategy"),
         div(
           cls := "chunker-buttons",
           ChunkerType.all.map { chunker =>
@@ -486,7 +486,7 @@ object FileUpload {
         ),
         button(
           cls      := "btn-secondary clear-btn",
-          "??? Clear All",
+          "Clear All",
           onClick --> { _ => clearAll() },
           disabled <-- analysesVar.signal.map(_.isEmpty),
         ),
@@ -496,12 +496,12 @@ object FileUpload {
       child <-- errorVar.signal.map {
         case None        => emptyNode
         case Some(error) =>
-          div(cls := "error-message", s"?? $error")
+          div(cls := "error-message", s"Error: $error")
       },
 
       // Processing indicator
       child <-- processingVar.signal.map { processing =>
-        if (processing) div(cls := "loading-spinner", "? Processing files...")
+        if (processing) div(cls := "loading-spinner", "Processing files...")
         else emptyNode
       },
 
@@ -520,7 +520,7 @@ object FileUpload {
 
           div(
             cls := "global-stats",
-            h3("?? Global Deduplication Statistics"),
+            h3("Deduplication Overview"),
             div(
               cls := "stats-grid-compact",
               div(cls := "stat-item", span(cls := "stat-label", "Total Files:"), span(cls := "stat-value", analyses.size.toString)),
@@ -595,18 +595,20 @@ object FileUpload {
         onClick --> { _ => expandedVar.update(!_) },
         div(
           cls := "file-info",
-          h4(cls := "file-name", s"?? ${analysis.fileName}"),
+          h4(cls := "file-name", analysis.fileName),
           div(
             cls  := "file-meta",
-            span(s"${formatBytes(analysis.fileSize)} ? "),
-            span(s"${analysis.totalChunks} chunks ? "),
-            span(s"${analysis.chunkerType}"),
+            span(formatBytes(analysis.fileSize)),
+            span(cls := "file-meta-divider", "|"),
+            span(s"${analysis.totalChunks} chunks"),
+            span(cls := "file-meta-divider", "|"),
+            span(analysis.chunkerType),
           ),
         ),
         span(
           cls := "expand-icon",
           child <-- expandedVar.signal.map { expanded =>
-            if (expanded) span("?") else span("?")
+            if (expanded) span("-") else span("+")
           },
         ),
       ),
@@ -619,13 +621,18 @@ object FileUpload {
             // Validations
             div(
               cls := "validations-section",
-              h5("? Validations"),
+              h5("Validation Checklist"),
               div(
                 cls := "validations-list",
                 analysis.validations.map { validation =>
+                  val (severityClass, glyph) = validation match
+                    case _: ValidationResult.Error   => ("error", "X")
+                    case _: ValidationResult.Warning => ("warning", "!")
+                    case _: ValidationResult.Success => ("success", "OK")
+
                   div(
-                    cls := s"validation-item ${if (validation.isError) "error" else "success"}",
-                    span(cls := "validation-icon", if (validation.isError) "?" else "?"),
+                    cls := s"validation-item $severityClass",
+                    span(cls := "validation-icon", glyph),
                     span(validation.message),
                   )
                 },
@@ -635,7 +642,7 @@ object FileUpload {
             // Chunk stats
             div(
               cls := "chunk-stats",
-              h5("?? Chunk Statistics"),
+              h5("Chunk Statistics"),
               div(
                 cls := "stats-grid-compact",
                 div(
@@ -685,14 +692,14 @@ object FileUpload {
             // Visualization of chunk boundaries
             div(
               cls := "chunk-visualizer-section",
-              h5("?? Chunk Breakpoints"),
+              h5("Chunk Breakpoints"),
               renderChunkVisualization(analysis),
             ),
 
             // Chunks table
             div(
               cls := "chunks-section",
-              h5(s"?? Chunks (${analysis.chunks.length})"),
+              h5(s"Chunk Table (${analysis.chunks.length})"),
               div(
                 cls := "chunks-table-wrapper table-scroll",
                 table(
@@ -713,11 +720,11 @@ object FileUpload {
                         td(formatBytes(chunk.size)),
                         td(code(cls := "hash-value", chunk.hash)),
                         td(
-                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "?")
+                          if (chunk.sharedWith.isEmpty) span(cls := "no-sharing", "No shared files yet")
                           else
                             div(
                               cls                                := "shared-files",
-                              span(cls := "share-indicator", s"?? ${chunk.sharedWith.size}"),
+                              span(cls := "share-indicator", s"${chunk.sharedWith.size} shared"),
                               span(cls := "share-tooltip", chunk.sharedWith.mkString(", ")),
                             )
                         ),
