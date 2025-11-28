@@ -25,9 +25,10 @@ trait Scan[In, Out]:
 ### Composition
 
 - `>>>`: Sequential composition (category compose)
-- `&&&`: Fanout (broadcast input, tuple outputs)
+- `&&&`: Fanout (broadcast input, record outputs)
 - `map`: Transform outputs (functor)
 - `contramap`: Transform inputs (contravariant functor)
+- `pair`: Build `kyo-data` record pairs so tensors don't leak nested tuples
 
 ### Laws Verified ✅
 

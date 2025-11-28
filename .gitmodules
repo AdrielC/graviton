@@ -1,3 +1,3 @@
 [submodule "modules/zio-blocks"]
-path = modules/zio-blocks
-url = https://github.com/adrielc/zio-blocks.git
+	path = modules/zio-blocks
+	url = https://github.com/zio/zio-blocks.git
