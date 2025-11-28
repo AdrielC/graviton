@@ -1,6 +1,8 @@
 package graviton.frontend
 
 import graviton.shared.ApiModels.*
+import graviton.shared.dashboard.DashboardSamples
+import graviton.shared.schema.SchemaExplorer
 
 /**
  * Static dataset used when the interactive demo is opened without a live Graviton service.
@@ -13,6 +15,9 @@ final case class DemoData(
   blobs: Map[BlobId, DemoData.DemoBlob],
   schemas: List[ObjectSchema],
   simulatedUpload: UploadResponse,
+  datalakeDashboard: DatalakeDashboard,
+  datalakeMetaschema: DatalakeMetaschema,
+  datalakeSchemaExplorer: SchemaExplorer.Graph,
 ) {
 
   /** Ordered sample blob IDs to surface in the UI when running in demo mode. */
@@ -193,6 +198,9 @@ object DemoData {
         blobId = BlobId("sha256:demo-upload"),
         uploadUrl = "https://demo.invalid/upload",
       ),
+      datalakeDashboard = DashboardSamples.snapshot,
+      datalakeMetaschema = DashboardSamples.metaschema,
+      datalakeSchemaExplorer = DashboardSamples.schemaExplorer,
     )
   }
 }

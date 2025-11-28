@@ -207,7 +207,7 @@ lazy val streams = (project in file("modules/graviton-streams"))
   )
 
 lazy val runtime = (project in file("modules/graviton-runtime"))
-  .dependsOn(core, streams)
+  .dependsOn(core, streams, sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-runtime",
     libraryDependencies ++= Seq(
@@ -313,8 +313,11 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
     baseSettings,
     name := "graviton-shared",
     libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio"      % V.zio,
-      "dev.zio" %%% "zio-json" % "0.7.3"
+      "dev.zio" %%% "zio"                 % V.zio,
+      "dev.zio" %%% "zio-json"            % "0.7.3",
+      "dev.zio" %%% "zio-schema"          % V.zioSchema,
+      "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
+      "dev.zio" %%% "zio-schema-json"     % V.zioSchema
     )
   )
   .jsSettings(
