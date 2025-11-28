@@ -7,7 +7,8 @@ import graviton.core.ranges.*
 import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.scan.FS.*
-import graviton.core.scan.ScanPair.*
+import graviton.core.scan.Tensor
+import graviton.core.scan.LabelEvidence.given
 import kyo.Tag.given
 import zio.*
 import zio.stream.*
@@ -53,10 +54,12 @@ object FreeScanV2Spec extends ZIOSpecDefault:
       },
       test("counter and byteCounter compose via tensor product") {
         val combined =
-          map[Chunk[Byte], ScanPair.Pair[Chunk[Byte], Chunk[Byte]]](chunk => pair(chunk, chunk)) >>>
-            (counter[Chunk[Byte]] >< byteCounter)
+          map[Chunk[Byte], Tensor.Pair["count", "bytes", Chunk[Byte], Chunk[Byte]]] { chunk =>
+            pair["count", "bytes", Chunk[Byte], Chunk[Byte]](chunk, chunk)
+          } >>>
+            (counter[Chunk[Byte]].labelled["count"] >< byteCounter.labelled["bytes"])
         val inputs   = List(chunk("ab"), chunk("c"), chunk("def"))
-        val outputs  = combined.runChunk(inputs).map(_.toTuple).toList
+        val outputs  = combined.runChunk(inputs).map(Tensor.toTuple["count", "bytes", Long, Long]).toList
 
         assertTrue(outputs == List((1L, 2L), (2L, 3L), (3L, 6L)))
       },
