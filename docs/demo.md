@@ -76,6 +76,11 @@ When this page cannot reach a live server (such as on GitHub Pages), the UI auto
 
 This interactive demo showcases:
 
+- **Mission Control Studio**: Compose ingest missions by picking scenarios, tuning chunkers, and exporting ready-to-run configs complete with CLI checklists and live telemetry.
+  - Scenario presets for observatories, genomics, and edge observability workloads
+  - Live metric projections (throughput, dedup savings, durability, carbon impact)
+  - Auto-generated HOCON configuration + CLI launch steps tied to your toggles
+  - Narrative event stream with pause/inject controls so you can demo outcomes on stage
 - **Dashboard**: Overview of Graviton's capabilities
 - **Blob Explorer**: Search and inspect blob metadata and manifests
 - **File Upload**: Interactive chunking visualization with multiple strategies
@@ -85,6 +90,14 @@ This interactive demo showcases:
   - View validation results and chunk-level details
 - **Schema Explorer**: Browse the shared API models, drill into field definitions, and view sample JSON powered by Scala.js and ZIO running in the browser
 - **Statistics**: Real-time system metrics and deduplication ratios
+
+## Launch Mission Control Studio
+
+1. Click the `🛠️ Mission Control` tab inside the embedded app navigation (or jump straight there with `#/mission`).
+2. Pick a scenario pill (observatory firehose, genomics quorum, or observability edge mesh) to load scale, compliance, and region presets.
+3. Use the chunker chips, range sliders, and toggles to explore how FastCDC vs Anchored CDC vs fixed windows change projected ingest rates, dedup savings, and durability.
+4. Scroll to **Deployment kit** to copy the generated HOCON plus CLI checklist—each control you tweak rewrites the config instantaneously.
+5. Keep the **Live mission feed** running (or inject your own insight) to narrate how the runtime reacts. Pause/resume the ticker mid-demo to highlight specific pipeline moments.
 
 ## Try it yourself
 
