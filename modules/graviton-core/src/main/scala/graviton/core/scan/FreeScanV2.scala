@@ -4,63 +4,54 @@ import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.manifest.*
 import graviton.core.bytes.*
+import kyo.Record
+import kyo.Record.`~`
+import kyo.Tag
 import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
 
-/**
- * Symmetric monoidal product (⊗) abstraction for scan inputs/outputs.
- */
-trait Prod:
-  type ⊗[A, B]
-  def tup[A, B](a: A, b: B): A ⊗ B
-  def fst[A, B](p: A ⊗ B): A
-  def snd[A, B](p: A ⊗ B): B
+trait LabelEvidence[Label <: String]:
+  def value: String
 
-object Prod:
-  given tuples: Prod with
-    type ⊗[A, B] = (A, B)
-    def tup[A, B](a: A, b: B): (A, B) = (a, b)
-    def fst[A, B](p: (A, B)): A       = p._1
-    def snd[A, B](p: (A, B)): B       = p._2
+object LabelEvidence:
+  inline given literal[Label <: String](using literal: ValueOf[Label]): LabelEvidence[Label] =
+    new LabelEvidence[Label]:
+      val value: String = literal.value
 
-/**
- * Symmetric monoidal sum (⊕) abstraction for future ArrowChoice support.
- */
-trait Sum:
-  type ⊕[A, B]
-  def inl[A, B](a: A): A ⊕ B
-  def inr[A, B](b: B): A ⊕ B
-  def fold[A, B, C](value: A ⊕ B)(fa: A => C, fb: B => C): C
+object Tensor:
+  type Pair[L <: String, R <: String, A, B] = Record[(L ~ A) & (R ~ B)]
 
-object Sum:
-  given either: Sum with
-    type ⊕[A, B] = Either[A, B]
-    def inl[A, B](a: A): Either[A, B]                              = Left(a)
-    def inr[A, B](b: B): Either[A, B]                              = Right(b)
-    def fold[A, B, C](value: Either[A, B])(fa: A => C, fb: B => C) = value.fold(fa, fb)
+  def pack[L <: String, R <: String, A, B](left: A, right: B)(using LabelEvidence[L], LabelEvidence[R], Tag[A], Tag[B]): Pair[L, R, A, B] =
+    (Record.empty
+      & (summon[LabelEvidence[L]].value ~ left)
+      & (summon[LabelEvidence[R]].value ~ right)).asInstanceOf[Pair[L, R, A, B]]
 
-/**
- * Splitting / zipping helper for state threading.
- */
-trait SZip[S, L, R]:
-  def split(state: S): (L, R)
-  def join(left: L, right: R): S
+  def left[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[L]): A =
+    lookup[A](pair, summon[LabelEvidence[L]].value)
 
-object SZip:
-  given pair[L, R]: SZip[(L, R), L, R] with
-    def split(state: (L, R)): (L, R)    = state
-    def join(left: L, right: R): (L, R) = (left, right)
+  def right[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[R]): B =
+    lookup[B](pair, summon[LabelEvidence[R]].value)
 
-/**
- * Object universe for Volga-style scans.
- */
-sealed trait UObj[A]
+  def toTuple[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[L], LabelEvidence[R]): (A, B) =
+    (left(pair), right(pair))
 
-object UObj:
-  final case class Scala[A]()                                  extends UObj[A]
-  case object One                                              extends UObj[Unit]
-  final case class Tensor[A, B](left: UObj[A], right: UObj[B]) extends UObj[(A, B)]
+  private def lookup[A](record: Record[?], label: String): A =
+    record.toMap
+      .collectFirst {
+        case (field, value) if field.name == label =>
+          value.asInstanceOf[A]
+      }
+      .getOrElse(throw new NoSuchElementException(s"Field '$label' missing in tensor record"))
+
+final case class ScanBranch[A, B, Label <: String](scan: FreeScan[Prim, A, B])
+
+object ScanBranch:
+  type AutoLeft  = "_0"
+  type AutoRight = "_1"
+
+  def autoLeft[A, B](scan: FreeScan[Prim, A, B]): ScanBranch[A, B, AutoLeft]   = ScanBranch(scan)
+  def autoRight[A, B](scan: FreeScan[Prim, A, B]): ScanBranch[A, B, AutoRight] = ScanBranch(scan)
 
 /**
  * Free symmetric monoidal category over primitive scan alphabet `Q`.
@@ -68,13 +59,20 @@ object UObj:
 sealed trait FreeScan[+Q[_, _], A, B]
 
 object FreeScan:
-  final case class Id[Q[_, _], A]()                                                            extends FreeScan[Q, A, A]
-  final case class Embed[Q[_, _], A, B](prim: Q[A, B])                                         extends FreeScan[Q, A, B]
-  final case class Seq[Q[_, _], A, B, C](left: FreeScan[Q, A, B], right: FreeScan[Q, B, C])    extends FreeScan[Q, A, C]
-  final case class Par[Q[_, _], A, B, C, D](left: FreeScan[Q, A, B], right: FreeScan[Q, C, D]) extends FreeScan[Q, (A, C), (B, D)]
-  final case class Bra[Q[_, _], A, B]()                                                        extends FreeScan[Q, (A, B), (B, A)]
-  final case class AssocL[Q[_, _], A, B, C]()                                                  extends FreeScan[Q, (A, (B, C)), ((A, B), C)]
-  final case class AssocR[Q[_, _], A, B, C]()                                                  extends FreeScan[Q, ((A, B), C), (A, (B, C))]
+  final case class Id[Q[_, _], A]()                                                         extends FreeScan[Q, A, A]
+  final case class Embed[Q[_, _], A, B](prim: Q[A, B])                                      extends FreeScan[Q, A, B]
+  final case class Seq[Q[_, _], A, B, C](left: FreeScan[Q, A, B], right: FreeScan[Q, B, C]) extends FreeScan[Q, A, C]
+  final case class Par[Q[_, _], A, B, C, D, L <: String, R <: String](
+    left: FreeScan[Q, A, B],
+    right: FreeScan[Q, C, D],
+  )(
+    using val inLeftTag: Tag[A],
+    val outLeftTag: Tag[B],
+    val inRightTag: Tag[C],
+    val outRightTag: Tag[D],
+    val leftLabel: LabelEvidence[L],
+    val rightLabel: LabelEvidence[R],
+  ) extends FreeScan[Q, Tensor.Pair[L, R, A, C], Tensor.Pair[L, R, B, D]]
 
 /**
  * Primitive scan alphabet.
@@ -91,7 +89,6 @@ object Prim:
  * Volga-style combinator helpers and batteries-included primitives.
  */
 object FS:
-
   def id[A]: FreeScan[Prim, A, A] = FreeScan.Id()
 
   def map[A, B](f: A => B): FreeScan[Prim, A, B] = FreeScan.Embed(Map1(f))
@@ -153,10 +150,30 @@ object FS:
       else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
+  def pair[L <: String, R <: String, A, B](
+    left: A,
+    right: B,
+  )(using LabelEvidence[L], LabelEvidence[R], Tag[A], Tag[B]): Tensor.Pair[L, R, A, B] =
+    Tensor.pack(left, right)
+
   extension [A, B](left: FreeScan[Prim, A, B])
     infix def >>>[C](right: FreeScan[Prim, B, C]): FreeScan[Prim, A, C] = FreeScan.Seq(left, right)
 
-    infix def ><[C, D](right: FreeScan[Prim, C, D]): FreeScan[Prim, (A, C), (B, D)] = FreeScan.Par(left, right)
+    inline def labelled[Label <: String]: ScanBranch[A, B, Label] = ScanBranch(left)
+
+    infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D]): FreeScan[
+      Prim,
+      Tensor.Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, A, C],
+      Tensor.Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, B, D],
+    ] =
+      combineBranches(ScanBranch.autoLeft(left), ScanBranch.autoRight(right))
+
+    infix def ><[C, D, R <: String](right: ScanBranch[C, D, R])(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[R]): FreeScan[
+      Prim,
+      Tensor.Pair[ScanBranch.AutoLeft, R, A, C],
+      Tensor.Pair[ScanBranch.AutoLeft, R, B, D],
+    ] =
+      combineBranches(ScanBranch.autoLeft(left), right)
 
     def optimize: FreeScan[Prim, A, B] = Optimize.fuse(left)
 
@@ -168,6 +185,33 @@ object FS:
 
     def runList(inputs: Iterable[A]): List[B] = runChunk(inputs).toList
 
+  extension [A, B, L <: String](left: ScanBranch[A, B, L])
+    infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L]): FreeScan[
+      Prim,
+      Tensor.Pair[L, ScanBranch.AutoRight, A, C],
+      Tensor.Pair[L, ScanBranch.AutoRight, B, D],
+    ] =
+      combineBranches(left, ScanBranch.autoRight(right))
+
+    infix def ><[C, D, R <: String](
+      right: ScanBranch[C, D, R]
+    )(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L], LabelEvidence[R]): FreeScan[
+      Prim,
+      Tensor.Pair[L, R, A, C],
+      Tensor.Pair[L, R, B, D],
+    ] =
+      combineBranches(left, right)
+
+  private def combineBranches[A, B, C, D, L <: String, R <: String](
+    left: ScanBranch[A, B, L],
+    right: ScanBranch[C, D, R],
+  )(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L], LabelEvidence[R]): FreeScan[
+    Prim,
+    Tensor.Pair[L, R, A, C],
+    Tensor.Pair[L, R, B, D],
+  ] =
+    FreeScan.Par(left.scan, right.scan)
+
 /**
  * Peephole optimizer for local primitive fusion.
  */
@@ -175,7 +219,7 @@ object Optimize:
 
   def fuse[A, B](scan: FreeScan[Prim, A, B]): FreeScan[Prim, A, B] =
     scan match
-      case seq: FreeScan.Seq[Prim, a, b, c] @unchecked    =>
+      case seq: FreeScan.Seq[Prim, a, b, c] @unchecked          =>
         val left  = fuse(seq.left)
         val right = fuse(seq.right)
         (left, right) match
@@ -186,9 +230,14 @@ object Optimize:
             val merged  = Filter[t](value => filter1.p(value) && filter2.p(value))
             FreeScan.Embed(merged).asInstanceOf[FreeScan[Prim, A, B]]
           case _                                                                          => FreeScan.Seq(left, right).asInstanceOf[FreeScan[Prim, A, B]]
-      case par: FreeScan.Par[Prim, a, b, c, d] @unchecked =>
-        FreeScan.Par(fuse(par.left), fuse(par.right)).asInstanceOf[FreeScan[Prim, A, B]]
-      case other                                          => other
+      case par: FreeScan.Par[Prim, a, b, c, d, l, r] @unchecked =>
+        FreeScan
+          .Par(
+            fuse(par.left),
+            fuse(par.right),
+          )(using par.inLeftTag, par.outLeftTag, par.inRightTag, par.outRightTag, par.leftLabel, par.rightLabel)
+          .asInstanceOf[FreeScan[Prim, A, B]]
+      case other                                                => other
 
 private trait Step[-A, +B]:
   def init(): Unit
@@ -307,11 +356,15 @@ private object Compile:
 
         step.asInstanceOf[Step[A, B]]
 
-      case par: FreeScan.Par[Prim, a, b, c, d] @unchecked =>
-        val left: Step[a, b]           = build(par.left)
-        val right: Step[c, d]          = build(par.right)
-        val step: Step[(a, c), (b, d)] =
-          new Step[(a, c), (b, d)]:
+      case par: FreeScan.Par[Prim, a, b, c, d, l, r] @unchecked =>
+        given Tag[b]                                                     = par.outLeftTag
+        given Tag[d]                                                     = par.outRightTag
+        given LabelEvidence[l]                                           = par.leftLabel
+        given LabelEvidence[r]                                           = par.rightLabel
+        val left: Step[a, b]                                             = build(par.left)
+        val right: Step[c, d]                                            = build(par.right)
+        val step: Step[Tensor.Pair[l, r, a, c], Tensor.Pair[l, r, b, d]] =
+          new Step[Tensor.Pair[l, r, a, c], Tensor.Pair[l, r, b, d]]:
             private var leftBuf: Chunk[b]  = Chunk.empty
             private var rightBuf: Chunk[d] = Chunk.empty
 
@@ -321,60 +374,28 @@ private object Compile:
               leftBuf = Chunk.empty
               rightBuf = Chunk.empty
 
-            private def emitPairs(): Chunk[(b, d)] =
+            private def emitPairs(): Chunk[Tensor.Pair[l, r, b, d]] =
               val available = math.min(leftBuf.length, rightBuf.length)
               if available == 0 then Chunk.empty
               else
-                val builder = ChunkBuilder.make[(b, d)]()
+                val builder = ChunkBuilder.make[Tensor.Pair[l, r, b, d]]()
                 var idx     = 0
                 while idx < available do
-                  builder += ((leftBuf(idx), rightBuf(idx)))
+                  builder += Tensor.pack[l, r, b, d](leftBuf(idx), rightBuf(idx))
                   idx += 1
                 leftBuf = leftBuf.drop(available)
                 rightBuf = rightBuf.drop(available)
                 builder.result()
 
-            def onElem(in: (a, c)): Chunk[(b, d)] =
-              val (la, rc) = in
-              leftBuf = leftBuf ++ left.onElem(la)
-              rightBuf = rightBuf ++ right.onElem(rc)
+            def onElem(in: Tensor.Pair[l, r, a, c]): Chunk[Tensor.Pair[l, r, b, d]] =
+              leftBuf = leftBuf ++ left.onElem(Tensor.left(in))
+              rightBuf = rightBuf ++ right.onElem(Tensor.right(in))
               emitPairs()
 
-            def onEnd(): Chunk[(b, d)] =
+            def onEnd(): Chunk[Tensor.Pair[l, r, b, d]] =
               leftBuf = leftBuf ++ left.onEnd()
               rightBuf = rightBuf ++ right.onEnd()
               emitPairs()
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.Bra[Prim, a, b] @unchecked =>
-        val step: Step[(a, b), (b, a)] =
-          new Step[(a, b), (b, a)]:
-            def init(): Unit                        = ()
-            def onElem(pair: (a, b)): Chunk[(b, a)] = Chunk((pair._2, pair._1))
-            def onEnd(): Chunk[(b, a)]              = Chunk.empty
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.AssocL[Prim, a, b, c] @unchecked =>
-        val step: Step[(a, (b, c)), ((a, b), c)] =
-          new Step[(a, (b, c)), ((a, b), c)]:
-            def init(): Unit                                   = ()
-            def onElem(value: (a, (b, c))): Chunk[((a, b), c)] =
-              val (a0, (b0, c0)) = value
-              Chunk(((a0, b0), c0))
-            def onEnd(): Chunk[((a, b), c)]                    = Chunk.empty
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.AssocR[Prim, a, b, c] @unchecked =>
-        val step: Step[((a, b), c), (a, (b, c))] =
-          new Step[((a, b), c), (a, (b, c))]:
-            def init(): Unit                                   = ()
-            def onElem(value: ((a, b), c)): Chunk[(a, (b, c))] =
-              val ((a0, b0), c0) = value
-              Chunk((a0, (b0, c0)))
-            def onEnd(): Chunk[(a, (b, c))]                    = Chunk.empty
 
         step.asInstanceOf[Step[A, B]]
 
