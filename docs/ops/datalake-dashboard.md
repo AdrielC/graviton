@@ -1,5 +1,39 @@
 # Datalake Change Dashboard
 
+<script setup>
+import { onMounted } from 'vue'
+
+const loadFrontendBundle = () => {
+  if (typeof window === 'undefined') return
+  const rawBase = import.meta.env?.BASE_URL ?? '/'
+  const normalizedBase = rawBase === '/' ? '' : rawBase.replace(/\/$/, '')
+  window.__GRAVITON_DOCS_BASE__ = normalizedBase
+  if (!window.__GRAVITON_FRONTEND_LOADED__) {
+    window.__GRAVITON_FRONTEND_LOADED__ = true
+    import(`${normalizedBase}/js/main.js`).catch(err => {
+      console.warn('Graviton frontend bundle not loaded:', err)
+    })
+  }
+}
+
+const attachSchemaSrc = () => {
+  if (typeof document === 'undefined') return
+  const element = document.getElementById('docs-schema-explorer')
+  if (!element || element.dataset.initialized) return
+  const apiMeta = document.querySelector('meta[name=graviton-api-url]')
+  const apiBase = apiMeta?.getAttribute('content')?.trim() ?? ''
+  const normalizedApi = apiBase.length > 0 ? apiBase.replace(/\/$/, '') : ''
+  const schemaUrl = normalizedApi.length > 0 ? `${normalizedApi}/api/datalake/dashboard` : '/api/datalake/dashboard'
+  element.setAttribute('data-src', schemaUrl)
+  element.dataset.initialized = 'true'
+}
+
+onMounted(() => {
+  loadFrontendBundle()
+  attachSchemaSrc()
+})
+</script>
+
 _Last updated: 2025-11-28 • Branch: `cursor/datalake-recent-changes-dashboard-gpt-5.1-codex-78c7`_
 
 Keep a single page view of what changed across the ingest pipeline, runtime, and experience layers of the Graviton datalake.
@@ -76,4 +110,16 @@ Keep a single page view of what changed across the ingest pipeline, runtime, and
 ## Interactive Editing & Accessors
 - The `/demo#/updates` route now renders editable string fields straight from the schema-derived accessors. Every input is produced by traversing the `Schema[DatalakeDashboard]` structure—no hand-maintained forms.
 - When the dashboard loads data (or receives SSE updates) the editor state synchronizes automatically; you can tweak values locally and click **Apply edits** to mutate the in-browser snapshot. It’s a proof-of-concept for moving “functions to the data” where the schema itself drives the editing experience.
-- For richer tooling, the frontend also exposes a `graviton-schema` custom element (and an inline Laminar `SchemaExplorerView`) so other docs/pages can embed live schema explorers backed by the same accessor metadata.
+- For richer tooling, the frontend also exposes a `graviton-schema` custom element (and an inline Laminar `SchemaExplorerView`) so other docs/pages can embed live schema explorers backed by the same accessor metadata. A live instance is embedded below.
+
+<meta name="graviton-api-url" content="http://localhost:8080" />
+
+:::tip Configure API for docs
+Update the `<meta name="graviton-api-url" />` tag above so the embedded explorer knows where to fetch `/api/datalake/dashboard`.
+:::
+
+<ClientOnly>
+<div class="docs-schema-panel">
+  <graviton-schema id="docs-schema-explorer"></graviton-schema>
+</div>
+</ClientOnly>
