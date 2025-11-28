@@ -346,10 +346,14 @@ object LineScan:
 
 ## Composition Examples
 
+> **Note:** `FreeScanV2` represents tensor products with `kyo-data` records.
+> Use `FS.pair(...)` or `ScanPair.fromTuple(...)` when building inputs for `><`
+> so you avoid nested tuples and keep field labels explicit.
+
 ### Hash + CDC Pipeline
 
 ```scala
-val pipeline: FreeScan[Chunk, Chunk, Byte, (Digest, Int), Merged] =
+val pipeline: FreeScan[Chunk, Chunk, Byte, ScanPair.Pair[Digest, Int], Merged] =
   HashScan.sha256.fanout(CdcScan.fastCdc(4096, 8192, 16384))
 
 // Same bytes flow through both scans

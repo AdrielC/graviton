@@ -4,63 +4,40 @@ import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.manifest.*
 import graviton.core.bytes.*
+import kyo.Record
+import kyo.Record.`~`
+import kyo.Tag
 import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
 
-/**
- * Symmetric monoidal product (⊗) abstraction for scan inputs/outputs.
- */
-trait Prod:
-  type ⊗[A, B]
-  def tup[A, B](a: A, b: B): A ⊗ B
-  def fst[A, B](p: A ⊗ B): A
-  def snd[A, B](p: A ⊗ B): B
+object ScanPair:
+  type Pair[A, B] = Record[("left" ~ A) & ("right" ~ B)]
 
-object Prod:
-  given tuples: Prod with
-    type ⊗[A, B] = (A, B)
-    def tup[A, B](a: A, b: B): (A, B) = (a, b)
-    def fst[A, B](p: (A, B)): A       = p._1
-    def snd[A, B](p: (A, B)): B       = p._2
+  private val LeftLabel: "left"   = "left"
+  private val RightLabel: "right" = "right"
 
-/**
- * Symmetric monoidal sum (⊕) abstraction for future ArrowChoice support.
- */
-trait Sum:
-  type ⊕[A, B]
-  def inl[A, B](a: A): A ⊕ B
-  def inr[A, B](b: B): A ⊕ B
-  def fold[A, B, C](value: A ⊕ B)(fa: A => C, fb: B => C): C
+  def apply[A, B](left: A, right: B)(using Tag[A], Tag[B]): Pair[A, B] =
+    (Record.empty
+      & (LeftLabel ~ left)
+      & (RightLabel ~ right)).asInstanceOf[Pair[A, B]]
 
-object Sum:
-  given either: Sum with
-    type ⊕[A, B] = Either[A, B]
-    def inl[A, B](a: A): Either[A, B]                              = Left(a)
-    def inr[A, B](b: B): Either[A, B]                              = Right(b)
-    def fold[A, B, C](value: Either[A, B])(fa: A => C, fb: B => C) = value.fold(fa, fb)
+  def fromTuple[A, B](tuple: (A, B))(using Tag[A], Tag[B]): Pair[A, B] =
+    apply(tuple._1, tuple._2)
 
-/**
- * Splitting / zipping helper for state threading.
- */
-trait SZip[S, L, R]:
-  def split(state: S): (L, R)
-  def join(left: L, right: R): S
+  extension [A, B](pair: Pair[A, B])
+    def left(using Tag[A]): A                 = lookup[A](pair, LeftLabel)
+    def right(using Tag[B]): B                = lookup[B](pair, RightLabel)
+    def toTuple(using Tag[A], Tag[B]): (A, B) =
+      (left, right)
 
-object SZip:
-  given pair[L, R]: SZip[(L, R), L, R] with
-    def split(state: (L, R)): (L, R)    = state
-    def join(left: L, right: R): (L, R) = (left, right)
-
-/**
- * Object universe for Volga-style scans.
- */
-sealed trait UObj[A]
-
-object UObj:
-  final case class Scala[A]()                                  extends UObj[A]
-  case object One                                              extends UObj[Unit]
-  final case class Tensor[A, B](left: UObj[A], right: UObj[B]) extends UObj[(A, B)]
+  private def lookup[A](record: Record[?], label: String): A =
+    record.toMap
+      .collectFirst {
+        case (field, value) if field.name == label =>
+          value.asInstanceOf[A]
+      }
+      .getOrElse(throw new NoSuchElementException(s"Field '$label' missing in FreeScan pair record"))
 
 /**
  * Free symmetric monoidal category over primitive scan alphabet `Q`.
@@ -68,13 +45,14 @@ object UObj:
 sealed trait FreeScan[+Q[_, _], A, B]
 
 object FreeScan:
-  final case class Id[Q[_, _], A]()                                                            extends FreeScan[Q, A, A]
-  final case class Embed[Q[_, _], A, B](prim: Q[A, B])                                         extends FreeScan[Q, A, B]
-  final case class Seq[Q[_, _], A, B, C](left: FreeScan[Q, A, B], right: FreeScan[Q, B, C])    extends FreeScan[Q, A, C]
-  final case class Par[Q[_, _], A, B, C, D](left: FreeScan[Q, A, B], right: FreeScan[Q, C, D]) extends FreeScan[Q, (A, C), (B, D)]
-  final case class Bra[Q[_, _], A, B]()                                                        extends FreeScan[Q, (A, B), (B, A)]
-  final case class AssocL[Q[_, _], A, B, C]()                                                  extends FreeScan[Q, (A, (B, C)), ((A, B), C)]
-  final case class AssocR[Q[_, _], A, B, C]()                                                  extends FreeScan[Q, ((A, B), C), (A, (B, C))]
+  final case class Id[Q[_, _], A]()                                                         extends FreeScan[Q, A, A]
+  final case class Embed[Q[_, _], A, B](prim: Q[A, B])                                      extends FreeScan[Q, A, B]
+  final case class Seq[Q[_, _], A, B, C](left: FreeScan[Q, A, B], right: FreeScan[Q, B, C]) extends FreeScan[Q, A, C]
+  final case class Par[Q[_, _], A, B, C, D](
+    left: FreeScan[Q, A, B],
+    right: FreeScan[Q, C, D],
+  )(using val inLeftTag: Tag[A], val outLeftTag: Tag[B], val inRightTag: Tag[C], val outRightTag: Tag[D])
+      extends FreeScan[Q, ScanPair.Pair[A, C], ScanPair.Pair[B, D]]
 
 /**
  * Primitive scan alphabet.
@@ -91,6 +69,7 @@ object Prim:
  * Volga-style combinator helpers and batteries-included primitives.
  */
 object FS:
+  export ScanPair.{Pair, fromTuple}
 
   def id[A]: FreeScan[Prim, A, A] = FreeScan.Id()
 
@@ -153,10 +132,21 @@ object FS:
       else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
+  def pair[A, B](left: A, right: B)(using Tag[A], Tag[B]): ScanPair.Pair[A, B] =
+    ScanPair(left, right)
+
+  def pairFromTuple[A, B](tuple: (A, B))(using Tag[A], Tag[B]): ScanPair.Pair[A, B] =
+    ScanPair.fromTuple(tuple)
+
   extension [A, B](left: FreeScan[Prim, A, B])
     infix def >>>[C](right: FreeScan[Prim, B, C]): FreeScan[Prim, A, C] = FreeScan.Seq(left, right)
 
-    infix def ><[C, D](right: FreeScan[Prim, C, D]): FreeScan[Prim, (A, C), (B, D)] = FreeScan.Par(left, right)
+    infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D]): FreeScan[
+      Prim,
+      ScanPair.Pair[A, C],
+      ScanPair.Pair[B, D],
+    ] =
+      FreeScan.Par(left, right)
 
     def optimize: FreeScan[Prim, A, B] = Optimize.fuse(left)
 
@@ -187,6 +177,10 @@ object Optimize:
             FreeScan.Embed(merged).asInstanceOf[FreeScan[Prim, A, B]]
           case _                                                                          => FreeScan.Seq(left, right).asInstanceOf[FreeScan[Prim, A, B]]
       case par: FreeScan.Par[Prim, a, b, c, d] @unchecked =>
+        given Tag[a] = par.inLeftTag
+        given Tag[b] = par.outLeftTag
+        given Tag[c] = par.inRightTag
+        given Tag[d] = par.outRightTag
         FreeScan.Par(fuse(par.left), fuse(par.right)).asInstanceOf[FreeScan[Prim, A, B]]
       case other                                          => other
 
@@ -308,10 +302,14 @@ private object Compile:
         step.asInstanceOf[Step[A, B]]
 
       case par: FreeScan.Par[Prim, a, b, c, d] @unchecked =>
-        val left: Step[a, b]           = build(par.left)
-        val right: Step[c, d]          = build(par.right)
-        val step: Step[(a, c), (b, d)] =
-          new Step[(a, c), (b, d)]:
+        given Tag[a]                                             = par.inLeftTag
+        given Tag[b]                                             = par.outLeftTag
+        given Tag[c]                                             = par.inRightTag
+        given Tag[d]                                             = par.outRightTag
+        val left: Step[a, b]                                     = build(par.left)
+        val right: Step[c, d]                                    = build(par.right)
+        val step: Step[ScanPair.Pair[a, c], ScanPair.Pair[b, d]] =
+          new Step[ScanPair.Pair[a, c], ScanPair.Pair[b, d]]:
             private var leftBuf: Chunk[b]  = Chunk.empty
             private var rightBuf: Chunk[d] = Chunk.empty
 
@@ -321,60 +319,28 @@ private object Compile:
               leftBuf = Chunk.empty
               rightBuf = Chunk.empty
 
-            private def emitPairs(): Chunk[(b, d)] =
+            private def emitPairs(): Chunk[ScanPair.Pair[b, d]] =
               val available = math.min(leftBuf.length, rightBuf.length)
               if available == 0 then Chunk.empty
               else
-                val builder = ChunkBuilder.make[(b, d)]()
+                val builder = ChunkBuilder.make[ScanPair.Pair[b, d]]()
                 var idx     = 0
                 while idx < available do
-                  builder += ((leftBuf(idx), rightBuf(idx)))
+                  builder += ScanPair(leftBuf(idx), rightBuf(idx))
                   idx += 1
                 leftBuf = leftBuf.drop(available)
                 rightBuf = rightBuf.drop(available)
                 builder.result()
 
-            def onElem(in: (a, c)): Chunk[(b, d)] =
-              val (la, rc) = in
-              leftBuf = leftBuf ++ left.onElem(la)
-              rightBuf = rightBuf ++ right.onElem(rc)
+            def onElem(in: ScanPair.Pair[a, c]): Chunk[ScanPair.Pair[b, d]] =
+              leftBuf = leftBuf ++ left.onElem(in.left)
+              rightBuf = rightBuf ++ right.onElem(in.right)
               emitPairs()
 
-            def onEnd(): Chunk[(b, d)] =
+            def onEnd(): Chunk[ScanPair.Pair[b, d]] =
               leftBuf = leftBuf ++ left.onEnd()
               rightBuf = rightBuf ++ right.onEnd()
               emitPairs()
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.Bra[Prim, a, b] @unchecked =>
-        val step: Step[(a, b), (b, a)] =
-          new Step[(a, b), (b, a)]:
-            def init(): Unit                        = ()
-            def onElem(pair: (a, b)): Chunk[(b, a)] = Chunk((pair._2, pair._1))
-            def onEnd(): Chunk[(b, a)]              = Chunk.empty
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.AssocL[Prim, a, b, c] @unchecked =>
-        val step: Step[(a, (b, c)), ((a, b), c)] =
-          new Step[(a, (b, c)), ((a, b), c)]:
-            def init(): Unit                                   = ()
-            def onElem(value: (a, (b, c))): Chunk[((a, b), c)] =
-              val (a0, (b0, c0)) = value
-              Chunk(((a0, b0), c0))
-            def onEnd(): Chunk[((a, b), c)]                    = Chunk.empty
-
-        step.asInstanceOf[Step[A, B]]
-
-      case _: FreeScan.AssocR[Prim, a, b, c] @unchecked =>
-        val step: Step[((a, b), c), (a, (b, c))] =
-          new Step[((a, b), c), (a, (b, c))]:
-            def init(): Unit                                   = ()
-            def onElem(value: ((a, b), c)): Chunk[(a, (b, c))] =
-              val ((a0, b0), c0) = value
-              Chunk((a0, (b0, c0)))
-            def onEnd(): Chunk[(a, (b, c))]                    = Chunk.empty
 
         step.asInstanceOf[Step[A, B]]
 
