@@ -91,6 +91,45 @@ This interactive demo showcases:
 - **Schema Explorer**: Browse the shared API models, drill into field definitions, and view sample JSON powered by Scala.js and ZIO running in the browser
 - **Statistics**: Real-time system metrics and deduplication ratios
 
+## Next Wave: Interactive Labs
+
+We are expanding the experience with a slate of Scala.js sandboxes that plug straight into the existing Laminar shell. Each one runs fully client-side with Web Workers so you can benchmark and visualize without leaving the browser.
+
+### Inline BlobStore Benchmark
+
+- Benchmark BLAKE3 vs SHA-256 against the same file, streaming bytes through Workers to keep the UI responsive.
+- Toggle chunking modes (FastCDC, fixed, none) and see how hash cost and dedup savings shift.
+- Flip between IndexedDB (local) and remote MinIO URLs; perf charts show network + hashing overheads.
+- Flame-graph timeline overlay makes “hash heat” tangible: hover to see per-stage latency and throughput.
+
+### CAS Mental Model Simulator
+
+- Drag a file into the canvas and watch the hash ladder light up as blocks are chunked and hashed.
+- Drop in a second file and see identical blocks collapse into the same `FileKey`; collisions highlight why deterministic chunking matters.
+- Edit a byte: only the impacted blocks rehash, the manifest diff animates, and users feel the “content address” concept immediately.
+
+### S3 / Ceph Translator Map
+
+- Pick any `BlobKey` from the explorer; the panel fans out how that blob is expressed on each backend (S3 path, MinIO layout, Ceph RADOS object, filesystem path, Postgres chunk rows).
+- Shows “Graviton doesn’t care” in one glance: every backend tile stays in sync as you scrub through replicas.
+
+### Block Repair / Rehydration Demo
+
+- Simulate missing blocks in the primary store; backup replicas stream in and the manifest indicator ticks back to healthy.
+- Chaos toggle randomly removes blocks so you can watch Graviton rehydrate from surviving sectors and rebuild the `FileKey`.
+- Ideal for teaching operators why replication policies and background repair jobs matter.
+
+### ZIP Virtualization Explorer
+
+- Upload a ZIP, then split view shows “opaque blob” vs “virtual directory” modes.
+- Step through re-zip strategies (sorted entries, normalized metadata, canonical timestamps) and see how hashes shift.
+- Explain the canonical hashing problem visually, including knobs for metadata stripping and recompression.
+
+### End-to-end Ingestion Pipeline Simulator
+
+- Animates the full ingest lifecycle: browser streaming → hashing → manifest assembly → KMS encrypt → `BlockStore` writes → CAS identity → metadata commits → outbox/finalization.
+- Each stage is backed by the actual pipeline graph, so pausing at any node reveals the ZIO service stack and relevant configuration handles.
+
 ## Launch Mission Control Studio
 
 1. Click the `🛠️ Mission Control` tab inside the embedded app navigation (or jump straight there with `#/mission`).
