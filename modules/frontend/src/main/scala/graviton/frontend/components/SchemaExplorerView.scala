@@ -22,16 +22,16 @@ object SchemaExplorerView {
     openVar: Var[Set[String]],
     depth: Int,
     visited: Set[String],
-  ): HtmlElement = {
+  ): HtmlElement =
     nodes.get(nodeId) match {
-      case None =>
+      case None                                   =>
         div(cls := "schema-node schema-node-missing", s"Unknown node: $nodeId")
       case Some(node) if visited.contains(nodeId) =>
         div(cls := "schema-node schema-node-cycle", span(cls := "schema-node-cycle-label", s"↺ ${node.label}"))
-      case Some(node) =>
+      case Some(node)                             =>
         val hasChildren = node.fields.nonEmpty || node.cases.nonEmpty || node.collection.nonEmpty
         val icon        = if (hasChildren) Some(toggle(nodeId, openVar)) else None
-        val header =
+        val header      =
           div(
             cls := "schema-node-header",
             icon.getOrElse(span(cls := "schema-node-spacer", "•")),
@@ -42,33 +42,32 @@ object SchemaExplorerView {
             ),
           )
 
-        val children =
-          children <-- openVar.signal.map { open =>
+        val childrenNode =
+          child <-- openVar.signal.map { open =>
             if (hasChildren && open.contains(nodeId))
               div(
                 cls := "schema-node-children",
                 renderFields(nodeId, node.fields, nodes, openVar, depth + 1, visited + nodeId),
                 renderCases(nodeId, node.cases, nodes, openVar, depth + 1, visited + nodeId),
-                node.collection.map(renderCollection(_, nodes, openVar, depth + 1, visited + nodeId)).getOrElse(emptyNode),
+                node.collection.map(renderCollection(_, nodes, openVar, depth + 1, visited + nodeId)).getOrElse(div()),
               )
-            else emptyNode
+            else div()
           }
 
         div(
           cls := "schema-node",
           header,
           div(cls := "schema-node-summary", node.summary),
-          children,
+          childrenNode,
         )
     }
-  }
 
   private def toggle(nodeId: String, openVar: Var[Set[String]]): HtmlElement =
     button(
       cls := "schema-node-toggle",
       child.text <-- openVar.signal.map(open => if (open.contains(nodeId)) "▾" else "▸"),
       onClick.mapTo(nodeId) --> { id =>
-        openVar.update { open => if (open.contains(id)) open - id else open + id }
+        openVar.update(open => if (open.contains(id)) open - id else open + id)
       },
     )
 
@@ -80,7 +79,7 @@ object SchemaExplorerView {
     depth: Int,
     visited: Set[String],
   ): HtmlElement =
-    if (fields.isEmpty) emptyNode
+    if (fields.isEmpty) div()
     else
       div(
         cls := "schema-fields",
@@ -93,10 +92,11 @@ object SchemaExplorerView {
             span(cls := "schema-field-optional", if (field.optional) "optional" else "required"),
             renderAnnotations(field.annotations),
             if (field.targetId == ownerId) span(cls := "schema-field-self", "↺ self")
-            else details(
-              summary("Inspect type"),
-              renderNode(field.targetId, nodes, openVar, depth, visited),
-            ),
+            else
+              detailsTag(
+                summaryTag("Inspect type"),
+                renderNode(field.targetId, nodes, openVar, depth, visited),
+              ),
           )
         },
       )
@@ -109,7 +109,7 @@ object SchemaExplorerView {
     depth: Int,
     visited: Set[String],
   ): HtmlElement =
-    if (cases.isEmpty) emptyNode
+    if (cases.isEmpty) div()
     else
       div(
         cls := "schema-cases",
@@ -120,10 +120,11 @@ object SchemaExplorerView {
             span(cls := "schema-case-name", caze.name),
             renderAnnotations(caze.annotations),
             if (caze.targetId == ownerId) span(cls := "schema-field-self", "↺ self")
-            else details(
-              summary("Inspect case"),
-              renderNode(caze.targetId, nodes, openVar, depth, visited),
-            ),
+            else
+              detailsTag(
+                summaryTag("Inspect case"),
+                renderNode(caze.targetId, nodes, openVar, depth, visited),
+              ),
           )
         },
       )
@@ -142,14 +143,14 @@ object SchemaExplorerView {
         cls := "schema-collection-entry",
         span(cls := "schema-collection-type", info.elementTypeName),
         renderAnnotations(info.annotations),
-        details(
-          summary("Inspect element"),
+        detailsTag(
+          summaryTag("Inspect element"),
           renderNode(info.elementTargetId, nodes, openVar, depth, visited),
         ),
       ),
     )
 
   private def renderAnnotations(values: List[String]): HtmlElement =
-    if (values.isEmpty) emptyNode
+    if (values.isEmpty) span()
     else span(cls := "schema-annotations", values.mkString("[", ", ", "]"))
 }

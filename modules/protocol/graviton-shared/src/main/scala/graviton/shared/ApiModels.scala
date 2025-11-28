@@ -152,11 +152,11 @@ object ApiModels {
     schemaExplorer: SchemaExplorer.Graph,
   ) derives JsonCodec
 
-  given Schema[DatalakeDashboard]        = DeriveSchema.gen[DatalakeDashboard]
-  given Schema[DatalakePillar]           = DeriveSchema.gen[DatalakePillar]
-  given Schema[DatalakeHighlight]        = DeriveSchema.gen[DatalakeHighlight]
-  given Schema[DatalakeChangeEntry]      = DeriveSchema.gen[DatalakeChangeEntry]
-  given Schema[DatalakeHealthCheck]      = DeriveSchema.gen[DatalakeHealthCheck]
-  given Schema[DatalakeOperationalNote]  = DeriveSchema.gen[DatalakeOperationalNote]
-  given Schema[DatalakeSourceLink]       = DeriveSchema.gen[DatalakeSourceLink]
+  given Schema[DatalakeDashboard]       = DeriveSchema.gen[DatalakeDashboard]
+  given Schema[DatalakePillar]          = DeriveSchema.gen[DatalakePillar]
+  given Schema[DatalakeHighlight]       = DeriveSchema.gen[DatalakeHighlight]
+  given Schema[DatalakeChangeEntry]     = DeriveSchema.gen[DatalakeChangeEntry]
+  given Schema[DatalakeHealthCheck]     = DeriveSchema.gen[DatalakeHealthCheck]
+  given Schema[DatalakeOperationalNote] = DeriveSchema.gen[DatalakeOperationalNote]
+  given Schema[DatalakeSourceLink]      = DeriveSchema.gen[DatalakeSourceLink]
 }

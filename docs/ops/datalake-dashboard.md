@@ -71,3 +71,9 @@ Keep a single page view of what changed across the ingest pipeline, runtime, and
 - `GET /api/datalake/dashboard` now returns a `DatalakeDashboardEnvelope` that includes the live snapshot plus a metaschema generated via `Schema[DatalakeDashboard].ast`. Clients can diff the AST to detect contract changes.
 - `GET /api/datalake/dashboard/stream` exposes a server-sent-event feed powered by a ZIO `Hub` + `ZStream`, allowing the Scala.js demo (and any other consumer) to stay in sync without polling.
 - The metaschema uses the `zio-schema-json` codec so downstream tooling can hydrate the AST into whatever representation they need.
+- The response also ships a `schemaExplorer` graph derived from `Schema.makeAccessors`, giving UIs enough structure to build interactive editors or schema visualizations without bespoke wiring.
+
+## Interactive Editing & Accessors
+- The `/demo#/updates` route now renders editable string fields straight from the schema-derived accessors. Every input is produced by traversing the `Schema[DatalakeDashboard]` structure—no hand-maintained forms.
+- When the dashboard loads data (or receives SSE updates) the editor state synchronizes automatically; you can tweak values locally and click **Apply edits** to mutate the in-browser snapshot. It’s a proof-of-concept for moving “functions to the data” where the schema itself drives the editing experience.
+- For richer tooling, the frontend also exposes a `graviton-schema` custom element (and an inline Laminar `SchemaExplorerView`) so other docs/pages can embed live schema explorers backed by the same accessor metadata.

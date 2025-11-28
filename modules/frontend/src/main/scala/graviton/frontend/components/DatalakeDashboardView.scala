@@ -3,15 +3,19 @@ package graviton.frontend.components
 import com.raquo.laminar.api.L.*
 import graviton.frontend.GravitonApi
 import graviton.shared.ApiModels.*
-import graviton.shared.schema.SchemaExplorer
+import graviton.shared.schema.{SchemaAccessors, SchemaExplorer}
 import org.scalajs.dom
 import zio.*
 import zio.json.*
+import zio.schema.DeriveSchema
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
 /** Interactive datalake change dashboard used inside the Scala.js demo. */
 object DatalakeDashboardView {
+
+  private val stringFields =
+    SchemaAccessors.stringFields(DeriveSchema.gen[DatalakeDashboard])
 
   private sealed trait StreamState
   private object StreamState {
@@ -33,6 +37,7 @@ object DatalakeDashboardView {
     val dashboardVar   = Var[Option[DatalakeDashboard]](None)
     val metaschemaVar  = Var[Option[DatalakeMetaschema]](None)
     val explorerVar    = Var[Option[SchemaExplorer.Graph]](None)
+    val editorStateVar = Var(Map.empty[String, String])
     val loadingVar     = Var(false)
     val errorVar       = Var[Option[String]](None)
     val streamStateVar = Var[StreamState](StreamState.Disabled)
@@ -49,6 +54,7 @@ object DatalakeDashboardView {
             dashboardVar.set(Some(data.snapshot))
             metaschemaVar.set(Some(data.metaschema))
             explorerVar.set(Some(data.schemaExplorer))
+            editorStateVar.set(snapshotEditors(data.snapshot))
             loadingVar.set(false)
           case scala.util.Failure(error) =>
             errorVar.set(Some(error.getMessage))
@@ -72,6 +78,7 @@ object DatalakeDashboardView {
               case Left(err)   => dom.console.error(s"Failed to decode dashboard SSE payload: $err")
               case Right(data) =>
                 dashboardVar.set(Some(data))
+                editorStateVar.set(snapshotEditors(data))
 
     def stopStream(): Unit = {
       eventSourceVar.now().foreach(_.close())
@@ -116,7 +123,7 @@ object DatalakeDashboardView {
       },
       child <-- dashboardVar.signal.map {
         case None       => div(cls := "datalake-empty", "Click refresh to load the datalake summary.")
-        case Some(data) => renderDashboard(data, metaschemaVar, explorerVar)
+        case Some(data) => renderDashboard(data, metaschemaVar, explorerVar, dashboardVar, editorStateVar)
       },
       child <-- errorVar.signal.map {
         case None        => emptyNode
@@ -136,7 +143,13 @@ object DatalakeDashboardView {
       case StreamState.Connected  => span(cls := "status-green", "Streaming live")
       case StreamState.Error      => span(cls := "status-warn", "Stream error (using cached data)")
 
-  private def renderDashboard(data: DatalakeDashboard, metaschemaVar: Var[Option[DatalakeMetaschema]]): HtmlElement = {
+  private def renderDashboard(
+    data: DatalakeDashboard,
+    metaschemaVar: Var[Option[DatalakeMetaschema]],
+    explorerVar: Var[Option[SchemaExplorer.Graph]],
+    dashboardVar: Var[Option[DatalakeDashboard]],
+    editorStateVar: Var[Map[String, String]],
+  ): HtmlElement = {
     div(
       div(
         cls := "datalake-meta",
@@ -239,11 +252,11 @@ object DatalakeDashboardView {
         ),
       ),
       datalakeSection(
-        "Upcoming Focus",
-        ul(
-          cls := "upcoming-list",
-          data.upcomingFocus.map(item => li("• " + item))*
-        ),
+        "Upcoming Focus", {
+          val upcomingItems = data.upcomingFocus.map(item => li("• " + item))
+          val modifiers     = (cls := "upcoming-list") +: upcomingItems
+          ul(modifiers*)
+        },
       ),
       datalakeSection(
         "Source Index",
@@ -268,6 +281,20 @@ object DatalakeDashboardView {
           },
         ),
       ),
+      datalakeSection(
+        "Editable Fields",
+        renderEditors(dashboardVar, editorStateVar),
+      ),
+      datalakeSection(
+        "Schema Explorer",
+        div(
+          cls := "schema-explorer-panel",
+          child <-- explorerVar.signal.map {
+            case None        => div(cls := "datalake-empty", "Schema explorer unavailable.")
+            case Some(graph) => SchemaExplorerView(graph)
+          },
+        ),
+      ),
     )
   }
 
@@ -280,4 +307,60 @@ object DatalakeDashboardView {
       ),
       content,
     )
+
+  private def renderEditors(
+    dashboardVar: Var[Option[DatalakeDashboard]],
+    editorStateVar: Var[Map[String, String]],
+  ): HtmlElement =
+    if (stringFields.isEmpty)
+      div(cls := "schema-editor", div(cls := "schema-editor-row", "No editable string fields discovered."))
+    else
+      div(
+        cls   := "schema-editor",
+        div(
+          cls := "schema-editor-grid",
+          stringFields.map { field =>
+            val key = fieldKey(field)
+            div(
+              cls := "schema-editor-row",
+              label(cls := "schema-editor-label", key),
+              input(
+                cls     := "schema-editor-input",
+                value <-- editorStateVar.signal.map(_.getOrElse(key, "")),
+                onInput.mapToValue --> { value =>
+                  editorStateVar.update(_.updated(key, value))
+                },
+              ),
+            )
+          },
+        ),
+        button(
+          cls := "btn-secondary schema-editor-apply",
+          "Apply edits",
+          onClick --> { _ =>
+            dashboardVar.now().foreach { current =>
+              val updated = applyStringEdits(current, editorStateVar.now())
+              dashboardVar.set(Some(updated))
+              editorStateVar.set(snapshotEditors(updated))
+            }
+          },
+        ),
+      )
+
+  private def fieldKey(field: SchemaAccessors.StringField[DatalakeDashboard]): String =
+    field.path.mkString(".")
+
+  private def snapshotEditors(data: DatalakeDashboard): Map[String, String] =
+    stringFields.map(field => fieldKey(field) -> field.lens.get(data)).toMap
+
+  private def applyStringEdits(
+    data: DatalakeDashboard,
+    edits: Map[String, String],
+  ): DatalakeDashboard =
+    stringFields.foldLeft(data) { case (acc, field) =>
+      edits.get(fieldKey(field)) match {
+        case Some(value) => field.lens.set(acc, value)
+        case None        => acc
+      }
+    }
 }

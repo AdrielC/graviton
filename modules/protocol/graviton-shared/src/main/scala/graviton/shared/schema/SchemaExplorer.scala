@@ -3,7 +3,7 @@ package graviton.shared.schema
 import zio.Chunk
 import zio.json.{DeriveJsonCodec, JsonCodec}
 import zio.schema.{Schema, TypeId}
-import zio.schema.Schema.{Collection, Enum, Lazy, Optional, Primitive, Record, Transform}
+import zio.schema.Schema.{Enum, Lazy, Optional, Primitive, Record, Transform}
 
 import scala.collection.mutable
 
@@ -78,7 +78,7 @@ object SchemaExplorer {
     }
 
     private def buildNode(id: String, schema: Schema[?]): Node = schema match {
-      case record: Record[?] =>
+      case record: Record[_] =>
         val fields = record.fields.map { field =>
           val targetId = register(field.schema)
           Field(
@@ -99,8 +99,8 @@ object SchemaExplorer {
           fields = fields,
         )
 
-      case enum: Enum[?] =>
-        val cases = enum.cases.map { c =>
+      case enumSchema: Enum[_] =>
+        val cases = enumSchema.cases.map { c =>
           val targetId = register(c.schema)
           Case(
             name = c.caseName,
@@ -112,14 +112,14 @@ object SchemaExplorer {
         Node(
           id = id,
           kind = NodeKind.Sum,
-          typeName = nodeTypeName(enum),
-          label = nodeLabel(enum.id),
-          summary = schemaSummary(enum),
-          annotations = asStrings(enum.annotations),
+          typeName = nodeTypeName(enumSchema),
+          label = nodeLabel(enumSchema.id),
+          summary = schemaSummary(enumSchema),
+          annotations = asStrings(enumSchema.annotations),
           cases = cases,
         )
 
-      case opt: Optional[?] =>
+      case opt: Optional[_] =>
         val valueId = register(opt.schema)
         val field   = Field(
           name = "value",
@@ -138,25 +138,7 @@ object SchemaExplorer {
           fields = List(field),
         )
 
-      case collection: Collection[?, ?] =>
-        val elementId = register(collection.elementSchema)
-        Node(
-          id = id,
-          kind = NodeKind.Collection,
-          typeName = nodeTypeName(collection),
-          label = nodeTypeName(collection),
-          summary = schemaSummary(collection),
-          annotations = asStrings(collection.annotations),
-          collection = Some(
-            CollectionInfo(
-              elementTargetId = elementId,
-              elementTypeName = nodeTypeName(collection.elementSchema),
-              annotations = asStrings(collection.elementSchema.annotations),
-            )
-          ),
-        )
-
-      case primitive: Primitive[?] =>
+      case primitive: Primitive[_] =>
         Node(
           id = id,
           kind = NodeKind.Primitive,
@@ -191,14 +173,14 @@ object SchemaExplorer {
     s"${schema.getClass.getName}:${schema.ast.hashCode().toHexString}"
 
   private def nodeTypeName(schema: Schema[?]): String = schema match {
-    case record: Record[?] => nodeLabel(record.id)
-    case enum: Enum[?]     => nodeLabel(enum.id)
-    case _                 => schema.getClass.getSimpleName
+    case record: Record[_]   => nodeLabel(record.id)
+    case enumSchema: Enum[_] => nodeLabel(enumSchema.id)
+    case _                   => schema.getClass.getSimpleName
   }
 
   private def nodeLabel(id: TypeId): String = id match {
-    case TypeId.Structural                    => "<anonymous>"
-    case named: TypeId.Nominal @unchecked     => named.fullyQualified
+    case TypeId.Structural                => "<anonymous>"
+    case named: TypeId.Nominal @unchecked => named.fullyQualified
   }
 
   private def schemaSummary(schema: Schema[?]): String = schema.ast.toString

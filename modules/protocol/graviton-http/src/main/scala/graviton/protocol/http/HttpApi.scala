@@ -1,8 +1,8 @@
 package graviton.protocol.http
 
 import graviton.runtime.dashboard.DatalakeDashboardService
-import graviton.shared.ApiModels.*
 import graviton.runtime.stores.BlobStore
+import graviton.shared.ApiModels.*
 import zio.*
 import zio.http.*
 import zio.json.EncoderOps
@@ -19,10 +19,10 @@ final case class HttpApi(
   private val snapshotHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromZIO {
       for {
-        snap <- dashboard.snapshot
-        meta <- dashboard.metaschema
-        body  = DatalakeDashboardEnvelope(snap, meta).toJson
-      } yield Response.json(body)
+        snap  <- dashboard.snapshot
+        meta  <- dashboard.metaschema
+        graph <- dashboard.explorer
+      } yield Response.json(DatalakeDashboardEnvelope(snap, meta, graph).toJson)
     }
 
   private val streamHandler: Handler[Any, Nothing, Request, Response] =
@@ -38,10 +38,10 @@ final case class HttpApi(
         Response(
           status = Status.Ok,
           headers = Headers(
-            HeaderNames.contentType  -> HeaderValues.textEventStream,
-            HeaderNames.cacheControl -> "no-cache",
+            Header.Custom("Content-Type", "text/event-stream"),
+            Header.Custom("Cache-Control", "no-cache"),
           ),
-          body = Body.fromStream(byteStream),
+          body = Body.fromStreamChunked(byteStream),
         )
       )
     }
