@@ -130,7 +130,6 @@ lazy val docs = (project in file("docs-mdoc"))
 
 lazy val root = (project in file(".")).aggregate(
   core,
-  zioBlocks,
   streams,
   runtime,
   proto,
@@ -189,11 +188,8 @@ lazy val core = (project in file("modules/graviton-core"))
     )
   )
 
-lazy val zioBlocks = (project in file("modules/zio-blocks"))
-  .settings(baseSettings, publish / skip := true, name := "zio-blocks")
-
 lazy val streams = (project in file("modules/graviton-streams"))
-  .dependsOn(core, zioBlocks)
+  .dependsOn(core)
   .settings(baseSettings,
     name := "graviton-streams",
     libraryDependencies ++= Seq(

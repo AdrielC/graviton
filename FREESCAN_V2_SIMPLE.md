@@ -25,9 +25,10 @@ trait Scan[In, Out]:
 ### Composition
 
 - `>>>`: Sequential composition (category compose)
-- `&&&`: Fanout (broadcast input, tuple outputs)
+- `&&&`: Fanout (broadcast input, record outputs)
 - `map`: Transform outputs (functor)
 - `contramap`: Transform inputs (contravariant functor)
+- `.labelled["name"]`: Give each branch a readable record key (falls back to `_0`, `_1`, …)
 
 ### Laws Verified ✅
 
