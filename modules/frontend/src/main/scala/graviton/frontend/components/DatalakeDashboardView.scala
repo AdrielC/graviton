@@ -3,12 +3,22 @@ package graviton.frontend.components
 import com.raquo.laminar.api.L.*
 import graviton.frontend.GravitonApi
 import graviton.shared.ApiModels.*
+import org.scalajs.dom
 import zio.*
+import zio.json.*
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
 /** Interactive datalake change dashboard used inside the Scala.js demo. */
 object DatalakeDashboardView {
+
+  private sealed trait StreamState
+  private object StreamState {
+    case object Disabled   extends StreamState
+    case object Connecting extends StreamState
+    case object Connected  extends StreamState
+    case object Error      extends StreamState
+  }
 
   private def statusClass(status: String): String = {
     val normalized = status.toLowerCase
@@ -19,10 +29,13 @@ object DatalakeDashboardView {
   }
 
   def apply(api: GravitonApi): HtmlElement = {
-    val dashboardVar = Var[Option[DatalakeDashboard]](None)
-    val loadingVar   = Var(false)
-    val errorVar     = Var[Option[String]](None)
-    val runtime      = Runtime.default
+    val dashboardVar   = Var[Option[DatalakeDashboard]](None)
+    val metaschemaVar  = Var[Option[DatalakeMetaschema]](None)
+    val loadingVar     = Var(false)
+    val errorVar       = Var[Option[String]](None)
+    val streamStateVar = Var[StreamState](StreamState.Disabled)
+    val eventSourceVar = Var[Option[dom.EventSource]](None)
+    val runtime        = Runtime.default
 
     def loadDashboard(): Unit = {
       loadingVar.set(true)
@@ -31,7 +44,8 @@ object DatalakeDashboardView {
       Unsafe.unsafe { implicit unsafe =>
         runtime.unsafe.runToFuture(api.getDatalakeDashboard).onComplete {
           case scala.util.Success(data)  =>
-            dashboardVar.set(Some(data))
+            dashboardVar.set(Some(data.snapshot))
+            metaschemaVar.set(Some(data.metaschema))
             loadingVar.set(false)
           case scala.util.Failure(error) =>
             errorVar.set(Some(error.getMessage))
@@ -40,11 +54,34 @@ object DatalakeDashboardView {
       }
     }
 
-    // load once on mount so the demo shows the dashboard immediately
+    def startStream(): Unit =
+      api.dashboardStreamUrl match
+        case None      =>
+          streamStateVar.set(StreamState.Disabled)
+        case Some(url) =>
+          streamStateVar.set(StreamState.Connecting)
+          val source = new dom.EventSource(url)
+          eventSourceVar.set(Some(source))
+          source.onopen = _ => streamStateVar.set(StreamState.Connected)
+          source.onerror = _ => streamStateVar.set(StreamState.Error)
+          source.onmessage = (event: dom.MessageEvent) =>
+            event.data.toString.fromJson[DatalakeDashboard] match
+              case Left(err)   => dom.console.error(s"Failed to decode dashboard SSE payload: $err")
+              case Right(data) =>
+                dashboardVar.set(Some(data))
+
+    def stopStream(): Unit = {
+      eventSourceVar.now().foreach(_.close())
+      eventSourceVar.set(None)
+    }
+
+    // Prime the UI with an initial snapshot + metaschema.
     loadDashboard()
+    startStream()
 
     div(
       cls := "datalake-dashboard",
+      onUnmountCallback(_ => stopStream()),
       div(
         cls := "datalake-header",
         div(
@@ -54,6 +91,10 @@ object DatalakeDashboardView {
         ),
         div(
           cls := "datalake-actions",
+          div(
+            cls := "stream-status",
+            child <-- streamStateVar.signal.map(renderStreamStatus),
+          ),
           button(
             cls := "btn-primary",
             "🔄 Refresh dashboard",
@@ -71,18 +112,12 @@ object DatalakeDashboardView {
         else emptyNode
       },
       child <-- dashboardVar.signal.map {
-        case None       =>
-          div(cls := "datalake-empty", "Click refresh to load the datalake summary.")
-        case Some(data) =>
-          renderDashboard(data)
+        case None       => div(cls := "datalake-empty", "Click refresh to load the datalake summary.")
+        case Some(data) => renderDashboard(data, metaschemaVar)
       },
       child <-- errorVar.signal.map {
         case None        => emptyNode
-        case Some(error) =>
-          div(
-            cls := "error-message",
-            s"⚠️ Unable to load dashboard: $error",
-          )
+        case Some(error) => div(cls := "error-message", s"⚠️ Unable to load dashboard: $error")
       },
       child <-- loadingVar.signal.map { loading =>
         if (loading) div(cls := "loading-spinner", "⏳ Loading dashboard...")
@@ -91,7 +126,14 @@ object DatalakeDashboardView {
     )
   }
 
-  private def renderDashboard(data: DatalakeDashboard): HtmlElement = {
+  private def renderStreamStatus(state: StreamState): HtmlElement =
+    state match
+      case StreamState.Disabled   => span(cls := "status-neutral", "SSE disabled")
+      case StreamState.Connecting => span(cls := "status-progress", "Connecting…")
+      case StreamState.Connected  => span(cls := "status-green", "Streaming live")
+      case StreamState.Error      => span(cls := "status-warn", "Stream error (using cached data)")
+
+  private def renderDashboard(data: DatalakeDashboard, metaschemaVar: Var[Option[DatalakeMetaschema]]): HtmlElement = {
     div(
       div(
         cls := "datalake-meta",
@@ -129,11 +171,7 @@ object DatalakeDashboardView {
             div(
               cls := "highlight-card",
               h3(highlight.category),
-              ul(
-                highlight.bullets.map { item =>
-                  li(item)
-                }
-              ),
+              ul(highlight.bullets.map(li(_))*),
             )
           },
         ),
@@ -191,11 +229,8 @@ object DatalakeDashboardView {
             h3("Operational Confidence"),
             ul(
               data.operationalConfidence.map { note =>
-                li(
-                  span(cls := "note-label", note.label + ": "),
-                  span(note.description),
-                )
-              }
+                li(span(cls := "note-label", note.label + ": "), span(note.description))
+              }*
             ),
           ),
         ),
@@ -204,9 +239,7 @@ object DatalakeDashboardView {
         "Upcoming Focus",
         ul(
           cls := "upcoming-list",
-          data.upcomingFocus.map { item =>
-            li("• " + item)
-          },
+          data.upcomingFocus.map(item => li("• " + item))*
         ),
       ),
       datalakeSection(
@@ -219,6 +252,16 @@ object DatalakeDashboardView {
               span(cls := "source-label", source.label),
               span(cls := "source-path", source.path),
             )
+          },
+        ),
+      ),
+      datalakeSection(
+        "Metaschema",
+        div(
+          cls := "metaschema-card",
+          child <-- metaschemaVar.signal.map {
+            case None         => div(cls := "datalake-empty", "Schema metadata unavailable.")
+            case Some(schema) => pre(code(schema.astJson))
           },
         ),
       ),

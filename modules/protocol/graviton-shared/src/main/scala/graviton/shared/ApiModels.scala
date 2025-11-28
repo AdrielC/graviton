@@ -136,4 +136,16 @@ object ApiModels {
     upcomingFocus: List[String],
     sources: List[DatalakeSourceLink],
   ) derives JsonCodec
+
+  /** Serializable metaschema for the datalake dashboard payload. */
+  final case class DatalakeMetaschema(
+    format: String,
+    astJson: String,
+  ) derives JsonCodec
+
+  /** Response envelope combining the snapshot data with its metaschema. */
+  final case class DatalakeDashboardEnvelope(
+    snapshot: DatalakeDashboard,
+    metaschema: DatalakeMetaschema,
+  ) derives JsonCodec
 }

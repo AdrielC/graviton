@@ -1425,6 +1425,18 @@ body.konami-mode .VPNavBarTitle .logo {
   background: rgba(0, 255, 65, 0.04);
 }
 
+.stream-status {
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--vp-c-text-2);
+}
+
+.stream-status span {
+  font-weight: 600;
+}
+
 .datalake-heading h1 {
   margin: 0;
 }
@@ -1644,6 +1656,21 @@ body.konami-mode .VPNavBarTitle .logo {
 .source-path {
   font-size: 0.85rem;
   color: var(--vp-c-text-2);
+}
+
+.metaschema-card {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.35);
+  overflow-x: auto;
+}
+
+.metaschema-card pre {
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .datalake-empty {

@@ -66,7 +66,7 @@ object GravitonApp {
   )
 
   def apply(baseUrl: String, docsBase: String): HtmlElement = {
-    val api                = new GravitonApi(new BrowserHttpClient(baseUrl))
+    val api                = new GravitonApi(baseUrl, new BrowserHttpClient(baseUrl))
     val docsBaseNormalized =
       val trimmed = docsBase.trim
       if trimmed.isEmpty || trimmed == "/" then ""

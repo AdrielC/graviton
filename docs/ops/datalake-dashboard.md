@@ -66,3 +66,8 @@ Keep a single page view of what changed across the ingest pipeline, runtime, and
 - `CHANGES_SUMMARY.md` — Reliability hardening + Matrix-themed docs upgrades.
 - `DOCUMENTATION_STATUS.md` — Build verification and site structure snapshot.
 - `FINAL_STATUS.md` — Scala.js dashboard / frontend deliverables and CI wiring details.
+
+## API Integration
+- `GET /api/datalake/dashboard` now returns a `DatalakeDashboardEnvelope` that includes the live snapshot plus a metaschema generated via `Schema[DatalakeDashboard].ast`. Clients can diff the AST to detect contract changes.
+- `GET /api/datalake/dashboard/stream` exposes a server-sent-event feed powered by a ZIO `Hub` + `ZStream`, allowing the Scala.js demo (and any other consumer) to stay in sync without polling.
+- The metaschema uses the `zio-schema-json` codec so downstream tooling can hydrate the AST into whatever representation they need.

@@ -8,6 +8,7 @@ import zio.*
 
 /** High-level API client for Graviton with offline/demo fallbacks. */
 class GravitonApi(
+  baseUrl: String,
   client: HttpClient,
   demoData: DemoData = DemoData.default,
 ) {
@@ -58,12 +59,17 @@ class GravitonApi(
       Some(demoData.schemaCatalog),
     )
 
-  def getDatalakeDashboard: Task[DatalakeDashboard] =
+  def dashboardStreamUrl: Option[String] =
+    val trimmed = baseUrl.trim
+    if trimmed.isEmpty then None
+    else Some(s"${trimmed.stripSuffix("/")}/api/datalake/dashboard/stream")
+
+  def getDatalakeDashboard: Task[DatalakeDashboardEnvelope] =
     withFallback(
       HttpClient
-        .getJson[DatalakeDashboard]("/api/datalake/dashboard")
+        .getJson[DatalakeDashboardEnvelope]("/api/datalake/dashboard")
         .provideEnvironment(ZEnvironment(client)),
-      Some(demoData.datalakeDashboard),
+      Some(DatalakeDashboardEnvelope(demoData.datalakeDashboard, demoData.datalakeMetaschema)),
     )
 
   def initiateUpload(request: UploadRequest): Task[UploadResponse] =
@@ -102,6 +108,6 @@ class GravitonApi(
 object GravitonApi {
   def layer(baseUrl: String): ULayer[GravitonApi] =
     ZLayer.fromZIO {
-      ZIO.succeed(new GravitonApi(new BrowserHttpClient(baseUrl)))
+      ZIO.succeed(new GravitonApi(baseUrl, new BrowserHttpClient(baseUrl)))
     }
 }
