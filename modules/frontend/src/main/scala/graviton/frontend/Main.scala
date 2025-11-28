@@ -1,6 +1,7 @@
 package graviton.frontend
 
 import com.raquo.laminar.api.L.*
+import graviton.frontend.components.SchemaExplorerElementRegistry
 import org.scalajs.dom
 import scala.scalajs.js
 
@@ -8,6 +9,8 @@ import scala.scalajs.js
 object Main {
 
   def main(args: Array[String]): Unit = {
+    SchemaExplorerElementRegistry.ensure()
+
     // Base URL for API - can be configured via data attribute or environment
     val metaTag = dom.document.querySelector("meta[name=graviton-api-url]")
     val baseUrl = if (metaTag != null) {

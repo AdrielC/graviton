@@ -69,7 +69,7 @@ class GravitonApi(
       HttpClient
         .getJson[DatalakeDashboardEnvelope]("/api/datalake/dashboard")
         .provideEnvironment(ZEnvironment(client)),
-      Some(DatalakeDashboardEnvelope(demoData.datalakeDashboard, demoData.datalakeMetaschema)),
+      Some(DatalakeDashboardEnvelope(demoData.datalakeDashboard, demoData.datalakeMetaschema, demoData.datalakeSchemaExplorer)),
     )
 
   def initiateUpload(request: UploadRequest): Task[UploadResponse] =

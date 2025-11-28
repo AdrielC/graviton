@@ -3,6 +3,7 @@ package graviton.frontend.components
 import com.raquo.laminar.api.L.*
 import graviton.frontend.GravitonApi
 import graviton.shared.ApiModels.*
+import graviton.shared.schema.SchemaExplorer
 import org.scalajs.dom
 import zio.*
 import zio.json.*
@@ -31,6 +32,7 @@ object DatalakeDashboardView {
   def apply(api: GravitonApi): HtmlElement = {
     val dashboardVar   = Var[Option[DatalakeDashboard]](None)
     val metaschemaVar  = Var[Option[DatalakeMetaschema]](None)
+    val explorerVar    = Var[Option[SchemaExplorer.Graph]](None)
     val loadingVar     = Var(false)
     val errorVar       = Var[Option[String]](None)
     val streamStateVar = Var[StreamState](StreamState.Disabled)
@@ -46,6 +48,7 @@ object DatalakeDashboardView {
           case scala.util.Success(data)  =>
             dashboardVar.set(Some(data.snapshot))
             metaschemaVar.set(Some(data.metaschema))
+            explorerVar.set(Some(data.schemaExplorer))
             loadingVar.set(false)
           case scala.util.Failure(error) =>
             errorVar.set(Some(error.getMessage))
@@ -113,7 +116,7 @@ object DatalakeDashboardView {
       },
       child <-- dashboardVar.signal.map {
         case None       => div(cls := "datalake-empty", "Click refresh to load the datalake summary.")
-        case Some(data) => renderDashboard(data, metaschemaVar)
+        case Some(data) => renderDashboard(data, metaschemaVar, explorerVar)
       },
       child <-- errorVar.signal.map {
         case None        => emptyNode

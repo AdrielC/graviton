@@ -1,13 +1,16 @@
 package graviton.shared.dashboard
 
 import graviton.shared.ApiModels.*
+import graviton.shared.schema.SchemaExplorer
 import zio.schema.DeriveSchema
 
 /** Centralized fixtures for the datalake dashboard so JVM + JS stay in sync. */
 object DashboardSamples {
 
+  private val dashboardSchema = DeriveSchema.gen[DatalakeDashboard]
+
   private val schemaAstJson: String =
-    DeriveSchema.gen[DatalakeDashboard].ast.toString
+    dashboardSchema.ast.toString
 
   /** Reference metaschema describing the dashboard payload (generated via zio-schema AST). */
   val metaschema: DatalakeMetaschema =
@@ -15,6 +18,9 @@ object DashboardSamples {
       format = "zio-schema-ast@1",
       astJson = schemaAstJson,
     )
+
+  /** Normalized accessor graph derived from Schema.makeAccessors and MetaSchema. */
+  val schemaExplorer = SchemaExplorer.describe(dashboardSchema)
 
   /** Reference snapshot mirroring the docs/ops/datalake-dashboard.md content. */
   val snapshot: DatalakeDashboard = DatalakeDashboard(

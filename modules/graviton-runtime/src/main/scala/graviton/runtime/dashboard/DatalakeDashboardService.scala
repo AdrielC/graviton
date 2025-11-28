@@ -2,6 +2,7 @@ package graviton.runtime.dashboard
 
 import graviton.shared.ApiModels.*
 import graviton.shared.dashboard.DashboardSamples
+import graviton.shared.schema.SchemaExplorer
 import zio.*
 import zio.stream.*
 
@@ -11,6 +12,7 @@ import java.time.format.DateTimeFormatter
 trait DatalakeDashboardService {
   def snapshot: UIO[DatalakeDashboard]
   def metaschema: UIO[DatalakeMetaschema]
+  def explorer: UIO[SchemaExplorer.Graph]
   def updates: ZStream[Any, Nothing, DatalakeDashboard]
   def publish(update: DatalakeDashboard): UIO[Unit]
 }
@@ -23,7 +25,7 @@ object DatalakeDashboardService {
         hub    <- Hub.unbounded[DatalakeDashboard]
         state  <- Ref.make(DashboardSamples.snapshot)
         _      <- hub.publish(DashboardSamples.snapshot)
-        service = new Live(state, hub, DashboardSamples.metaschema)
+        service = new Live(state, hub, DashboardSamples.metaschema, DashboardSamples.schemaExplorer)
         _      <- DashboardSeeder.run(service).forkScoped
       } yield service
     }
@@ -32,11 +34,14 @@ object DatalakeDashboardService {
     state: Ref[DatalakeDashboard],
     hub: Hub[DatalakeDashboard],
     metaschema0: DatalakeMetaschema,
+    explorer0: SchemaExplorer.Graph,
   ) extends DatalakeDashboardService {
 
     def snapshot: UIO[DatalakeDashboard] = state.get
 
     def metaschema: UIO[DatalakeMetaschema] = ZIO.succeed(metaschema0)
+
+    def explorer: UIO[SchemaExplorer.Graph] = ZIO.succeed(explorer0)
 
     def updates: ZStream[Any, Nothing, DatalakeDashboard] = ZStream.fromHub(hub)
 
