@@ -1,4 +1,4 @@
-import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
+import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
@@ -23,8 +23,8 @@ final case class Ingest(blockStore: BlockStore):
         key            <- BinaryKey.block(bits)
         chunkCount     <- ByteConstraints.refineChunkCount(1L)
         confirmed       = attrs
-                            .confirmSize(Tracked.now(ByteConstraints.unsafeFileSize(block.length.toLong), Source.Derived))
-                            .confirmChunkCount(Tracked.now(chunkCount, Source.Derived))
+                            .confirmSize(ByteConstraints.unsafeFileSize(block.length.toLong))
+                            .confirmChunkCount(chunkCount)
         canonical      <- CanonicalBlock.make(key, block, confirmed)
       yield canonical
     }
