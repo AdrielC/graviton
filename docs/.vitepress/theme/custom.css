@@ -2863,6 +2863,339 @@ body.konami-mode .VPNavBarTitle .logo {
   }
 }
 
+/* Mission Control */
+.page-mission {
+  padding: 0 1rem 4rem;
+}
+
+.mission-control {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.mission-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 2.5rem;
+  border-radius: 18px;
+  background: radial-gradient(circle at top left, rgba(0, 255, 65, 0.12), rgba(0, 200, 255, 0.08));
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
+}
+
+.mission-hero-copy h2 {
+  margin: 0;
+  font-size: 2.25rem;
+  color: var(--vp-c-text-1);
+}
+
+.mission-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.mission-hero-badges span {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 200, 255, 0.45);
+  background: rgba(0, 200, 255, 0.08);
+  font-size: 0.85rem;
+}
+
+.mission-hero-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.mission-hero-stat {
+  min-width: 180px;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--vp-c-text-1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mission-hero-stat strong {
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+}
+
+.mission-hero-stats.offline .mission-hero-stat {
+  background: rgba(255, 166, 0, 0.08);
+  border-color: rgba(255, 166, 0, 0.35);
+}
+
+.mission-section {
+  padding: 2rem;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.mission-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.mission-section-header h3 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--vp-c-brand-1);
+}
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.25rem;
+}
+
+.scenario-card {
+  padding: 1.25rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: transform 0.25s ease, border 0.25s ease, background 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.scenario-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 255, 65, 0.35);
+}
+
+.scenario-card.active {
+  border: 1px solid var(--vp-c-brand-1);
+  background: rgba(0, 255, 65, 0.1);
+  box-shadow: 0 12px 40px rgba(0, 255, 65, 0.25);
+}
+
+.scenario-icon {
+  font-size: 2rem;
+}
+
+.scenario-summary {
+  color: var(--vp-c-text-2);
+  margin: 0;
+}
+
+.scenario-meta,
+.scenario-regions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--vp-c-text-2);
+}
+
+.scenario-meta span,
+.scenario-regions span {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mission-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+.chunker-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.chunker-chip {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: border 0.2s ease, background 0.2s ease;
+  text-align: left;
+  color: inherit;
+}
+
+.chunker-chip.active {
+  border-color: var(--vp-c-brand-1);
+  background: rgba(0, 255, 65, 0.12);
+}
+
+.chip-icon {
+  font-size: 1.5rem;
+  line-height: 1.5rem;
+}
+
+.range-control-group {
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.range-label {
+  font-size: 0.9rem;
+  color: var(--vp-c-text-2);
+}
+
+.range-value {
+  font-size: 1.1rem;
+}
+
+.range-control {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.toggle-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.toggle-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mission-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.mission-metric {
+  padding: 1rem;
+  border-radius: 12px;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid rgba(0, 255, 65, 0.15);
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.metric-icon {
+  font-size: 1.5rem;
+}
+
+.metric-title {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vp-c-text-2);
+}
+
+.metric-value {
+  font-size: 1.2rem;
+  display: block;
+}
+
+.mission-kit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.mission-config,
+.mission-steps {
+  padding: 1.25rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.mission-config pre {
+  max-height: 280px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.mission-steps ol {
+  padding-left: 1.25rem;
+  line-height: 1.6;
+}
+
+.mission-insights {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mission-feed-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mission-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.mission-event {
+  display: flex;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.mission-event .event-icon {
+  font-size: 1.5rem;
+}
+
+.mission-event.tone-info {
+  border-color: rgba(0, 255, 65, 0.4);
+}
+
+.mission-event.tone-advisory {
+  border-color: rgba(255, 200, 0, 0.4);
+  background: rgba(255, 200, 0, 0.08);
+}
+
+.mission-event.tone-critical {
+  border-color: rgba(255, 77, 77, 0.6);
+  background: rgba(255, 77, 77, 0.1);
+}
+
+@media (max-width: 900px) {
+  .mission-hero {
+    padding: 1.75rem;
+  }
+
+  .mission-section {
+    padding: 1.25rem;
+  }
+}
+
 @media (max-width: 640px) {
   .file-upload,
   .chunker-selection,
