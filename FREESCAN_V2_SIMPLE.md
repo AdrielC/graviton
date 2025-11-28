@@ -28,7 +28,7 @@ trait Scan[In, Out]:
 - `&&&`: Fanout (broadcast input, record outputs)
 - `map`: Transform outputs (functor)
 - `contramap`: Transform inputs (contravariant functor)
-- `pair`: Build `kyo-data` record pairs so tensors don't leak nested tuples
+- `.labelled["name"]`: Give each branch a readable record key (falls back to `_0`, `_1`, …)
 
 ### Laws Verified ✅
 
