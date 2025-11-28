@@ -81,4 +81,59 @@ object ApiModels {
     fields: List[SchemaField],
     sampleJson: Option[String],
   ) derives JsonCodec
+
+  /** Executive summary item for the datalake dashboard. */
+  final case class DatalakePillar(
+    title: String,
+    status: String,
+    evidence: String,
+    impact: String,
+  ) derives JsonCodec
+
+  /** Highlight section aggregating recent wins per area. */
+  final case class DatalakeHighlight(
+    category: String,
+    bullets: List[String],
+  ) derives JsonCodec
+
+  /** Individual change stream entry (timeline row). */
+  final case class DatalakeChangeEntry(
+    date: String,
+    area: String,
+    update: String,
+    impact: String,
+    source: String,
+  ) derives JsonCodec
+
+  /** Health check or verification command relevant to the datalake. */
+  final case class DatalakeHealthCheck(
+    label: String,
+    command: String,
+    expectation: String,
+  ) derives JsonCodec
+
+  /** Operational note describing readiness or context. */
+  final case class DatalakeOperationalNote(
+    label: String,
+    description: String,
+  ) derives JsonCodec
+
+  /** Source link for additional reading. */
+  final case class DatalakeSourceLink(
+    label: String,
+    path: String,
+  ) derives JsonCodec
+
+  /** Aggregated view that powers the datalake change dashboard. */
+  final case class DatalakeDashboard(
+    lastUpdated: String,
+    branch: String,
+    pillars: List[DatalakePillar],
+    highlights: List[DatalakeHighlight],
+    changeStream: List[DatalakeChangeEntry],
+    healthChecks: List[DatalakeHealthCheck],
+    operationalConfidence: List[DatalakeOperationalNote],
+    upcomingFocus: List[String],
+    sources: List[DatalakeSourceLink],
+  ) derives JsonCodec
 }

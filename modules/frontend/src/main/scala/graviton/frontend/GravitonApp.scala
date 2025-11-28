@@ -16,6 +16,7 @@ object GravitonApp {
     case object Upload    extends Page
     case object Stats     extends Page
     case object Schema    extends Page
+    case object Updates   extends Page
   }
 
   private def pageHref(page: Page): String = page match
@@ -24,21 +25,24 @@ object GravitonApp {
     case Page.Upload    => "#/upload"
     case Page.Stats     => "#/stats"
     case Page.Schema    => "#/schema"
+    case Page.Updates   => "#/updates"
 
   val dashboardRoute = Route.static(Page.Dashboard, root / endOfSegments)
   val explorerRoute  = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
   val uploadRoute    = Route.static(Page.Upload, root / "upload" / endOfSegments)
   val statsRoute     = Route.static(Page.Stats, root / "stats" / endOfSegments)
   val schemaRoute    = Route.static(Page.Schema, root / "schema" / endOfSegments)
+  val updatesRoute   = Route.static(Page.Updates, root / "updates" / endOfSegments)
 
   val router = new Router[Page](
-    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute),
+    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute, updatesRoute),
     getPageTitle = {
       case Page.Dashboard => "Graviton - Dashboard"
       case Page.Explorer  => "Graviton - Blob Explorer"
       case Page.Upload    => "Graviton - File Upload"
       case Page.Stats     => "Graviton - Statistics"
       case Page.Schema    => "Graviton - Schema Viewer"
+      case Page.Updates   => "Graviton - Datalake Updates"
     },
     serializePage = {
       case Page.Dashboard => "#/"
@@ -46,12 +50,14 @@ object GravitonApp {
       case Page.Upload    => "#/upload"
       case Page.Stats     => "#/stats"
       case Page.Schema    => "#/schema"
+      case Page.Updates   => "#/updates"
     },
     deserializePage = {
       case s if s.contains("explorer") => Page.Explorer
       case s if s.contains("upload")   => Page.Upload
       case s if s.contains("stats")    => Page.Stats
       case s if s.contains("schema")   => Page.Schema
+      case s if s.contains("updates")  => Page.Updates
       case _                           => Page.Dashboard
     },
   )(
@@ -85,6 +91,7 @@ object GravitonApp {
           navLink(Page.Upload, "📤 Upload"),
           navLink(Page.Stats, "📊 Stats"),
           navLink(Page.Schema, "🧬 Schema"),
+          navLink(Page.Updates, "🛰️ Updates"),
         ),
 
         // Health indicator
@@ -254,6 +261,12 @@ object GravitonApp {
       div(
         cls := "page-schema",
         SchemaViewer(api),
+      )
+
+    case Page.Updates =>
+      div(
+        cls := "page-updates",
+        DatalakeDashboardView(api),
       )
   }
 }

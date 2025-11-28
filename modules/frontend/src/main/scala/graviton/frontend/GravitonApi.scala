@@ -58,6 +58,14 @@ class GravitonApi(
       Some(demoData.schemaCatalog),
     )
 
+  def getDatalakeDashboard: Task[DatalakeDashboard] =
+    withFallback(
+      HttpClient
+        .getJson[DatalakeDashboard]("/api/datalake/dashboard")
+        .provideEnvironment(ZEnvironment(client)),
+      Some(demoData.datalakeDashboard),
+    )
+
   def initiateUpload(request: UploadRequest): Task[UploadResponse] =
     withFallback(
       HttpClient
