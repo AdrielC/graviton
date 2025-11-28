@@ -1,5 +1,8 @@
 package graviton.arrow
 
+import zio.prelude.AssociativeCompose
+import zio.prelude.experimental.{BothCompose, EitherCompose}
+
 /** Evidence that a result type has an absorbing value. */
 trait BottomOf[A]:
   def value: A
@@ -10,39 +13,13 @@ object BottomOf:
   given unitBottom: BottomOf[Unit] with
     def value: Unit = ()
 
-/** Minimal associative composition structure. */
-trait AssociativeCompose[=>:[-_, +_]]:
-  def compose[A, B, C](bc: B =>: C, ab: A =>: B): A =>: C
-
-/** Category structure with an identity arrow. */
-trait ComposeIdentity[=>:[-_, +_]] extends AssociativeCompose[=>:]:
-  def identity[A]: A =>: A
-
 /** Category with an absorbing "zero" arrow. */
-trait ComposeZero[=>:[-_, +_]] extends ComposeIdentity[=>:]:
+trait ComposeZero[=>:[-_, +_]] extends AssociativeCompose[=>:]:
   def zero[A, B](using BottomOf[B]): A =>: B
-
-/** Cartesian product-style composition for arrows. */
-trait BothCompose[=>:[-_, +_]] extends ComposeIdentity[=>:]:
-
-  type :*:[+_, +_]
-
-  def fromFirst[A]: (A :*: Any) =>: A
-  def fromSecond[B]: (Any :*: B) =>: B
-  def toBoth[A, B, C](a2b: A =>: B)(a2c: A =>: C): A =>: (B :*: C)
 
 /** Explicit parallel composition operating on independent inputs. */
 trait ComposeParallel[=>:[-_, +_]] extends BothCompose[=>:]:
   def parallel[A, B, C, D](left: A =>: B, right: C =>: D): (A :*: C) =>: (B :*: D)
-
-/** Sum (coproduct) support for arrows. */
-trait EitherCompose[=>:[-_, +_]] extends ComposeIdentity[=>:]:
-
-  type :+:[+_, +_]
-
-  def inLeft[A, B]: A =>: (A :+: B)
-  def inRight[A, B]: B =>: (A :+: B)
-  def fromEither[A, B, C](left: => A =>: C)(right: => B =>: C): (A :+: B) =>: C
 
 /** Aggregates the categorical structure required to interpret {@link FreeArrow} programs. */
 trait ArrowBundle[=>:[-_, +_]] extends ComposeParallel[=>:] with EitherCompose[=>:] with ComposeZero[=>:]:
@@ -62,7 +39,7 @@ object ArrowBundle:
 
     override def compose[A, B, C](bc: B => C, ab: A => B): A => C = bc.compose(ab)
 
-    override def identity[A]: A => A = (a: A) => a
+    override def identity[A]: A => A = identityFunction.asInstanceOf[A => A]
 
     override def zero[A, B](using bottom: BottomOf[B]): A => B = _ => bottom.value
 
@@ -85,3 +62,5 @@ object ArrowBundle:
     }
 
     override def liftArrow[A, B](f: A => B): A => B = f
+
+    private val identityFunction: Any => Any = a => a.asInstanceOf[Any]

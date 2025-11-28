@@ -2,13 +2,14 @@ package graviton.arrow
 
 import zio.test.*
 
+import scala.NamedTuple
+
 object FreeArrowSpec extends ZIOSpecDefault:
 
-  sealed trait Prim[-I, +O, C <: Tuple]
+  sealed trait Prim[-I, +O, C <: NamedTuple.AnyNamedTuple]
   object Prim:
-    final case class Stateless[I, O](run: I => O)            extends Prim[I, O, EmptyTuple]
-    final case class Emit[I, O](run: I => O)                 extends Prim[I, O, Tuple1[Capability.Emit]]
-    final case class WithCaps[I, O, C <: Tuple](run: I => O) extends Prim[I, O, C]
+    final case class Stateless[I, O](run: I => O)                               extends Prim[I, O, NamedTuple.Empty]
+    final case class WithCaps[I, O, C <: NamedTuple.AnyNamedTuple](run: I => O) extends Prim[I, O, C]
 
   sealed trait Capability
   object Capability:
@@ -25,37 +26,36 @@ object FreeArrowSpec extends ZIOSpecDefault:
   given FreeArrow.Interpreter[Prim, Tuple2, Either, Function] with
     val bundle: ArrowBundle.Aux[Function, Tuple2, Either] = summon[ArrowBundle[Function]]
 
-    def interpret[I, O, C <: Tuple](prim: Prim[I, O, C]): I => O = prim match
+    def interpret[I, O, C <: NamedTuple.AnyNamedTuple](prim: Prim[I, O, C]): I => O = prim match
       case Prim.Stateless(run) => run
-      case Prim.Emit(run)      => run
       case Prim.WithCaps(run)  => run
 
   def spec = suite("FreeArrowSpec")(
     test("composes stateless primitives") {
-      val a        = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
-      val b        = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i * 2))
+      val a        = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
+      val b        = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i * 2))
       val program  = a >>> b
       val compiled = program.compile
       assertTrue(compiled(2) == 6)
     },
     test("fanout duplicates work") {
-      val inc      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
-      val dec      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i - 1))
+      val inc      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
+      val dec      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i - 1))
       val program  = inc &&& dec
       val compiled = program.compile
       assertTrue(compiled(10) == ((11, 9)))
     },
     test("coproduct mapping") {
-      val ints     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
-      val doubles  = FreeArrow.embed[Prim, Tuple2, Either, Double, Double, EmptyTuple](Prim.Stateless((d: Double) => d * 0.5))
+      val ints     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
+      val doubles  = FreeArrow.embed[Prim, Tuple2, Either, Double, Double, NamedTuple.Empty](Prim.Stateless((d: Double) => d * 0.5))
       val program  = ints +++ doubles
       val compiled = program.compile
       assertTrue(compiled(Left(3)) == Left(4)) &&
       assertTrue(compiled(Right(8.0)) == Right(4.0))
     },
     test("fanin merges either branches") {
-      val ints     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
-      val chars    = FreeArrow.embed[Prim, Tuple2, Either, String, Int, EmptyTuple](Prim.Stateless((s: String) => s.length))
+      val ints     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
+      val chars    = FreeArrow.embed[Prim, Tuple2, Either, String, Int, NamedTuple.Empty](Prim.Stateless((s: String) => s.length))
       val program  = ints ||| chars
       val compiled = program.compile
       assertTrue(compiled(Left(3)) == 4) &&
@@ -67,42 +67,45 @@ object FreeArrowSpec extends ZIOSpecDefault:
       assertTrue(compiled(42) == 0)
     },
     test("capabilities accumulate through composition") {
-      val stateless = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i))
-      val emit      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, Tuple1[Capability.Emit]](Prim.Emit((i: Int) => i))
-      val program   = stateless >>> emit
-      val _         = summon[program.Caps =:= Tuple1[Capability.Emit]]
+      val stateless = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i))
+      type EmitCaps = NamedTuple.NamedTuple[("emit" *: EmptyTuple), (Capability.Emit *: EmptyTuple)]
+      val emit =
+        FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCaps](Prim.WithCaps[Int, Int, EmitCaps]((i: Int) => i))
+      val program = stateless >>> emit
+      val _       = summon[program.Caps =:= EmitCaps]
       assertTrue(program.compile(1) == 1)
     },
     test("capabilities deduplicate repeated requirements") {
-      type EmitCap = Tuple1[Capability.Emit]
-      val emit    = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.Emit((i: Int) => i + 1))
-      val program = emit >>> emit
-      val _       = summon[program.Caps =:= EmitCap]
+      type EmitCap = NamedTuple.NamedTuple[("emit" *: EmptyTuple), (Capability.Emit *: EmptyTuple)]
+      val emit     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.WithCaps[Int, Int, EmitCap]((i: Int) => i + 1))
+      val program  = emit >>> emit
+      val expected = NamedTuple.Concat[EmitCap, EmitCap]
+      val _        = summon[program.Caps =:= expected]
       assertTrue(program.compile(1) == 3)
     },
     test("parallel composition handles independent inputs") {
-      val inc      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
-      val dbl      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i * 2))
+      val inc      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
+      val dbl      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i * 2))
       val program  = inc *** dbl
       val compiled = program.compile
       assertTrue(compiled((2, 3)) == ((3, 6)))
     },
     test("first and second lift a program across tuple components") {
-      val inc    = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i + 1))
+      val inc    = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i + 1))
       val first  = inc.first[String]
       val second = inc.second[String]
       assertTrue(first.compile((1, "zio")) == ((2, "zio"))) &&
       assertTrue(second.compile(("zio", 1)) == (("zio", 2)))
     },
     test("left and right lift a program across either components") {
-      val length = FreeArrow.embed[Prim, Tuple2, Either, String, Int, EmptyTuple](Prim.Stateless((s: String) => s.length))
+      val length = FreeArrow.embed[Prim, Tuple2, Either, String, Int, NamedTuple.Empty](Prim.Stateless((s: String) => s.length))
       val left   = length.left[Double]
       val right  = length.right[Double]
       assertTrue(left.compile(Left("zio")) == Left(3)) &&
       assertTrue(right.compile(Right("zio")) == Right(3))
     },
     test("dimap transforms inputs and outputs in place") {
-      val core     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless((i: Int) => i * 2))
+      val core     = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless((i: Int) => i * 2))
       val program  = core.dimap[String, String](_.toInt)(o => s"$o!")
       val compiled = program.compile
       assertTrue(compiled("5") == "10!")
@@ -120,34 +123,34 @@ object FreeArrowSpec extends ZIOSpecDefault:
       assertTrue(program.compile(10) == "")
     },
     test("capabilities combine across fanout and coproduct operations") {
-      type EmitCap = Tuple1[Capability.Emit]
-      type LogCap  = Tuple1[Capability.Log]
+      type EmitCap = NamedTuple.NamedTuple[("emit" *: EmptyTuple), (Capability.Emit *: EmptyTuple)]
+      type LogCap  = NamedTuple.NamedTuple[("log" *: EmptyTuple), (Capability.Log *: EmptyTuple)]
       val emit      = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.WithCaps[Int, Int, EmitCap](identity))
       val log       = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, LogCap](Prim.WithCaps[Int, Int, LogCap](identity))
       val fanout    = emit &&& log
-      val _         = summon[fanout.Caps =:= Tuple.Concat[EmitCap, LogCap]]
+      val _         = summon[fanout.Caps =:= NamedTuple.Concat[EmitCap, LogCap]]
       val coproduct = emit +++ log
-      summon[coproduct.Caps =:= Tuple.Concat[EmitCap, LogCap]]
+      summon[coproduct.Caps =:= NamedTuple.Concat[EmitCap, LogCap]]
       assertTrue(fanout.compile(3) == ((3, 3))) &&
       assertTrue(coproduct.compile(Left(3)) == Left(3))
     },
     test("iso nodes expose forward compilation while retaining union capabilities") {
-      type EmitCap = Tuple1[Capability.Emit]
-      type LogCap  = Tuple1[Capability.Log]
+      type EmitCap = NamedTuple.NamedTuple[("emitIso" *: EmptyTuple), (Capability.Emit *: EmptyTuple)]
+      type LogCap  = NamedTuple.NamedTuple[("logIso" *: EmptyTuple), (Capability.Log *: EmptyTuple)]
       val forward  = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmitCap](Prim.WithCaps[Int, Int, EmitCap](identity))
       val backward = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, LogCap](Prim.WithCaps[Int, Int, LogCap](identity))
       val iso      = FreeArrow.iso(forward, backward)
-      val _        = summon[iso.Caps =:= Tuple.Concat[EmitCap, LogCap]]
+      val _        = summon[iso.Caps =:= NamedTuple.Concat[EmitCap, LogCap]]
       assertTrue(iso.compile(7) == 7)
     },
     test("complex pipeline combining sums and products produces expected result") {
-      val trim     = FreeArrow.embed[Prim, Tuple2, Either, String, String, EmptyTuple](Prim.Stateless(_.trim))
-      val parse    = FreeArrow.embed[Prim, Tuple2, Either, String, Int, EmptyTuple](Prim.Stateless(_.toInt))
-      val double   = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, EmptyTuple](Prim.Stateless(_ * 2))
+      val trim     = FreeArrow.embed[Prim, Tuple2, Either, String, String, NamedTuple.Empty](Prim.Stateless(_.trim))
+      val parse    = FreeArrow.embed[Prim, Tuple2, Either, String, Int, NamedTuple.Empty](Prim.Stateless(_.toInt))
+      val double   = FreeArrow.embed[Prim, Tuple2, Either, Int, Int, NamedTuple.Empty](Prim.Stateless(_ * 2))
       val left     = (trim >>> parse)
       val right    = double
       val routed   = left +++ right
-      val finalize = FreeArrow.embed[Prim, Tuple2, Either, Either[Int, Int], Int, EmptyTuple](
+      val finalize = FreeArrow.embed[Prim, Tuple2, Either, Either[Int, Int], Int, NamedTuple.Empty](
         Prim.Stateless((e: Either[Int, Int]) => e.fold(_ + 1, _ - 1))
       )
       val program  = routed >>> finalize
