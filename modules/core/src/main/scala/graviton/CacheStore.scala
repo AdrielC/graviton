@@ -21,10 +21,10 @@ trait CacheStore:
    *   when `false`, caching is bypassed and `download` is always executed
    */
   def fetch(
-    hash: Hash,
+    hash: Hash.SingleHash,
     download: => Task[Bytes],
     useCache: Boolean = true,
   ): ZIO[Scope, Throwable, Bytes]
 
   /** Remove any cached value associated with the supplied hash. */
-  def invalidate(hash: Hash): UIO[Unit]
+  def invalidate(hash: Hash.SingleHash): UIO[Unit]

@@ -6,14 +6,10 @@ import zio.stream.*
 trait StoreRepo:
   def upsert(row: StoreRow): Task[Int]
   def get(key: StoreKey): Task[Option[StoreRow]]
-  def listActive(cursor: Option[Cursor] = None): ZStream[Any, Throwable, StoreRow]
+  def listActive: ZStream[ZState[Cursor], Throwable, StoreRow]
 
 trait BlockRepo:
-  def upsertBlock(
-    key: BlockKey,
-    size: PosLong,
-    inline: Option[SmallBytes],
-  ): Task[Int]
+  def upsertBlock(key: BlockKey, size: PosLong, inline: Option[SmallBytes] = None): Task[Int]
 
   def getHead(key: BlockKey): Task[Option[(PosLong, Boolean)]]
 

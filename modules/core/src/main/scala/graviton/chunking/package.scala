@@ -4,17 +4,14 @@ package chunking
 import zio.*
 import zio.stream.*
 
-import graviton.core.model.{Block}
+import graviton.core.model.Block
 import graviton.core.model.BlockBuilder
 
 import graviton.core.model.BlockSize
 
-
 type Stream[+A]          = zio.stream.ZStream[Any, Throwable, A]
 type Pipeline[-I, +O]    = zio.stream.ZPipeline[Any, Throwable, I, O]
 type Channel[-I, +W, +O] = zio.stream.ZChannel[Any, Throwable, I, Any, Throwable, W, O]
-
-
 
 opaque type Bytes[R, E] <: ZStream[R, E, Block] = ZStream[R, E, Block]
 object Bytes:

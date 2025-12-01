@@ -12,7 +12,7 @@ final class S3BlobStore(
   bucket: String,
   val id: BlobStoreId,
 ) extends BlobStore:
-  private def keyPath(key: BlockKey): String = key.hash.hex
+  private def keyPath(key: BlockKey): String = key.hash.hex.bytes
 
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 

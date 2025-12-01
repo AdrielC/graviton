@@ -4,6 +4,8 @@ import graviton.core.model.ByteConstraints
 import io.github.iltotore.iron.{zio as _, *}
 import io.github.iltotore.iron.constraint.all.*
 import zio.schema.Schema
+import graviton.collections.Discrete
+import zio.prelude.PartialOrd
 import zio.*
 
 transparent trait SubtypeExt[A, C] extends RefinedSubtype[A, C]:
@@ -11,17 +13,34 @@ transparent trait SubtypeExt[A, C] extends RefinedSubtype[A, C]:
     schema
       .annotate(rtc)
       .transformOrFail(either(_), a => Right(a.value))
+
+  given (A: Integral[A], D: Discrete[A], P: PartialOrd[A]) => Integral[T] =
+    new Integral[T] {
+      def parseString(str: String): Option[T] = A.parseString(str).map(clamp)
+      def quot(x: T, y: T): T = clamp(A.quot(x.value, y.value))
+      def rem(x: T, y: T): T = clamp(A.rem(x.value, y.value))
+      def toDouble(x: T): Double = A.toDouble(clamp(x.value))
+      def toFloat(x: T): Float = A.toFloat(clamp(x.value))
+      def toLong(x: T): Long = A.toLong(clamp(x.value))
+      def compare(x: T, y: T): Int = A.compare(x.value, y.value)
+      def clamp(x: A): T       = assume(D.clamp(x))
+      def plus(x: T, y: T): T  = clamp(A.plus(x.value, y.value))
+      def minus(x: T, y: T): T = clamp(A.minus(x.value, y.value))
+      def times(x: T, y: T): T = clamp(A.times(x.value, y.value))
+      def negate(x: T): T      = clamp(A.negate(x.value))
+      def fromInt(x: Int): T   = clamp(A.fromInt(x))
+      def toInt(x: T): Int     = A.toInt(clamp(x.value))
+    }
 end SubtypeExt
 
 transparent trait RefinedTypeExt[A: Schema, C] extends RefinedType[A, C]:
 
   given Schema[T] =
     summon[Schema[A]]
-        .annotate(rtc)
-        .transformOrFail(either(_), a => Right(a.value))
+      .annotate(rtc)
+      .transformOrFail(either(_), a => Right(a.value))
 
 end RefinedTypeExt
-
 
 object domain:
 
@@ -116,7 +135,25 @@ object domain:
   object Bytes extends SubtypeExt[zio.Chunk[Byte], MinLength[1] & MaxLength[1048576]]
 
   type HashBytes = HashBytes.T
-  object HashBytes extends SubtypeExt[zio.Chunk[Byte], MinLength[16] & MaxLength[64]]
+  object HashBytes extends SubtypeExt[zio.Chunk[Byte], MinLength[16] & MaxLength[64]]:
+
+    extension (self: HashBytes)
+      def hex: HexString = HexString.applyUnsafe(scodec.bits.ByteVector(self.value.toArray).toHex)
+      def bytes: zio.Chunk[Byte] = self.value
+
+    def make(h: Hasher.Hashable)(using Trace): HashOp[Hasher, Hash.MultiHash] =
+      ZIO.scoped:
+        for
+          hasher <- ZIO.service[Hasher]
+          _ <- hasher.update(h)
+          digest <- hasher.snapshot
+        yield digest
+    
+
+  end HashBytes
+
+  type HexString = HexString.T
+  object HexString extends SubtypeExt[String, MinLength[1] & MaxLength[64] & Match["[0-9a-fA-F]+"]]
 
   type SmallBytes = SmallBytes.T
   object SmallBytes extends SubtypeExt[zio.Chunk[Byte], MaxLength[1048576]]
@@ -138,26 +175,26 @@ object domain:
 
     type Inc[N <: NonNegInt] <: NonNegInt =
       N match
-        case 0            => One
+        case 0   => One
         case Max => N
-        case _            =>
+        case _   =>
           N + 1 < 0 match
             case true  => Max
             case false => (N + 1) & T
 
     type Dec[N <: NonNegInt] <: NonNegInt =
       N match
-        case 0            => N
+        case 0   => N
         case Min => N
-        case _            =>
+        case _   =>
           N - 1 < 0 match
             case true  => Min
             case false => (N - 1) & T
 
     transparent inline final def zero: T = applyUnsafe(compiletime.constValue[0])
-    transparent inline final def one: T = applyUnsafe(compiletime.constValue[1])  
-    transparent inline final def max: T = applyUnsafe(compiletime.constValue[Int.MaxValue.type])
-    transparent inline final def min: T = applyUnsafe(compiletime.constValue[0])
+    transparent inline final def one: T  = applyUnsafe(compiletime.constValue[1])
+    transparent inline final def max: T  = applyUnsafe(compiletime.constValue[Int.MaxValue.type])
+    transparent inline final def min: T  = applyUnsafe(compiletime.constValue[0])
     final type Zero = 0 & T
     final type One  = 1 & T
     final type Max  = Int.MaxValue.type & T
@@ -193,16 +230,15 @@ object domain:
         case n: Nat.Succ[n] => fromNat(n.prev).inc
 
     type FromNat[N <: Nat[?]] <: NonNegInt = N match
-      case Nat.Zero => NonNegInt.Zero
-      case Nat.One => NonNegInt.One
-      case Nat.Succ[n]   => Inc[FromNat[n]]
-
+      case Nat.Zero    => NonNegInt.Zero
+      case Nat.One     => NonNegInt.One
+      case Nat.Succ[n] => Inc[FromNat[n]]
 
   end NonNegInt
 
   enum Nat[+N <: Nat[N]]:
-    case Zero()              extends Nat[Nothing]
-    case One()               extends Nat[Nat.Zero]
+    case Zero()                     extends Nat[Nothing]
+    case One()                      extends Nat[Nat.Zero]
     case Succ[N <: Nat[N]](prev: N) extends Nat[N]
 
   end Nat
@@ -210,9 +246,9 @@ object domain:
   object Nat:
 
     type Prev[N <: Nat[N]] <: Nat[?] = N match
-      case Nat.Zero => N
-      case Nat.One => Nat.Zero
-      case Nat.Succ[n]   => n
+      case Nat.Zero    => N
+      case Nat.One     => Nat.Zero
+      case Nat.Succ[n] => n
 
     type Next[N <: NonNegInt, From <: Nat[?]] <: Nat[?] =
       N match

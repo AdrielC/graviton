@@ -7,11 +7,11 @@ trait Discrete[A]:
 
   def succ(x: A): A
   def pred(x: A): A
-  
-  def succOption(x: A)(using p: PartialOrd[A]): Option[A] = 
+
+  def succOption(x: A)(using p: PartialOrd[A]): Option[A] =
     if p.lessOrEqual(succ(x), x) then None else Some(succ(x))
 
-  def predOption(x: A)(using p: PartialOrd[A]): Option[A] = 
+  def predOption(x: A)(using p: PartialOrd[A]): Option[A] =
     if p.greaterOrEqual(pred(x), x) then None else Some(pred(x))
 
   /** Returns true if `x` and `y` are consecutive. */
@@ -23,6 +23,17 @@ trait Discrete[A]:
     new Discrete[A]:
       def succ(x: A): A = self.pred(x)
       def pred(x: A): A = self.succ(x)
+
+  def clamp(x: A)(using p: PartialOrd[A]): A =
+    if p.lessOrEqual(succ(x), x)
+    then succ(x)
+    else if p.greaterOrEqual(pred(x), x) then pred(x)
+    else x
+
+  def clampOption(x: A)(using p: PartialOrd[A]): Option[A] =
+    if p.lessOrEqual(succ(x), x) then Some(succ(x))
+    else if p.greaterOrEqual(pred(x), x) then Some(pred(x))
+    else None
 
 object Discrete:
   inline def apply[A](using d: Discrete[A]): Discrete[A] = d

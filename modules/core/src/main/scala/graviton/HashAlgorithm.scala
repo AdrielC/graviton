@@ -3,15 +3,20 @@ package graviton
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import scodec.bits.ByteVector
-import zio.schema.{DeriveSchema, Schema}
+import zio.schema.{Schema, derived}
 
 import scala.util.Try
+import graviton.Hasher.Hashable
+
+import java.nio.ByteBuffer
+import graviton.domain.{HashBytes, HexString}
+
 
 /**
  * Supported hashing algorithms for content addressed storage. Each algorithm
  * exposes metadata about its digest and can compute hashes directly.
  */
-sealed trait HashAlgorithm:
+sealed trait HashAlgorithm derives Schema:
 
   /** Canonical lowercase name of the algorithm (e.g. "sha256"). */
   def canonicalName: String
@@ -31,13 +36,22 @@ sealed trait HashAlgorithm:
   protected final def cloneDigest(digest: MessageDigest): MessageDigest =
     Try(digest.clone().asInstanceOf[MessageDigest]).getOrElse(newDigest())
 
-  final def hash(data: Array[Byte]): String =
-    ByteVector(cloneDigest(getDigest).digest(data)).toHex
+  final def hash(data: Hashable): HashBytes =
+    val d = cloneDigest(getDigest)
+    data match
+      case array: Array[Byte] => d.update(array)
+      case chunk: zio.Chunk[Byte] => d.update(chunk.toArray)
+      case byte: Byte => d.update(Array(byte))
+      case byteBuffer: ByteBuffer => d.update(byteBuffer)
+      case byteVector: ByteVector => d.update(byteVector.toArray)
+    HashBytes.applyUnsafe(zio.Chunk.fromArray(d.digest()))
 
-  final def hex(data: String): String =
-    hash(data.getBytes(StandardCharsets.UTF_8))
+  final def hex(data: String): HexString =
+    hash(data.getBytes(StandardCharsets.UTF_8)).hex
 
 object HashAlgorithm:
+
+  given Ordering[HashAlgorithm] = summon[Schema[HashAlgorithm]].ordering
 
   given default: HashAlgorithm = Blake3
 
@@ -75,8 +89,6 @@ object HashAlgorithm:
   /** Parse a hash algorithm from a string (canonical, uppercase, or JCA name). */
   def parse(input: String): Either[String, HashAlgorithm] =
     aliases.get(input).toRight(s"Unknown hash algorithm: $input")
-
-  given Schema[HashAlgorithm] = DeriveSchema.gen[HashAlgorithm]
 
 /**
  * MessageDigest wrapper providing a `MessageDigest`-compatible interface for

@@ -8,6 +8,9 @@ import zio.Duration
 import java.nio.file.Path
 import zio.rocksdb.RocksDB as ZRocksDB
 
+import graviton.Hash as HashT
+import HashT.SingleHash as Hash
+
 /**
  * [[CacheStore]] backed by RocksDB for persistent storage. Cached entries are
  * keyed by the hex representation of the [[Hash]] and validated against the
@@ -39,22 +42,22 @@ final class RocksDBCacheStore private (
 
   def invalidate(hash: Hash): UIO[Unit] =
     cache.invalidate(hash) *>
-      db.delete(hash.bytes.toArray).ignore
+      db.delete(hash.bytes.bytes.toArray).ignore
 
 object RocksDBCacheStore:
   private def verify(hash: Hash, data: Chunk[Byte]): Task[Unit] =
     for
-      dig <- Hashing.compute(Bytes(ZStream.fromChunk(data)), hash.algo)
+      dig <- Hashing.compute(Bytes(data))
       _   <- ZIO
                .fail(RuntimeException("hash mismatch"))
-               .unless(dig == hash.bytes)
+               .unless(dig.bytes.get(hash.algo).contains(hash.bytes.bytes))
     yield ()
 
   private def loader(
     db: ZRocksDB,
     ref: FiberRef[Hash => Task[Chunk[Byte]]],
   )(hash: Hash): Task[Chunk[Byte]] =
-    val key                                 = hash.bytes.toArray
+    val key                                 = hash.bytes.bytes.toArray
     def downloadAndStore: Task[Chunk[Byte]] =
       for
         remote <- ref.get
@@ -68,11 +71,8 @@ object RocksDBCacheStore:
                     case Some(arr) =>
                       for
                         ok  <- Hashing
-                                 .compute(
-                                   Bytes(ZStream.fromChunk(Chunk.fromArray(arr))),
-                                   hash.algo,
-                                 )
-                                 .map(_ == hash.bytes)
+                                 .compute(Bytes(Chunk.fromArray(arr)))
+                                 .map(h => h.bytes.get(hash.algo).contains(hash.bytes.bytes))
                         res <-
                           if ok then ZIO.succeed(Chunk.fromArray(arr)) else downloadAndStore
                       yield res

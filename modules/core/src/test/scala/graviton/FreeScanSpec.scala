@@ -29,7 +29,9 @@ case object FreeScanSpec extends ZIOSpecDefault:
     test("second lifts scan to second of pair") {
       val a  = FreeScan.stateless1((i: Int) => i + 1)
       val fs = a.second[String].compile
-      for out <- ZStream(("a", 1), ("b", 2)).via(fs.toPipeline).runCollect
+      for
+        out <- ZStream(("a", 1), ("b", 2)).via(fs.toPipeline).runCollect
+        _   <- Console.printLine(out.toString)
       yield assertTrue(out == Chunk(("a", 2), ("b", 3)))
     },
     test("left applies to Left, passes Right through") {
@@ -59,13 +61,13 @@ case object FreeScanSpec extends ZIOSpecDefault:
       yield assertTrue(out == Chunk(2, 4, 4)) && assertTrue(f.initial == EmptyTuple)
     },
     test("stateful then stateless composes with correct State type") {
-      val st: FreeScan.Aux[Int, Int, Tuple1[Int]] = FreeScan.stateful(0) { (s: Int, i: Int) =>
+      val st   = FreeScan.stateful(0) { (s: Int, i: Int) =>
         val s1 = s + i
         (s1, Chunk.single(i))
       }(s => Chunk.single(s))
-      val sl: FreeScan.Aux[Int, Int, EmptyTuple]  = FreeScan.stateless1((i: Int) => i * 2)
-      val comp                                    = st.andThen(sl)
-      val scan                                    = comp.compile
+      val s    = FreeScan.stateless1((i: Int) => i * 2)
+      val comp = st.andThen(s)
+      val scan = comp.compile
       for out <- ZStream(1, 2).via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk(2, 4, 6)) && assertTrue(scan.initial == Tuple1(0))
     },
@@ -79,6 +81,7 @@ case object FreeScanSpec extends ZIOSpecDefault:
     test("dimap contramap map chain compiles") {
       val fs   = FreeScan.stateless1((i: Int) => i + 1).dimap[String, String](_.toInt)(_.toString)
       val scan = fs.compile
+      println(scan.initial)
       for out <- ZStream("1", "2").via(scan.toPipeline).runCollect
       yield assertTrue(out == Chunk("2", "3"))
     },

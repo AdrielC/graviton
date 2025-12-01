@@ -45,7 +45,7 @@ final case class Frame(header: FrameHeader, payload: Frame.Bytes)
 object Frame:
   opaque type Bytes <: Chunk[Byte] = Chunk[Byte]
   object Bytes:
-    def apply(bytes: Array[Byte]): Bytes = Chunk.fromArray(bytes)
+    def apply(bytes: Array[Byte]): Bytes     = Chunk.fromArray(bytes)
     def fromChunk(chunk: Chunk[Byte]): Bytes = chunk
     extension (bytes: Bytes)
       def toChunk: Chunk[Byte] = bytes

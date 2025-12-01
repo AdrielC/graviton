@@ -34,24 +34,20 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
       """.query[StoreRow].run().headOption
     }
 
-  def listActive(cursor: Option[Cursor] = None): Stream[Throwable, StoreRow] =
-    ZStream.unwrapScoped {
+  def listActive: ZStream[ZState[Cursor], Throwable, StoreRow] =
+    ZStream.unwrapScoped:
       for
-        total       <- Ref.make(cursor.getOrElse(Cursor.initial))
+        cursor      <- ZIO.getState[Cursor]
+        total       <- Ref.make(cursor)
         firstCursor <- total.get
-        basePageSize = cursor.map(_.pageSize).getOrElse(firstCursor.pageSize)
-        limit        =
-          cursor
-            .flatMap(_.total)
-            .map(_.value.min(basePageSize))
-            .getOrElse(basePageSize)
-        rows         = {
-          ZStream.paginateChunkZIO(0) { offset =>
-            for {
-              totalNow                    <- total.get
-              (rows, newTotal, newOffset) <-
-                xa.transact {
-                  val rows = sql"""
+        basePageSize = cursor.pageSize
+        limit        = cursor.total.fold(basePageSize)(_.value min basePageSize)
+        rows         = ZStream.paginateChunkZIO(0): offset =>
+                         for
+                           totalNow                    <- total.get
+                           (rows, newTotal, newOffset) <-
+                             xa.transact:
+                               val rows = sql"""
                     SELECT key,
                            impl_id,
                            build_fp,
@@ -67,22 +63,22 @@ final class StoreRepoLive(xa: TransactorZIO) extends StoreRepo:
                     LIMIT $limit
                     OFFSET $offset
                   """
-                    .query[(StoreRow, Long)]
-                    .run()
+                                 .query[(StoreRow, Long)]
+                                 .run()
 
-                  val newTotal  = rows.headOption.map(_._2).orElse(totalNow.total).getOrElse(0L)
-                  val newOffset = offset + rows.size
-                  (Chunk.fromIterable(rows.view.map(_._1)), newTotal, newOffset)
-                }
+                               val newTotal  = rows.headOption.map(_._2).orElse(totalNow.total).getOrElse(0L)
+                               val newOffset = offset + rows.size
+                               (Chunk.fromIterable(rows.view.map(_._1)), newTotal, newOffset)
 
-              current <- total.get
-              _       <- total.set(current.withTotal(Max(newTotal)).next(newOffset))
-
-            } yield (rows, Option(newOffset).filter(_ => newOffset <= limit && current.total.getOrElse(Max(0L)) < Max(newTotal)))
-          }
-        }
+                           current <- total.get
+                           _       <- total.set:
+                                        current
+                                          .withTotal(Max(newTotal))
+                                          .next(newOffset)
+                         yield rows -> Option(newOffset).filter: _ =>
+                           (newOffset <= limit) &&
+                             current.total.getOrElse(Max(0L)) < Max(newTotal)
       yield rows
-    }
 
 object StoreRepoLive:
   lazy val layer: URLayer[TransactorZIO, StoreRepoLive] =

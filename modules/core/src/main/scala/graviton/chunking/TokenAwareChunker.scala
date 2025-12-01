@@ -9,29 +9,28 @@ import graviton.GravitonError.ChunkerFailure
 
 object TokenAwareChunker:
 
-  def pipeline(tokens: Set[String], maxChunkSize: Int :| Greater[0]): ZPipeline[Any, ChunkerFailure, Byte, Block] =
-    ZPipeline
-      .fromChannel {
-        def loop(state: State): ZChannel[Any, ChunkerFailure, Chunk[
-          Byte
-        ], Any, ChunkerFailure, Chunk[Chunk[Byte]], Any] =
-          ZChannel.readWith(
-            (in: Chunk[Byte]) =>
-              val (next, out) = process(state, in, tokens, maxChunkSize)
-              ZChannel.write(out) *> loop(next)
-            ,
-            (err: Throwable) => ZChannel.fail(ChunkerFailure(Option(err.getMessage).getOrElse("unknown token aware channel error"))),
-            (_: Any) => if state.buffer.isEmpty then ZChannel.unit else ZChannel.write(Chunk.single(state.buffer)),
+  def pipeline(tokens: Set[String], maxChunkSize: Int :| Greater[0]): ChunkingPipeline =
+    ChunkingPipeline:
+      ZPipeline
+        .fromChannel:
+          def loop(state: State): ZChannel[Any, ChunkerFailure, Chunk[
+            Byte
+          ], Any, ChunkerFailure, Chunk[Chunk[Byte]], Any] =
+            ZChannel.readWith(
+              (in: Chunk[Byte]) =>
+                val (next, out) = process(state, in, tokens, maxChunkSize)
+                ZChannel.write(out) *> loop(next)
+              ,
+              (err: Throwable) => ZChannel.fail(ChunkerFailure(Option(err.getMessage).getOrElse("unknown token aware channel error"))),
+              (_: Any) => if state.buffer.isEmpty then ZChannel.unit else ZChannel.write(Chunk.single(state.buffer)),
+            )
+          loop(State.empty)
+        .mapChunksZIO: chunked =>
+          ZIO.foreach(chunked)(bytes =>
+            ZIO
+              .fromEither(Block.either(bytes))
+              .mapError(ChunkerFailure(_))
           )
-        loop(State.empty)
-      }
-      .mapChunksZIO { chunked =>
-        ZIO.foreach(chunked)(bytes =>
-          ZIO
-            .fromEither(Block.either(bytes))
-            .mapError(ChunkerFailure(_))
-        )
-      }
 
   private final case class State(buffer: Chunk[Byte], recent: String)
   private object State:

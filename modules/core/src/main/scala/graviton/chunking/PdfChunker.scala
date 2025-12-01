@@ -7,30 +7,31 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.zip.InflaterInputStream
 import graviton.GravitonError
 
+import graviton.GravitonError.ChunkerFailure
 
 /**
  * Chunker that splits a PDF on `stream` boundaries and emits uncompressed
  * stream data.
  */
 object PdfChunker extends Chunker:
-  val name                                             = "pdf"
-  val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
-    ZPipeline
-      .fromChannel {
-        def loop(buf: Chunk[Byte]): ZChannel[Any, Throwable, Chunk[
-          Byte
-        ], Any, Throwable, Chunk[Chunk[Byte]], Any] =
-          ZChannel.readWith(
-            (in: Chunk[Byte]) => loop(buf ++ in),
-            (err: Throwable) => ZChannel.fail(err),
-            (_: Any) => ZChannel.write(split(buf)),
-          )
-        loop(Chunk.empty)
-      }
-      .mapChunksZIO { chunked =>
-        ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(err => new IllegalArgumentException(err)))
-      }
-      .mapError(err => GravitonError.ChunkerFailure(err.getMessage))
+  val name                       = "pdf"
+  val pipeline: ChunkingPipeline =
+    ChunkingPipeline:
+      ZPipeline
+        .fromChannel {
+          def loop(buf: Chunk[Byte]): ZChannel[Any, ChunkerFailure, Chunk[
+            Byte
+          ], Any, ChunkerFailure, Chunk[Chunk[Byte]], Any] =
+            ZChannel.readWith(
+              (in: Chunk[Byte]) => loop(buf ++ in),
+              (err: ChunkerFailure) => ZChannel.fail(err),
+              (_: Any) => ZChannel.write(split(buf)),
+            )
+          loop(Chunk.empty)
+        }
+        .mapChunksZIO { chunked =>
+          ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(GravitonError.ChunkerFailure(_)))
+        }
 
   private val streamToken    = "stream".getBytes("ISO-8859-1")
   private val endStreamToken = "endstream".getBytes("ISO-8859-1")

@@ -31,10 +31,10 @@ object TimeSeries:
     }(_ => Chunk.empty)
 
   /** Count elements per fixed-size window using a tumbling strategy. */
-  def countWindow(n: Int): Scan.Aux[Any, Long, Tuple1[Int]] =
+  def countWindow(n: Int): Scan.Aux[Any, Long, Int] =
     require(n > 0, "window size must be positive")
-    Scan.statefulTuple(Tuple1(0)) { (st, _: Any) =>
-      val c = st._1 + 1
-      if c >= n then (Tuple1(0), Chunk.single(c.toLong))
-      else (Tuple1(c), Chunk.empty)
-    }(st => if st._1 > 0 then Chunk.single(st._1.toLong) else Chunk.empty)
+    Scan.statefulTuple(0) { (st, _: Any) =>
+      val c = st + 1
+      if c >= n then (0, Chunk.single(c.toLong))
+      else (c, Chunk.empty)
+    }(st => if st > 0 then Chunk.single(st.toLong) else Chunk.empty)

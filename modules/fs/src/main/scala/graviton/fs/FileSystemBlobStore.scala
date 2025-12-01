@@ -11,7 +11,7 @@ import java.nio.file.{Files, Path, StandardOpenOption}
  */
 final class FileSystemBlobStore private (root: Path, val id: BlobStoreId) extends BlobStore:
   private def pathFor(key: BlockKey): Path =
-    root.resolve(key.hash.hex)
+    root.resolve(key.hash.hex.bytes)
 
   def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
 

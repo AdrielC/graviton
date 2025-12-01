@@ -12,26 +12,29 @@ object BlockStoreSpec extends ZIOSpecDefault:
   def spec = suite("BlockStoreSpec")(
     test("put/get/has/delete") {
       for
-        blob     <- InMemoryBlobStore.make()
+        blob     <- InMemoryBlobStore.make
         resolver <- InMemoryBlockResolver.make
         store    <- InMemoryBlockStore.make(blob, resolver)
-        key      <- ZStream
+        (keys, has) <- ZStream
                       .fromIterable("hello world".getBytes.toIndexedSeq)
                       .run(store.put)
-        has      <- store.has(key)
-        data     <- store.get(key).someOrFailException.flatMap(_.runCollect)
-        del      <- store.delete(key)
-      yield assertTrue(has && new String(data.toArray) == "hello world" && del)
+                      .flatMap(a => ZIO.forall(a)(key => store.has(key)).map(h => (a, h)))
+        
+        data     <- ZIO.foreach(keys)(key => store.get(key).someOrFailException.flatMap(_.runCollect))
+        del      <- ZIO.forall(keys)(key => store.delete(key))
+      yield assertTrue(has && new String(data.head.toArray) == "hello world" && del)
     },
     test("consult resolver across stores") {
       for
-        primary   <- InMemoryBlobStore.make()
-        secondary <- InMemoryBlobStore.make()
+        primary   <- InMemoryBlobStore.make
+        secondary <- InMemoryBlobStore.make
         resolver  <- InMemoryBlockResolver.make
         store     <- InMemoryBlockStore.make(primary, resolver, Seq(secondary))
         key       <- ZStream
                        .fromIterable("hello".getBytes.toIndexedSeq)
                        .run(store.put)
+                       .map(_.head)
+
         _         <- secondary.write(key, Bytes(ZStream.fromIterable("hello".getBytes)))
         _         <- resolver.record(
                        key,
@@ -43,12 +46,13 @@ object BlockStoreSpec extends ZIOSpecDefault:
     },
     test("partial reads") {
       for
-        blob     <- InMemoryBlobStore.make()
+        blob     <- InMemoryBlobStore.make
         resolver <- InMemoryBlockResolver.make
         store    <- InMemoryBlockStore.make(blob, resolver)
         key      <- ZStream
                       .fromIterable("hello world".getBytes.toIndexedSeq)
                       .run(store.put)
+                      .map(_.head)
         part     <- store
                       .get(key, Some(ByteRange(6, 11)))
                       .someOrFailException
@@ -59,18 +63,20 @@ object BlockStoreSpec extends ZIOSpecDefault:
       "gc removes unreferenced blocks after retention and preserves live data"
     ) {
       for
-        blob     <- InMemoryBlobStore.make()
+        blob     <- InMemoryBlobStore.make
         resolver <- InMemoryBlockResolver.make
         store    <- InMemoryBlockStore.make(blob, resolver)
         key      <- ZStream
                       .fromIterable("hello".getBytes.toIndexedSeq)
                       .run(store.put)
+                      .map(_.head)
         _        <- ZStream
                       .fromIterable("hello".getBytes.toIndexedSeq)
                       .run(store.put)
+                      .map(_.head)
         _        <- store.delete(key)
         _        <- TestClock.adjust(1.second)
-        removed0 <- store.gc(GcConfig(1.second))
+        removed0 <- store.gc(GcConfig(0.seconds))
         still    <- store.has(key)
         _        <- store.delete(key)
         _        <- TestClock.adjust(1.second)

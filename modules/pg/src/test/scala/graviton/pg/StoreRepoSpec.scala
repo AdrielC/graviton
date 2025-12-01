@@ -1,16 +1,16 @@
-package graviton
-package pg
+package graviton.pg
 
 import graviton.db.{StoreRepo, StoreRow, StoreStatus, StoreKey}
 
 import zio.*
 import zio.json.ast.Json
 import zio.test.{Spec as ZSpec, *}
+import graviton.db.Cursor
 
 object StoreRepoSpec extends ZIOSpec[ConfigProvider] {
 
   override def bootstrap: ZLayer[Any, Any, ConfigProvider] =
-    ZLayer.succeed(pg.PgTestConfig.provider)
+    ZLayer.succeed(PgTestConfig.provider)
 
   private val onlyIfTestcontainers = TestAspect.ifEnv("TESTCONTAINERS") { value =>
     value.trim match
@@ -60,15 +60,15 @@ object StoreRepoSpec extends ZIOSpec[ConfigProvider] {
         )
       },
       test("listActive returns only active stores respecting cursor page size") {
-        for {
+        for
           repo  <- ZIO.service[StoreRepo]
           _     <- repo.upsert(sampleRow(StoreStatus.Active, 1))
           _     <- repo.upsert(sampleRow(StoreStatus.Active, 2))
           _     <- repo.upsert(sampleRow(StoreStatus.Active, 3))
           _     <- repo.upsert(sampleRow(StoreStatus.Paused, 99))
           cursor = graviton.db.Cursor.initial.copy(pageSize = 2L)
-          rows  <- repo.listActive(Some(cursor)).take(3).runCollect
-        } yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
+          rows  <- ZIO.stateful(cursor)(repo.listActive.take(3).runCollect)
+        yield assertTrue(rows.length == 3, rows.forall(_.status == StoreStatus.Active))
       },
     ).provideShared(storeRepoLayer) @@ onlyIfTestcontainers @@ TestAspect.sequential
 }

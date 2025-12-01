@@ -6,8 +6,6 @@ import zio.stream.*
 import graviton.core.model.Block
 import graviton.BlockKey
 
-
-
 trait BlockStore:
   /**
    * Build a one-block sink that:
@@ -17,10 +15,10 @@ trait BlockStore:
    *  - peels any leftover Byte beyond the block boundary
    *  - treats BinaryAttributes as ingest hints/claims
    */
-  def putBlock(block: Block): ZIO[Any, Throwable, BlockKey]
+  def putBlock(block: Block): ZIO[Any, Throwable, NonEmptyChunk[BlockKey]]
 
-  def put: ZSink[Any, Throwable, Byte, Nothing, BlockKey]
-  
+  def put: ZSink[Any, Throwable, Byte, Nothing, NonEmptyChunk[BlockKey]]
+
   def get(
     key: BlockKey,
     range: Option[ByteRange] = None,

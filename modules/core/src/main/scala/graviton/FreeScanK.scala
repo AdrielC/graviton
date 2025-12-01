@@ -65,7 +65,7 @@ object FreeScanK:
 //   ) extends FreeScanK[F, A, C]:
 //     type S = Tuple.Concat[left.State, right.State]
 //     type Types = Any
-//     def compile(using Interpreter[F]): Scan.Aux[A, C, Tuple.Concat[Scan.ToState[left.State], Scan.ToState[right.State]]]         = 
+//     def compile(using Interpreter[F]): Scan.Aux[A, C, Tuple.Concat[Scan.ToState[left.State], Scan.ToState[right.State]]]         =
 //       left.compile.andThen(right.compile)
 //     override def labelsFromType(using Interpreter[F]): Chunk[String] = left.labelsFromType ++ right.labelsFromType
 

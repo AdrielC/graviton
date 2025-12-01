@@ -11,7 +11,8 @@ final class InMemoryBlobStore private (
   val id: BlobStoreId,
 ) extends BlobStore:
 
-  def status: UIO[BlobStoreStatus] = ZIO.succeed(BlobStoreStatus.Operational)
+  def status: UIO[BlobStoreStatus] = 
+    ZIO.succeed(BlobStoreStatus.Operational)
 
   def read(
     key: BlockKey,
@@ -34,13 +35,14 @@ final class InMemoryBlobStore private (
     }
 
 object InMemoryBlobStore:
-  def make(id: String = "mem-1"): UIO[InMemoryBlobStore] =
-    Ref
-      .make(Map.empty[BlockKey, Chunk[Byte]])
-      .map(new InMemoryBlobStore(_, BlobStoreId(id)))
+  def make: UIO[InMemoryBlobStore] =
+
+    Random.nextUUID.flatMap { (uuid: UUID) => 
+      Ref
+        .make(Map.empty[BlockKey, Chunk[Byte]])
+        .map(new InMemoryBlobStore(_, BlobStoreId("mem-" + uuid.toString)))
+    }
 
   def layer: ZLayer[Any, Nothing, BlobStore] =
     ZLayer.fromZIO:
-      Random.nextUUID.flatMap { (uuid: UUID) => 
-        make("mem-" + uuid.toString)
-      }
+      make

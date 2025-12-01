@@ -56,6 +56,8 @@ project/secret
 # Simple Build Tool
 # http://www.scala-sbt.org/release/docs/Getting-Started/Directories.html#configuring-version-control
 
+.scala-build
+
 
 ### Linux template
 *~
@@ -237,3 +239,6 @@ project/metals.sbt
 .idea/
 
 node_modules/
+
+.sbt-launchers/
+sbt-launch.jar

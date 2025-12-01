@@ -8,9 +8,7 @@ import zio.stream.*
 import zio.test.*
 import java.util.zip.{Deflater, DeflaterOutputStream}
 import java.io.ByteArrayOutputStream
-// import graviton.domain.HashBytes
-import io.github.iltotore.iron.autoRefine
-
+import io.github.iltotore.iron.{zio as _, *}
 
 case object ChunkerSpec extends ZIOSpecDefault:
 
@@ -24,16 +22,14 @@ case object ChunkerSpec extends ZIOSpecDefault:
 
   private def pdfWith(data: Array[Byte], level: Int): Chunk[Byte] =
     val comp   = compress(data, level)
-    val dict   = s"<< /Length ${comp.length} /Filter /FlateDecode >>\n".getBytes(
-      "ISO-8859-1"
-    )
+    val dict   = s"<< /Length ${comp.length} /Filter /FlateDecode >>\n".getBytes("ISO-8859-1")
     val pre    = "%PDF-1.4\n1 0 obj\n".getBytes("ISO-8859-1")
     val stream = "stream\n".getBytes("ISO-8859-1")
     val end    = "\nendstream\nendobj\n".getBytes("ISO-8859-1")
     Chunk.fromArray(pre ++ dict ++ stream ++ comp ++ end)
 
   def spec = suite("ChunkerSpec")(
-    test("fixed chunker splits by size") {
+    test("fixed chunker splits by size"):
       val data = Chunk.fromArray("abcdef".getBytes("UTF-8"))
       ZStream.fromChunk(data).via(FixedChunker(2).pipeline).runCollect.map { out =>
         val expected = Chunk(
@@ -43,8 +39,8 @@ case object ChunkerSpec extends ZIOSpecDefault:
         )
         assertTrue(out == expected)
       }
-    },
-    test("pdf chunker normalizes compressed streams") {
+    ,
+    test("pdf chunker normalizes compressed streams"):
       val content = "hello pdf".getBytes("UTF-8")
       val pdf1    = pdfWith(content, Deflater.BEST_SPEED)
       val pdf2    = pdfWith(content, Deflater.BEST_COMPRESSION)
@@ -52,18 +48,20 @@ case object ChunkerSpec extends ZIOSpecDefault:
         c1 <- ZStream.fromChunk(pdf1).via(PdfChunker.pipeline).runCollect
         c2 <- ZStream.fromChunk(pdf2).via(PdfChunker.pipeline).runCollect
       yield assertTrue(
-        c1.map(_.bytes) == c2.map(_.bytes) && c1.exists(_.bytes == NonEmptyChunk.fromChunk(Chunk.fromArray(content)).get)
+        c1.map(_.bytes) == c2.map(_.bytes) && c1.exists(_.bytes == Chunk.fromArray(content))
       )
-    },
-    test("anchored CDC nudges boundaries to anchors") {
+    ,
+    test("anchored CDC nudges boundaries to anchors"):
       val part   = "a" * 60
       val token  = "END!"
       val tail   = "tail"
       val input  = (part + token + part + token + tail).getBytes("UTF-8")
       val stream = ZStream.fromChunk(Chunk.fromArray(input))
       val pack   = TokenPack.fromStrings("test", List(token))
+
+      val chunker = AnchoredCdcPipeline.anchoredCdc(pack, avgSize = 64, anchorBonus = 16)
       stream
-        .via(ZPipeline.anchoredCdc(pack, avgSize = 64, anchorBonus = 16))
+        .via(chunker)
         .runCollect
         .map { out =>
           val expected = Chunk(
@@ -73,21 +71,23 @@ case object ChunkerSpec extends ZIOSpecDefault:
           )
           assertTrue(out == expected)
         }
-    },
-    test("anchored CDC enforces block size limits even without anchors") {
-      val bytes  = Array.fill(Limits.MAX_BLOCK_SIZE_IN_BYTES * 2 + 512)(0.toByte)
-      val stream = ZStream.fromChunk(Chunk.fromArray(bytes))
+    ,
+    test("anchored CDC enforces block size limits even without anchors"):
+
+      val total  = 8L * 1024 * 1024 + 512 // keep small to avoid long runtime
+      val stream = ZStream.repeat(0.toByte).take(total).rechunk(64 * 1024)
       val pack   = TokenPack.fromStrings("none", List("zzz"))
+
+      val chunker = AnchoredCdcPipeline.anchoredCdc(
+        tokenPack = pack,
+        avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2,
+        anchorBonus = 1,
+      )
+
       stream
-        .via(
-          ZPipeline.anchoredCdc(
-            pack, 
-            avgSize = Limits.MAX_BLOCK_SIZE_IN_BYTES / 2.toInt, 
-            anchorBonus = 1
-        ))
+        .via(chunker)
         .runCollect
         .map { chunks =>
           assertTrue(chunks.forall(_.bytes.length <= Limits.MAX_BLOCK_SIZE_IN_BYTES))
-        }
-    },
+        },
   )

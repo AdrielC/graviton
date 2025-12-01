@@ -2,47 +2,98 @@ package graviton.chunking
 
 import graviton.core.model.Block
 import zio.stream.*
-import zio.*
 
 import AnchoredCdcPipeline.*
 import graviton.GravitonError
-import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.constraint.all.{Greater, GreaterEqual, Length}
 import io.github.iltotore.iron.{zio as _, *}
 
+import GravitonError.ChunkerFailure
+
+type _ChunkingPipeline = ZPipeline[Any, ChunkerFailure, Byte, Block]
+
+opaque type ChunkingPipeline <: _ChunkingPipeline = _ChunkingPipeline
+
+object ChunkingPipeline:
+
+  private[graviton] def apply(p: _ChunkingPipeline): ChunkingPipeline =
+    p
+
+  inline def anchoredCdc(
+    tokenPack: TokenPack,
+    avgSize: Int :| Greater[0],
+    anchorBonus: Int :| Greater[0],
+  ): ChunkingPipeline = AnchoredCdcPipeline.anchoredCdc(
+    tokenPack = tokenPack,
+    avgSize = avgSize,
+    anchorBonus = anchorBonus,
+  )
 
 /** Splits a byte stream into logical chunks. */
 trait Chunker:
   def name: String
-  def pipeline: ZPipeline[Any, GravitonError, Byte, Block]
+  def pipeline: ChunkingPipeline
 
 object Chunker:
+
+  def fastCdc[Min <: Int, Avg <: Int, Max <: Int](
+    bounds: Bounds[Min, Avg, Max],
+    normalization: Int = 2,
+    window: Int = 64,
+  ): Chunker = FastCDCChunker(
+    FastCDCChunker.Config(bounds, normalization, window)
+  )
+
+  inline def apply[Min <: Int, Avg <: Int, Max <: Int](
+    config: FastCDCChunker.Config[Min, Avg, Max]
+  ): Chunker = FastCDCChunker(
+    config
+  )
 
   type ValidBounds[Min <: Int, Avg <: Int, Max <: Int] = (
     Constraint[Int, Greater[0]],
     Constraint[Int, GreaterEqual[Min]],
     Constraint[Int, GreaterEqual[Avg]],
   )
-    
 
   /** Chunk size bounds used by algorithms such as FastCDC. */
+
   final case class Bounds[Min <: Int, Avg <: Int, Max <: Int](
-    min: ((Min) :| Greater[0]),
-    avg: ((Avg) :| Greater[Min]),
-    max: ((Max) :| Greater[Avg])
+    min: (Min :| Greater[0]),
+    avg: (Avg :| Greater[Min]),
+    max: (Max :| Greater[Avg]),
   )
   object Bounds:
-    
 
+    @scala.annotation.publicInBinary
+    transparent inline def mk[Min <: Int, Avg <: Int, Max <: Int](
+      min: Min :| Greater[0]
+    )(avg: Avg :| Greater[Min])(
+      max: Max :| Greater[Avg]
+    ): Bounds[Min, Avg, Max] =
+      Bounds[Min, Avg, Max](
+        min.assume[Greater[0]],
+        avg.assume[Greater[Min]],
+        max.assume[Greater[Avg]],
+      )
 
-    // @scala.annotation.publicInBinary
-    // inline def apply[Min <: Int, Avg <: Int, Max <: Int](
-    //   using Min: RuntimeConstraint[Min, Greater[0]], Avg: RuntimeConstraint[Avg, GreaterEqual[Min]], Max: RuntimeConstraint[Max, GreaterEqual[Avg]]
-    // ): Bounds[Min, Avg, Max] =
-    //   Bounds(
-    //     compiletime.constValue[Min].refineUnsafe[Greater[0]], 
-    //     compiletime.constValue[Avg].refineUnsafe[GreaterEqual[Min]], 
-    //     compiletime.constValue[Max].refineUnsafe[GreaterEqual[Avg]]
-    //   )
+    @scala.annotation.publicInBinary
+    transparent inline given [Min <: Int, Avg <: Int, Max <: Int] => Bounds[Min, Avg, Max] =
+      Bounds(
+        compiletime.constValue[Min].assume[Greater[0]],
+        compiletime.constValue[Avg].assume[Greater[Min]],
+        compiletime.constValue[Max].assume[Greater[Avg]],
+      )
+
+    transparent inline given default: Bounds[1024, 1048576, 1073741824] =
+      mk(
+        1024.assume[Greater[0]]
+      )(
+        1048576.assume[Greater[1024]]
+      )(
+        1073741824.assume[Greater[1048576]]
+      )
+
   end Bounds
 
   /** Strategy tag for telemetry & selection. */
@@ -54,7 +105,7 @@ object Chunker:
     case AnchoredCdc(
       pack: AnchoredCdcPipeline.TokenPack,
       avgSize: Int :| Greater[0],
-      anchorBonus: Int :| GreaterEqual[0],
+      anchorBonus: Int :| Greater[0],
     )
     case Pdf
     case Smart(default: Strategy, overrides: List[SmartRule])
@@ -99,15 +150,11 @@ object Chunker:
     case Strategy.TokenAware(tokens, maxSz)               =>
       new Chunker:
         val name     = s"token-aware(max=$maxSz)"
-        val pipeline = TokenAwareChunker
-          .pipeline(tokens, maxSz)
-          .mapError(e => GravitonError.ChunkerFailure(e.getMessage))
+        val pipeline = TokenAwareChunker.pipeline(tokens, maxSz)
     case Strategy.AnchoredCdc(pack, avgSize, anchorBonus) =>
       new Chunker:
         val name     = s"anchored-cdc(${pack.name},avg=$avgSize,bonus=$anchorBonus)"
-        val pipeline = ZPipeline
-          .anchoredCdc(pack, avgSize, anchorBonus)
-          .mapError(e => GravitonError.ChunkerFailure(e.getMessage))
+        val pipeline = AnchoredCdcPipeline.anchoredCdc(pack, avgSize, anchorBonus)
     case Strategy.Pdf                                     => PdfChunker
     case Strategy.Smart(default, overrides)               =>
       // if Smart is provided directly, fall back to default without hints
@@ -119,26 +166,22 @@ object Chunker:
       )
   end fromStrategy
 
-
   final type Min = 1024
   final type Avg = 1048576
   final type Max = 1073741824
 
-  val _min: (Min :| Greater[0]) = valueOf[Min].assume[Greater[0]]
+  val _min: (Min :| Greater[0])   = valueOf[Min].assume[Greater[0]]
   val _avg: (Avg :| Greater[Min]) = valueOf[Avg].assume[Greater[Min]]
   val _max: (Max :| Greater[Avg]) = valueOf[Max].assume[Greater[Avg]]
 
   def bounds = Bounds[_min.type, _avg.type, _max.type](_min, _avg, _max)
 
-  def rolling: Chunker = fromStrategy(Strategy.Smart(
-    Strategy.Rolling(
-      bounds
-    ),
-    List.empty,
-  ))
+  def rolling(overrides: List[SmartRule] = Nil): Chunker =
+    fromStrategy(
+      Strategy.Smart(
+        Strategy.Rolling(bounds),
+        overrides,
+      )
+    )
 
-
-  def default: ULayer[Chunker] = ZLayer.succeed(
-    rolling
-  )
 end Chunker

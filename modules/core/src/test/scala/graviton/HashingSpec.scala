@@ -3,7 +3,6 @@ package graviton
 import zio.*
 import zio.test.*
 import zio.stream.*
-import graviton.domain.HashBytes
 import graviton.core.model.Block
 
 object HashingSpec extends ZIOSpecDefault:
@@ -15,10 +14,10 @@ object HashingSpec extends ZIOSpecDefault:
         sha <- Hashing.compute(bytes, HashAlgorithm.SHA256)
         bl  <- Hashing.compute(bytes, HashAlgorithm.Blake3)
       yield assertTrue(
-        sha.toArray
+        sha.bytes.head._2.toArray
           .map("%02x".format(_))
           .mkString == "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9" &&
-          bl.toArray
+          bl.bytes.head._2.toArray
             .map("%02x".format(_))
             .mkString == "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
       )
@@ -27,10 +26,9 @@ object HashingSpec extends ZIOSpecDefault:
       val stream = Blocks(
         ZStream.fromChunks(
           Chunk(
-      Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
+            Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
             Block.applyUnsafe(Chunk.fromArray("cd".getBytes)),
           )
-          
         )
       )
       for
@@ -51,8 +49,7 @@ object HashingSpec extends ZIOSpecDefault:
       val data = Chunk.fromArray("hello world".getBytes)
       for
         dig      <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
-        expected <- Hashing
-                      .compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
-      yield assertTrue(dig == Hash(HashBytes.applyUnsafe(expected), HashAlgorithm.SHA256))
+        expected <- Hashing.compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
+      yield assertTrue(dig == Hash.SingleHash(HashAlgorithm.SHA256, expected.bytes.head._2))
     },
   )

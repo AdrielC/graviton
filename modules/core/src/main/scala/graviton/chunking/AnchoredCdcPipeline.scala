@@ -8,9 +8,13 @@ import zio.stream.*
 import zio.ChunkBuilder
 import io.github.iltotore.iron.:|
 
+import scala.util.control.NonFatal
+
+import graviton.GravitonError.ChunkerFailure
 
 import scala.collection.mutable
-import io.github.iltotore.iron.constraint.numeric.{Greater, GreaterEqual}
+import io.github.iltotore.iron.constraint.numeric.Greater
+import graviton.GravitonError
 
 /**
  * Anchored content-defined chunking built on top of an Aho-Corasick tokenizer
@@ -31,7 +35,7 @@ object AnchoredCdcPipeline:
   private final case class Segment(bytes: Chunk[Byte], anchored: Boolean):
     def nonEmpty: Boolean = bytes.nonEmpty
 
-    def weight(anchorBonus: Int :| GreaterEqual[0]): Long =
+    def weight(anchorBonus: Int :| Greater[0]): Long =
       val base   = bytes.length.toLong.max(1L)
       val adjust = if anchored then anchorBonus.toLong else 0L
       (base - adjust).max(1L)
@@ -140,31 +144,30 @@ object AnchoredCdcPipeline:
       val automaton = Automaton.build(pack.tokens)
       PipelineState(Tokenizer(0, automaton), Chunk.empty)
 
-  extension (pipeline: ZPipeline.type)
-    def anchoredCdc(
-      tokenPack: TokenPack,
-      avgSize: Int :| Greater[0],
-      anchorBonus: Int :| GreaterEqual[0],
-    ): ZPipeline[Any, Throwable, Byte, Block] =
+  def anchoredCdc(
+    tokenPack: TokenPack,
+    avgSize: Int :| Greater[0],
+    anchorBonus: Int :| Greater[0],
+  ): ChunkingPipeline =
+    val sink = ZSink.foldWeightedDecompose[Segment, Accumulator](Accumulator.empty)(
+      (acc, segment) =>
+        val base    = segment.weight(anchorBonus)
+        val penalty = if acc.nonEmpty && acc.anchoredTail && !segment.anchored then avgSize.toLong else 0L
+        base + penalty
+      ,
+      avgSize.toLong,
+      segment => segment.decompose(avgSize),
+    )((acc, segment) => acc.append(segment))
 
-      val sink = ZSink.foldWeightedDecompose[Segment, Accumulator](Accumulator.empty)(
-        (acc, segment) =>
-          val base    = segment.weight(anchorBonus)
-          val penalty = if acc.nonEmpty && acc.anchoredTail && !segment.anchored then avgSize.toLong else 0L
-          base + penalty
-        ,
-        avgSize.toLong,
-        segment => segment.decompose(avgSize),
-      )((acc, segment) => acc.append(segment))
+    def segmentsToBlocks(segments: Chunk[Segment]): Chunk[Block] =
+      segments.flatMap(seg => BlockBuilder.chunkify(seg.bytes))
 
-      def segmentsToBlocks(segments: Chunk[Segment]): Chunk[Block] =
-        segments.flatMap(seg => BlockBuilder.chunkify(seg.bytes))
-
-      ZPipeline.fromChannel {
-        def emitSegments(segments: Chunk[Segment]): ZIO[Any, Throwable, (Chunk[Block], Chunk[Segment])] =
+    ChunkingPipeline:
+      ZPipeline.fromChannel:
+        def emitSegments(segments: Chunk[Segment]): ZIO[Any, ChunkerFailure, (Chunk[Block], Chunk[Segment])] =
           if segments.isEmpty then ZIO.succeed(Chunk.empty -> Chunk.empty)
           else
-            def loop(rem: Chunk[Segment], acc: Chunk[Block]): ZIO[Any, Throwable, (Chunk[Block], Chunk[Segment])] =
+            def loop(rem: Chunk[Segment], acc: Chunk[Block]): ZIO[Any, ChunkerFailure, (Chunk[Block], Chunk[Segment])] =
               if rem.isEmpty then ZIO.succeed(acc -> Chunk.empty)
               else
                 ZStream
@@ -178,8 +181,10 @@ object AnchoredCdcPipeline:
                   }
             loop(segments, Chunk.empty)
 
-        def loop(state: PipelineState): ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Block], Any] =
-          ZChannel.readWith(
+        def loop(
+          state: PipelineState
+        ): ZChannel[Any, GravitonError.ChunkerFailure, Chunk[Byte], Any, GravitonError.ChunkerFailure, Chunk[Block], Any] =
+          ZChannel.readWithCause(
             (in: Chunk[Byte]) =>
               val (nextTokenizer, produced) = state.tokenizer.process(in)
               val combined                  =
@@ -191,7 +196,22 @@ object AnchoredCdcPipeline:
                   else ZChannel.write(blocks) *> loop(PipelineState(nextTokenizer, leftover))
                 }
             ,
-            (err: Throwable) => ZChannel.fail(err),
+            (c: Cause[Throwable]) =>
+              ZChannel.failCause:
+                try {
+                  val err = c.squash
+                  Cause.fail:
+                    GravitonError.ChunkerFailure(
+                      Option(err.getMessage())
+                        .getOrElse(s"Chunk failure: ${err.getClass().getName()}")
+                    )
+                } catch {
+                  case NonFatal(e) =>
+                    Cause.fail(
+                      GravitonError.ChunkerFailure(e.getMessage)
+                    )
+                }
+            ,
             (_: Any) =>
               ZChannel
                 .fromZIO(emitSegments(state.pending))
@@ -203,4 +223,3 @@ object AnchoredCdcPipeline:
           )
 
         loop(PipelineState.initial(tokenPack))
-      }

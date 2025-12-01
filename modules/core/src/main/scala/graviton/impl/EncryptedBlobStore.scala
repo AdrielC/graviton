@@ -18,7 +18,7 @@ final class EncryptedBlobStore(delegate: BlobStore, encryption: Encryption) exte
       case None        => ZIO.succeed(None)
       case Some(bytes) =>
         bytes.runCollect.flatMap { encrypted =>
-          encryption.decrypt(key.hash, encrypted).map { plain =>
+          encryption.decrypt(key.hash.bytes.bytes, encrypted).map { plain =>
             val sliced = range match
               case Some(ByteRange(start, end)) =>
                 plain.drop(start.toInt).take((end - start).toInt)
@@ -30,7 +30,7 @@ final class EncryptedBlobStore(delegate: BlobStore, encryption: Encryption) exte
 
   def write(key: BlockKey, data: Bytes): IO[Throwable, Unit] =
     data.runCollect.flatMap { plain =>
-      encryption.encrypt(key.hash, plain).flatMap { encrypted =>
+      encryption.encrypt(key.hash.bytes.bytes, plain).flatMap { encrypted =>
         delegate.write(key, Bytes(ZStream.fromChunk(encrypted)))
       }
     }

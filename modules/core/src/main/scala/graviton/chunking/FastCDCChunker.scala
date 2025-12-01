@@ -5,12 +5,13 @@ import zio.*
 import zio.stream.*
 import graviton.GravitonError
 
+import graviton.GravitonError.ChunkerFailure
 
 object FastCDCChunker:
   import Chunker.Bounds
 
-  final case class Config(
-    bounds: Bounds[Int, Int, Int],
+  final case class Config[Min <: Int, Avg <: Int, Max <: Int](
+    bounds: Bounds[Min, Avg, Max],
     normalization: Int = 2,
     window: Int = 64,
   )
@@ -25,28 +26,27 @@ object FastCDCChunker:
       i += 1
     arr
 
-  def apply(cfg: Config): Chunker =
+  def apply[Min <: Int, Avg <: Int, Max <: Int](cfg: Config[Min, Avg, Max]): Chunker =
     new Chunker:
-      val name                                             =
+      val name                       =
         s"fastcdc(min=${cfg.bounds.min},avg=${cfg.bounds.avg},max=${cfg.bounds.max})"
-      val pipeline: ZPipeline[Any, GravitonError, Byte, Block] =
-        ZPipeline
-          .fromChannel {
-            def loop(buf: Chunk[Byte]): ZChannel[Any, GravitonError, Chunk[
-              Byte
-            ], Any, GravitonError, Chunk[Chunk[Byte]], Any] =
-              ZChannel.readWith(
-                (in: Chunk[Byte]) => loop(buf ++ in),
-                (err: GravitonError) => ZChannel.fail(err),
-                (_: Any) => ZChannel.write(split(buf, cfg)),
-              )
-            loop(Chunk.empty)
-          }
-          .mapChunksZIO { chunked =>
-            ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(GravitonError.ChunkerFailure(_)))
-          }
+      val pipeline: ChunkingPipeline =
+        ChunkingPipeline:
+          ZPipeline
+            .fromChannel {
+              def loop(buf: Chunk[Byte]): ZChannel[Any, ChunkerFailure, Chunk[Byte], Any, ChunkerFailure, Chunk[Chunk[Byte]], Any] =
+                ZChannel.readWith(
+                  (in: Chunk[Byte]) => loop(buf ++ in),
+                  (err: ChunkerFailure) => ZChannel.fail(err),
+                  (_: Any) => ZChannel.write(split(buf, cfg)),
+                )
+              loop(Chunk.empty)
+            }
+            .mapChunksZIO { chunked =>
+              ZIO.foreach(chunked)(bytes => ZIO.fromEither(Block.fromChunk(bytes)).mapError(GravitonError.ChunkerFailure(_)))
+            }
 
-  private def split(bytes: Chunk[Byte], cfg: Config): Chunk[Chunk[Byte]] =
+  private def split[Min <: Int, Avg <: Int, Max <: Int](bytes: Chunk[Byte], cfg: Config[Min, Avg, Max]): Chunk[Chunk[Byte]] =
     val bits       = math.round(math.log(cfg.bounds.avg.toDouble) / math.log(2)).toInt
     val maskS      = (1 << (bits + 1)) - 1
     val maskL      = (1 << (bits - 1)) - 1

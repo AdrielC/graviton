@@ -2,8 +2,6 @@ package graviton
 
 import zio.*
 
-import cats.Eval
-
 /**
  * A free, compositional description of a Scan. It can be built up
  * using pure combinators and later compiled into a concrete `Scan`
@@ -18,7 +16,7 @@ sealed trait FreeScan[-I, +O]:
 
   /** Compile with a small optimization pass to simplify the graph. */
   def compileOptimized: Scan.Aux[I, O, State] =
-    FreeScan.optimize(this).compile.asInstanceOf[Scan.Aux[I, O, State]]
+    FreeScan.optimize(this).compile
 
 object FreeScan:
   type Aux[-I, +O, S <: Matchable] = FreeScan[I, O] { type State = S }
@@ -26,16 +24,16 @@ object FreeScan:
   // ---------------- Constructors ----------------
 
   final case class Identity[I]() extends FreeScan[I, I]:
-    type State = EmptyTuple
-    def compile: Scan.Aux[I, I, EmptyTuple] = new Scan.Identity[I]()
+    override type State = EmptyTuple
+    def compile: Scan.Aux[I, I, State] = Scan.identity[I].asInstanceOf[Scan.Aux[I, I, State]]
 
   final case class Stateless1[I, O](f: I => O) extends FreeScan[I, O]:
     type State = EmptyTuple
-    def compile: Scan.Aux[I, O, EmptyTuple] = Scan.stateless1(f)
+    def compile: Scan.Aux[I, O, State] = Scan.stateless1(f).asInstanceOf[Scan.Aux[I, O, State]]
 
   final case class Stateless[I, O](f: I => Chunk[O]) extends FreeScan[I, O]:
     type State = EmptyTuple
-    def compile: Scan.Aux[I, O, EmptyTuple] = Scan.stateless(f)
+    def compile: Scan.Aux[I, O, State] = Scan.stateless(f).asInstanceOf[Scan.Aux[I, O, State]]
 
   final case class Stateful[I, O, S <: Tuple](
     init: S,
@@ -58,10 +56,10 @@ object FreeScan:
       Dimapped(self, g, f)
 
     def andThen[O2, S2 <: Matchable](that: FreeScan.Aux[O, O2, S2]): FreeScan.Aux[I, O2, Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
-      Composed[I, O, S, O2, S2](self, that)
+      Composed(self, that)
 
     def zip[O2, S2 <: Matchable](that: FreeScan.Aux[I, O2, S2]): FreeScan.Aux[I, (O, O2), Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]] =
-      Zipped[I, O, S, O2, S2](self, that)
+      Zipped(self, that)
 
     // --- Category aliases
     infix def >>>[O2, S2 <: Matchable](that: FreeScan.Aux[O, O2, S2]): FreeScan[I, O2] =
@@ -76,7 +74,7 @@ object FreeScan:
 
     // --- Product on pairs: (I, I2) => (O, O2)
     infix def ***[I2, O2, S2 <: Matchable](that: FreeScan.Aux[I2, O2, S2]): FreeScan[(I, I2), (O, O2)] =
-      Product[I, O, S, I2, O2, S2](self, that)
+      Product(self, that)
 
     // --- Lift to first/second of a pair
     def first[C]: FreeScan.Aux[(I, C), (O, C), Tuple.Concat[Scan.ToState[S], Tuple1[Option[C]]]] =
@@ -142,8 +140,21 @@ object FreeScan:
     right: FreeScan.Aux[I, O2, S2],
   ) extends FreeScan[I, (O, O2)]:
     override final type State = Tuple.Concat[Scan.ToState[S], Scan.ToState[S2]]
-    transparent inline def compile: Scan.Aux[I, (O, O2), State] = 
-      ???
+    transparent inline def compile: Scan.Aux[I, (O, O2), State] =
+      val a     = left.compile
+      val b     = right.compile
+      val sizeA = a.initial.productArity
+      Scan.statefulTuple[I, (O, O2), State]((a.initial ++ b.initial)) { (st, in) =>
+        val s1        = st.take(sizeA).asInstanceOf[a.State]
+        val s2        = st.drop(sizeA).asInstanceOf[b.State]
+        val (s1b, o1) = a.step(s1, in)
+        val (s2b, o2) = b.step(s2, in)
+        ((s1b ++ s2b).asInstanceOf[State], o1.zip(o2))
+      } { st =>
+        val s1 = st.take(sizeA).asInstanceOf[a.State]
+        val s2 = st.drop(sizeA).asInstanceOf[b.State]
+        a.done(s1).zip(b.done(s2))
+      }
 
   final case class Product[I1, O1, S1 <: Matchable, I2, O2, S2 <: Matchable](
     left: FreeScan.Aux[I1, O1, S1],
@@ -174,19 +185,22 @@ object FreeScan:
   ) extends FreeScan[(I, C), (O, C)]:
     type State = Tuple.Concat[Scan.ToState[S], Tuple1[Option[C]]]
     def compile: Scan.Aux[(I, C), (O, C), State] =
-      val a                      = src.compile
-      inline given sizeA: a.Size = a.initial.productArity.asInstanceOf[Tuple.Size[a.State]]
+      val a     = src.compile
+      val sizeA = a.size
 
       Scan.statefulTuple[(I, C), (O, C), State](
-        Eval.now(a.initial ++ Tuple1(Option.empty[C]))
+        (a.initial ++ Tuple1(Option.empty[C]))
       ) { (st, in) =>
         val sA        = st.take(sizeA).asInstanceOf[src.State]
         val (i, c)    = in
-        val (sAb, oA) = a.step(Scan.toState(sA).asInstanceOf[a.State], i)
+        val (sAb, oA) = a.step(sA.asInstanceOf[a.State], i)
         ((sAb ++ Tuple1(Some(c))).asInstanceOf[this.State], oA.map(o => (o, c)))
       } { st =>
-        val sA       = st.take(sizeA).asInstanceOf[src.State]
-        val lastCOpt = st.drop(sizeA).asInstanceOf[Tuple1[Option[C]]]._1
+        val sA       = st.take(sizeA).asInstanceOf[a.State]
+        val lastCOpt =
+          if (st.productArity == 1)
+          then None
+          else Some(st.drop(sizeA).asInstanceOf[C])
         lastCOpt match
           case Some(c) => a.done(Scan.toState(sA).asInstanceOf[a.State]).map(o => (o, c))
           case None    => Chunk.empty
@@ -199,11 +213,11 @@ object FreeScan:
     def compile: Scan.Aux[(C, I), (C, O), State] =
       val a     = src.compile.asInstanceOf[Scan.Aux[I, O, src.State]]
       val sizeA = 1 // Tuple1[Option[C]]
-      Scan.statefulTuple[(C, I), (C, O), this.State](Eval.now(Option.empty[C] *: a.initial)) { (st, in) =>
+      Scan.statefulTuple[(C, I), (C, O), this.State]((Option.empty[C] *: a.initial)) { (st, in) =>
         val sA       = st.drop(sizeA).asInstanceOf[a.State]
         val (c, i)   = in
         val (sAb, o) = a.step(sA, i)
-        ((Tuple1(Some(c)) *: sAb).asInstanceOf[this.State], o.map(o2 => (c, o2)))
+        ((Some(c) *: sAb).asInstanceOf[this.State], o.map(o2 => (c, o2)))
       } { st =>
         val lastCOpt = st.take(sizeA).asInstanceOf[Tuple1[Option[C]]]._1
         val sA       = st.drop(sizeA).asInstanceOf[a.State]
@@ -216,29 +230,29 @@ object FreeScan:
     src: FreeScan.Aux[I, O, S]
   ) extends FreeScan[Either[I, C], Either[O, C]]:
     type State = S
-    def compile: Scan.Aux[Either[I, C], Either[O, C], S] =
+    def compile: Scan.Aux[Either[I, C], Either[O, C], State] =
       val a = src.compile
-      Scan.statefulTuple[Either[I, C], Either[O, C], this.State](Eval.now(a.initial.asInstanceOf[this.State])) { (s, in) =>
+      Scan.statefulTuple[Either[I, C], Either[O, C], this.State](a.initial.asInstanceOf[this.State]) { (s: this.State, in) =>
         in match
           case Left(i)  =>
-            val (s2, out) = a.step(Scan.toState(s).asInstanceOf[a.State], i)
-            (Scan.toState(s2).asInstanceOf[this.State], out.map(Left(_)))
-          case Right(c) => (s, Chunk.single(Right(c)))
-      }(s => a.done(Scan.toState(s).asInstanceOf[a.State]).map(Left(_)))
+            val (s2, out) = a.step(s.asInstanceOf[a.State], i)
+            (s2.asInstanceOf[this.State], out.map(Left(_)))
+          case Right(c) => (s.asInstanceOf[this.State], Chunk.single(Right(c)))
+      }(s => a.done(s.asInstanceOf[a.State]).map(Left(_)))
 
   final case class RightChoice[I, O, S <: Matchable, C](
     src: FreeScan.Aux[I, O, S]
   ) extends FreeScan[Either[C, I], Either[C, O]]:
     type State = S
-    def compile: Scan.Aux[Either[C, I], Either[C, O], S] =
+    def compile: Scan.Aux[Either[C, I], Either[C, O], State] =
       val a = src.compile
-      Scan.statefulTuple[Either[C, I], Either[C, O], this.State](Eval.now(a.initial.asInstanceOf[this.State])) { (s, in) =>
+      Scan.statefulTuple[Either[C, I], Either[C, O], this.State](a.initial.asInstanceOf[this.State]) { (s: this.State, in) =>
         in match
           case Right(i) =>
-            val (s2, out) = a.step(Scan.toState(s).asInstanceOf[a.State], i)
-            (Scan.toState(s2).asInstanceOf[this.State], out.map(Right(_)))
-          case Left(c)  => (Scan.toState(s).asInstanceOf[this.State], Chunk.single(Left(c)))
-      }(s => a.done(Scan.toState(s).asInstanceOf[a.State]).map(Right(_)))
+            val (s2, out) = a.step(s.asInstanceOf[a.State], i)
+            (s2.asInstanceOf[this.State], out.map(Right(_)))
+          case Left(c)  => (s.asInstanceOf[this.State], Chunk.single(Left(c)))
+      }(s => a.done(s.asInstanceOf[a.State]).map(Right(_)))
 
   final case class PlusPlus[I1, O1, S1 <: Matchable, I2, O2, S2 <: Matchable](
     left: FreeScan.Aux[I1, O1, S1],
@@ -248,20 +262,22 @@ object FreeScan:
     def compile: Scan.Aux[Either[I1, I2], Either[O1, O2], State] =
       val a     = left.compile
       val b     = right.compile
-      val sizeA = a.initial.productArity
-      Scan.statefulTuple[Either[I1, I2], Either[O1, O2], this.State](Eval.now(a.initial ++ b.initial)) { (st, in) =>
-        val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
-        in match
-          case Left(i1)  =>
-            val (s1b, o1) = a.step(s1, i1)
-            ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1.map(Left(_)))
-          case Right(i2) =>
-            val (s2b, o2) = b.step(s2, i2)
-            ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2.map(Right(_)))
+      val sizeA = a.size
+      val sizeB = b.size
+      Scan.statefulTuple[Either[I1, I2], Either[O1, O2], this.State]((a.initial ++ b.initial).asInstanceOf[this.State]) {
+        (st: this.State, in) =>
+          val s1 = st.take(sizeA).asInstanceOf[a.State]
+          val s2 = st.drop(sizeA).asInstanceOf[b.State]
+          in match
+            case Left(i1)  =>
+              val (s1b, o1) = a.step(s1, i1)
+              ((s1b ++ s2).asInstanceOf[this.State], o1.map(Left(_)))
+            case Right(i2) =>
+              val (s2b, o2) = b.step(s2, i2)
+              ((s1 ++ s2b).asInstanceOf[this.State], o2.map(Right(_)))
       } { st =>
         val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
+        val s2 = st.drop(sizeA).take(sizeB).asInstanceOf[b.State]
         a.done(s1).map(Left(_)) ++ b.done(s2).map(Right(_))
       }
 
@@ -273,32 +289,35 @@ object FreeScan:
     def compile: Scan.Aux[Either[I1, I2], O, State] =
       val a     = left.compile
       val b     = right.compile
-      val sizeA = a.initial.productArity
-      Scan.statefulTuple[Either[I1, I2], O, this.State](Eval.later(a.initial ++ b.initial)) { (st, in) =>
+      val sizeA = a.size
+      val sizeB = b.size
+      Scan.statefulTuple[Either[I1, I2], O, this.State](
+        (a.initial ++ b.initial).asInstanceOf[this.State]
+      ) { (st: this.State, in) =>
         val s1 = st.take(sizeA).asInstanceOf[a.State]
         val s2 = st.drop(sizeA).asInstanceOf[b.State]
         in match
           case Left(i1)  =>
             val (s1b, o1) = a.step(s1, i1)
-            ((s1b ++ s2).asInstanceOf[Tuple.Concat[a.State, b.State]], o1)
+            ((s1b ++ s2).asInstanceOf[this.State], o1)
           case Right(i2) =>
             val (s2b, o2) = b.step(s2, i2)
-            ((s1 ++ s2b).asInstanceOf[Tuple.Concat[a.State, b.State]], o2)
+            ((s1 ++ s2b).asInstanceOf[this.State], o2)
       } { st =>
         val s1 = st.take(sizeA).asInstanceOf[a.State]
-        val s2 = st.drop(sizeA).asInstanceOf[b.State]
+        val s2 = st.drop(sizeA).take(sizeB).asInstanceOf[b.State]
         a.done(s1) ++ b.done(s2)
       }
 
   // ---------------- Helpers ----------------
 
-  def identity[I]: Aux[I, I, EmptyTuple] = Identity[I]()
+  def identity[I]: Aux[I, I, Unit] = Identity[I]().asInstanceOf[Aux[I, I, Unit]]
 
-  def lift[I, O](f: I => O): Aux[I, O, EmptyTuple] = Stateless1(f)
+  def lift[I, O](f: I => O): Aux[I, O, Unit] = Stateless1(f).asInstanceOf[Aux[I, O, Unit]]
 
-  def stateless1[I, O](f: I => O): Aux[I, O, EmptyTuple] = Stateless1(f)
+  def stateless1[I, O](f: I => O): Aux[I, O, Unit] = Stateless1(f).asInstanceOf[Aux[I, O, Unit]]
 
-  def stateless[I, O](f: I => Chunk[O]): Aux[I, O, EmptyTuple] = Stateless(f)
+  def stateless[I, O](f: I => Chunk[O]): Aux[I, O, Unit] = Stateless(f).asInstanceOf[Aux[I, O, Unit]]
 
   def stateful[I, O, S](init: S)(
     stepFn: (S, I) => (S, Chunk[O])

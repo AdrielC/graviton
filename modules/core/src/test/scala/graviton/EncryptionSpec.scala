@@ -5,7 +5,6 @@ import graviton.impl.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import graviton.domain.HashBytes
 import graviton.core.model.BlockSize
 
 object EncryptionSpec extends ZIOSpecDefault:
@@ -15,14 +14,13 @@ object EncryptionSpec extends ZIOSpecDefault:
   private val env       =
     ZLayer.succeed(Encryption.MasterKey(masterKey)) >>> Encryption.live
 
-  private def blockKey(data: Array[Byte]): UIO[BlockKey] =
+  private def blockKey(data: Array[Byte]): HashOp[Any, BlockKey] =
     for
       hashBytes <- Hashing.compute(
-                     Bytes(ZStream.fromIterable(data.toIndexedSeq)),
-                     HashAlgorithm.SHA256,
+                     Bytes(Chunk.fromArray(data))
                    )
-      size      = Size.applyUnsafe(data.length)
-    yield BlockKey(Hash(HashBytes.applyUnsafe(hashBytes), HashAlgorithm.SHA256), BlockSize.applyUnsafe(size))
+      size       = Size.applyUnsafe(data.length)
+    yield BlockKey(Hash.SingleHash(hashBytes.bytes.head._1, hashBytes.bytes.head._2), BlockSize.applyUnsafe(size))
 
   def spec =
     suite("EncryptionSpec")(
@@ -31,8 +29,8 @@ object EncryptionSpec extends ZIOSpecDefault:
         for
           key    <- blockKey("hello".getBytes)
           enc    <- ZIO.service[Encryption]
-          cipher <- enc.encrypt(key.hash, bytes)
-          plain  <- enc.decrypt(key.hash, cipher)
+          cipher <- enc.encrypt(key.hash.bytes.bytes, bytes)
+          plain  <- enc.decrypt(key.hash.bytes.bytes, cipher)
         yield assertTrue(plain == bytes && cipher != bytes)
       },
       test("deterministic ciphertext") {
@@ -40,15 +38,15 @@ object EncryptionSpec extends ZIOSpecDefault:
         for
           key <- blockKey("same".getBytes)
           enc <- ZIO.service[Encryption]
-          c1  <- enc.encrypt(key.hash, bytes)
-          c2  <- enc.encrypt(key.hash, bytes)
+          c1  <- enc.encrypt(key.hash.bytes.bytes, bytes)
+          c2  <- enc.encrypt(key.hash.bytes.bytes, bytes)
         yield assertTrue(c1 == c2)
       },
       test("blobstore integration") {
         val data = "hello world".getBytes
         for
           key    <- blockKey(data)
-          blob   <- InMemoryBlobStore.make()
+          blob   <- InMemoryBlobStore.make
           enc    <- ZIO.service[Encryption]
           encBlob = new EncryptedBlobStore(blob, enc)
           _      <- encBlob.write(key, Bytes(ZStream.fromIterable(data)))

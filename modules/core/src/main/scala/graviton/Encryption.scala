@@ -4,10 +4,11 @@ import zio.*
 import javax.crypto.*
 import javax.crypto.spec.{GCMParameterSpec, SecretKeySpec}
 import zio.Chunk
+import graviton.domain.HashBytes
 
 trait Encryption:
-  def encrypt(hash: Hash, data: Chunk[Byte]): Task[Chunk[Byte]]
-  def decrypt(hash: Hash, data: Chunk[Byte]): Task[Chunk[Byte]]
+  def encrypt(hash: HashBytes, data: Chunk[Byte]): Task[Chunk[Byte]]
+  def decrypt(hash: HashBytes, data: Chunk[Byte]): Task[Chunk[Byte]]
 
 object Encryption:
 
@@ -29,13 +30,13 @@ object Encryption:
       java.util.Arrays.fill(prk, 0.toByte)
       java.util.Arrays.copyOf(okm, length)
 
-    private def deriveKey(hash: Hash): Array[Byte] =
+    private def deriveKey(hash: HashBytes): Array[Byte] =
       hkdf(master.toArray, hash.bytes.toArray, 32)
 
-    private def nonce(hash: Hash): Array[Byte] =
+    private def nonce(hash: HashBytes): Array[Byte] =
       hash.bytes.take(12).toArray
 
-    def encrypt(hash: Hash, data: Chunk[Byte]): Task[Chunk[Byte]] =
+    def encrypt(hash: HashBytes, data: Chunk[Byte]): Task[Chunk[Byte]] =
       ZIO.attempt {
         val secret = new SecretKeySpec(deriveKey(hash), "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -44,7 +45,7 @@ object Encryption:
         Chunk.fromArray(cipher.doFinal(data.toArray))
       }
 
-    def decrypt(hash: Hash, data: Chunk[Byte]): Task[Chunk[Byte]] =
+    def decrypt(hash: HashBytes, data: Chunk[Byte]): Task[Chunk[Byte]] =
       ZIO.attempt {
         val secret = new SecretKeySpec(deriveKey(hash), "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

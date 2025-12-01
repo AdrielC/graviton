@@ -5,7 +5,7 @@ import zio.*
 import zio.stream.*
 import zio.test.*
 import java.nio.file.Files
-import graviton.domain.HashBytes
+import graviton.Hash
 
 object DiskCacheStoreSpec extends ZIOSpecDefault:
 
@@ -17,15 +17,10 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
           store     <- DiskCacheStore.make(dir)
           ref       <- Ref.make(0)
           data       = "hello".getBytes.toIndexedSeq
-          hashBytes <- Hashing.compute(
-                         Bytes(ZStream.fromIterable(data)),
-                         HashAlgorithm.SHA256,
-                       )
-          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
-          hash       = Hash(digest, HashAlgorithm.SHA256)
+          hash       <- Hashing.compute(Bytes(ZStream.fromIterable(data)))
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
-          _         <- store.fetch(hash, remote, useCache = true)
-          _         <- store.fetch(hash, remote, useCache = true)
+          _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = true)
+          _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = true)
           calls     <- ref.get
         yield assertTrue(calls == 1)
       },
@@ -35,15 +30,10 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
           store     <- DiskCacheStore.make(dir)
           ref       <- Ref.make(0)
           data       = "hello".getBytes.toIndexedSeq
-          hashBytes <- Hashing.compute(
-                         Bytes(ZStream.fromIterable(data)),
-                         HashAlgorithm.SHA256,
-                       )
-          digest     <- ZIO.fromEither(HashBytes.either(hashBytes)).mapError(e => new RuntimeException(e))
-          hash       = Hash(digest, HashAlgorithm.SHA256)
+          hash <- Hashing.compute(Bytes(ZStream.fromIterable(data)))
           remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
-          _         <- store.fetch(hash, remote, useCache = false)
-          _         <- store.fetch(hash, remote, useCache = false)
+          _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = false)
+          _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = false)
           calls     <- ref.get
         yield assertTrue(calls == 2)
       },
