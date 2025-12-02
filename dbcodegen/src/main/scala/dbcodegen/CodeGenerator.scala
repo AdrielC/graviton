@@ -4,18 +4,16 @@ import java.nio.file.{Path, Files}
 import java.io.File
 import java.util.Locale
 import scala.collection.immutable.Seq
-import org.slf4j.LoggerFactory
 import schemacrawler.tools.utility.SchemaCrawlerUtility
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder
 import scala.jdk.CollectionConverters.given
+import zio.*
 
 
 extension (file: File)
   def toOption: Option[File] = Option(file)
 
 object CodeGenerator {
-
-  private lazy val log = LoggerFactory.getLogger(getClass())
 
   enum Mode(override val toString: String):
     case Production extends Mode("production")
@@ -60,11 +58,11 @@ object CodeGenerator {
     username: Option[String],
     password: Option[String],
     config: CodeGeneratorConfig,
-  ): Seq[Path] = {
+  ): ZIO[Scope, Throwable, Seq[Path]] = 
+    ZIO.logInfo(s"Starting database schema generation...") *>
+    ZIO.logInfo(s"JDBC URL: $jdbcUrl, Username: $username") *>
+    ZIO.attempt {
     
-    println("🚀 Starting database schema generation...")
-    log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
-
     // Create database connection
     val ds = DbConnectionSource(jdbcUrl, username, password)
 

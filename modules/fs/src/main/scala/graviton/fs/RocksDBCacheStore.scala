@@ -19,7 +19,7 @@ import HashT.SingleHash as Hash
 final class RocksDBCacheStore private (
   db: ZRocksDB,
   cache: Cache[Hash, Throwable, Chunk[Byte]],
-  loaderRef: FiberRef[Hash => Task[Chunk[Byte]]],
+  loaderRef: Ref[Hash => Task[Chunk[Byte]]],
 ) extends CacheStore:
 
   private def fromChunk(ch: Chunk[Byte]): Bytes = Bytes(ZStream.fromChunk(ch))
@@ -55,7 +55,7 @@ object RocksDBCacheStore:
 
   private def loader(
     db: ZRocksDB,
-    ref: FiberRef[Hash => Task[Chunk[Byte]]],
+    ref: Ref[Hash => Task[Chunk[Byte]]],
   )(hash: Hash): Task[Chunk[Byte]] =
     val key                                 = hash.bytes.bytes.toArray
     def downloadAndStore: Task[Chunk[Byte]] =
@@ -88,7 +88,7 @@ object RocksDBCacheStore:
     for
       env   <- ZRocksDB.live(path.toString).build
       db     = env.get[ZRocksDB]
-      ref   <- FiberRef.make[Hash => Task[Chunk[Byte]]]((_: Hash) => ZIO.fail(RuntimeException("no loader")))
+      ref   <- Ref.make[Hash => Task[Chunk[Byte]]]((hash: Hash) => db.get(hash.bytes.bytes.toArray).map(Chunk.fromArray))
       cache <- Cache.make[Hash, Any, Throwable, Chunk[Byte]](
                  capacity,
                  ttl,

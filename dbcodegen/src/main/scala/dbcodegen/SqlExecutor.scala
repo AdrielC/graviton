@@ -9,20 +9,33 @@ import java.io.File
 import java.sql.Connection
 import scala.io.Source
 import scala.jdk.CollectionConverters._
-import scala.util.Using
 
-object SqlExecutor {
+import zio.*
+
+object SqlExecutor:
     
-  def executeSqlFile(connection: Connection, file: File): Unit =
-    Using.resource(Source.fromFile(file)) { fileSource =>
-      executeSql(connection, fileSource.mkString)
-    }
+  def executeSqlFile(connection: Connection, file: File): ZIO[Scope, Throwable, Unit] =
+    ZIO.fromAutoCloseable(ZIO.attempt(Source.fromFile(file)))
+    .flatMap: fileSource =>
+      ZIO.attempt(executeSql(connection, fileSource.mkString))
+      .unit
+    
+  end executeSqlFile
 
-  def executeSql(connection: Connection, sql: String): Unit =
+  def executeSql(connection: Connection, sql: String): ZIO[Scope, Throwable, Unit] =
     val databaseType = DatabaseTypeRegister.getDatabaseTypeForConnection(connection)
     val factory      = databaseType.createSqlScriptFactory(ClassicConfiguration(), ParsingContext())
     val resource     = StringResource(sql)
     val sqlScript    = factory.createSqlScript(resource, false, null)
-    Using.resource(connection.createStatement()): statement =>
-      sqlScript.getSqlStatements.asScala.foreach(sqlStatement => statement.execute(sqlStatement.getSql))
-}
+    
+    ZIO.fromAutoCloseable:
+      ZIO.attempt:
+        connection.createStatement()
+    .flatMap: statement =>
+      ZIO.foreachDiscard(
+        sqlScript.getSqlStatements.asScala.toSeq
+      ): sqlStatement => 
+        ZIO.attempt:
+          statement.execute(sqlStatement.getSql)
+
+  end executeSql

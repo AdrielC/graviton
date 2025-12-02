@@ -12,6 +12,7 @@ import scodec.bits.ByteVector
 import zio.prelude.{NonEmptySortedSet, NonEmptySortedMap, Hash as _, *}
 
 import graviton.core.{toNonEmptyChunk, mapZIOSortedMap, mapZIO, given}
+import scala.util.Try
 
 type HashOp[-R, +A] = ZIO[R, HashingFailure, A]
 
@@ -30,9 +31,17 @@ object Hashing:
       Unsafe.unsafely:
         FiberRef.unsafe.make(
           initial = NonEmptySortedMap(HashAlgorithm.default -> None),
-          fork = (a: HashAlgos) => a.mapValues(n => n.fold(None)(
-            md => Some(md.clone().asInstanceOf[MessageDigest]))
-          ),
+          fork = (a: HashAlgos) =>
+            a.map { case (algo, maybeMd) =>
+              val cloned = maybeMd.map { md =>
+                val copy = Try(md.clone().asInstanceOf[MessageDigest]).getOrElse(
+                  MessageDigest.getInstance(md.getAlgorithm)
+                )
+                copy.reset()
+                copy
+              }
+              algo -> cloned
+            },
           join = (a, b) => a ++ b
         )
 
@@ -140,18 +149,33 @@ object Hashing:
     ZStream.unwrapScoped {
       ref.getHashAlgos.flatMap: algo =>
         val algos = algo.mapZIOSortedMap:
-          case (algo, Some(md)) => hasher(NonEmptySortedMap(algo -> Option({md.reset(); md}))).map(algo -> _)
-          case (algo, None) => hasher(NonEmptySortedMap(algo -> None)).map(algo -> _)
-        // .map(c => NonEmptySortedMap.fromNonEmptyChunk(c))
-
-        algos.map: h =>
+          case (algo, Some(md)) => hasher(NonEmptySortedMap(algo -> Option({md.reset(); md})))
+          case (algo, None)     => hasher(NonEmptySortedMap(algo -> None))
+        algos.map: hasherMap =>
+          val hashersChunk = hasherMap.toNonEmptyChunk
+          val hashersArr: Chunk[(HashAlgorithm, Hasher)] = hashersChunk.toChunk
           stream.mapZIO { (block: Block) =>
+            val bytes = block.bytes
             for
-              _   <- h.toNonEmptyChunk.mapZIOSortedMap((algo, hasher) => hasher._2.update(block.bytes.toChunk).mapError(Hashing.hashingFailure(algo)))
-              dig <- h.mapZIOSortedMap((algo, hasher) => hasher._2.snapshot.mapError(Hashing.hashingFailure(algo))).map(
-                c => c.toNonEmptyChunk.map(c => c._1 -> c._2.bytes)
-              )
-            yield Hash.MultiHash(dig.flatMap(_._2).toNonEmptyChunk)
+              _ <- ZIO.foreachDiscard(hashersArr) { case (algo, hasher) =>
+                     hasher.update(bytes).mapError(Hashing.hashingFailure(algo))
+                   }
+              pairs <- ZIO.foreach(hashersArr) { case (algo, hasher) =>
+                         hasher.snapshot
+                           .mapError(Hashing.hashingFailure(algo))
+                           .flatMap { snapshot =>
+                             val digest: Option[HashBytes] = snapshot.bytes.get(algo)
+                             ZIO
+                               .fromOption(digest)
+                               .orElseFail(Hashing.hashingFailure(algo)(RuntimeException(s"missing digest for $algo")))
+                           }
+                           .map((algo, _))
+                       }
+              nonEmptyPairs <- ZIO
+                                 .fromOption(NonEmptyChunk.fromChunk[(HashAlgorithm, HashBytes)](pairs))
+                                 .orElseFail(Hashing.hashingFailure(hashersChunk.head._1)(RuntimeException("empty digest set")))
+              multi: NonEmptySortedMap[HashAlgorithm, HashBytes] = NonEmptySortedMap.fromNonEmptyChunk(nonEmptyPairs)
+            yield Hash.MultiHash(multi)
           }
     }
 

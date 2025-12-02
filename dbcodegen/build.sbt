@@ -33,6 +33,7 @@ libraryDependencies ++= Seq(
 libraryDependencies ++= Seq(
   "io.zonky.test"       % "embedded-postgres" % embeddedPgV % Test,
   "org.scalameta"      %% "munit"             % munitV       % Test,
+  "dev.zio" %% "zio-test-sbt" % zioV % Test,
 )
 
 // Exclude conflicting cross-version dependencies globally for this module

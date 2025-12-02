@@ -7,9 +7,8 @@ import graviton.core.model.Block
 
 object HashingSpec extends ZIOSpecDefault:
   def spec = suite("HashingSpec")(
-    test("compute blake3 and sha256 hashes") {
-      val bytes =
-        Bytes(ZStream.fromIterable("hello world".getBytes.toIndexedSeq))
+    test("compute blake3 and sha256 hashes"):
+      val bytes = Bytes("hello world")
       for
         sha <- Hashing.compute(bytes, HashAlgorithm.SHA256)
         bl  <- Hashing.compute(bytes, HashAlgorithm.Blake3)
@@ -21,35 +20,24 @@ object HashingSpec extends ZIOSpecDefault:
             .map("%02x".format(_))
             .mkString == "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
       )
-    },
-    test("rolling hash emits prefix digests") {
+    ,
+    test("rolling hash emits prefix digests"):
       val stream = Blocks(
         ZStream.fromChunks(
-          Chunk(
-            Block.applyUnsafe(Chunk.fromArray("ab".getBytes)),
-            Block.applyUnsafe(Chunk.fromArray("cd".getBytes)),
-          )
+          Chunk(Block("ab"), Block("cd"))
         )
       )
       for
         hashes         <- Hashing.rolling(stream, HashAlgorithm.SHA256).runCollect
-        expectedFirst  <- Hashing.compute(
-                            Bytes(ZStream.fromIterable("ab".getBytes.toIndexedSeq)),
-                            HashAlgorithm.SHA256,
-                          )
-        expectedSecond <- Hashing.compute(
-                            Bytes(ZStream.fromIterable("abcd".getBytes.toIndexedSeq)),
-                            HashAlgorithm.SHA256,
-                          )
-      yield assertTrue(
-        hashes.map(_.bytes) == Chunk(expectedFirst, expectedSecond)
-      )
-    },
-    test("sink computes digest without buffering entire stream") {
+        expectedFirst  <- Hashing.compute(Bytes("ab"), HashAlgorithm.SHA256)
+        expectedSecond <- Hashing.compute(Bytes("abcd"), HashAlgorithm.SHA256)
+      yield assertTrue(hashes == Chunk(expectedFirst, expectedSecond))
+    ,
+    test("sink computes digest without buffering entire stream"):
       val data = Chunk.fromArray("hello world".getBytes)
       for
         dig      <- ZStream.fromChunk(data).run(Hashing.sink(HashAlgorithm.SHA256))
         expected <- Hashing.compute(Bytes(ZStream.fromChunk(data)), HashAlgorithm.SHA256)
       yield assertTrue(dig == Hash.SingleHash(HashAlgorithm.SHA256, expected.bytes.head._2))
-    },
+    ,
   )

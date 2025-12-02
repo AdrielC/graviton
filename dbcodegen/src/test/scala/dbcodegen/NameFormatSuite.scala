@@ -5,6 +5,7 @@ import munit.FunSuite
 final class NameFormatSuite extends FunSuite {
 
   test("sanitizeScalaName escapes reserved words") {
+    println(NameFormat.sanitizeScalaName("type"))
     assertEquals(NameFormat.sanitizeScalaName("type"), "`type`")
     assertEquals(NameFormat.sanitizeScalaName("given"), "`given`")
   }

@@ -1,16 +1,13 @@
 package dbcodegen
 
 import java.io.File
-import java.util.logging.Level
-// import zio.*
+import zio.*
 
 import scala.util.chaining.scalaUtilChainingOps
 
-object DbMain {
+object DbMain extends ZIOAppDefault:
   
-  private lazy val log = java.util.logging.Logger.getGlobal.tap(_.setLevel(Level.WARNING))
-
-  def main(args: Array[String]): Unit = {
+  def run = ZIO.suspend {
 
     val jdbcUrl = sys.props
       .get("dbcodegen.jdbcUrl")
@@ -59,18 +56,17 @@ object DbMain {
       outDir = outDir.toPath,
     )
 
-    val results = CodeGenerator.generate(
+    CodeGenerator.generate(
       jdbcUrl = jdbcUrl,
       username = username,
       password = password,
       config = config,
-    )
-
-    if (inspectOnly)
-      log.info("Inspect-only mode complete")
-    else
-        log.info(s"🎉 Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
-  }
+    ).tap: results =>
+      if (inspectOnly)
+        ZIO.logInfo("Inspect-only mode complete")
+      else
+        ZIO.logInfo(s"🎉 Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
+    }
 
   private def resolvePath(path: String): File = {
     val file = new File(path)
@@ -82,4 +78,4 @@ object DbMain {
     }
     
   }
-}
+

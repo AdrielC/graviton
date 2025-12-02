@@ -6,40 +6,45 @@ import munit.FunSuite
 import java.io.File
 import java.nio.file.Files
 
-final class CodeGeneratorIntegrationSuite extends FunSuite {
+import zio.*
+import zio.test.*
 
-  override def afterAll(): Unit = {
-    super.afterAll()
-    val _ = System.clearProperty("PG_JDBC_URL")
-  }
+object CodeGeneratorIntegrationSuite extends ZIOSpec[EmbeddedPostgres]:
 
-  test("code generation matches checked-in snapshot") {
-    val postgres = EmbeddedPostgres.builder().setPort(0).start()
-    try {
-      val connection = postgres.getPostgresDatabase.getConnection
-      try SqlExecutor.executeSqlFile(connection, new File("modules/pg/ddl.sql"))
-      finally connection.close()
+  override def bootstrap: ZLayer[Any, Nothing, EmbeddedPostgres] =
+    ZLayer.scoped:
+      ZIO.acquireRelease(
+        ZIO.attempt(EmbeddedPostgres.builder().setPort(0).start()).orDie
+      )(pg => ZIO.attempt(pg.close()).ignoreLogged)
 
-      val tmpDir = Files.createTempDirectory("dbcodegen-test")
-      val config = CodeGeneratorConfig.default.copy(outDir = tmpDir, templateFiles = Seq.empty)
+  def spec = suite("CodeGeneratorIntegrationSuite")(
+    test("code generation matches checked-in snapshot")({
+      for
+        postgres <- ZIO.service[EmbeddedPostgres]
+        connection <- ZIO.fromAutoCloseable(ZIO.attempt(postgres.getPostgresDatabase.getConnection))
+        _ <- SqlExecutor.executeSqlFile(connection, new File("modules/pg/ddl.sql"))
+        tmpDir <- ZIO.attempt(Files.createTempDirectory("dbcodegen-test"))
+        config = CodeGeneratorConfig.default.copy(outDir = tmpDir, templateFiles = Seq.empty)
+        generated <- CodeGenerator.generate(
+          jdbcUrl = postgres.getJdbcUrl("postgres", "postgres"),
+          username = Some("postgres"),
+          password = Some("postgres"),config = config
+        )
 
-      val generated = CodeGenerator.generate(
-        jdbcUrl = postgres.getJdbcUrl("postgres", "postgres"),
-        username = Some("postgres"),
-        password = Some("postgres"),
-        config = config,
-      )
+        expected <- ZIO.attempt(java.nio.file.Path.of("modules/pg/src/main/scala/graviton/pg/generated/public.scala"))
+          .filterOrFail(path => Files.exists(path))( Throwable("expected file does not exist"))
+        
+        rendered <- ZIO.attempt(generated.head)
 
-      val expected = java.nio.file.Path.of("modules/pg/src/main/scala/graviton/pg/generated/public.scala")
-      assert(generated.nonEmpty, "no files were generated")
-      val rendered = generated.head
+        generatedSource <- ZIO.attempt(Files.readString(rendered).trim)
+        expectedSource  <- ZIO.attempt(Files.readString(expected).trim)
 
-      val generatedSource = Files.readString(rendered).trim
-      val expectedSource  = Files.readString(expected).trim
+        _ <- Console.printLine(s"Generated source: $generatedSource")
+        _ <- Console.printLine(s"Expected source: $expectedSource")
+        
+      yield assertTrue(generatedSource == expectedSource)
 
-      assertEquals(generatedSource, expectedSource)
-    } finally {
-      postgres.close()
-    }
-  }
-}
+    })
+
+  )
+end CodeGeneratorIntegrationSuite

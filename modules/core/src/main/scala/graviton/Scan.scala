@@ -6,6 +6,7 @@ import zio.ChunkBuilder
 import zio.stream.Take
 import zio.prelude.fx.ZPure
 import scala.compiletime.erasedValue
+import scala.math
 import cats.Eval
 import graviton.core.model.Block
 import graviton.domain.HashBytes
@@ -76,7 +77,7 @@ object Scan:
   def toState[A](a: A)(using ev: <:<[A, Matchable & A]): ToState[A] =
     ev(a) match
       case EmptyTuple    => EmptyTuple.asInstanceOf[ToState[A]]
-      case _: Unit       => ().asInstanceOf[ToState[A]]
+      case _: Unit       => EmptyTuple.asInstanceOf[ToState[A]]
       case x *: xs       => (x *: xs).asInstanceOf[ToState[A]]
       case t @ Tuple1(_) => t.asInstanceOf[ToState[A]]
       case _             => Tuple1(ev(a)).asInstanceOf[ToState[A]]
@@ -346,17 +347,21 @@ object Scan:
 
     inline private def decode(a: State): St =
       inline erasedValue[St] match
-        case _: Unit  => ().asInstanceOf[St]
-        case _: Tuple => a.asInstanceOf[St]
-        case _        =>
+        case _: Unit        => ().asInstanceOf[St]
+        case _: EmptyTuple  => EmptyTuple.asInstanceOf[St]
+        case _: (_ *: _)    => a.asInstanceOf[St]
+        case _: Tuple1[?]   => a.asInstanceOf[St]
+        case _              =>
           if a.productArity == 0 then _initial.value.asInstanceOf[St]
           else a.asInstanceOf[Tuple1[Any]]._1.asInstanceOf[St]
 
     inline private def encode(s: St): State =
       inline erasedValue[St] match
-        case _: Unit  => EmptyTuple.asInstanceOf[State]
-        case _: Tuple => s.asInstanceOf[State]
-        case _        => Tuple1(s).asInstanceOf[State]
+        case _: Unit        => EmptyTuple.asInstanceOf[State]
+        case _: EmptyTuple  => EmptyTuple.asInstanceOf[State]
+        case _: (_ *: _)    => s.asInstanceOf[State]
+        case _: Tuple1[?]   => s.asInstanceOf[State]
+        case _              => Tuple1(s).asInstanceOf[State]
 
     def step(state: State, in: I): (State, Chunk[O]) =
       val st     = decode(state)
@@ -463,26 +468,30 @@ object Scan:
 
     def toChunk: Chunk[I] = buffer.result()
 
-    def addAll(in: Chunk[I], costFn: Chunk[I] => N)(using I: Integral[N]): ChunkState[I, N] =
-      copy(
-        buffer = buffer.addAll(in),
-        cost = in.foldLeft(cost)((acc, i) => I.plus(acc, costFn(Chunk.single(i)))),
-      )
-
-    def flushIf(threshold: N, limit: Option[N] = None)(using I: Integral[N]): Flushed =
-      val (flushed = f, newState = ns) = if I.gteq(cost, threshold) then reset() else (Chunk.empty, this)
-      val (splitL, splitR) = limit.fold(f -> Chunk.empty[I])(l => f.splitAt(I.toInt(l)))
-      splitL -> copy(
-        buffer = ChunkBuilder.make[I]().addAll(splitR), 
-        cost = I.minus(cost, I.fromInt(splitL.length))
-      )
-
-    def reset()(using I: Integral[N]): Flushed =
-      synchronized {
-        val res = buffer.result()
-        buffer.clear()
-        (flushed = res, newState = copy(cost = I.zero))
+    def addAll(in: Chunk[I], costFn: Chunk[I] => N)(using integralN: Integral[N]): ChunkState[I, N] =
+      buffer.addAll(in)
+      val delta = in.foldLeft(integralN.zero) { (acc, i) =>
+        integralN.plus(acc, costFn(Chunk.single(i)))
       }
+      copy(cost = integralN.plus(cost, delta))
+
+    def flushIf(threshold: N, limit: Option[N] = None)(using integralN: Integral[N]): Flushed =
+      if !integralN.gteq(cost, threshold) then Chunk.empty[I] -> this
+      else
+        val flushed = buffer.result()
+        buffer.clear()
+        val limitInt = limit.fold(Int.MaxValue)(integralN.toInt)
+        val (emitted, remainder) =
+          if limitInt >= flushed.length then flushed -> Chunk.empty[I]
+          else flushed.splitAt(math.max(limitInt, 0))
+        buffer.addAll(remainder)
+        val newCost = integralN.minus(cost, integralN.fromInt(emitted.length))
+        emitted -> copy(cost = newCost)
+
+    def reset()(using integralN: Integral[N]): Flushed =
+      val res = buffer.result()
+      buffer.clear()
+      res -> copy(cost = integralN.zero)
 
     def knownSize: Option[Size] = Size.option(buffer.knownSize)
 
@@ -491,14 +500,14 @@ object Scan:
     threshold: N,
   )(
     limit: Option[M] = None
-  )(using I: Integral[N], M: Integral[M]): Aux[Chunk[I], NonEmptyChunk[I], ChunkState[I, N]] =
-    statefulTuple(ChunkState(limit.fold(ChunkBuilder.make[I]())(l => ChunkBuilder.make[I](M.toInt(l))), I.zero)) {
-      (st: ChunkState[I, N], in: Chunk[I]) =>
-        val buf1                         = st.addAll(in, costFn)
-        val (flushed = f, newState = ns) = buf1.flushIf(threshold)
-        (ns, Chunk.fromIterable(NonEmptyChunk.fromChunk(f)))
+  )(using integralN: Integral[N], integralM: Integral[M]): Aux[Chunk[I], NonEmptyChunk[I], ChunkState[I, N]] =
+    val limitAsN: Option[N] = limit.map(integralM.toInt).map(integralN.fromInt)
+    statefulTuple(ChunkState(ChunkBuilder.make[I](), integralN.zero)) { (st: ChunkState[I, N], in: Chunk[I]) =>
+      val withInput                    = st.addAll(in, costFn)
+      val (flushed = f, newState = ns) = withInput.flushIf(threshold, limitAsN)
+      (ns, Chunk.fromIterable(NonEmptyChunk.fromChunk(f)))
     } { st =>
-      val (flushed = f, newState = ns) = st.flushIf(threshold)
+      val (flushed = f, newState = ns) = st.flushIf(threshold, limitAsN)
       Chunk.fromIterable(NonEmptyChunk.fromChunk(f)) ++
         Chunk.fromIterable(NonEmptyChunk.fromChunk(ns.toChunk))
     }
@@ -511,10 +520,10 @@ object Scan:
     chunkBy[Byte, I.T, I.T](_ => 
       I.one, 
       fromInt(size)
-      )(limit
+    )(limit
       .map(fromInt)
       .flatMap(I.option(_))
       .orElse(Some(I.max)))
-      .map(Block.applyUnsafe(_))
+    .map(Block.applyUnsafe(_))
 
 end Scan

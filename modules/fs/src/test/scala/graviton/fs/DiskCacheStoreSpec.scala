@@ -13,12 +13,14 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
     suite("DiskCacheStore")(
       test("caches downloads when enabled") {
         for
-          dir       <- ZIO.attempt(Files.createTempDirectory("cache-test"))
+          dir       <- ZIO.acquireRelease(ZIO.attempt(Files.createTempDirectory("cache-test-1")))(
+            dir => ZIO.attempt(Files.deleteIfExists(dir)).ignore
+          )
           store     <- DiskCacheStore.make(dir)
           ref       <- Ref.make(0)
-          data       = "hello".getBytes.toIndexedSeq
-          hash       <- Hashing.compute(Bytes(ZStream.fromIterable(data)))
-          remote     = ref.updateAndGet(_ + 1).as(Bytes(ZStream.fromIterable(data)))
+          data       = "hello"
+          hash       <- Hashing.compute(Bytes(data))
+          remote     = ref.updateAndGet(_ + 1).as(Bytes(data))
           _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = true)
           _         <- store.fetch(Hash.SingleHash(hash.bytes.head._1, hash.bytes.head._2), remote, useCache = true)
           calls     <- ref.get
@@ -26,7 +28,9 @@ object DiskCacheStoreSpec extends ZIOSpecDefault:
       },
       test("bypasses cache when disabled") {
         for
-          dir       <- ZIO.attempt(Files.createTempDirectory("cache-test"))
+          dir       <- ZIO.acquireRelease(ZIO.attempt(Files.createTempDirectory("cache-test-2")))(
+            dir => ZIO.attempt(Files.deleteIfExists(dir)).ignore
+          )
           store     <- DiskCacheStore.make(dir)
           ref       <- Ref.make(0)
           data       = "hello".getBytes.toIndexedSeq

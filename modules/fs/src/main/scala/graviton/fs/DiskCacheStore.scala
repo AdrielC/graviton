@@ -19,12 +19,12 @@ import java.net.URI
 final class DiskCacheStore private (
   root: DiskCacheStore.Root,
   cache: Cache[Hash, Throwable, Bytes],
-  loaderRef: FiberRef[Hash => Task[Chunk[Byte]]],
+  loaderRef: Ref[Hash => Task[Chunk[Byte]]],
 ) extends CacheStore:
 
   export DiskCacheStore.{toURI, toPath, given}
 
-  private def pathFor(hash: Hash): Path =
+  private[DiskCacheStore] def pathFor(hash: Hash): Path =
     Path.of(root.toURI.toASCIIString()).resolve(hash.hex.bytes)
 
   private def fromChunk(ch: Chunk[Byte]): Bytes = Bytes(ZStream.fromChunk(ch))
@@ -144,7 +144,7 @@ object DiskCacheStore:
 
   private def verify(hash: Hash, data: Chunk[Byte]): Task[Unit] =
     for
-      dig <- Hashing.compute(Bytes(data))
+      dig <- Hashing.compute(Bytes(data), hash.algo)
       _   <- ZIO
                .fail(RuntimeException("hash mismatch"))
                .unless(dig.bytes.get(hash.algo).contains(hash.bytes.bytes))
@@ -186,8 +186,12 @@ object DiskCacheStore:
     capacity: Int = 1024,
     ttl: Duration = Duration.Infinity,
   ): ZIO[Scope, Nothing, DiskCacheStore] =
+
+    val toPath = (hash: Hash) => Path.of(root.toURI.toASCIIString()).resolve(hash.hex.bytes)
     for
-      ref   <- FiberRef.make[Hash => Task[Chunk[Byte]]]((_: Hash) => ZIO.fail(RuntimeException("no loader")))
+      ref   <- Ref.make[Hash => Task[Chunk[Byte]]](
+        (hash: Hash) => ZIO.attempt(Bytes(ZStream.fromFileURI(toPath(hash))).runCollect)
+      )
       cache <- Cache.make[Hash, Any, Throwable, Bytes](
                  capacity,
                  ttl,

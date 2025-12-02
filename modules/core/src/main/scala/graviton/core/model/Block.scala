@@ -12,8 +12,11 @@ import graviton.GravitonError.ChunkerFailure
 
 import scala.annotation.targetName
 import graviton.SubtypeExt
+import graviton.domain.HexString
 
 import graviton.chunking.ChunkingPipeline
+
+import java.nio.charset.StandardCharsets
 
 /** Project-wide constant limits. */
 object Limits:
@@ -192,8 +195,16 @@ final val BlockLength = BlockSize
 type Block = Block.T
 object Block extends SubtypeExt[Chunk[Byte], Length[BlockLength.Constr]]:
 
+
+  inline def apply(string: String): Block = 
+    inline string match
+      case "" => compiletime.error("Block.apply: string must not be empty")
+      case s: String => assume(zio.Chunk.fromArray(s.getBytes(StandardCharsets.UTF_8)))
+    end match
+  end apply
+
   extension (block: Block)
-    def hex: String = ByteVector(bytes.toArray).toHex
+    def hex: HexString = HexString.applyUnsafe(ByteVector(bytes.toArray).toHex)
     def bytes: Chunk[Byte] = block
     def length: BlockLength = BlockLength.applyUnsafe(block.length)
     def blockSize: BlockSize = BlockSize.applyUnsafe(block.length)
@@ -272,16 +283,20 @@ export BlockStringInterpolator.given
 object BlockBuilder:
   import Limits.MAX_BLOCK_SIZE_IN_BYTES
 
-  def chunkify(bytes: Chunk[Byte]): Chunk[Block] =
+  def chunkify(bytes: Chunk[Byte], minBlocks: Int = 1, avgSize: Option[Int] = None): Chunk[Block] =
     if bytes.isEmpty then Chunk.empty
     else
-      val grouped = bytes.grouped(MAX_BLOCK_SIZE_IN_BYTES)
-      Chunk.fromIterator(
-        grouped.flatMap { group =>
-          val chunk = Chunk.fromIterable(group)
-          Block.fromChunk(chunk).toOption.iterator
-        }
-      )
+      val s = math.max(minBlocks, (bytes.size / avgSize.getOrElse(MAX_BLOCK_SIZE_IN_BYTES)) + 1)
+      val c = ChunkBuilder.make[Block](s)
+      var rest = bytes
+      while rest.length >= MAX_BLOCK_SIZE_IN_BYTES do
+        val (full, leftover) = rest.splitAt(MAX_BLOCK_SIZE_IN_BYTES)
+        Block.fromChunk(full) match
+          case Left(err)  => return Chunk.empty
+          case Right(block) =>
+            c += block
+            rest = leftover
+      c.result()
 
   def rechunk(max: BlockSize = BlockSize.max): ChunkingPipeline =
     ChunkingPipeline:

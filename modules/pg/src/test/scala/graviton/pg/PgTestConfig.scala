@@ -17,8 +17,6 @@ case class PgTestConfig(
   startupTimeout: Duration,
 )
 
-end PgTestConfig
-
 object PgTestConfig:
 
   val layer: ZLayer[Any, Config.Error, PgTestConfig] =
@@ -29,7 +27,7 @@ object PgTestConfig:
     ConfigProvider
       .fromMap(
         Map(
-          "image"           -> "postgres",
+          "image"   -> "postgres",
           "tag"             -> "17",
           "username"        -> "postgres",
           "password"        -> "postgres",
@@ -37,7 +35,6 @@ object PgTestConfig:
           "initScript"      -> "../../ddl.sql",
           "startupAttempts" -> "3",
           "startupTimeout"  -> "10 minutes",
-          // "host"            -> "127.0.0.1",
         )
       )
       .orElse(ConfigProvider.envProvider)
@@ -57,24 +54,20 @@ object PgTestConfig:
     val startupAttempts = Config.int("startupAttempts").withDefault(3)
     val startupTimeout  = Config.duration("startupTimeout").withDefault(10.minutes)
 
-    (image ++ tag ++ registry ++ repository ++ username ++ password ++ database ++ initScript ++ startupAttempts ++ startupTimeout)
-      .nested("pg")
-      .map:
-        case (image, tag, registry, repository, username, password, database, initScript, startupAttempts, startupTimeout) =>
-          val config = PgTestConfig(
-            image = image,
-            tag = tag,
-            registry = registry,
-            repository = repository,
-            username = username,
-            password = password,
-            database = database,
-            initScript = initScript,
-            startupAttempts = startupAttempts,
-            startupTimeout = startupTimeout,
-          )
-          println(s"config: $config")
-          config
+    (
+      image ++ 
+      tag ++ 
+      registry ++ 
+      repository ++ 
+      username ++ 
+      password ++ 
+      database ++ 
+      initScript ++ 
+      startupAttempts ++ 
+      startupTimeout
+    )
+    .nested("pg")
+    .map(PgTestConfig.apply)
 
   end config
 end PgTestConfig
