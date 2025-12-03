@@ -3,7 +3,7 @@
 ## Documentation
 
 **Core for v0.1.0**
-- [ ] Replace lingering *Torrent* references with Graviton-centric language.
+- [ ] Ensure docs use Graviton-centric language (retire legacy codename references).
 - [ ] Write a **binary-streaming guide** (Blocks, Blobs, Manifests, Attributes) and link it from *Getting Started*.
 - [x] Add **filesystem + S3 backend configuration guides** (credentials, paths, env vars, buckets). (done in 8d3e829 2025-10-01)
 - [x] Expand Prometheus metrics docs with a worked example (`MetricsBlobStore`, publisher/updater, scrape config). (done in 8d3e829 2025-10-01)
@@ -13,7 +13,7 @@
 
 **Follow-ups**
 - [ ] Add Apache Tika module page under *Modules*.
-- [ ] Port performance notes + API reference from Torrent.
+- [ ] Port performance notes + API reference from the legacy project.
 - [ ] Ensure `./sbt docs/mdoc test` passes after each doc change; fix nav links.
 - [ ] Document replication model (Stores, Sectors, Replicas) with diagrams.
 - [ ] Document manifest format and forward-compatibility guarantees.
