@@ -150,6 +150,26 @@ object FS:
       else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
+  final case class FastCDCParameters(
+    minBytes: Int,
+    avgBytes: Int,
+    maxBytes: Int,
+    smallMask: Int,
+    largeMask: Int,
+  )
+
+  def fastCDCChunker(parameters: FastCDCParameters): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
+    val sanitized = FastCDCParameters(
+      minBytes = math.max(1, parameters.minBytes),
+      avgBytes = math.max(math.max(1, parameters.minBytes), parameters.avgBytes),
+      maxBytes = math.max(math.max(1, parameters.avgBytes), parameters.maxBytes),
+      smallMask = math.max(1, parameters.smallMask),
+      largeMask = math.max(1, parameters.largeMask),
+    )
+    fold[Chunk[Byte], Chunk[Byte], FastCDCState](new FastCDCState(sanitized)) { (state, chunk) =>
+      (state, state.consume(chunk))
+    }(_.drain)
+
   def pair[L <: String, R <: String, A, B](
     left: A,
     right: B,
@@ -238,6 +258,46 @@ object Optimize:
           )(using par.inLeftTag, par.outLeftTag, par.inRightTag, par.outRightTag, par.leftLabel, par.rightLabel)
           .asInstanceOf[FreeScan[Prim, A, B]]
       case other                                                => other
+
+private final class FastCDCState(params: FS.FastCDCParameters):
+  private val buffer: Array[Byte] = Array.ofDim[Byte](params.maxBytes)
+  private var size: Int           = 0
+  private var fingerprint: Int    = 0
+
+  def consume(chunk: Chunk[Byte]): Chunk[Chunk[Byte]] =
+    val out = ChunkBuilder.make[Chunk[Byte]]()
+    var idx = 0
+    while idx < chunk.length do
+      append(chunk(idx), out)
+      idx += 1
+    out.result()
+
+  def drain: Chunk[Chunk[Byte]] =
+    if size == 0 then Chunk.empty
+    else Chunk.single(emitBlock())
+
+  private def append(byte: Byte, out: ChunkBuilder[Chunk[Byte]]): Unit =
+    if size == buffer.length then out += emitBlock()
+    buffer(size) = byte
+    size += 1
+    fingerprint = ((fingerprint << 1) + FastCDCGearTable(byte & 0xff))
+    if shouldCut then out += emitBlock()
+
+  private def shouldCut: Boolean =
+    if size < params.minBytes then false
+    else if size >= params.maxBytes then true
+    else if size >= params.avgBytes then (fingerprint & params.largeMask) == 0
+    else (fingerprint & params.smallMask) == 0
+
+  private def emitBlock(): Chunk[Byte] =
+    val copy = java.util.Arrays.copyOf(buffer, size)
+    size = 0
+    fingerprint = 0
+    Chunk.fromArray(copy)
+
+private val FastCDCGearTable: Array[Int] =
+  val random = new java.util.Random(0x1eedbeefL)
+  Array.fill(256)(random.nextInt())
 
 private trait Step[-A, +B]:
   def init(): Unit

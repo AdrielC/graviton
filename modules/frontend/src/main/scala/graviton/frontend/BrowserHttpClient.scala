@@ -53,8 +53,7 @@ class BrowserHttpClient(baseUrl: String) extends HttpClient {
 
 object BrowserHttpClient {
 
-  final case class HttpError(status: Int, body: String)
-      extends Exception(s"HTTP $status: $body")
+  final case class HttpError(status: Int, body: String) extends Exception(s"HTTP $status: $body")
 
   def layer(baseUrl: String): ULayer[HttpClient] =
     ZLayer.succeed(new BrowserHttpClient(baseUrl))
