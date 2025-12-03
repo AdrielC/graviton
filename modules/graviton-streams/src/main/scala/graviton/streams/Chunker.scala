@@ -32,6 +32,14 @@ object Chunker:
     val pipeline   = FastCDC.chunker(normalized)
     SimpleChunker(label.getOrElse(s"fastcdc-${normalized.avgBytes}"), pipeline)
 
+  def anchored(config: AnchoredCDC.Config, label: Option[String] = None): Chunker =
+    val normalized = AnchoredCDC.Config.sanitize(config)
+    val pipeline   = AnchoredCDC.chunker(normalized)
+    SimpleChunker(label.getOrElse(s"anchored-${normalized.avgBytes}"), pipeline)
+
+  def anchoredPdf(label: Option[String] = None): Chunker =
+    anchored(AnchoredCDC.Pdf.semanticConfig, label.orElse(Some("anchored-pdf")))
+
   private[streams] def pipelineFromScan(scan: FreeScan[Prim, Chunk[Byte], Chunk[Byte]]): ZPipeline[Any, Throwable, Byte, Block] =
     val optimized = scan.optimize.toPipeline
     (ZPipeline.identity[Byte].chunks >>> optimized)

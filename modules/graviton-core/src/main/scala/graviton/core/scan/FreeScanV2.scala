@@ -158,6 +158,22 @@ object FS:
     largeMask: Int,
   )
 
+  final case class AnchorPattern(
+    label: String,
+    bytes: Chunk[Byte],
+    includePattern: Boolean,
+    scanBudgetBytes: Option[Int],
+  )
+
+  final case class AnchoredCDCParameters(
+    minBytes: Int,
+    avgBytes: Int,
+    maxBytes: Int,
+    scanWindowBytes: Int,
+    rechunkThreshold: Double,
+    anchors: Chunk[AnchorPattern],
+  )
+
   def fastCDCChunker(parameters: FastCDCParameters): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
     val sanitized = FastCDCParameters(
       minBytes = math.max(1, parameters.minBytes),
@@ -167,6 +183,19 @@ object FS:
       largeMask = math.max(1, parameters.largeMask),
     )
     fold[Chunk[Byte], Chunk[Byte], FastCDCState](new FastCDCState(sanitized)) { (state, chunk) =>
+      (state, state.consume(chunk))
+    }(_.drain)
+
+  def anchoredCDCChunker(parameters: AnchoredCDCParameters): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
+    val sanitized = AnchoredCDCParameters(
+      minBytes = math.max(1, parameters.minBytes),
+      avgBytes = math.max(math.max(1, parameters.minBytes), parameters.avgBytes),
+      maxBytes = math.max(math.max(1, parameters.avgBytes), parameters.maxBytes),
+      scanWindowBytes = math.max(1, parameters.scanWindowBytes),
+      rechunkThreshold = math.max(0.1, math.min(0.99, parameters.rechunkThreshold)),
+      anchors = parameters.anchors,
+    )
+    fold[Chunk[Byte], Chunk[Byte], AnchoredCDCState](new AnchoredCDCState(sanitized)) { (state, chunk) =>
       (state, state.consume(chunk))
     }(_.drain)
 
@@ -294,6 +323,81 @@ private final class FastCDCState(params: FS.FastCDCParameters):
     size = 0
     fingerprint = 0
     Chunk.fromArray(copy)
+
+private final class AnchoredCDCState(params: FS.AnchoredCDCParameters):
+  private val buffer: Array[Byte]                    = Array.ofDim[Byte](params.maxBytes)
+  private var size: Int                              = 0
+  private val compiledAnchors: Chunk[CompiledAnchor] =
+    params.anchors.map(anchor => CompiledAnchor(anchor.includePattern, anchor.scanBudgetBytes, anchor.bytes.toArray))
+  private val thresholdBytes: Int                    =
+    val candidate = (params.maxBytes.toDouble * params.rechunkThreshold).toInt
+    math.max(params.minBytes, math.min(params.maxBytes, candidate))
+
+  def consume(chunk: Chunk[Byte]): Chunk[Chunk[Byte]] =
+    val out = ChunkBuilder.make[Chunk[Byte]]()
+    var idx = 0
+    while idx < chunk.length do
+      append(chunk(idx), out)
+      idx += 1
+    out.result()
+
+  def drain: Chunk[Chunk[Byte]] =
+    if size == 0 then Chunk.empty
+    else Chunk.single(emitBoundary(size))
+
+  private def append(byte: Byte, out: ChunkBuilder[Chunk[Byte]]): Unit =
+    if size == buffer.length then out += emitBoundary(size)
+    buffer(size) = byte
+    size += 1
+    findAnchorBoundary().foreach(boundary => out += emitBoundary(boundary))
+    if shouldForceSplit then out += emitBoundary(size)
+
+  private def findAnchorBoundary(): Option[Int] =
+    if size < params.minBytes then None
+    else
+      val baseStart             = math.max(0, size - params.scanWindowBytes)
+      val iter                  = compiledAnchors.iterator
+      var boundary: Option[Int] = None
+      while iter.hasNext && boundary.isEmpty do
+        val anchor = iter.next()
+        val start  =
+          anchor.budgetBytes match
+            case Some(budget) => math.max(baseStart, size - budget)
+            case None         => baseStart
+        val idx    = indexOf(anchor.bytes, start)
+        if idx >= 0 then
+          val includeBytes = if anchor.includePattern then anchor.bytes.length else 0
+          boundary = Some(idx + includeBytes)
+      boundary
+
+  private def shouldForceSplit: Boolean =
+    size >= params.maxBytes || (compiledAnchors.isEmpty && size >= thresholdBytes)
+
+  private def emitBoundary(boundary: Int): Chunk[Byte] =
+    val safeBoundary = math.min(boundary, size)
+    val copy         = java.util.Arrays.copyOf(buffer, safeBoundary)
+    val remaining    = size - safeBoundary
+    if remaining > 0 then _root_.java.lang.System.arraycopy(buffer, safeBoundary, buffer, 0, remaining)
+    size = remaining
+    Chunk.fromArray(copy)
+
+  private def indexOf(pattern: Array[Byte], start: Int): Int =
+    if pattern.length == 0 || start >= size then -1
+    else
+      val limit = size - pattern.length
+      var idx   = math.max(0, start)
+      while idx <= limit do
+        var offset = 0
+        while offset < pattern.length && buffer(idx + offset) == pattern(offset) do offset += 1
+        if offset == pattern.length then return idx
+        idx += 1
+      -1
+
+private final case class CompiledAnchor(
+  includePattern: Boolean,
+  budgetBytes: Option[Int],
+  bytes: Array[Byte],
+)
 
 private val FastCDCGearTable: Array[Int] =
   val random = new java.util.Random(0x1eedbeefL)

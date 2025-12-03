@@ -4,7 +4,7 @@
 
 ## Chunking & hashing
 
-- `Chunker`: factory for chunking pipelines backed by typed `Block` outputs. `Chunker.fastCdc` now wraps the FastCDC implementation from `graviton-core`, honouring min/avg/max bounds and exposing normalization knobs. `Chunker.fixed` remains available for predictable slicing (1 MiB by default).
+- `Chunker`: factory for chunking pipelines backed by typed `Block` outputs. `Chunker.fastCdc` wraps the FastCDC implementation from `graviton-core`, while `Chunker.anchored` wires anchored CDC with semantic anchors (including `Chunker.anchoredPdf` for PDF-aware breakpoints). `Chunker.fixed` remains available for predictable slicing (1 MiB by default).
 - `HashingZ`: exposes `sink` and `pipeline` helpers for `Hasher`/`MultiHasher` instances from `graviton-core`. These run incremental updates across byte streams and surface either a final hash or the original hasher for chained computations.
 
 ## Stream combinators
