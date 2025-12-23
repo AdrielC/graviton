@@ -17,7 +17,9 @@ object ByteConstraints:
 
   type BlockSize       = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
   type UploadChunkSize = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
-  type FileSize        = Long :| numeric.Greater[-1]
+  object FileSize:
+    type Constraint = numeric.Greater[-1L]
+  type FileSize        = Long :| FileSize.Constraint
   type ChunkCount      = Long :| numeric.Greater[-1]
   type ChunkIndex      = Long :| numeric.Greater[-1]
   type BlockIndex      = Long :| numeric.Greater[-1]
@@ -53,7 +55,7 @@ object ByteConstraints:
     else Right(value.asInstanceOf[BlockIndex])
 
   inline def unsafeBlockSize(value: Int): BlockSize = value.asInstanceOf[BlockSize]
-  inline def unsafeFileSize(value: Long): FileSize  = value.asInstanceOf[FileSize]
+  inline def unsafeFileSize(value: Long): FileSize  = value.refineUnsafe[FileSize.Constraint]
 
 end ByteConstraints
 

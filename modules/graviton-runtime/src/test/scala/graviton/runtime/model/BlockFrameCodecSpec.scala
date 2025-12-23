@@ -45,7 +45,9 @@ object BlockFrameCodecSpec extends ZIOSpecDefault:
                   .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
                   .mapError(msg => new IllegalArgumentException(msg))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      attrs   = BinaryAttributes.empty.confirmSize(ByteConstraints.unsafeFileSize(bytes.length.toLong))
+      attrs   = BinaryAttributes.empty.confirmSize(
+                  ByteConstraints.unsafeFileSize(bytes.length.toLong)
+                )
       block  <- ZIO
                   .fromEither(CanonicalBlock.make(key, bytes, attrs))
                   .mapError(msg => new IllegalArgumentException(msg))

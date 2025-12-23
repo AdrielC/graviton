@@ -7,8 +7,8 @@ import kyo.Record.`~`
 
 object BinaryAttrSyntax:
   extension [F[_], Fields](rec: Record[Fields])
-    inline def withSize(value: F[FileSize]): Record[Fields & ("size" ~ F[FileSize])] =
-      rec & ("size" ~ value)
+    inline def withSize(value: F[FileSize]): Record[Fields & ("fileSize" ~ F[FileSize])] =
+      rec & ("fileSize" ~ value)
 
     inline def withChunkCount(value: F[ChunkCount]): Record[Fields & ("chunkCount" ~ F[ChunkCount])] =
       rec & ("chunkCount" ~ value)
