@@ -1,21 +1,24 @@
 package graviton.core.manifest
 
-import graviton.core.bytes.*
+import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.*
 import graviton.core.ranges.Span
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*
 
+
+
 object FramedManifestSpec extends ZIOSpecDefault:
 
   private val zeroDigest = "0" * HashAlgo.Sha256.hexLength
 
   private def makeBits(size: Long): ZIO[Any, String, KeyBits] =
-    for
-      digest <- ZIO.fromEither(Digest.make(HashAlgo.Sha256)(zeroDigest)).mapError(_.toString)
-      bits   <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, size)).mapError(_.toString)
-    yield bits
+    ZIO.fromEither:
+      for
+        digest <- Digest.make(HashAlgo.Sha256)(zeroDigest)
+        bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+      yield bits
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("FramedManifest")(
