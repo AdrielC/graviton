@@ -9,34 +9,34 @@ import graviton.streams.Chunker
 import zio._
 import zio.stream._
 
-final case class Ingest(blockStore: BlockStore):
-  private def wrapEither[A](either: Either[String, A]): Task[A] =
-    ZIO.fromEither(either.left.map(msg => new IllegalArgumentException(msg)))
+extension [E, A](either: Either[E, A])
+  def toTask(using E <:< String): Task[A] = ZIO.fromEither(either.left.map(msg => new IllegalArgumentException(msg)))
 
-  private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Task[CanonicalBlock] =
-    wrapEither {
-      for
-        (algo, hasher) <- Hasher.systemDefault
-        _               = hasher.update(block.toArray)
-        digest         <- hasher.result
-        bits           <- KeyBits.create(algo, digest, block.length.toLong)
-        key            <- BinaryKey.block(bits)
-        chunkCount     <- ByteConstraints.refineChunkCount(1L)
-        confirmed       = attrs
-                            .confirmSize(ByteConstraints.unsafeFileSize(block.length.toLong))
-                            .confirmChunkCount(chunkCount)
-        canonical      <- CanonicalBlock.make(key, block, confirmed)
-      yield canonical
-    }
+final case class Ingest(blockStore: BlockStore):
+
+  private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Either[String, CanonicalBlock] =
+    for
+      hasher     <- Hasher.systemDefault
+      algo        = hasher.algo
+      _           = hasher.update(block.toArray)
+      digest     <- hasher.digest
+      bits       <- KeyBits.create(algo, digest, block.length.toLong)
+      key        <- BinaryKey.block(bits)
+      chunkCount <- ByteConstraints.refineChunkCount(1L)
+      confirmed   = attrs
+                      .confirmSize(ByteConstraints.unsafeFileSize(block.length.toLong))
+                      .confirmChunkCount(chunkCount)
+      canonical  <- CanonicalBlock.make(key, block, confirmed)
+    yield canonical
 
   def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
     val attrs = BinaryAttributes.empty
     val sink  = blockStore.putBlocks()
 
     for
-      chunkSize <- wrapEither(ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024))
+      chunkSize <- ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024).toTask
       result    <- bytes
                      .via(Chunker.fixed(chunkSize))
-                     .mapZIO(block => canonicalBlock(block.bytes, attrs))
+                     .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
                      .run(sink)
     yield result

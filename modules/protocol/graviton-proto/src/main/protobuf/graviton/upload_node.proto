@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package io.graviton.blobstore.v1;
+
+option java_multiple_files = true;
+option java_package = "io.graviton.blobstore.v1";
+option java_outer_classname = "UploadNodeProto";
+
+// ============================
+// Upload node streaming protocol
+// ============================
+//
+// This protocol is meant for direct, high-throughput blob streaming to an
+// upload node. Clients send:
+//   Start -> 0..N Chunk -> Complete
+//
+// The server emits acknowledgements while receiving data to support progress
+// tracking and flow control at higher layers.
+service UploadNodeService {
+  rpc Upload (stream NodeUploadRequest) returns (stream NodeUploadAck);
+}
+
+message NodeUploadRequest {
+  oneof kind {
+    NodeUploadStart    start    = 1;
+    NodeUploadChunk    chunk    = 2;
+    NodeUploadComplete complete = 3;
+  }
+}
+
+message NodeUploadStart {
+  string upload_id = 1;
+  optional uint64 total_size = 2;
+  map<string, string> attributes = 3;
+}
+
+message NodeUploadChunk {
+  bytes bytes = 1;
+  uint64 offset = 2;
+}
+
+message NodeUploadComplete {
+  optional string expected_hash = 1;
+}
+
+message NodeUploadAck {
+  string upload_id = 1;
+  uint64 received_bytes = 2;
+}
+
+

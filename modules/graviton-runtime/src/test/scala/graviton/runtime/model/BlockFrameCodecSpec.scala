@@ -37,16 +37,16 @@ object BlockFrameCodecSpec extends ZIOSpecDefault:
   private def canonicalBlock(label: String): IO[Throwable, CanonicalBlock] =
     val bytes = Chunk.fromArray(label.getBytes(StandardCharsets.UTF_8))
     for
-      algoHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-      (algo, hasher) = algoHasher
-      _              = hasher.update(bytes.toArray)
-      digest        <- ZIO.fromEither(hasher.result).mapError(msg => new IllegalArgumentException(msg))
-      bits          <- ZIO
-                         .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
-                         .mapError(msg => new IllegalArgumentException(msg))
-      key           <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      attrs          = BinaryAttributes.empty.confirmSize(ByteConstraints.unsafeFileSize(bytes.length.toLong))
-      block         <- ZIO
-                         .fromEither(CanonicalBlock.make(key, bytes, attrs))
-                         .mapError(msg => new IllegalArgumentException(msg))
+      hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+      algo    = hasher.algo
+      _       = hasher.update(bytes.toArray)
+      digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+      bits   <- ZIO
+                  .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                  .mapError(msg => new IllegalArgumentException(msg))
+      key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+      attrs   = BinaryAttributes.empty.confirmSize(ByteConstraints.unsafeFileSize(bytes.length.toLong))
+      block  <- ZIO
+                  .fromEither(CanonicalBlock.make(key, bytes, attrs))
+                  .mapError(msg => new IllegalArgumentException(msg))
     yield block

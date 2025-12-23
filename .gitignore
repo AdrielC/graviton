@@ -243,3 +243,7 @@ Temporary Items
 project/metals.sbt
 
 .idea/
+
+
+.scala-build/*
+.scala-build/

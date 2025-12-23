@@ -166,7 +166,7 @@ object MissionControl:
       autopilotVar.signal,
       encryptionVar.signal,
       streamingVar.signal,
-    ).foreach(_.changes.foreach(_ => recomputePlan())(unsafeWindowOwner))
+    ).foreach(_.changes.foreach(_ => recomputePlan())(using unsafeWindowOwner))
 
     val planSignal: Signal[MissionPlan] = planVar.signal
 
@@ -202,7 +202,7 @@ object MissionControl:
     narrativeStream.foreach { case (plan, metrics) =>
       val event = synthesizeEvent(random, plan, metrics)
       feedVar.update(events => (event :: events).take(6))
-    }(unsafeWindowOwner)
+    }(using unsafeWindowOwner)
 
     div(
       cls := "mission-control",

@@ -7,7 +7,7 @@ import org.scalajs.dom
 import zio.*
 
 /** High-level API client for Graviton with offline/demo fallbacks. */
-class GravitonApi(
+final case class GravitonApi(
   baseUrl: String,
   client: HttpClient,
   demoData: DemoData = DemoData.default,
@@ -78,6 +78,7 @@ class GravitonApi(
         .postJson[UploadRequest, UploadResponse]("/api/upload", request)
         .provideEnvironment(ZEnvironment(client)),
       Some(demoData.simulateUpload(request)),
+      onFallbackMissing = Some(s"Demo dataset does not include a upload response for ${request.contentType}."),
     )
 
   private def withFallback[A](

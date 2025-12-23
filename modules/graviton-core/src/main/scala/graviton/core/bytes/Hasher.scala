@@ -1,55 +1,120 @@
 package graviton.core.bytes
 
-import java.security.{MessageDigest, Provider}
-import scala.util.control.NonFatal
+import java.security.{MessageDigest, Provider => JProvider}
+import zio.{Chunk, ZIO, ZLayer}
+import zio.stream.{ZPipeline, ZSink}
+import java.nio.charset.StandardCharsets
+import scala.util.Try
 
 trait Hasher:
   def algo: HashAlgo
-  def update(chunk: Array[Byte]): Hasher
-  def result: Either[String, Digest]
+  def update(chunk: Hasher.Digestable): Hasher
+  def digest: Either[String, Digest]
+  def result: Either[String, Digest] = digest
+  def reset: Unit
 
-private final class MessageDigestHasher(private val md: MessageDigest, val algo: HashAlgo) extends Hasher:
-  override def update(chunk: Array[Byte]): Hasher =
-    md.update(chunk)
+private[graviton] final class HasherImpl(val algo: HashAlgo, private val md: MessageDigest) extends Hasher:
+
+  override def reset: Unit                              = md.reset()
+  override def update(chunk: Hasher.Digestable): Hasher =
+    chunk match
+      case chunk: Chunk[Byte] => md.update(chunk.toArray)
+      case chunk: Array[Byte] => md.update(chunk)
+      case s: String => s match
+        case HashAlgo.keyBitsRegex(a, d, s) => 
+          (for 
+            algo <- HashAlgo.fromString(a)
+            digest <- Digest.fromString(d).toOption
+            size <- Try(s.toLong).toOption  
+          yield md.update(digest.bytes))
+          .getOrElse(md.update(s.getBytes(StandardCharsets.UTF_8)))
+        case _ => md.update(s.getBytes(StandardCharsets.UTF_8))
     this
 
-  override def result: Either[String, Digest] =
-    val hex = md.digest().map(b => f"${b & 0xff}%02x").mkString
-    Digest.make(algo, hex)
+  override def digest: Either[String, Digest] =
+    Digest.fromBytes(md.digest)
 
 object Hasher:
 
-  def messageDigest(algo: HashAlgo, provider: Option[Provider] = None): Either[String, Hasher] =
-    val attempts = algo.jceNames.map { name =>
-      instantiate(name, provider).map(md => new MessageDigestHasher(md, algo)).left.map(name -> _)
+  type Digestable = Chunk[Byte] | Array[Byte] | String | Digest
+
+  trait Provider:
+    def getInstance(hashAlgo: HashAlgo): Either[String, Hasher]
+
+  object Provider:
+
+    def default(provider: Option[JProvider] = None): Provider = new Provider {
+      override def getInstance(hashAlgo: HashAlgo): Either[String, Hasher] =
+        instantiate(hashAlgo.primaryName, provider)
+          .map(new HasherImpl(hashAlgo, _))
+          .left
+          .map(err => Option(err).map(_.getMessage).getOrElse("Unknown error"))
     }
 
-    attempts.collectFirst { case Right(hasher) => hasher }.toRight {
-      val diagnostics = attempts.collect { case Left((candidate, err)) => s"$candidate -> ${err.getMessage}" }
-      val names       = algo.jceNames.mkString(", ")
-      val detail      = if diagnostics.nonEmpty then diagnostics.mkString("; ") else "no provider feedback"
-      s"No MessageDigest provider found for ${algo.toString} (tried: $names). Details: $detail"
-    }
+    val layer: ZLayer[Any, Nothing, Provider] =
+      ZLayer.succeed(default(None))
 
-  inline def unsafeMessageDigest(algo: HashAlgo, provider: Option[Provider] = None): Hasher =
-    messageDigest(algo, provider).fold(msg => throw IllegalStateException(msg), identity)
+  private def instantiate(
+    name: HashAlgo.AlgoName,
+    provider: Option[JProvider],
+  ): Either[Throwable, MessageDigest] =
+    provider match
+      case Some(explicit) => Try(MessageDigest.getInstance(name, explicit)).toEither
+      case None           => Try(MessageDigest.getInstance(name)).toEither
 
-  private def instantiate(name: String, provider: Option[Provider]): Either[Throwable, MessageDigest] =
-    try
-      val md =
-        provider match
-          case Some(explicit) => MessageDigest.getInstance(name, explicit)
-          case None           => MessageDigest.getInstance(name)
-      Right(md)
-    catch case NonFatal(err) => Left(err)
+  def systemDefault: Either[String, Hasher] =
+    Hasher.hasher(HashAlgo.runtimeDefault, None)
 
-  def acquirePreferred(preferred: List[HashAlgo]): Either[String, (HashAlgo, Hasher)] =
-    val attempts = preferred.map(algo => algo -> messageDigest(algo))
-    attempts.collectFirst { case (algo, Right(hasher)) => algo -> hasher }.toRight {
-      val diagnostics =
-        attempts.collect { case (algo, Left(err)) => s"$algo -> $err" }
-      s"No MessageDigest provider found for preferred algorithms. Details: ${diagnostics.mkString("; ")}"
-    }
+  def hasher(algo: HashAlgo, provider: Option[JProvider] = None): Either[String, Hasher] =
+    Provider
+      .default(provider)
+      .getInstance(algo)
+      .left
+      .map(err => Option(err).map(_.toString).getOrElse("Unknown error"))
 
-  def systemDefault: Either[String, (HashAlgo, Hasher)] =
-    acquirePreferred(HashAlgo.preferredOrder)
+  def unsafeMessageDigest(algo: HashAlgo, provider: Option[JProvider] = None): MessageDigest =
+    instantiate(algo.primaryName, provider)
+      .fold(err => throw new IllegalStateException(err.toString), identity)
+
+  def sink(hasher: Option[Hasher] = None): ZSink[Any, IllegalArgumentException, Byte, Nothing, Digest] =
+    hasher match
+      case Some(h) =>
+        ZSink
+          .foldLeft(h) { (h, byte: Byte) =>
+            val _ = h.update(Array(byte))
+            h
+          }
+          .mapZIO(h => ZIO.fromEither(h.digest).mapError(err => IllegalArgumentException(Option(err).getOrElse("Unknown error"))))
+
+      case None =>
+        ZSink.fail(IllegalArgumentException("No hasher provided"))
+
+  def pipeline(multi: Option[MultiHasher] = None): ZPipeline[Any, IllegalArgumentException, Byte, MultiHasher.Results] =
+    multi match
+      case Some(value) =>
+        ZPipeline.mapChunksZIO { (chunk: Chunk[Byte]) =>
+          ZIO
+            .fromEither(value.update(chunk).results.toEither)
+            .map(Chunk.single)
+            .mapError(errors => IllegalArgumentException(errors.mkString(", ")))
+        }
+
+      case None =>
+        ZPipeline.unwrap:
+          ZIO
+            .attempt(MultiHasher.Hashers.default)
+            .mapError(err =>
+              IllegalArgumentException(
+                Option(err)
+                  .flatMap(err => Option(err.getMessage))
+                  .getOrElse("Unknown error")
+              )
+            )
+            .map { value =>
+              ZPipeline.mapChunksZIO { (chunk: Chunk[Byte]) =>
+                ZIO
+                  .fromEither(value.update(chunk).results.toEither)
+                  .map(Chunk.single)
+                  .mapError(errors => IllegalArgumentException(errors.mkString(", ")))
+              }
+            }

@@ -16,6 +16,8 @@ import zio.test.*
 import java.nio.charset.StandardCharsets
 import zio.test.Assertion.*
 
+import SafeFunction.given
+
 object FreeScanV2Spec extends ZIOSpecDefault:
 
   private val ascii           = StandardCharsets.US_ASCII
@@ -71,10 +73,11 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         assertTrue(outputs == List("abc", "de"))
       },
       test("manifest builder aggregates entries") {
-        val digestHex = "0" * runtimeHashAlgo.hexLength
+
+        val digest = "0" * runtimeHashAlgo.hexLength
 
         for
-          digest   <- ZIO.fromEither(Digest.make(runtimeHashAlgo, digestHex))
+          digest   <- ZIO.fromEither(Digest.make(runtimeHashAlgo)(digest))
           keyBits1 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 10L))
           keyBits2 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 5L))
           entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
@@ -91,9 +94,9 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val outputs  = hashBytes(runtimeHashAlgo).runChunk(List(data))
         val expected =
           for
-            hasher <- Hasher.messageDigest(runtimeHashAlgo)
+            hasher <- Hasher.hasher(runtimeHashAlgo, None)
             _       = hasher.update("hi".getBytes(StandardCharsets.UTF_8))
-            digest <- hasher.result
+            digest <- hasher.digest
           yield digest
 
         for

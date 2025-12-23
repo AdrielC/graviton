@@ -6,8 +6,9 @@ import java.time.Instant
 import zio.Chunk
 import zio.schema.{Schema, TypeId}
 import zio.schema.validation.Validation
+import graviton.core.bytes.Digest
 
-final case class BlobStat(size: FileSize, etag: String, lastModified: Instant)
+final case class BlobStat(size: FileSize, digest: Digest, lastModified: Instant)
 
 object BlobStat:
   private val fileSizeSchema: Schema[FileSize] =
@@ -26,14 +27,14 @@ object BlobStat:
       set0 = (blob, value) => blob.copy(size = value),
     )
 
-  private val etagField: Schema.Field[BlobStat, String] =
+  private val digestField: Schema.Field[BlobStat, Digest] =
     Schema.Field(
-      name0 = "etag",
-      schema0 = Schema[String],
+      name0 = "digest",
+      schema0 = Schema[Digest],
       annotations0 = Chunk.empty,
       validation0 = Validation.succeed,
-      get0 = _.etag,
-      set0 = (blob, value) => blob.copy(etag = value),
+      get0 = _.digest,
+      set0 = (blob, value) => blob.copy(digest = value),
     )
 
   private val lastModifiedField: Schema.Field[BlobStat, Instant] =
@@ -50,7 +51,7 @@ object BlobStat:
     Schema.CaseClass3(
       id0 = TypeId.Structural,
       field01 = sizeField,
-      field02 = etagField,
+      field02 = digestField,
       field03 = lastModifiedField,
       construct0 = (size, etag, modified) => BlobStat(size, etag, modified),
       annotations0 = Chunk.empty,

@@ -13,7 +13,7 @@ object FramedManifestSpec extends ZIOSpecDefault:
 
   private def makeBits(size: Long): ZIO[Any, String, KeyBits] =
     for
-      digest <- ZIO.fromEither(Digest.make(HashAlgo.Sha256, zeroDigest)).mapError(_.toString)
+      digest <- ZIO.fromEither(Digest.make(HashAlgo.Sha256)(zeroDigest)).mapError(_.toString)
       bits   <- ZIO.fromEither(KeyBits.create(HashAlgo.Sha256, digest, size)).mapError(_.toString)
     yield bits
 

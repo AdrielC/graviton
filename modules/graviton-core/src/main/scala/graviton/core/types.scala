@@ -14,7 +14,28 @@ import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
 import zio.schema.Schema
 
+import io.github.iltotore.iron.IronType
+
 import java.util.regex.Pattern
+
+import scala.collection.immutable.ListMap
+
+given [K, V] => (K: Schema[K], V: Schema[V]) => Schema[ListMap[K, V]] = Schema
+  .map[K, V]
+  .transform(
+    map => ListMap.from(map.toList),
+    listMap => listMap.toMap,
+  )
+
+case class RefinedTypeExtMessage(message: String)
+
+transparent inline given [A, B] => (rtc: Constraint[A, B], schema: Schema[A]) => Schema[IronType[A, B]] =
+  schema
+    .transformOrFail(
+      value => value.refineEither[B],
+      refined => Right(refined.asInstanceOf[A]),
+    )
+    .annotate((RefinedTypeExtMessage(rtc.message)))
 
 object types:
   type Algo             = String :| Match["(sha-256|sha-1|blake3|md5)"]

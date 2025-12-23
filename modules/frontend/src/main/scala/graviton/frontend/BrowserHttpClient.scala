@@ -8,7 +8,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.JSConverters.*
 
 /** Browser-based HTTP client using Fetch API */
-class BrowserHttpClient(baseUrl: String) extends HttpClient {
+final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
 
   private def fetch(path: String, method: String, body: Option[String] = None): Task[String] = {
     val url = s"$baseUrl$path"
