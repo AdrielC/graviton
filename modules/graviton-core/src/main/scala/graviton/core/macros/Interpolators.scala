@@ -1,16 +1,21 @@
 package graviton.core.macros
 
+import graviton.core.keys.KeyBits
 import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
 import graviton.core.ranges.given
-import graviton.core.types.*
+import graviton.core.types.HexLower
+
 import scala.quoted.*
 
 object Interpolators:
 
   extension (inline sc: StringContext)
     inline def hex(inline args: Any*): HexLower =
-      ${ hexImpl('sc, 'args) }
+      ${ hexHexLowerImpl('sc, 'args) }
+
+    inline def bin(inline args: Any*): KeyBits =
+      ${ keyBitsImpl("bin", 'sc, 'args) }
 
     inline def locator(inline args: Any*): BlobLocator =
       ${ locatorImpl('sc, 'args) }
@@ -18,29 +23,62 @@ object Interpolators:
     inline def span(inline args: Any*): Span[Long] =
       ${ spanImpl('sc, 'args) }
 
-  private def hexImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[HexLower] =
+  private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit =
+    argsExpr match
+      case Varargs(Seq()) => ()
+      case _              => quotes.reflect.report.error(s"$name interpolator does not support arguments")
+
+  private def hexHexLowerImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[HexLower] =
     import quotes.reflect.report
-    val parts   = extractLiteralParts(scExpr)
     ensureNoArgs("hex", argsExpr)
-    val literal = parts.mkString
-    val lower   = literal.toLowerCase
-    val isHex   = lower.nonEmpty && lower.forall(ch => ch.isDigit || (ch >= 'a' && ch <= 'f'))
-    if !isHex then
-      report.error(s"hex literal must contain only [0-9a-f], received '$literal'")
-      '{ "".asInstanceOf[HexLower] }
-    else Expr(lower).asInstanceOf[Expr[HexLower]]
+
+    scExpr.value match
+      case Some(ctx) =>
+        val literal = ctx.parts.mkString
+        val trimmed = literal.trim
+        val lower   = trimmed.toLowerCase
+        val isHex   = lower.length >= 2 && lower.forall(ch => ch.isDigit || (ch >= 'a' && ch <= 'f'))
+        if !isHex then
+          report.error(s"hex literal must contain only [0-9a-f], received '$literal'")
+          '{ compiletime.error("hex literal must contain only [0-9a-f]") }
+        else Expr(lower).asInstanceOf[Expr[HexLower]]
+      case None      =>
+        report.error("hex interpolator must be invoked with a literal")
+        '{ compiletime.error("hex interpolator must be invoked with a literal") }
+
+  private def keyBitsImpl(name: String, scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[KeyBits] =
+    import quotes.reflect.report
+    ensureNoArgs(name, argsExpr)
+
+    scExpr.value match
+      case Some(ctx) =>
+        val literal = ctx.parts.mkString.trim
+        KeyBits.fromString(literal) match
+          case Right(bits) => Expr(bits)
+          case Left(err)   =>
+            report.error(err)
+            '{ compiletime.error(${ Expr(err) }) }
+      case None      =>
+        report.error(s"$name interpolator must be invoked with a literal")
+        '{ compiletime.error(${ Expr(s"$name interpolator must be invoked with a literal") }) }
 
   private def locatorImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[BlobLocator] =
     import quotes.reflect.report
-    val parts   = extractLiteralParts(scExpr)
     ensureNoArgs("locator", argsExpr)
-    val literal = parts.mkString
-    literal match
-      case locatorPattern(scheme, bucket, path) =>
-        '{ BlobLocator(${ Expr(scheme) }, ${ Expr(bucket) }, ${ Expr(path) }) }
-      case _                                    =>
-        report.error("locator literal must match '<scheme>://<bucket>/<path>' with lowercase scheme")
-        '{ BlobLocator("", "", "") }
+
+    val literal =
+      scExpr.value match
+        case Some(ctx) => ctx.parts.mkString
+        case None      =>
+          report.error("locator interpolator must be invoked with a literal")
+          ""
+
+    locatorPattern.findFirstMatchIn(literal) match
+      case Some(m) =>
+        '{ BlobLocator(${ Expr(m.group(1)) }, ${ Expr(m.group(2)) }, ${ Expr(m.group(3)) }) }
+      case None    =>
+        report.error(s"locator literal must match '<scheme>://<bucket>/<path>', received '$literal'")
+        '{ compiletime.error("locator literal must match '<scheme>://<bucket>/<path>'") }
 
   private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
     argsExpr match
@@ -61,19 +99,7 @@ object Interpolators:
   private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
     '{ Interpolators.SpanHelper.parse(${ scExpr }.s(${ argsExpr }*)) }
 
-  private val locatorPattern = """([a-z0-9+.-]+)://([^/]+)/(.+)""".r
-
-  private def extractLiteralParts(scExpr: Expr[StringContext])(using Quotes): List[String] =
-    scExpr.value match
-      case Some(ctx) => ctx.parts.toList
-      case None      =>
-        quotes.reflect.report.error("string interpolator must be invoked with a literal")
-        Nil
-
-  private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit =
-    argsExpr match
-      case Varargs(Seq()) => ()
-      case _              => quotes.reflect.report.error(s"$name interpolator does not support arguments")
+  private val locatorPattern = """([a-zA-Z0-9+.-]+)://([^/]+)/(.+)""".r
 
   private[macros] object SpanHelper:
     def parse(input: String): Span[Long] =

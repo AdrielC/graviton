@@ -7,8 +7,6 @@ import zio.*
 import zio.test.*
 import zio.test.Assertion.*
 
-
-
 object FramedManifestSpec extends ZIOSpecDefault:
 
   private val zeroDigest = "0" * HashAlgo.Sha256.hexLength
