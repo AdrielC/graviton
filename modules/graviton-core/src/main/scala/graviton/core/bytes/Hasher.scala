@@ -20,15 +20,16 @@ private[graviton] final class HasherImpl(val algo: HashAlgo, private val md: Mes
     chunk match
       case chunk: Chunk[Byte] => md.update(chunk.toArray)
       case chunk: Array[Byte] => md.update(chunk)
-      case s: String => s match
-        case HashAlgo.keyBitsRegex(a, d, s) => 
-          (for 
-            algo <- HashAlgo.fromString(a)
-            digest <- Digest.fromString(d).toOption
-            size <- Try(s.toLong).toOption  
-          yield md.update(digest.bytes))
-          .getOrElse(md.update(s.getBytes(StandardCharsets.UTF_8)))
-        case _ => md.update(s.getBytes(StandardCharsets.UTF_8))
+      case s: String          =>
+        s match
+          case HashAlgo.keyBitsRegex(a, d, s) =>
+            (for
+              algo   <- HashAlgo.fromString(a)
+              digest <- Digest.fromString(d).toOption
+              size   <- Try(s.toLong).toOption
+            yield md.update(digest.bytes))
+              .getOrElse(md.update(s.getBytes(StandardCharsets.UTF_8)))
+          case _                              => md.update(s.getBytes(StandardCharsets.UTF_8))
     this
 
   override def digest: Either[String, Digest] =

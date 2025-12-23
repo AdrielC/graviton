@@ -1,6 +1,6 @@
 package graviton.core.bytes
 
-import zio.schema.{Schema}
+import zio.schema.Schema
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import zio.Chunk
@@ -32,12 +32,13 @@ object Digest:
 
   def fromBytes(value: Array[Byte]): Either[String, Digest] =
     fromChunk(Chunk.fromArray(value))
-  
+
   def fromString(value: String): Either[String, Digest] =
-    ByteVector.fromHex(value)
-    .toRight(s"Invalid hex digest '$value'")
-    .map(_.toArray)
-    .flatMap(fromBytes)
+    ByteVector
+      .fromHex(value)
+      .toRight(s"Invalid hex digest '$value'")
+      .map(_.toArray)
+      .flatMap(fromBytes)
 
   extension (digest: Digest)
     def value: Chunk[Byte]     = digest
