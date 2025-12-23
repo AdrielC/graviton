@@ -78,7 +78,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
 
         ZIO.fromEither:
           for
-            digest <- Digest.make(runtimeHashAlgo)(digest)
+            digest   <- Digest.make(runtimeHashAlgo)(digest)
             keyBits1 <- KeyBits.create(runtimeHashAlgo, digest, 10L)
             keyBits2 <- KeyBits.create(runtimeHashAlgo, digest, 5L)
             entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))

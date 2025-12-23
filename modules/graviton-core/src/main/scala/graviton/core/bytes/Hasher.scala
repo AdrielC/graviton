@@ -5,6 +5,8 @@ import zio.{Chunk, ZIO, ZLayer}
 import zio.stream.{ZPipeline, ZSink}
 import java.nio.charset.StandardCharsets
 import scala.util.Try
+import scodec.bits.ByteVector
+import graviton.core.keys.KeyBits
 
 trait Hasher:
   def algo: HashAlgo
@@ -20,6 +22,7 @@ private[graviton] final class HasherImpl(val algo: HashAlgo, private val md: Mes
     chunk match
       case chunk: Chunk[Byte] => md.update(chunk.toArray)
       case chunk: Array[Byte] => md.update(chunk)
+      case chunk: ByteVector  => md.update(chunk.toArray)
       case s: String          =>
         s match
           case HashAlgo.keyBitsRegex(a, d, s) =>
@@ -37,7 +40,27 @@ private[graviton] final class HasherImpl(val algo: HashAlgo, private val md: Mes
 
 object Hasher:
 
-  type Digestable = Chunk[Byte] | Array[Byte] | String | Digest
+  type Digestable = ByteVector | Chunk[Byte] | Array[Byte] | String | Digest
+
+  import scala.quoted.*
+
+  given ToExpr[Digestable]   = new ToExpr[Digestable] {
+    def apply(value: Digestable)(using Quotes): Expr[Digestable] = value match
+      case chunk: Chunk[Byte]     => '{ zio.Chunk.fromArray(${ Expr(chunk.toArray) }) }
+      case array: Array[Byte]     => '{ zio.Chunk.fromArray(${ Expr(array) }) }
+      case byteVector: ByteVector => '{ zio.Chunk.fromArray(${ Expr(byteVector.toArray) }) }
+      case string: String         => '{ zio.Chunk.fromArray(${ Expr(string.getBytes(StandardCharsets.UTF_8)) }) }
+      case digest: Digest         => '{ zio.Chunk.fromArray(${ Expr(digest.bytes) }) }
+  }
+  given FromExpr[Digestable] = new FromExpr[Digestable] {
+    def unapply(value: Expr[Digestable])(using Quotes): Option[Digestable] = value match
+      case '{ ${ Expr(chunk: Chunk[Byte]) } }     => Some(chunk)
+      case '{ ${ Expr(array: Array[Byte]) } }     => Some(array)
+      case '{ ${ Expr(byteVector: ByteVector) } } => Some(byteVector)
+      case '{ ${ Expr(string: String) } }         => Some(string)
+      case '{ ${ Expr(digest: Digest) } }         => Some(digest)
+      case _                                      => None
+  }
 
   trait Provider:
     def getInstance(hashAlgo: HashAlgo): Either[String, Hasher]
@@ -77,18 +100,30 @@ object Hasher:
     instantiate(algo.primaryName, provider)
       .fold(err => throw new IllegalStateException(err.toString), identity)
 
-  def sink(hasher: Option[Hasher] = None): ZSink[Any, IllegalArgumentException, Byte, Nothing, Digest] =
+  def sink(hasher: Option[Hasher] = None): ZSink[Any, IllegalArgumentException, Byte, Nothing, KeyBits] =
     hasher match
       case Some(h) =>
         ZSink
-          .foldLeft(h) { (h, byte: Byte) =>
-            val _ = h.update(Array(byte))
-            h
+          .foldLeft((h, 0L)) { (acc, byte: Byte) =>
+            val (h, size) = acc
+            val _         = h.update(Array(byte))
+            (h, size + 1)
           }
-          .mapZIO(h => ZIO.fromEither(h.digest).mapError(err => IllegalArgumentException(Option(err).getOrElse("Unknown error"))))
+          .mapZIO(acc =>
+            ZIO.fromEither(
+              acc._1.digest
+                .flatMap(d => KeyBits.create(acc._1.algo, d, acc._2))
+                .left
+                .map(err => IllegalArgumentException(Option(err).getOrElse("Unknown error")))
+            )
+          )
 
       case None =>
-        ZSink.fail(IllegalArgumentException("No hasher provided"))
+        ZSink.unwrap:
+          ZIO
+            .fromEither(Hasher.systemDefault)
+            .mapError(err => IllegalArgumentException(Option(err).map(_.toString).getOrElse("Unknown error")))
+            .map(h => sink(Some(h)))
 
   def pipeline(multi: Option[MultiHasher] = None): ZPipeline[Any, IllegalArgumentException, Byte, MultiHasher.Results] =
     multi match

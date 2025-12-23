@@ -2,21 +2,22 @@ package graviton.core.macros
 
 import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
-import graviton.core.types.*
 import graviton.core.macros.Interpolators.*
 import zio.test.*
+import graviton.core.types.HexLower
 
 object InterpolatorSpec extends ZIOSpecDefault:
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("Interpolator macros")(
       test("hex interpolator emits lowercase literal") {
-        val value: HexLower = hex"DEADBEEF"
-        assertTrue(value == "deadbeef")
+        val value = hex"deadbeef"
+        assertTrue(value == HexLower.either("deadbeef").toOption.get)
       },
       test("hex interpolator rejects invalid literals") {
         val errors = scala.compiletime.testing.typeCheckErrors("import graviton.core.macros.Interpolators.*\nval x = hex\"zz\"")
-        assertTrue(errors.nonEmpty) && assertTrue(errors.head.message.contains("hex literal"))
+        assertTrue(errors.nonEmpty) &&
+        assertTrue(errors.head.message.contains("hex literal"))
       },
       test("locator interpolator constructs BlobLocator") {
         val locator = locator"s3://my-bucket/path/to/object"
