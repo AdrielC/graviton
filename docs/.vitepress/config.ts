@@ -103,7 +103,7 @@ export default withMermaid(defineConfig({
       { text: 'API', link: '/api' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
-      { text: 'Scaladoc', link: withBase('/scaladoc/index.html'), target: '_blank' }
+      { text: 'Scaladoc', link: withBase('/scaladoc/'), target: '_blank' }
     ],
     sidebar: [
       {
@@ -167,7 +167,7 @@ export default withMermaid(defineConfig({
           { text: 'API Overview', link: '/api' },
           { text: 'gRPC', link: '/api/grpc' },
           { text: 'HTTP', link: '/api/http' },
-          { text: 'Scaladoc', link: withBase('/scaladoc/index.html'), target: '_blank' }
+          { text: 'Scaladoc', link: withBase('/scaladoc/'), target: '_blank' }
         ]
       },
       {

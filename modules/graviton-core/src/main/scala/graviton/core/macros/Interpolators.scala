@@ -5,6 +5,7 @@ import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
 import graviton.core.ranges.given
 import graviton.core.types.HexLower
+import graviton.core.bytes.Digest
 
 import scala.quoted.*
 
@@ -15,7 +16,7 @@ object Interpolators:
       ${ hexHexLowerImpl('sc, 'args) }
 
     inline def bin(inline args: Any*): KeyBits =
-      ${ keyBitsImpl("bin", 'sc, 'args) }
+      ${ binKeyBitsImpl('sc, 'args) }
 
     inline def locator(inline args: Any*): BlobLocator =
       ${ locatorImpl('sc, 'args) }
@@ -46,21 +47,29 @@ object Interpolators:
         report.error("hex interpolator must be invoked with a literal")
         '{ compiletime.error("hex interpolator must be invoked with a literal") }
 
-  private def keyBitsImpl(name: String, scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[KeyBits] =
+  private def binKeyBitsImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[KeyBits] =
     import quotes.reflect.report
-    ensureNoArgs(name, argsExpr)
+    ensureNoArgs("bin", argsExpr)
 
     scExpr.value match
       case Some(ctx) =>
-        val literal = ctx.parts.mkString.trim
-        KeyBits.fromString(literal) match
-          case Right(bits) => Expr(bits)
-          case Left(err)   =>
-            report.error(err)
-            '{ compiletime.error(${ Expr(err) }) }
-      case None      =>
-        report.error(s"$name interpolator must be invoked with a literal")
-        '{ compiletime.error(${ Expr(s"$name interpolator must be invoked with a literal") }) }
+        val literal = ctx.parts.mkString
+        val trimmed = literal.trim
+        val isBin   = trimmed.nonEmpty && trimmed.forall(ch => ch == '0' || ch == '1')
+
+        if !isBin then
+          report.error(s"bin literal must contain only [0-1], received '$literal'")
+          '{ compiletime.error("bin literal must contain only [0-1]") }
+        else
+          Digest.digest(trimmed) match
+            case Right(bits) => Expr(bits)
+            case Left(err)   =>
+              report.error(err)
+              '{ compiletime.error(${ Expr(err) }) }
+
+      case None =>
+        report.error("bin interpolator must be invoked with a literal")
+        '{ compiletime.error("bin interpolator must be invoked with a literal") }
 
   private def locatorImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[BlobLocator] =
     import quotes.reflect.report

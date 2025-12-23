@@ -14,6 +14,15 @@ object InterpolatorSpec extends ZIOSpecDefault:
         val value = hex"deadbeef"
         assertTrue(value == HexLower.either("deadbeef").toOption.get)
       },
+      test("bin interpolator returns KeyBits") {
+        val bits = bin"101010101"
+        assertTrue(bits.size == 9L)
+      },
+      test("bin interpolator rejects invalid literals") {
+        val errors = scala.compiletime.testing.typeCheckErrors("import graviton.core.macros.Interpolators.*\nval x = bin\"abc\"")
+        assertTrue(errors.nonEmpty) &&
+        assertTrue(errors.head.message.contains("bin literal"))
+      },
       test("hex interpolator rejects invalid literals") {
         val errors = scala.compiletime.testing.typeCheckErrors("import graviton.core.macros.Interpolators.*\nval x = hex\"zz\"")
         assertTrue(errors.nonEmpty) &&

@@ -139,7 +139,7 @@ object GravitonApp {
           " • ",
           a(href := docHref("/api"), "API Docs"),
           " • ",
-          a(href := docHref("/scaladoc/index.html"), target       := "_blank", "Scaladoc"),
+          a(href := docHref("/scaladoc/"), target                 := "_blank", "Scaladoc"),
         ),
       ),
     )
