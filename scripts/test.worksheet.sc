@@ -3,18 +3,22 @@
 
 //> using options -Xprint:typer
 
-//> using dep "io.graviton::graviton-core:0.0.0+294-acbd604a"
+//> using dep "io.graviton::graviton-core:0.0.0+304-22d90748"
 
 
-import graviton.core.keys.*
-import graviton.core.bytes.Digest
 
-val b: Digest = hex"deadbeef"
-val b2 = bin"1010101010"
+import graviton.core.macros.Interpolators.*
+import graviton.core.bytes.*
+val file = java.io.File("README.md")
+
+val b = hex"${file}"
+val b2 = bin"0101010101"
+val loc = locator"s3://my-bucket/path/to/object"
 
 println(scala.util.Properties.versionNumberString)
 
 println(b)
 println(b2)
+println(loc)
 
 

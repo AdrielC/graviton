@@ -39,7 +39,10 @@ transparent inline given [A, B] => (rtc: Constraint[A, B], schema: Schema[A]) =>
 
 object types:
   type Algo             = String :| Match["(sha-256|sha-1|blake3|md5)"]
-  type HexLower         = String :| (Match["[0-9a-f]+"] & MinLength[2])
+  type HexLower         = String :| (Match["^[0-9a-f]+$"] & MinLength[2])
+  object HexLower:
+    type Constraint = Match["^[0-9a-f]+$"] & MinLength[2]
+    def either(value: String): Either[String, HexLower] = value.refineEither[Constraint]
   type Mime             = String :| Match["[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+(;.*)?"]
   type Size             = Long :| numeric.Greater[-1]
   type FileSize         = ModelFileSize
