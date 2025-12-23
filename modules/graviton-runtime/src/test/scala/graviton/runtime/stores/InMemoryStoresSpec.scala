@@ -39,7 +39,7 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
           statAfter  <- store.stat(result.key)
         yield assertTrue(
           fetched == data,
-          statBefore.exists(_.etag.nonEmpty),
+          statBefore.exists(_.digest != Digest.empty),
           statAfter.isEmpty,
           result.locator.bucket == "test-bucket",
         )
@@ -49,15 +49,17 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
   private def canonical(text: String): IO[Throwable, CanonicalBlock] =
     val bytes = Chunk.fromArray(text.getBytes(StandardCharsets.UTF_8))
     for
-      algoHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-      (algo, hasher) = algoHasher
-      _              = hasher.update(bytes.toArray)
-      digest        <- ZIO.fromEither(hasher.result).mapError(msg => new IllegalArgumentException(msg))
-      bits          <- ZIO
-                         .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
-                         .mapError(msg => new IllegalArgumentException(msg))
-      key           <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      block         <- ZIO
-                         .fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty))
-                         .mapError(msg => new IllegalArgumentException(msg))
+      hasher <- ZIO
+                  .fromEither(graviton.core.bytes.Hasher.systemDefault)
+                  .mapError(err => new IllegalStateException(err))
+      algo    = hasher.algo
+      _       = hasher.update(bytes.toArray)
+      digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+      bits   <- ZIO
+                  .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                  .mapError(msg => new IllegalArgumentException(msg))
+      key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+      block  <- ZIO
+                  .fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty))
+                  .mapError(msg => new IllegalArgumentException(msg))
     yield block

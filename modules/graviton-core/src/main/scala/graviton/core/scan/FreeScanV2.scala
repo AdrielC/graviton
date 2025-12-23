@@ -15,9 +15,9 @@ trait LabelEvidence[Label <: String]:
   def value: String
 
 object LabelEvidence:
-  inline given literal[Label <: String](using literal: ValueOf[Label]): LabelEvidence[Label] =
-    new LabelEvidence[Label]:
-      val value: String = literal.value
+  given literal[Label <: String](using literal: ValueOf[Label]): LabelEvidence[Label] =
+    new:
+      lazy val value = literal.value
 
 object Tensor:
   type Pair[L <: String, R <: String, A, B] = Record[(L ~ A) & (R ~ B)]
@@ -74,15 +74,37 @@ object FreeScan:
     val rightLabel: LabelEvidence[R],
   ) extends FreeScan[Q, Tensor.Pair[L, R, A, C], Tensor.Pair[L, R, B, D]]
 
+opaque type SafeFunction[-A, +B] = Chunk[Any => Any]
+
+object SafeFunction:
+
+  inline given [A, B] => (f: A => B) => SafeFunction[A, B] =
+    (Chunk(f.asInstanceOf[Any => Any]))
+
+  extension [A, B](f: SafeFunction[A, B])
+    def andThen[C](g: B => C): SafeFunction[A, C] = (f ++ Chunk(g.asInstanceOf[Any => Any]))
+    def compose[C](g: C => A): SafeFunction[C, B] = (Chunk(g.asInstanceOf[Any => Any]) ++ f)
+
+    def apply(a: A): B = f.foldLeft(a.asInstanceOf[Any])((acc, f) => f(acc)).asInstanceOf[B]
+
+  given [A, B] => Conversion[A => B, SafeFunction[A, B]] = a => (Chunk(a.asInstanceOf[Any => Any]))
+
+  given [A, B] => Conversion[SafeFunction[A, B], A => B] = _.apply
+
+end SafeFunction
+
+type :=>:[-A, +B] = SafeFunction[A, B]
+
 /**
  * Primitive scan alphabet.
  */
 sealed trait Prim[A, B]
 
 object Prim:
-  final case class Map1[A, B](f: A => B)                                                             extends Prim[A, B]
-  final case class Filter[A](p: A => Boolean)                                                        extends Prim[A, A]
-  final case class Flat[A, B](f: A => Chunk[B])                                                      extends Prim[A, B]
+
+  final case class Map1[A, B](f: A :=>: B)                                                           extends Prim[A, B]
+  final case class Filter[A](p: A :=>: Boolean)                                                      extends Prim[A, A]
+  final case class Flat[A, B](f: A :=>: Chunk[B])                                                    extends Prim[A, B]
   final case class Fold[A, B, S](init: () => S, step: (S, A) => (S, Chunk[B]), flush: S => Chunk[B]) extends Prim[A, B]
 
 /**
@@ -119,10 +141,12 @@ object FS:
     }(_ => Chunk.empty)
 
   def hashBytes(algo: HashAlgo): FreeScan[Prim, Chunk[Byte], Either[String, Digest]] =
-    fold[Chunk[Byte], Either[String, Digest], Hasher](Hasher.unsafeMessageDigest(algo)) { (hasher, chunk) =>
-      val updated = hasher.update(chunk.toArray)
-      (updated, Chunk.empty)
-    }(hasher => Chunk(hasher.result))
+    fold[Chunk[Byte], Either[String, Digest], Either[String, Hasher]](
+      Hasher.hasher(algo, None)
+    ) { (hasher, chunk) =>
+      hasher.foreach(_.update(chunk.toArray))
+      (hasher, Chunk.empty)
+    }(hasher => Chunk(hasher.flatMap(h => h.digest)))
 
   def buildManifest: FreeScan[Prim, ManifestEntry, Manifest] =
     fold[ManifestEntry, Manifest, (List[ManifestEntry], Long)]((Nil, 0L)) { case ((entries, total), entry) =>
@@ -217,6 +241,8 @@ object FS:
  */
 object Optimize:
 
+  import SafeFunction.given
+
   def fuse[A, B](scan: FreeScan[Prim, A, B]): FreeScan[Prim, A, B] =
     scan match
       case seq: FreeScan.Seq[Prim, a, b, c] @unchecked          =>
@@ -227,7 +253,7 @@ object Optimize:
             FreeScan.Embed(Map1(f1.andThen(f2))).asInstanceOf[FreeScan[Prim, A, B]]
           case (FreeScan.Embed(filter1: Filter[t]), FreeScan.Embed(filterAny: Filter[?])) =>
             val filter2 = filterAny.asInstanceOf[Filter[t]]
-            val merged  = Filter[t](value => filter1.p(value) && filter2.p(value))
+            val merged  = Filter[t]((value: t) => filter1.p(value) && filter2.p(value))
             FreeScan.Embed(merged).asInstanceOf[FreeScan[Prim, A, B]]
           case _                                                                          => FreeScan.Seq(left, right).asInstanceOf[FreeScan[Prim, A, B]]
       case par: FreeScan.Par[Prim, a, b, c, d, l, r] @unchecked =>
@@ -245,6 +271,8 @@ private trait Step[-A, +B]:
   def onEnd(): Chunk[B]
 
 private object Compile:
+
+  import SafeFunction.given
 
   def toChannel[A, B](free: FreeScan[Prim, A, B]): ZChannel[Any, Nothing, Chunk[A], Any, Nothing, Chunk[B], Unit] =
     val step = build(Optimize.fuse(free))

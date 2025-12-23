@@ -1,11 +1,8 @@
 package graviton.core.bytes
 
 object Verify:
-  def matches(expected: Digest, bytes: Array[Byte]): Boolean =
+  def matches(expected: HashAlgo, bytes: Hasher.Digestable): Boolean =
     Hasher
-      .messageDigest(expected.algo)
-      .flatMap { hasher =>
-        val _ = hasher.update(bytes)
-        hasher.result
-      }
-      .exists(_.value == expected.value)
+      .hasher(expected, None)
+      .flatMap((hasher: Hasher) => hasher.update(bytes).digest)
+      .exists((digest: Digest) => digest.length == expected.hexLength)
