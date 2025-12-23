@@ -9,21 +9,26 @@ import kyo.Tag.given
 
 object BinaryAttr:
 
-  type Base =
-    "size" ~ FileSize & "chunkCount" ~ ChunkCount & "mime" ~ Mime & "digests" ~ Map[Algo, HexLower] & "custom" ~ Map[String, String]
-
   type Fields[F[_]] =
-    "size" ~ F[FileSize] & "chunkCount" ~ F[ChunkCount] & "mime" ~ F[Mime] & "digests" ~ F[Map[Algo, HexLower]] &
+    "fileSize" ~ F[FileSize] & "chunkCount" ~ F[ChunkCount] & "mime" ~ F[Mime] & "digests" ~ F[Map[Algo, HexLower]] &
       "custom" ~ F[Map[String, String]]
+
+  type Base = Fields[Id]
 
   type Rec[F[_]] = Record[Fields[F]]
 
-  type Id[A] = A
+  opaque type Id[+A] <: A = A
+  object Id:
+    def apply[A](a: A): Id[A]            = a
+    extension [A](a: Id[A]) def value: A = a
 
   type Plain   = Rec[Id]
   type Partial = Rec[Option]
 
   import BinaryAttrSyntax.*
+
+  def empty: Record[Any] =
+    Record.empty
 
   inline def build[F[_]](
     size: F[FileSize],
@@ -38,14 +43,13 @@ object BinaryAttr:
     Tag[F[Map[Algo, HexLower]]],
     Tag[F[Map[String, String]]],
   ): Rec[F] =
-    val record =
-      Record.empty
+    
+      Record.empty.asInstanceOf[Rec[F]]
         .withSize(size)
         .withChunkCount(chunkCount)
         .withMime(mime)
         .withDigests(digests)
         .withCustom(custom)
-    record.asInstanceOf[Rec[F]]
 
   def partial(
     size: Option[FileSize] = None,
@@ -78,31 +82,21 @@ object BinaryAttr:
     )
 
   object Access:
-    inline private def lookup[F[_], A](rec: Rec[F], name: String): F[A] =
-      rec.toMap
-        .collectFirst {
-          case (field, value) if field.name == name =>
-            value.asInstanceOf[F[A]]
-        }
-        .getOrElse(
-          throw new NoSuchElementException(s"Field '$name' missing in BinaryAttr record")
-        )
 
     extension [F[_]](rec: Rec[F])
-      inline def sizeValue: F[FileSize] =
-        lookup(rec, "size")
+      inline def sizeValue: F[FileSize] = rec.fileSize
 
       inline def chunkCountValue: F[ChunkCount] =
-        lookup(rec, "chunkCount")
+        rec.chunkCount
 
       inline def mimeValue: F[Mime] =
-        lookup(rec, "mime")
+        rec.mime
 
       inline def digestsValue: F[Map[Algo, HexLower]] =
-        lookup(rec, "digests")
+        rec.digests
 
       inline def customValue: F[Map[String, String]] =
-        lookup(rec, "custom")
+        rec.custom
 
   object PartialOps:
     import Access.*
