@@ -67,6 +67,7 @@ lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder
 generateDocs := {
   val log = Keys.streams.value.log
   val targetDir = file("docs/public/scaladoc")
+  val indexFile = targetDir / "index.html"
 
   log.info("Generating Scaladoc for core modules...")
 
@@ -84,6 +85,35 @@ generateDocs := {
     log.info(s"Copying $name scaladoc to $dest")
     IO.copyDirectory(srcDir, dest, overwrite = true, preserveLastModified = true)
   }
+
+  // Provide a stable entry point at /scaladoc/index.html (and /scaladoc/) for GitHub Pages.
+  // Each module is published under /scaladoc/<module>/.
+  IO.write(
+    indexFile,
+    """<!doctype html>
+      |<html lang="en">
+      |  <head>
+      |    <meta charset="utf-8" />
+      |    <meta name="viewport" content="width=device-width, initial-scale=1" />
+      |    <meta http-equiv="refresh" content="0; url=./core/index.html" />
+      |    <title>Graviton Scaladoc</title>
+      |    <style>
+      |      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+      |      code { background: rgba(0,0,0,0.06); padding: 0.1rem 0.3rem; border-radius: 0.3rem; }
+      |    </style>
+      |  </head>
+      |  <body>
+      |    <h1>Graviton Scaladoc</h1>
+      |    <p>Redirecting to <code>core</code>… If it doesn’t load, choose a module:</p>
+      |    <ul>
+      |      <li><a href="./core/index.html">core</a></li>
+      |      <li><a href="./streams/index.html">streams</a></li>
+      |      <li><a href="./runtime/index.html">runtime</a></li>
+      |    </ul>
+      |  </body>
+      |</html>
+      |""".stripMargin
+  )
 
   log.info(s"Scaladoc copied to $targetDir")
 }

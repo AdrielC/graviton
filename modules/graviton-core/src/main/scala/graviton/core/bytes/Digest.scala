@@ -31,7 +31,7 @@ object Digest:
 
   given ToExpr[Digest] = new ToExpr[Digest] {
     def apply(value: Digest)(using Quotes): Expr[Digest] =
-      Expr(value)
+      '{ Digest(zio.Chunk.fromArray(${ Expr(value.bytes) })) }
   }
 
   def unapply(value: String): Option[Digest] =

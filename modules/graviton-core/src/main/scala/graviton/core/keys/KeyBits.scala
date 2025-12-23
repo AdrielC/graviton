@@ -20,7 +20,13 @@ object KeyBits:
 
   given ToExpr[KeyBits] = new ToExpr[KeyBits] {
     def apply(value: KeyBits)(using Quotes): Expr[KeyBits] =
-      Expr(KeyBits(value.algo, value.digest, value.size))
+      '{
+        KeyBits(
+          ${ Expr(value.algo) },
+          ${ Expr(value.digest) },
+          ${ Expr(value.size) },
+        )
+      }
   }
 
   def create(algo: HashAlgo, digest: Digest, size: Long): Either[String, KeyBits] =

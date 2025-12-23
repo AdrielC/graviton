@@ -57,7 +57,10 @@ object HashAlgo:
 
   given ToExpr[HashAlgo] = new ToExpr[HashAlgo] {
     def apply(value: HashAlgo)(using Quotes): Expr[HashAlgo] =
-      Expr(value)
+      value match
+        case HashAlgo.Sha256 => '{ HashAlgo.Sha256 }
+        case HashAlgo.Sha1   => '{ HashAlgo.Sha1 }
+        case HashAlgo.Blake3 => '{ HashAlgo.Blake3 }
   }
 
   def unapply(value: String): Option[HashAlgo] =
