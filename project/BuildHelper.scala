@@ -2,11 +2,11 @@ import sbt._
 import Keys._
 
 object BuildHelper {
-  val baseSettings: Seq[Setting[_]] = Seq(
+
+
+  val testSettings: Seq[Setting[_]] = Seq(
     Test / parallelExecution := false,
     Test / testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
-    // Temporarily disable fatal warnings for new scan algebra development
-    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(_ == "-Xfatal-warnings"),
     // Fork tests in a separate JVM to prevent OOM issues
     Test / fork := true,
     // Set reasonable heap size for tests to prevent OOM with streaming/concurrent tests
@@ -17,4 +17,13 @@ object BuildHelper {
       "-XX:MaxGCPauseMillis=100", // Target max GC pause time
     )
   )
+
+  val baseSettings: Seq[Setting[_]] = Seq(
+    // Temporarily disable fatal warnings for new scan algebra development
+    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(_ == "-Xfatal-warnings"),
+  ) ++ testSettings
+
+  val isTestContainers: SettingKey[Boolean] = settingKey[Boolean]("Whether to run tests with TestContainers")
+    
+  Global / isTestContainers := sys.env.get("TESTCONTAINERS").exists(_.toBoolean)
 }
