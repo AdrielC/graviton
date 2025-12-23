@@ -11,6 +11,7 @@ import zio.stream.*
 
 import java.time.Instant
 import scala.collection.immutable.Map
+import java.util.concurrent.TimeUnit
 
 final class InMemoryBlobStore private (
   blobs: Ref[Map[BinaryKey, StoredBlob]],
@@ -64,7 +65,8 @@ final class InMemoryBlobStore private (
                   .confirmSize(size)
                   .confirmChunkCount(count)
       locator = plan.locatorHint.getOrElse(defaultLocator(key))
-      stat    = BlobStat(size, digest, Instant.now())
+      now    <- Clock.currentTime(TimeUnit.MILLISECONDS)
+      stat    = BlobStat(size, digest, Instant.ofEpochMilli(now))
       stored  = StoredBlob(bytes, locator, attrs, stat)
       _      <- blobs.update(_.updated(key, stored))
     yield BlobWriteResult(key, locator, attrs)
