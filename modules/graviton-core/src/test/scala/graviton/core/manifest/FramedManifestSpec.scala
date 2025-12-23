@@ -9,7 +9,7 @@ import zio.test.Assertion.*
 
 object FramedManifestSpec extends ZIOSpecDefault:
 
-  private val zeroDigest = "0" * 64
+  private val zeroDigest = "0" * HashAlgo.Sha256.hexLength
 
   private def makeBits(size: Long): ZIO[Any, String, KeyBits] =
     for
