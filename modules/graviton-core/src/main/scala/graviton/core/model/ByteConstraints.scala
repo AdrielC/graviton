@@ -53,7 +53,7 @@ object ByteConstraints:
     else Right(value.asInstanceOf[BlockIndex])
 
   inline def unsafeBlockSize(value: Int): BlockSize = value.asInstanceOf[BlockSize]
-  inline def unsafeFileSize(value: Long): FileSize  = value.asInstanceOf[FileSize]
+  inline def unsafeFileSize(value: Long): FileSize  = value.refineUnsafe[numeric.Greater[-1]]
 
 end ByteConstraints
 
