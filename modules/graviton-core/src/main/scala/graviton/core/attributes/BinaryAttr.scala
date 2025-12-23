@@ -43,13 +43,13 @@ object BinaryAttr:
     Tag[F[Map[Algo, HexLower]]],
     Tag[F[Map[String, String]]],
   ): Rec[F] =
-    
-      Record.empty.asInstanceOf[Rec[F]]
-        .withSize(size)
-        .withChunkCount(chunkCount)
-        .withMime(mime)
-        .withDigests(digests)
-        .withCustom(custom)
+
+    Record.empty
+      .withSize(size)
+      .withChunkCount(chunkCount)
+      .withMime(mime)
+      .withDigests(digests)
+      .withCustom(custom)
 
   def partial(
     size: Option[FileSize] = None,
