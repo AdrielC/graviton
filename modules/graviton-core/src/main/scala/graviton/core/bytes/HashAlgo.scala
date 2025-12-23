@@ -6,7 +6,7 @@ import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import HashAlgo.AlgoName
 import zio.{Chunk, NonEmptyChunk}
-import scala.compiletime.ops.string.{+}
+import scala.compiletime.ops.string.+
 
 enum HashAlgo(val hexLength: Int, jceNames: NonEmptyChunk[AlgoName]) derives CanEqual:
   case Sha256 extends HashAlgo(64, NonEmptyChunk("SHA-256", "SHA256"))
@@ -25,21 +25,20 @@ enum HashAlgo(val hexLength: Int, jceNames: NonEmptyChunk[AlgoName]) derives Can
 object HashAlgo:
 
   transparent inline given Ordering[HashAlgo] = Ordering.by(_.primaryName)
-  
 
-  inline val algoNameRegexStr = "[A-Za-z0-9_-]{1,64}"
+  inline val algoNameRegexStr         = "[A-Za-z0-9_-]{1,64}"
   inline val lowerHexadecimalRegexStr = "[0-9a-f]{1,64}"
   inline val upperHexadecimalRegexStr = "[0-9A-F]{1,64}"
 
-  final type AlgoNameRegexStr = algoNameRegexStr.type
+  final type AlgoNameRegexStr         = algoNameRegexStr.type
   final type LowerHexadecimalRegexStr = lowerHexadecimalRegexStr.type
   final type UpperHexadecimalRegexStr = upperHexadecimalRegexStr.type
 
-  final val algoRegex: scala.util.matching.Regex = algoNameRegexStr.r
+  final val algoRegex: scala.util.matching.Regex             = algoNameRegexStr.r
   final val lowerHexadecimalRegex: scala.util.matching.Regex = lowerHexadecimalRegexStr.r
   final val upperHexadecimalRegex: scala.util.matching.Regex = upperHexadecimalRegexStr.r
-  final val hexadecimalRegexStr = lowerHexadecimalRegexStr + "|" + upperHexadecimalRegexStr
-  final val hexadecimalRegex: scala.util.matching.Regex = hexadecimalRegexStr.r
+  final val hexadecimalRegexStr                              = lowerHexadecimalRegexStr + "|" + upperHexadecimalRegexStr
+  final val hexadecimalRegex: scala.util.matching.Regex      = hexadecimalRegexStr.r
 
   final val keyBitsRegexStr = "^" + algoNameRegexStr + ":" + hexadecimalRegexStr + ":[0-9]+$"
 
