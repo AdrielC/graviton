@@ -3,7 +3,9 @@ package graviton.frontend
 import com.raquo.laminar.api.L.*
 import com.raquo.waypoint.*
 import com.raquo.laminar.tags.HtmlTag
+
 import graviton.frontend.components.*
+
 import org.scalajs.dom
 
 /** Main Graviton frontend application */
@@ -72,7 +74,7 @@ object GravitonApp {
   )
 
   def apply(baseUrl: String, docsBase: String): HtmlElement = {
-    val api                = new GravitonApi(baseUrl, new BrowserHttpClient(baseUrl))
+    val api                = GravitonApi(baseUrl, new BrowserHttpClient(baseUrl))
     val docsBaseNormalized =
       val trimmed = docsBase.trim
       if trimmed.isEmpty || trimmed == "/" then ""

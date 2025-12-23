@@ -9,10 +9,10 @@ import graviton.shared.schema.SchemaExplorer
  * Provides representative metadata so the UI remains useful on GitHub Pages or other offline
  * contexts.
  */
-final case class DemoData(
+final case class DemoDataset(
   health: HealthResponse,
   stats: SystemStats,
-  blobs: Map[BlobId, DemoData.DemoBlob],
+  blobs: Map[BlobId, DemoDataset.DemoBlob],
   schemas: List[ObjectSchema],
   simulatedUpload: UploadResponse,
   datalakeDashboard: DatalakeDashboard,
@@ -34,13 +34,13 @@ final case class DemoData(
   )
 }
 
-object DemoData {
+object DemoDataset {
 
   /** Simple pair holding metadata + manifest for a demo blob. */
   final case class DemoBlob(metadata: BlobMetadata, manifest: BlobManifest)
 
   /** Default dataset shipped with the documentation build. */
-  val default: DemoData = {
+  val default: DemoDataset = {
     val createdAt = 1_728_192_000_000L // 2024-10-25T00:00:00Z
 
     val blobAId = BlobId("sha256:demo-welcome")
@@ -113,7 +113,7 @@ object DemoData {
       ),
     )
 
-    DemoData(
+    DemoDataset(
       health = HealthResponse(
         status = "Demo",
         version = "0.1.0-demo",
