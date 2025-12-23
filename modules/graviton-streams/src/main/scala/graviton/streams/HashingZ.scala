@@ -1,22 +1,20 @@
 package graviton.streams
 
-import graviton.core.bytes.{Hasher, MultiHasher, Digest}
+import graviton.core.bytes.{Hasher, MultiHasher, Digest, Provider, HashAlgo}
 import zio.ZIO
 import zio.stream.{ZPipeline, ZSink}
 
 object HashingZ:
 
-  def sink(hasher: Hasher): ZSink[Any, IllegalArgumentException, Byte, Nothing, Digest] =
-    ZSink
-      .foldLeft(hasher) { (h, byte: Byte) =>
-        val _ = h.update(Array(byte))
-        h
-      }
-      .mapZIO(h =>
-        ZIO
-          .fromEither(h.digest)
-          .mapError(err => IllegalArgumentException(err))
-      )
+  def sink(hasher: Hasher): ZSink[Any, IllegalArgumentException, Byte, Nothing, Hasher] =
+    ZSink.foldLeftChunks(hasher) { (h, chunk) => h.update(chunk.toArray) }
+
+  def sink(hashAlgo: HashAlgo): ZSink[Provider, IllegalArgumentException, Byte, Nothing, Hasher] =
+    ZSink.unwrap:
+      ZIO.serviceWithZIO[Provider](p => 
+        ZIO.fromEither(p.getInstance(hashAlgo))
+        .mapError(err => IllegalArgumentException(err)))
+        .map(sink)
 
   def pipeline(multi: MultiHasher): ZPipeline[Any, Nothing, Byte, Byte] =
     ZPipeline.mapChunksZIO { chunk =>

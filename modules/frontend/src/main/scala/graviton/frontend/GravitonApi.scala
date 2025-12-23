@@ -10,7 +10,7 @@ import zio.*
 final case class GravitonApi(
   baseUrl: String,
   client: HttpClient,
-  demoData: DemoData = DemoData.default,
+  demoData: DemoDataset = DemoDataset.default,
 ) {
 
   private val offlineVar = Var(false)
