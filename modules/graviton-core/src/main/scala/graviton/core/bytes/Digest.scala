@@ -14,8 +14,7 @@ private[graviton] final class ProviderImpl(provider: JProvider) extends Provider
   override def getInstance(hashAlgo: HashAlgo): Either[String, Hasher] =
     Hasher.hasher(hashAlgo, Some(provider))
 
-opaque type Digest <: Chunk[Byte] :| (MinLength[16] & MaxLength[64]) =
-  Chunk[Byte] :| (MinLength[16] & MaxLength[64])
+opaque type Digest <: Chunk[Byte] = Chunk[Byte] :| (MinLength[16] & MaxLength[64])
 
 type Digestable = Chunk[Byte] | Array[Byte] | String
 
@@ -52,7 +51,7 @@ object Digest:
   given Schema[Digest] = Schema
     .chunk[Byte]
     .transformOrFail(
-      bytes => bytes.refineEither[MinLength[16] & MaxLength[64]],
+      bytes => Digest.fromChunk(bytes),
       digest => Right(digest),
     )
 

@@ -76,18 +76,19 @@ object FreeScanV2Spec extends ZIOSpecDefault:
 
         val digest = "0" * runtimeHashAlgo.hexLength
 
-        for
-          digest   <- ZIO.fromEither(Digest.make(runtimeHashAlgo)(digest))
-          keyBits1 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 10L))
-          keyBits2 <- ZIO.fromEither(KeyBits.create(runtimeHashAlgo, digest, 5L))
-          entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
-          entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
-          outputs   = buildManifest.runChunk(List(entry1, entry2))
-          manifest <- ZIO.fromOption(outputs.lastOption)
-        yield assertTrue(
-          manifest.entries == List(entry1, entry2),
-          manifest.size == 15L,
-        )
+        ZIO.fromEither:
+          for
+            digest <- Digest.make(runtimeHashAlgo)(digest)
+            keyBits1 <- KeyBits.create(runtimeHashAlgo, digest, 10L)
+            keyBits2 <- KeyBits.create(runtimeHashAlgo, digest, 5L)
+            entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
+            entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
+            outputs   = buildManifest.runChunk(List(entry1, entry2))
+            manifest <- outputs.lastOption.toRight("No manifest found")
+          yield assertTrue(
+            manifest.entries == List(entry1, entry2),
+            manifest.size == 15L,
+          )
       },
       test("hashBytes emits padded digest on flush") {
         val data     = chunk("hi")

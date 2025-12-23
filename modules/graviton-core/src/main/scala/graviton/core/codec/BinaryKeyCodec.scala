@@ -1,7 +1,7 @@
 package graviton.core
 package codec
 
-import graviton.core.bytes.{Digest, HashAlgo}
+import graviton.core.bytes.{Digest, HashAlgo, hex}
 import graviton.core.keys.{BinaryKey, KeyBits, ViewTransform}
 import scodec.*
 import scodec.codecs.*
