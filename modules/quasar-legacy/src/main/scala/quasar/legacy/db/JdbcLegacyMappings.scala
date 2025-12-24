@@ -57,7 +57,7 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
         ps.setString(3, ref.docId)
         ps.setObject(4, documentId)
         ps.setString(5, status.toString)
-        val _ = ps.executeUpdate()
+        val _  = ps.executeUpdate()
         ()
       }
     }
@@ -100,7 +100,7 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
         ps.setString(2, ref.repo)
         ps.setString(3, ref.binaryHash)
         ps.setString(4, blob.value)
-        val _ = ps.executeUpdate()
+        val _  = ps.executeUpdate()
         ()
       }
     }
@@ -113,4 +113,3 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
 object JdbcLegacyMappings:
   val layer: ZLayer[DataSource, Nothing, LegacyMappings] =
     ZLayer.fromFunction(ds => new JdbcLegacyMappings(ds))
-

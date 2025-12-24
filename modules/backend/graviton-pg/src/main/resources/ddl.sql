@@ -1,8 +1,9 @@
 -- Graviton/Quasar "authoritative" schema (alpha: major overhauls welcome)
 --
--- Target: Postgres 16+.
+-- Target: Postgres 18+.
 -- Notes:
--- - Intentionally avoids PG18-only features (uuidv7, virtual-by-default generated cols).
+-- - We target PG18 for I/O improvements + UUIDv7 support, but the DDL still avoids
+--   non-portable features where not required (prefer explicitness over magic).
 -- - pgvector is OPTIONAL (guarded so DDL still applies if not installed).
 --
 -- This file is treated as source-of-truth for deployment and codegen.

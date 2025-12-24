@@ -21,22 +21,33 @@ final case class LegacyImportResponse(
 final case class LegacyImportHttpApi(service: LegacyImportService):
 
   private val handler: Handler[Any, Nothing, Request, Response] =
-    Handler.fromZIO { (req: Request) =>
-      req.body.asString.flatMap { body =>
+    Handler.fromFunctionZIO[Request] { req =>
+      req.body.asString.catchAll(_ => ZIO.succeed("")).flatMap { body =>
         body.fromJson[LegacyImportRequest] match
-          case Left(err) =>
-            ZIO.succeed(Response.status(Status.BadRequest).withBody(Body.fromString(err)))
+          case Left(err)     =>
+            ZIO.succeed(
+              Response(
+                status = Status.BadRequest,
+                body = Body.fromString(err),
+              )
+            )
           case Right(parsed) =>
             service
               .importIfNeeded(parsed.legacyRepo, parsed.legacyDocId)
               .map(out => LegacyImportResponse(out.documentId, out.blobKey.value))
               .map(resp => Response.json(resp.toJson))
-              .catchAll(th => ZIO.succeed(Response.status(Status.InternalServerError).withBody(Body.fromString(th.getMessage))))
+              .catchAll(th =>
+                ZIO.succeed(
+                  Response(
+                    status = Status.InternalServerError,
+                    body = Body.fromString(Option(th.getMessage).getOrElse("internal error")),
+                  )
+                )
+              )
       }
     }
 
   val routes: Routes[Any, Nothing] =
     Routes(
-      Method.POST / "v1" / "legacy" / "import" -> handler,
+      Method.POST / "v1" / "legacy" / "import" -> handler
     )
-

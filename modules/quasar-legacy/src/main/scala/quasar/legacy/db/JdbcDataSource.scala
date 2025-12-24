@@ -9,7 +9,7 @@ object JdbcDataSource:
 
   val live: ZLayer[JdbcConfig, Throwable, DataSource] =
     ZLayer.fromZIO {
-      ZIO.serviceWith[JdbcConfig] { cfg =>
+      ZIO.serviceWithZIO[JdbcConfig] { cfg =>
         ZIO.attempt {
           val ds = new PGSimpleDataSource()
           ds.setURL(cfg.url)
@@ -19,4 +19,3 @@ object JdbcDataSource:
         }
       }
     }
-

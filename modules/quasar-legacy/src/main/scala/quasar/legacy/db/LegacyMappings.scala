@@ -19,4 +19,3 @@ trait LegacyMappings:
 
   def lookupBinary(orgId: UUID, ref: LegacyBinaryRef): UIO[Option[BlobKey]]
   def upsertBinary(orgId: UUID, ref: LegacyBinaryRef, blob: BlobKey): IO[Throwable, Unit]
-
