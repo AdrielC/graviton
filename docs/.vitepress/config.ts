@@ -179,7 +179,10 @@ export default withMermaid(defineConfig({
           { text: 'Contributing', link: '/dev/contributing' },
           { text: 'Testing', link: '/dev/testing' },
           { text: 'Scala.js Playbook', link: '/dev/scalajs' },
-          { text: 'Design Docs', link: '/design/' }
+          { text: 'Design Docs', link: '/design/' },
+          { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
+          { text: 'Quasar ↔ Cedar Compat (Draft)', link: '/design/quasar-cedar-compat' },
+          { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
         ]
       },
       {
