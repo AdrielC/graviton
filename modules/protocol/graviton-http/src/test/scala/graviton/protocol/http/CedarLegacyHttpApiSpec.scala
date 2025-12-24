@@ -9,6 +9,7 @@ import zio.*
 import zio.http.*
 import zio.test.*
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Path, Paths}
 
 object CedarLegacyHttpApiSpec extends ZIOSpecDefault:
@@ -32,7 +33,7 @@ object CedarLegacyHttpApiSpec extends ZIOSpecDefault:
         yield assertTrue(
           desc.mime == "text/plain",
           desc.length.contains(6L),
-          new String(bytes.toArray) == "hello\n",
+          bytes == Chunk.fromArray("hello\n".getBytes(StandardCharsets.UTF_8)),
         )
       },
       test("GET /legacy/{repo}/{docId} returns 200 + body") {
@@ -65,10 +66,19 @@ object CedarLegacyHttpApiSpec extends ZIOSpecDefault:
           catalog  <- CedarCatalogLive.make(repos)
           fs       <- CedarFsLive.make(repos)
           legacyApi = CedarLegacyHttpApi(repos, catalog, fs)
+          dashboard <- ZIO.succeed(new DatalakeDashboardService {
+                         def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
+                         def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
+                         def explorer: UIO[SchemaExplorer.Graph]                          = ZIO.succeed(DashboardSamples.schemaExplorer)
+                         def updates                                                      = zio.stream.ZStream.empty
+                         def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
+                       })
+          blobStore <- InMemoryBlobStore.make()
+          httpApi    = HttpApi(blobStore, dashboard, cedarLegacy = Some(legacyApi))
           req      <- ZIO
                         .fromEither(URL.decode("http://localhost/legacy/shortterm/missing-doc"))
                         .map(url => Request.get(url))
-          resp     <- legacyApi.routes.toHandler(req)
+          resp     <- httpApi.app(req)
         yield assertTrue(resp.status == Status.NotFound)
       },
     )
