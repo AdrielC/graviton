@@ -21,16 +21,25 @@ final class CodeGeneratorIntegrationSuite extends FunSuite {
       finally connection.close()
 
       val tmpDir = Files.createTempDirectory("dbcodegen-test")
-      val config = CodeGeneratorConfig.default.copy(outDir = tmpDir, templateFiles = Seq.empty)
+      val config = CodeGeneratorConfig.default.copy(
+        outDir = tmpDir,
+        templateFiles = Seq.empty,
+        includeSchemas = Set("public"),
+        basePackage = "graviton.pg.generated",
+      )
 
-      val generated = CodeGenerator.generate(
+      val generatedE = CodeGenerator.generate(
         jdbcUrl = postgres.getJdbcUrl("postgres", "postgres"),
         username = Some("postgres"),
         password = Some("postgres"),
         config = config,
       )
 
-      val expected = java.nio.file.Path.of("modules/pg/src/main/scala/graviton/pg/generated/public.scala")
+      val generated = generatedE match
+        case Left(err) => fail(err.message)
+        case Right(value) => value
+
+      val expected = java.nio.file.Path.of("modules/pg/src/main/scala/graviton/pg/generated/public/schema.scala")
       assert(generated.nonEmpty, "no files were generated")
       val rendered = generated.head
 

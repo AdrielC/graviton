@@ -8,6 +8,7 @@ import scala.collection.mutable.ListBuffer
 import org.slf4j.LoggerFactory
 import schemacrawler.tools.utility.SchemaCrawlerUtility
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder
+import scala.util.boundary
 import scala.jdk.CollectionConverters.given
 import scala.meta.*
 import scala.meta.prettyprinters.Syntax
@@ -28,11 +29,19 @@ object CodeGenerator {
   
   object Mode:
     given Conversion[Mode, String] = _.toString
-    def fromString(s: String): Mode = s match
-      case "production" => Production
-      case "development" => Development
-      case _ => throw new IllegalArgumentException(s"Invalid mode: $s")
+    def fromString(s: String): Option[Mode] =
+      Option(s).map(_.trim.toLowerCase(Locale.ROOT)).collect {
+        case "production"  => Production
+        case "development" => Development
+      }
   end Mode
+
+  sealed trait CodegenError:
+    def message: String
+
+  object CodegenError:
+    final case class ParseError(message: String) extends CodegenError
+    final case class WriteError(message: String) extends CodegenError
 
   case class SchemaCrawlerOptions(
     quoteIdentifiers: Boolean = true,
@@ -64,54 +73,56 @@ object CodeGenerator {
     username: Option[String],
     password: Option[String],
     config: CodeGeneratorConfig,
-  ): Seq[Path] = {
-    
-    println("🚀 Starting database schema generation...")
-    log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
+  ): Either[CodegenError, Seq[Path]] = {
+    boundary[Either[CodegenError, Seq[Path]]] {
+      log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
 
-    // Create database connection
-    val ds = DbConnectionSource(jdbcUrl, username, password)
+      // Create database connection
+      val ds = DbConnectionSource(jdbcUrl, username, password)
 
-    // Set up schema crawler
-    val crawlOpts = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions()
-    val retrOpts  = SchemaCrawlerUtility.matchSchemaRetrievalOptions(ds)
-    val catalog   = SchemaCrawlerUtility.getCatalog(ds, retrOpts, crawlOpts, config.schemaCrawlerOptions.toConfig)
+      // Set up schema crawler
+      val crawlOpts = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions()
+      val retrOpts  = SchemaCrawlerUtility.matchSchemaRetrievalOptions(ds)
+      val catalog   = SchemaCrawlerUtility.getCatalog(ds, retrOpts, crawlOpts, config.schemaCrawlerOptions.toConfig)
 
-    // Group tables by schema
-    val schemas = catalog.getSchemas().asScala.toSeq
-    val tablesPerSchema = schemas.map { schema =>
-      val tables = catalog.getTables(schema).asScala.toSeq
-      schema -> tables
-    }.toMap
+      // Group tables by schema
+      val schemas = catalog.getSchemas().asScala.toSeq
+      val tablesPerSchema = schemas.map { schema =>
+        val tables = catalog.getTables(schema).asScala.toSeq
+        schema -> tables
+      }.toMap
 
-    println("ℹ️  Note: Using direct code generation instead of template processing due to Scalate/Scala 3.7.3 incompatibility")
+      // Generate code for each schema (one file per schema).
+      // IMPORTANT: schemas live under distinct subpackages to avoid name collisions (e.g. shared enums).
+      val generated = ListBuffer.empty[Path]
 
-    // Generate code for each schema (one file per schema).
-    // IMPORTANT: schemas live under distinct subpackages to avoid name collisions (e.g. shared enums).
-    val results = for {
-      (schema, tables) <- tablesPerSchema.toSeq
-      if tables.nonEmpty
-      dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
-      if dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty
-    } yield {
-      println(s"📝 Generating code for schema '${schema.getName}'")
+      val iter = tablesPerSchema.toSeq.iterator
+      while (iter.hasNext) {
+        val (schema, tables) = iter.next()
+        if (tables.nonEmpty) {
+          val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
+          if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
+            generateScalaCode(dataSchema, config) match
+              case Left(err) => boundary.break(Left(err))
+              case Right(output) =>
+                val outputPath = outputPathFor(config, dataSchema)
+                if (!config.dryRun) {
+                  try {
+                    Files.createDirectories(outputPath.getParent)
+                    Files.write(outputPath, output.getBytes)
+                  } catch {
+                    case e: Throwable =>
+                      boundary.break(Left(CodegenError.WriteError(s"Failed writing '$outputPath': ${e.getMessage}")))
+                  }
+                }
+                generated += outputPath
+          }
+        }
+      }
 
-      val output = generateScalaCode(dataSchema)
-
-      val outputPath = config.outDir.resolve(dataSchema.name).resolve("schema.scala")
-      Files.createDirectories(outputPath.getParent)
-      Files.write(outputPath, output.getBytes)
-
-      println(s"✅ Generated: $outputPath")
-      outputPath
+      if (config.inspectConstraints) inspectConstraints(tablesPerSchema)
+      Right(generated.toSeq)
     }
-
-    println(s"🎉 Schema generation completed. Generated ${results.size} files.")
-    
-    // Log constraints for inspection
-    inspectConstraints(tablesPerSchema)
-    
-    results
   }
 
   private def inspectConstraints(tablesPerSchema: Map[schemacrawler.schema.Schema, Seq[schemacrawler.schema.Table]]): Unit = {
@@ -159,53 +170,62 @@ object CodeGenerator {
     println("=== END CONSTRAINTS INSPECTION ===\n")
   }
 
-  private def generateScalaCode(schema: DataSchema): String = {
-    val validationResults = schema.tables.map { table =>
-      table.scalaName -> buildTableValidations(table)
-    }.toMap
+  private def outputPathFor(config: CodeGeneratorConfig, schema: DataSchema): Path =
+    config.outputLayout match
+      case OutputLayout.PerSchemaDirectory => config.outDir.resolve(schema.name).resolve("schema.scala")
+      case OutputLayout.FlatFiles          => config.outDir.resolve(s"${schema.name}.scala")
 
-    val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
-    validationWarnings.foreach { warning => println(s"⚠️  $warning") }
+  private def generateScalaCode(schema: DataSchema, config: CodeGeneratorConfig): Either[CodegenError, String] = {
+    boundary[Either[CodegenError, String]] {
+      val validationResults = schema.tables.map { table =>
+        table.scalaName -> buildTableValidations(table)
+      }.toMap
 
-    val stats = ListBuffer.empty[Stat]
+      val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
+      validationWarnings.foreach { warning => println(s"⚠️  $warning") }
 
-    val importBlock =
-      """import com.augustnagro.magnum.*
-         |import graviton.db.{*, given}
-         |import zio.Chunk
-         |import zio.json.ast.Json
-         |import zio.schema.{DeriveSchema, Schema}
-         |import zio.schema.validation.Validation
-         |""".stripMargin
-    stats ++= parseStatements(importBlock)
+      val stats = ListBuffer.empty[Stat]
 
-    val enumsRendered = renderEnums(schema)
-    stats ++= parseStatements(enumsRendered)
+      val importBlock =
+        """import com.augustnagro.magnum.*
+           |import graviton.db.{*, given}
+           |import zio.Chunk
+           |import zio.json.ast.Json
+           |import zio.schema.{DeriveSchema, Schema}
+           |import zio.schema.validation.Validation
+           |""".stripMargin
+      parseStatements(importBlock) match
+        case Left(err) => boundary.break(Left(err))
+        case Right(parsed) => stats ++= parsed
 
-    schema.tables.foreach { table =>
-      stats ++= parseStatements(renderTableSource(table))
+      val enumsRendered = renderEnums(schema)
+      parseStatements(enumsRendered) match
+        case Left(err) => boundary.break(Left(err))
+        case Right(parsed) => stats ++= parsed
+
+      val tableIter = schema.tables.iterator
+      while (tableIter.hasNext) {
+        val table = tableIter.next()
+        parseStatements(renderTableSource(table)) match
+          case Left(err) => boundary.break(Left(err))
+          case Right(parsed) => stats ++= parsed
+      }
+
+      parseStatements(renderZioSchemas(schema, validationResults)) match
+        case Left(err) => boundary.break(Left(err))
+        case Right(parsed) => stats ++= parsed
+
+      val pkgTerm = renderPackageTerm(config.basePackage, schema.name)
+      val pkg     = Pkg(pkgTerm, stats.toList)
+
+      val header =
+        s"""// Code generated by dbcodegen. DO NOT EDIT.
+           |// Schema: ${schema.name}
+           |
+           |""".stripMargin
+
+      Right(header + pkg.syntax + "\n")
     }
-
-    stats ++= parseStatements(renderZioSchemas(schema, validationResults))
-
-    val pkgTerm =
-      Term.Select(
-        Term.Select(
-          Term.Select(Term.Name("graviton"), Term.Name("pg")),
-          Term.Name("generated"),
-        ),
-        Term.Name(schema.name),
-      )
-
-    val pkg = Pkg(pkgTerm, stats.toList)
-
-    val header =
-      s"""// Code generated by dbcodegen. DO NOT EDIT.
-         |// Schema: ${schema.name}
-         |
-         |""".stripMargin
-
-    header + pkg.syntax + "\n"
   }
 
   private def renderTableSource(table: DataTable): String = {
@@ -279,14 +299,33 @@ object CodeGenerator {
     sb.toString
   }
 
-  private def parseStatements(code: String): List[Stat] =
+  private def parseStatements(code: String): Either[CodegenError, List[Stat]] =
     val trimmed = code.trim
-    if trimmed.isEmpty then Nil
+    if trimmed.isEmpty then Right(Nil)
     else
       dialects.Scala3(trimmed).parse[Source] match
-        case Parsed.Success(tree) => tree.stats
+        case Parsed.Success(tree) => Right(tree.stats)
         case Parsed.Error(pos, message, _) =>
-          throw new IllegalArgumentException(s"Failed to parse generated code at ${pos.startLine}:${pos.startColumn}: $message\n$code")
+          Left(CodegenError.ParseError(s"Failed to parse generated code at ${pos.startLine}:${pos.startColumn}: $message\n$code"))
+
+  private def renderPackageTerm(basePackage: String, schemaName: String): Term.Ref = {
+    val parts =
+      basePackage
+        .split("\\.")
+        .iterator
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .toList
+
+    val all = parts :+ schemaName
+    all match
+      case Nil =>
+        Term.Name("generated")
+      case head :: tail =>
+        tail.foldLeft[Term.Ref](Term.Name(head)) { case (acc, part) =>
+          Term.Select(acc, Term.Name(part))
+        }
+  }
 
   private def renderColumnType(column: DataColumn, forceRequired: Boolean = false): String = {
     val base = baseColumnType(column)
