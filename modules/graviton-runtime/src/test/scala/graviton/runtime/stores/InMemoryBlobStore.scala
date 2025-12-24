@@ -11,9 +11,14 @@ import zio.*
 import zio.stream.*
 
 import java.time.Instant
-import scala.collection.immutable.Map
 import java.util.concurrent.TimeUnit
+import scala.collection.immutable.Map
 
+/**
+ * TEST-ONLY in-memory BlobStore.
+ *
+ * This must never be wired in production codepaths.
+ */
 final class InMemoryBlobStore private (
   blobs: Ref[Map[BinaryKey, StoredBlob]],
   scheme: String,
@@ -92,6 +97,3 @@ private final case class StoredBlob(
 object InMemoryBlobStore:
   def make(bucket: String = "default", scheme: String = "memory"): UIO[InMemoryBlobStore] =
     Ref.make(Map.empty[BinaryKey, StoredBlob]).map(ref => new InMemoryBlobStore(ref, scheme, bucket))
-
-  val layer: ULayer[BlobStore] =
-    ZLayer.fromZIO(make())
