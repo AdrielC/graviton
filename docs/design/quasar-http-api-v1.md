@@ -76,8 +76,8 @@ Metadata is a map keyed by namespace URN. Each namespace entry includes a schema
 ```json
 {
   "namespaces": {
-    "urn:tybera:quasar:core": {
-      "schema": "urn:tybera:schema:quasar-core@1.0.0",
+    "urn:quasar:core": {
+      "schema": "urn:quasar:schema:core@1.0.0",
       "id": "meta_01J...",
       "data": {
         "mimeType": "application/pdf",
@@ -136,8 +136,8 @@ Request:
   ],
   "initialMetadata": {
     "namespaces": {
-      "urn:tybera:quasar:core": {
-        "schema": "urn:tybera:schema:quasar-core@1.0.0",
+      "urn:quasar:core": {
+        "schema": "urn:quasar:schema:core@1.0.0",
         "id": "meta_01J...",
         "data": { "mimeType": "application/pdf" }
       }
@@ -222,7 +222,7 @@ Response:
 
 Optional query params that produce views:
 
-- `view=urn:tybera:view:ocrText@1`
+- `view=urn:quasar:view:ocrText@1`
 - `stripSignatures=true`
 - `redactionProfile=public`
 
@@ -251,8 +251,8 @@ Request:
   "mode": "canonical | derived",
   "bundle": {
     "namespaces": {
-      "urn:tybera:cedar:entities": {
-        "schema": "urn:tybera:schema:cedar-entities@1.0.0",
+      "urn:quasar:cedar:entities": {
+        "schema": "urn:quasar:schema:cedar-entities@1.0.0",
         "id": "meta_01M...",
         "data": { "people": ["Jane Doe"], "orgs": ["Acme LLC"] }
       }
@@ -303,8 +303,8 @@ Enforcement:
 
 ```json
 {
-  "schemaUrn": "urn:tybera:schema:cedar-case@1.2.0",
-  "namespaceUrn": "urn:tybera:cedar:case",
+  "schemaUrn": "urn:quasar:schema:cedar-case@1.2.0",
+  "namespaceUrn": "urn:quasar:cedar:case",
   "lifecycle": "published",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -330,8 +330,8 @@ Enforcement:
 
 ```json
 {
-  "fromSchemaUrn": "urn:tybera:schema:cedar-case@1.1.0",
-  "toSchemaUrn": "urn:tybera:schema:cedar-case@1.2.0",
+  "fromSchemaUrn": "urn:quasar:schema:cedar-case@1.1.0",
+  "toSchemaUrn": "urn:quasar:schema:cedar-case@1.2.0",
   "forwardTransform": { "type": "jsonpatch", "ops": [] },
   "inverseTransform": { "type": "jsonpatch", "ops": [] }
 }
@@ -345,8 +345,8 @@ Rule: if forward would lose info and inverse can’t restore, reject registratio
 
 ```json
 {
-  "namespaceUrn": "urn:tybera:cedar:case",
-  "toSchemaUrn": "urn:tybera:schema:cedar-case@1.2.0",
+  "namespaceUrn": "urn:quasar:cedar:case",
+  "toSchemaUrn": "urn:quasar:schema:cedar-case@1.2.0",
   "reason": "court schema update"
 }
 ```
@@ -366,7 +366,7 @@ On completion, create a new `DocumentVersion` (never rewrite old versions).
   "query": { "mode": "fts | vector | plain", "text": "motion to dismiss" },
   "filters": {
     "orgId": "washoe",
-    "namespace": "urn:tybera:cedar:case",
+    "namespace": "urn:quasar:cedar:case",
     "docType": "motion"
   },
   "limit": 50,
@@ -388,15 +388,15 @@ Search must:
 
 Examples (URNs are illustrative):
 
-- `urn:tybera:cedar:workflow:ocr@1`
-- `urn:tybera:cedar:workflow:classify@1`
-- `urn:tybera:cedar:workflow:redact@1`
+- `urn:quasar:cedar:workflow:ocr@1`
+- `urn:quasar:cedar:workflow:classify@1`
+- `urn:quasar:cedar:workflow:redact@1`
 
 ```json
 {
   "inputs": {
     "sourceVersion": "current",
-    "targetNamespace": "urn:tybera:cedar:ocr",
+    "targetNamespace": "urn:quasar:cedar:ocr",
     "options": { "language": "en" }
   }
 }
@@ -425,7 +425,7 @@ Workflow output rules:
   "finishedAt": "...",
   "error": null,
   "outputs": {
-    "derivedNamespaces": ["urn:tybera:cedar:ocr"],
+    "derivedNamespaces": ["urn:quasar:cedar:ocr"],
     "viewKeys": ["v1:..."]
   }
 }

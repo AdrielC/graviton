@@ -64,10 +64,10 @@ Store the patch as an immutable audit artifact.
 
 ```json
 {
-  "namespaceUrn": "urn:tybera:cedar:case",
+  "namespaceUrn": "urn:quasar:cedar:case",
   "entry": {
     "id": "meta_01K...",
-    "schema": "urn:tybera:schema:cedar-case@1.2.0",
+    "schema": "urn:quasar:schema:cedar-case@1.2.0",
     "data": { "caseNumber": "CV-2024-123", "courtLocation": "Washoe" }
   }
 }

@@ -4,6 +4,7 @@ Welcome to the Graviton API documentation. This documentation is automatically g
 
 ## Modules
 
+- **graviton-data**: Dependency-free data structures (small building blocks shared across modules)
 - **graviton-core**: Pure domain types, hashing utilities, ranges, and manifests
 - **graviton-streams**: ZIO Stream combinators and chunking pipelines
 - **graviton-runtime**: Service ports, policies, and runtime abstractions

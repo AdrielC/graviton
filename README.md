@@ -35,6 +35,7 @@ Visit the [interactive demo](/demo) to explore Graviton's capabilities in your b
 ```
 graviton/
 ├─ modules/
+│  ├─ graviton-data/        # dependency-free data structures (small shared building blocks)
 │  ├─ graviton-core/        # pure domain types: hashing, keys, locators, ranges, manifests, union-find
 │  ├─ graviton-streams/     # ZIO stream combinators, hashing pipelines, scan/timeseries helpers
 │  ├─ graviton-runtime/     # runtime ports (BlobStore, RangeTracker, policies, constraints, metrics facade)

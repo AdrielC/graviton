@@ -73,6 +73,9 @@ generateDocs := {
   log.info("Generating Scaladoc for JVM modules...")
 
   val moduleDocs = List(
+    // Pure data structures
+    "data"            -> (LocalProject("data") / Compile / doc).value,
+
     // Core runtime surface
     "core"            -> (LocalProject("core") / Compile / doc).value,
     "streams"         -> (LocalProject("streams") / Compile / doc).value,
@@ -122,6 +125,7 @@ generateDocs := {
       |    <h1>Graviton Scaladoc</h1>
       |    <p>Choose a module:</p>
       |    <ul>
+      |      <li><a href="./data/index.html">data</a></li>
       |      <li><a href="./core/index.html">core</a></li>
       |      <li><a href="./streams/index.html">streams</a></li>
       |      <li><a href="./runtime/index.html">runtime</a></li>
@@ -183,6 +187,7 @@ lazy val docs = (project in file("docs-mdoc"))
   )
 
 lazy val root = (project in file(".")).aggregate(
+  data,
   core,
   streams,
   runtime,
@@ -224,7 +229,19 @@ lazy val root = (project in file(".")).aggregate(
   }
 )
 
+lazy val data = (project in file("modules/graviton-data"))
+  .settings(
+    baseSettings,
+    name := "graviton-data",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test
+    )
+  )
+
 lazy val core = (project in file("modules/graviton-core"))
+  .dependsOn(data)
   .settings(baseSettings,
     name := "graviton-core",
     libraryDependencies ++= Seq(
