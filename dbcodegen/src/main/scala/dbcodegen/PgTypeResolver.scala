@@ -12,9 +12,12 @@ object PgTypeResolver {
       typtype: String,
       typcategory: String,
       typname: String,
+      typeSchema: String,
       arrayElemType: Option[String],
+      arrayElemSchema: Option[String],
       enumLabels: Option[Seq[String]],
       rangeSubType: Option[String],
+      rangeSubTypeSchema: Option[String],
       domainName: Option[String],
   )
 
@@ -49,21 +52,54 @@ object PgTypeResolver {
        |  FROM col
        |  ORDER BY relid, attnum, depth DESC
        |)
-       |SELECT columnName,
-       |       typtype,
-       |       typcategory,
-       |       typname,
-       |       CASE WHEN typcategory = 'A' THEN format_type(typelem, NULL) END AS array_elem_type,
-       |       CASE WHEN typtype = 'r' THEN (
-       |         SELECT format_type(sub.oid, NULL)
+       |SELECT r.columnName,
+       |       r.typtype,
+       |       r.typcategory,
+       |       r.typname,
+       |       tn.nspname AS type_schema,
+       |       CASE WHEN r.typcategory = 'A' THEN (
+       |         SELECT elem.typname FROM pg_type elem WHERE elem.oid = r.typelem
+       |       ) END AS array_elem_type,
+       |       CASE WHEN r.typcategory = 'A' THEN (
+       |         SELECT en.nspname
+       |         FROM pg_type elem
+       |         JOIN pg_namespace en ON en.oid = elem.typnamespace
+       |         WHERE elem.oid = r.typelem
+       |       ) END AS array_elem_schema,
+       |       CASE WHEN r.typtype = 'r' THEN (
+       |         SELECT sub.typname
        |         FROM pg_range rg JOIN pg_type sub ON sub.oid = rg.rngsubtype
-       |         WHERE rg.rngtypid = type_oid
-       |       ) END AS range_subtype
-       |FROM resolved
+       |         WHERE rg.rngtypid = r.type_oid
+       |       ) END AS range_subtype,
+       |       CASE WHEN r.typtype = 'r' THEN (
+       |         SELECT sn.nspname
+       |         FROM pg_range rg
+       |         JOIN pg_type sub ON sub.oid = rg.rngsubtype
+       |         JOIN pg_namespace sn ON sn.oid = sub.typnamespace
+       |         WHERE rg.rngtypid = r.type_oid
+       |       ) END AS range_subtype_schema
+       |FROM resolved r
+       |JOIN pg_type rt ON rt.oid = r.type_oid
+       |JOIN pg_namespace tn ON tn.oid = rt.typnamespace
        |""".stripMargin
 
   private val enumQuery =
-    "SELECT enumlabel FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid WHERE t.typname = ? ORDER BY e.enumsortorder"
+    """SELECT e.enumlabel
+       |FROM pg_type t
+       |JOIN pg_namespace n ON n.oid = t.typnamespace
+       |JOIN pg_enum e ON e.enumtypid = t.oid
+       |WHERE n.nspname = ? AND t.typname = ?
+       |ORDER BY e.enumsortorder
+       |""".stripMargin
+
+  private val enumsInSchemaQuery =
+    """SELECT t.typname, e.enumlabel
+       |FROM pg_type t
+       |JOIN pg_namespace n ON n.oid = t.typnamespace
+       |JOIN pg_enum e ON e.enumtypid = t.oid
+       |WHERE n.nspname = ?
+       |ORDER BY t.typname, e.enumsortorder
+       |""".stripMargin
 
   private val domainQuery =
     "SELECT domain_name FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?"
@@ -80,11 +116,31 @@ object PgTypeResolver {
       val typtype       = rs.getString("typtype")
       val typcategory   = rs.getString("typcategory")
       val typname       = rs.getString("typname")
+      val typeSchema    = rs.getString("type_schema")
       val arrayElemType = Option(rs.getString("array_elem_type"))
+      val arrayElemSchema = Option(rs.getString("array_elem_schema"))
       val rangeSubtype  = Option(rs.getString("range_subtype"))
-      val enumLabels = enumLabelsFor(if (typtype == "e") typname else arrayElemType.orNull, source)
+      val rangeSubtypeSchema = Option(rs.getString("range_subtype_schema"))
+      val enumLabels =
+        if (typtype == "e") enumLabelsFor(typeSchema, typname, source)
+        else
+          (for
+            elemName   <- arrayElemType
+            elemSchema <- arrayElemSchema
+          yield enumLabelsFor(elemSchema, elemName, source)).flatten
       val domainName   = domainNameFor(domainPs, schema, table, column)
-      buf += column -> ColumnInfo(typtype, typcategory, typname, arrayElemType, enumLabels, rangeSubtype, domainName)
+      buf += column -> ColumnInfo(
+        typtype = typtype,
+        typcategory = typcategory,
+        typname = typname,
+        typeSchema = typeSchema,
+        arrayElemType = arrayElemType,
+        arrayElemSchema = arrayElemSchema,
+        enumLabels = enumLabels,
+        rangeSubType = rangeSubtype,
+        rangeSubTypeSchema = rangeSubtypeSchema,
+        domainName = domainName,
+      )
     }
     rs.close()
     ps.close()
@@ -92,10 +148,29 @@ object PgTypeResolver {
     buf.toMap
   }
 
-  private def enumLabelsFor(tpe: String, conn: Connection): Option[Seq[String]] =
+  def resolveEnums(schema: String, source: Connection): Seq[(String, Seq[String])] = {
+    val ps = source.prepareStatement(enumsInSchemaQuery)
+    ps.setString(1, schema)
+    val rs = ps.executeQuery()
+    try {
+      val buf = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[String]]
+      while (rs.next()) {
+        val tpe   = rs.getString(1)
+        val label = rs.getString(2)
+        buf.getOrElseUpdate(tpe, mutable.ListBuffer.empty) += label
+      }
+      buf.iterator.map { case (name, labels) => (name, labels.toList) }.toList
+    } finally {
+      rs.close()
+      ps.close()
+    }
+  }
+
+  private def enumLabelsFor(schema: String, tpe: String, conn: Connection): Option[Seq[String]] =
     Option(tpe).flatMap { name =>
       val ps   = conn.prepareStatement(enumQuery)
-      ps.setString(1, name)
+      ps.setString(1, schema)
+      ps.setString(2, name)
       val rs   = ps.executeQuery()
       val list = mutable.ListBuffer.empty[String]
       while (rs.next()) list += rs.getString(1)

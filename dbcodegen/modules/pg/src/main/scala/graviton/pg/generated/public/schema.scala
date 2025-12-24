@@ -13,6 +13,10 @@ enum ReplicaStatus(val value: String) derives Schema {
   case DEGRADED extends ReplicaStatus("DEGRADED")
   case OFFLINE extends ReplicaStatus("OFFLINE")
 }
+object ReplicaStatus {
+  private val byValue: Map[String, ReplicaStatus] = ReplicaStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[ReplicaStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown replica_status value '" + str + "'")), _.value)
+}
 @Table(PostgresDbType) final case class Replicas(@Id @SqlName("key") key: Chunk[Byte], @Id @SqlName("sector_id") sectorId: String, @Id @SqlName("range_start") rangeStart: Long, @SqlName("range_end") rangeEnd: Long, @SqlName("healthy") healthy: Boolean, @SqlName("status") status: ReplicaStatus, @SqlName("last_verified") lastVerified: Option[java.time.OffsetDateTime]) derives DbCodec, Schema
 object Replicas {
   opaque type Id = (key: Chunk[Byte], sectorId: String, rangeStart: Long)
