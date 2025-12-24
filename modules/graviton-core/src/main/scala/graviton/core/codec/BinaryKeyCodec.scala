@@ -33,7 +33,7 @@ object BinaryKeyCodec:
         val keyBits      = digestEither.flatMap(d => KeyBits.create(algo, d, size.toLong))
         Attempt.fromEither(keyBits.left.map(Err(_)))
       },
-      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex), keyBits.size)),
+      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex.value), keyBits.size)),
     )
 
   private val attributesCodec: Codec[ListMap[String, String]] =

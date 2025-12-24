@@ -21,7 +21,7 @@ resolvers ++= Resolver.sonatypeOssRepos("public")
 libraryDependencies += "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-codegen" % "0.6.3"
 
 // Scala.js for frontend
-addSbtPlugin("org.scala-js"       % "sbt-scalajs"              % "1.17.0")
+addSbtPlugin("org.scala-js"       % "sbt-scalajs"              % "1.20.1")
 addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject" % "1.3.2")
 
 resolvers ++= Resolver.sonatypeOssRepos("public")

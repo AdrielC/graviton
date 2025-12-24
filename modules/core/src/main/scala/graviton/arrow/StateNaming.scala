@@ -3,28 +3,31 @@ package graviton.arrow
 import scala.collection.mutable
 import scala.quoted.*
 
+type Field[Label <: String & Singleton, A] = NamedTuple.NamedTuple[(Label *: EmptyTuple), (A *: EmptyTuple)]
+
 private[arrow] object StateNaming:
 
   private val counters = mutable.HashMap.empty[(String, String), Int]
 
-  inline def derive(inline fallback: String = "state"): String = ${ deriveImpl('fallback) }
+  inline def derive[Label <: String, L <: String & Singleton]: Label | L =
+    ${ deriveImpl('{ compiletime.constValue[L] }) }
 
-  private def deriveImpl(fallbackExpr: Expr[String])(using Quotes): Expr[String] =
+  private def deriveImpl[Label <: String, L <: String & Singleton](fallbackExpr: Expr[L])(using Quotes): Expr[Label | L] =
     import quotes.reflect.*
     val pos      = Position.ofMacroExpansion
-    val filePath = pos.sourceFile.jpath.map(_.toString).getOrElse(pos.sourceFile.path)
+    val filePath = pos.sourceFile.jpath.toString
     val base     = extractName(pos).getOrElse(fallbackExpr.valueOrAbort).trim match
       case "" => fallbackExpr.valueOrAbort
       case s  => sanitize(s)
-    val next = register(filePath, base)
-    Expr(next)
+    val next     = register(filePath, base)
+    Expr[Label | L](next.asInstanceOf[Label | L])
 
   private def register(file: String, base: String): String =
     counters.synchronized {
       val key   = (file, base)
       val count = counters.getOrElse(key, 0)
       counters.update(key, count + 1)
-      if count == 0 then base else s"${base}_${count}"
+      if count == 0 then base else s"${base}_$count"
     }
 
   private def sanitize(name: String): String =
