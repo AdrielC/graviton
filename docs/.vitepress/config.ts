@@ -103,7 +103,9 @@ export default withMermaid(defineConfig({
       { text: 'API', link: '/api' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
-      { text: 'Scaladoc', link: withBase('/scaladoc/'), target: '_blank' }
+      // Note: VitePress automatically prefixes `base` for internal links.
+      // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
+      { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
     ],
     sidebar: [
       {
@@ -168,7 +170,7 @@ export default withMermaid(defineConfig({
           { text: 'API Overview', link: '/api' },
           { text: 'gRPC', link: '/api/grpc' },
           { text: 'HTTP', link: '/api/http' },
-          { text: 'Scaladoc', link: withBase('/scaladoc/'), target: '_blank' }
+          { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
         ]
       },
       {
