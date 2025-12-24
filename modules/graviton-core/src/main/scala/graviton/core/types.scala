@@ -169,20 +169,44 @@ object types:
   object SizeTraitInt  extends IntSizeTrait[Int]
   object SizeTraitLong extends LongSizeTrait[Long]
 
+  // ---------------------------
+  // Base families
+  //
+  // Law:
+  // - Indexes are 0-based (min = 0)
+  // - Sizes/counts/bytes are 1-based (min = 1)
+  // ---------------------------
+
+  type Size1 = Size1.T
+  trait Size1 extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
+  object Size1 extends Size1
+
+  type SizeLong1 = SizeLong1.T
+  trait SizeLong1 extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
+  object SizeLong1 extends SizeLong1
+
+  type IndexLong0 = IndexLong0.T
+  trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
+  object IndexLong0 extends IndexLong0
+
+  // Legacy convenience names (now size-min-1, not index-min-0)
   type SizeLong = SizeLong.T
-  object SizeLong extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
+  object SizeLong extends SizeLong1
 
   type Size = Size.T
-  object Size extends SizeTraitInt.Trait[0, Int.MaxValue.type, 0, 1]
+  object Size extends Size1
 
   object SizeSubtype     extends IntSizeTrait[Int]
   object SizeLongSubtype extends LongSizeTrait[Long]
+
+  // Keep this value available for runtime checks.
+  val MaxBlockBytes: Int = 16 * 1024 * 1024 // 16 MiB
 
   type BlockSize = BlockSize.T
   object BlockSize extends SizeSubtype.Trait[1, 16777216, 0, 1] // 16 MiB
 
   type FileSize = FileSize.T
-  object FileSize extends SizeLongSubtype.Trait[0L, 1099511627776L, 0L, 1L] // 1 TiB
+  object FileSize extends SizeLongSubtype.Trait[1L, 1099511627776L, 0L, 1L] // 1 TiB
 
   type Algo = Algo.T
   object Algo extends RefinedTypeExt[String, AlgoConstraint]
@@ -200,7 +224,7 @@ object types:
     type Constraint = HexUpperConstraint
 
   type BlockIndex = BlockIndex.T
-  object BlockIndex extends SizeLongSubtype.Trait[0L, Long.MaxValue.type, 0L, 1L]
+  object BlockIndex extends IndexLong0
 
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]
@@ -209,7 +233,7 @@ object types:
   object KekId extends HexTrait[KekIdConstraint]
 
   type NonceLength = NonceLength.T
-  object NonceLength extends SizeTraitInt.Trait[0, 32, 0, 1]
+  object NonceLength extends SizeTraitInt.Trait[1, 32, 0, 1]
 
   type LocatorScheme = LocatorScheme.T
   object LocatorScheme extends RefinedTypeExt[String, Match["[a-z0-9+.-]+"]]
@@ -221,7 +245,7 @@ object types:
   object FileSegment extends RefinedTypeExt[String, Match["[^/]+"] & MinLength[1]]
 
   type ChunkCount = ChunkCount.T
-  object ChunkCount extends SizeLongSubtype.Trait[0L, Long.MaxValue.type, 0L, 1L]
+  object ChunkCount extends SizeLong1
 
   // MIME type (very light validation; tighten if/when a stricter policy is required).
   type Mime = Mime.T
