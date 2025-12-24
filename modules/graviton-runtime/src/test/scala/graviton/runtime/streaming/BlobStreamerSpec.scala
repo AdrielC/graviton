@@ -57,6 +57,16 @@ object BlobStreamerSpec extends ZIOSpecDefault:
                        .streamBlob(refs, delayedStore, BlobStreamer.Config(windowRefs = 2, maxInFlight = 2))
                        .runCollect
           expected = b0.bytes ++ b1.bytes ++ b2.bytes ++ b3.bytes
-        yield assertTrue(bytes == expected)
+          s0       = bytes.take(b0.bytes.length)
+          s1       = bytes.slice(b0.bytes.length, b0.bytes.length + b1.bytes.length)
+          s2       = bytes.slice(b0.bytes.length + b1.bytes.length, b0.bytes.length + b1.bytes.length + b2.bytes.length)
+          s3       = bytes.drop(b0.bytes.length + b1.bytes.length + b2.bytes.length)
+        yield assertTrue(
+          bytes.length == expected.length,
+          s0 == b0.bytes,
+          s1 == b1.bytes,
+          s2 == b2.bytes,
+          s3 == b3.bytes,
+        )
       }
     )
