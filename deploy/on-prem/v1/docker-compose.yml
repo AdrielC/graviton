@@ -1,0 +1,165 @@
+name: quasar-v1-onprem
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:16}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quasar}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERPASS:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Create roles/users first, then apply the authoritative DDL from this repo.
+      - ./migrations/00_roles.sql:/docker-entrypoint-initdb.d/00_roles.sql:ro
+      - ../../../modules/pg/ddl.sql:/docker-entrypoint-initdb.d/10_schema.sql:ro
+      - ./migrations/20_grants.sql:/docker-entrypoint-initdb.d/20_grants.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB:-quasar}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [quasar-internal]
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [quasar-internal]
+
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:latest}
+    command: ["server", "--console-address", ":9001", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    networks: [quasar-internal]
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE:-minio/mc:latest}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        mc alias set local "http://minio:9000" "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}"
+        mc mb --ignore-existing local/graviton-blocks
+        mc mb --ignore-existing local/graviton-blobs
+        mc mb --ignore-existing local/graviton-manifests
+        mc mb --ignore-existing local/graviton-tmp
+        echo "minio buckets ready"
+    networks: [quasar-internal]
+
+  graviton-node-1:
+    build:
+      context: ../../..
+      dockerfile: deploy/on-prem/v1/docker/graviton.Dockerfile
+    environment:
+      GRAVITON_HTTP_PORT: ${GRAVITON_HTTP_PORT:-8081}
+    ports:
+      - "${GRAVITON_HTTP_PORT:-8081}:${GRAVITON_HTTP_PORT:-8081}"
+    volumes:
+      - ./config:/etc/quasar/config:ro
+      - graviton-tmp:/var/lib/graviton
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks: [quasar-internal]
+
+  quasar-api:
+    build:
+      context: ../../..
+      dockerfile: deploy/on-prem/v1/docker/quasar.Dockerfile
+    environment:
+      QUASAR_HTTP_PORT: ${QUASAR_HTTP_PORT:-8080}
+      QUASAR_JDBC_URL: ${QUASAR_JDBC_URL:-jdbc:postgresql://postgres:5432/quasar}
+      QUASAR_DB_USERNAME: ${QUASAR_DB_USERNAME:-quasar_app}
+      QUASAR_DB_PASSWORD: ${QUASAR_DB_PASSWORD:-quasar_app}
+      QUASAR_REDIS_HOST: ${QUASAR_REDIS_HOST:-redis}
+      QUASAR_REDIS_PORT: ${QUASAR_REDIS_PORT:-6379}
+      QUASAR_MINIO_URL: ${QUASAR_MINIO_URL:-http://minio:9000}
+      QUASAR_GRAVITON_BASE_URL: ${QUASAR_GRAVITON_BASE_URL:-http://graviton-node-1:${GRAVITON_HTTP_PORT:-8081}}
+    ports:
+      - "${QUASAR_HTTP_PORT:-8080}:${QUASAR_HTTP_PORT:-8080}"
+    volumes:
+      - ./config:/etc/quasar/config:ro
+      - ./secrets:/etc/quasar/config/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      graviton-node-1:
+        condition: service_started
+    networks: [quasar-internal]
+
+  job-runner:
+    build:
+      context: ../../..
+      dockerfile: deploy/on-prem/v1/docker/job-runner.Dockerfile
+    environment:
+      JOB_RUNNER_POLL_INTERVAL: ${JOB_RUNNER_POLL_INTERVAL:-5s}
+      QUASAR_JDBC_URL: ${QUASAR_JDBC_URL:-jdbc:postgresql://postgres:5432/quasar}
+      QUASAR_DB_USERNAME: ${QUASAR_DB_USERNAME:-quasar_app}
+      QUASAR_DB_PASSWORD: ${QUASAR_DB_PASSWORD:-quasar_app}
+    volumes:
+      - ./config:/etc/quasar/config:ro
+      - ./secrets:/etc/quasar/config/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [quasar-internal]
+
+  # Optional gateway (single external entrypoint). Enable with:
+  #   docker compose --profile gateway up
+  gateway:
+    profiles: ["gateway"]
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    ports:
+      - "${GATEWAY_HTTP_PORT:-80}:80"
+      - "${GATEWAY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - gateway-data:/data
+      - gateway-config:/config
+    depends_on:
+      quasar-api:
+        condition: service_started
+    networks: [quasar-internal]
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  graviton-tmp:
+  gateway-data:
+  gateway-config:
+
+networks:
+  quasar-internal:
+    driver: bridge
+

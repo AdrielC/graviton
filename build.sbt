@@ -415,6 +415,7 @@ lazy val quasarHttp = (project in file("modules/quasar-http"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "dev.zio" %% "zio-http" % V.zioHttp,
+      "org.postgresql" % "postgresql" % V.pg,
     ),
   )
 

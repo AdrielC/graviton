@@ -1,0 +1,5 @@
+:{$GATEWAY_HTTP_PORT} {
+  # v1: single external entrypoint
+  reverse_proxy quasar-api:{$QUASAR_HTTP_PORT}
+}
+
