@@ -31,7 +31,7 @@ This board breaks the publishing readiness goals into small, grab-and-go tasks. 
 
 ### 5) Binary streaming guide
 - **Scope:** Write and link a guide explaining blocks, blobs, manifests, attributes, and chunking strategy.
-- **Key changes:** New doc under `docs/` with diagrams/flows; update Getting Started/nav to link it; replace lingering Torrent terminology.
+- **Key changes:** Keep the guide discoverable from Getting Started/nav; keep terminology and examples aligned with the current runtime APIs.
 - **Acceptance:** `mdoc` build passes; guide is discoverable from Getting Started; terminology is Graviton-specific.
 
 ### 6) CLI usage docs
@@ -52,7 +52,7 @@ This board breaks the publishing readiness goals into small, grab-and-go tasks. 
 ### 9) Replication/manifest docs
 - **Scope:** Document replication model (stores/sectors/replicas) and manifest format with forward-compat guarantees.
 - **Key changes:** Add docs with diagrams and examples; ensure terms match current code; link from module pages.
-- **Acceptance:** `mdoc` passes; docs free of Torrent references; forward-compat story is explicit.
+- **Acceptance:** `mdoc` passes; docs avoid aspirational pseudo-implementations; forward-compat story is explicit.
 
 ### 10) Apache Tika module page
 - **Scope:** Add module page for Tika integration under `docs/modules/`.

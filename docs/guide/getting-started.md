@@ -10,7 +10,7 @@ Graviton provides a stable ingest and retrieval pipeline for large binary payloa
 
 - **Content-Addressable Storage**: Automatic deduplication through content-defined chunking
 - **Modular Architecture**: Pure domain logic separated from effectful runtime code
-- **Multiple Backends**: S3, PostgreSQL, RocksDB support out of the box
+- **Multiple Backends**: In-memory reference stores today; PostgreSQL/S3/Rocks modules are evolving behind stable runtime ports
 - **ZIO-Powered**: Built on ZIO for composable, type-safe effects
 - **Protocol Flexibility**: Both gRPC and HTTP endpoints
 - **Observable**: Prometheus metrics, structured logging, and tracing
@@ -62,33 +62,22 @@ If the demo reports _“Interactive Demo Not Available”_, rebuild it with `./s
 
 ## Your First Upload
 
-Here's a minimal example of using Graviton's core APIs:
+Here's a minimal example using the in-memory runtime stores (no external services required):
 
 ```scala
-import graviton.core.*
-import graviton.runtime.*
+import graviton.runtime.stores.InMemoryBlobStore
 import zio.*
+import zio.stream.*
 
-// Create a simple blob store
-val store: BlobStore = ???
-
-// Upload some bytes
-val upload = for {
-  // Compute hash and derive key
-  bytes <- ZIO.succeed("Hello, Graviton!".getBytes)
-  key   <- HashAlgo.SHA256.hash(bytes)
-  
-  // Store the blob
-  _ <- store.put(key, Chunk.fromArray(bytes))
-  
-  // Retrieve it back
-  retrieved <- store.get(key)
-} yield retrieved
-
-// Run the effect
-Unsafe.unsafe { implicit unsafe =>
-  Runtime.default.unsafe.run(upload)
-}
+object Demo extends ZIOAppDefault:
+  override def run =
+    for
+      store  <- InMemoryBlobStore.make()
+      write  <- ZStream.fromIterable("Hello, Graviton!".getBytes("UTF-8")).run(store.put())
+      bytes  <- store.get(write.key).runCollect
+      output <- ZIO.attempt(new String(bytes.toArray, "UTF-8"))
+      _      <- Console.printLine(output)
+    yield ()
 ```
 
 ## What's Next?
