@@ -45,6 +45,45 @@ object types:
       .map[K, V]
       .transform(m => ListMap.from(m), lm => lm.toMap)
 
+  // ---------------------------
+  // "Cool stuff" size helpers (compile-safe)
+  // ---------------------------
+  //
+  // The earlier “clever” SizeTrait design tried to *also* provide full Numeric/Integral instances
+  // for refined types, plus some aggressive self-type constraints. Scala 3 + Iron makes that easy
+  // to accidentally break (and it broke the build).
+  //
+  // This is a compile-safe version that keeps the useful bits:
+  // - stable Min/Max/Zero/One for a refined numeric type
+  // - checked arithmetic that returns Either (no throwing)
+  // - minimal assumptions: "T is a refined view of the underlying primitive"
+  trait SizeTrait[Tpe, T]:
+    def either(value: Tpe): Either[String, T]
+    def unsafe(value: Tpe): T
+
+    def minValue: Tpe
+    def maxValue: Tpe
+    def zeroValue: Tpe
+    def oneValue: Tpe
+
+    final lazy val Min: T  = unsafe(minValue)
+    final lazy val Max: T  = unsafe(maxValue)
+    final lazy val Zero: T = unsafe(zeroValue)
+    final lazy val One: T  = unsafe(oneValue)
+
+    // Refined numeric types in this codebase are runtime-identical to their underlying primitives.
+    // Keeping this local avoids requiring any global implicit conversions.
+    protected inline def raw(value: T): Tpe = value.asInstanceOf[Tpe]
+
+    extension (value: T)(using integral: Integral[Tpe])
+      def checkedAdd(other: T): Either[String, T] = either(integral.plus(raw(value), raw(other)))
+      def checkedSub(other: T): Either[String, T] = either(integral.minus(raw(value), raw(other)))
+      def checkedMul(other: T): Either[String, T] = either(integral.times(raw(value), raw(other)))
+
+      inline def increment(n: Int): Either[String, T] =
+        if n < 0 then Left(s"increment must be non-negative, got $n")
+        else either(integral.plus(raw(value), integral.fromInt(n)))
+
   // --- String constraints
   type AlgoConstraint     = Match["(sha-256|sha-1|blake3|md5)"]
   type HexLowerConstraint = Match["[0-9a-f]{1,64}"]
@@ -67,6 +106,51 @@ object types:
 
   // Keep this value available for runtime checks.
   val MaxBlockBytes: Int = graviton.core.model.ByteConstraints.MaxBlockBytes
+
+  object BlockSizeOps extends SizeTrait[Int, BlockSize]:
+    import graviton.core.model.ByteConstraints
+    def either(value: Int): Either[String, BlockSize] = ByteConstraints.refineBlockSize(value)
+    def unsafe(value: Int): BlockSize                 = ByteConstraints.unsafeBlockSize(value)
+    val minValue: Int                                 = 1
+    val maxValue: Int                                 = ByteConstraints.MaxBlockBytes
+    val zeroValue: Int                                = 0
+    val oneValue: Int                                 = 1
+
+  object UploadChunkSizeOps extends SizeTrait[Int, ChunkSize]:
+    import graviton.core.model.ByteConstraints
+    def either(value: Int): Either[String, ChunkSize] = ByteConstraints.refineUploadChunkSize(value)
+    def unsafe(value: Int): ChunkSize                 = value.asInstanceOf[ChunkSize]
+    val minValue: Int                                 = ByteConstraints.MinUploadChunkBytes
+    val maxValue: Int                                 = ByteConstraints.MaxUploadChunkBytes
+    val zeroValue: Int                                = 0
+    val oneValue: Int                                 = 1
+
+  object FileSizeOps extends SizeTrait[Long, FileSize]:
+    import graviton.core.model.ByteConstraints
+    def either(value: Long): Either[String, FileSize] = ByteConstraints.refineFileSize(value)
+    def unsafe(value: Long): FileSize                 = ByteConstraints.unsafeFileSize(value)
+    val minValue: Long                                = ByteConstraints.MinFileBytes
+    val maxValue: Long                                = Long.MaxValue
+    val zeroValue: Long                               = 0L
+    val oneValue: Long                                = 1L
+
+  object ChunkCountOps extends SizeTrait[Long, ChunkCount]:
+    import graviton.core.model.ByteConstraints
+    def either(value: Long): Either[String, ChunkCount] = ByteConstraints.refineChunkCount(value)
+    def unsafe(value: Long): ChunkCount                 = value.asInstanceOf[ChunkCount]
+    val minValue: Long                                  = 0L
+    val maxValue: Long                                  = Long.MaxValue
+    val zeroValue: Long                                 = 0L
+    val oneValue: Long                                  = 1L
+
+  object BlockIndexOps extends SizeTrait[Long, BlockIndex]:
+    import graviton.core.model.ByteConstraints
+    def either(value: Long): Either[String, BlockIndex] = ByteConstraints.refineBlockIndex(value)
+    def unsafe(value: Long): BlockIndex                 = value.asInstanceOf[BlockIndex]
+    val minValue: Long                                  = 0L
+    val maxValue: Long                                  = Long.MaxValue
+    val zeroValue: Long                                 = 0L
+    val oneValue: Long                                  = 1L
 
   type Algo = Algo.T
   object Algo extends RefinedTypeExt[String, AlgoConstraint]
