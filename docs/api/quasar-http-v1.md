@@ -66,12 +66,12 @@ Request:
   "documentId": "optional-uuidv7",
   "placementHint": "transient | archival | legal_hold",
   "externalRefs": [
-    { "system": "cedar3", "value": "ABC123", "meta": { "repo": "shortterm" } }
+    { "system": "legacy", "value": "ABC123", "meta": { "repo": "shortterm" } }
   ],
   "initialMetadata": {
     "namespaces": {
-      "urn:tybera:quasar:core": {
-        "schema": "urn:tybera:schema:quasar-core@1.0.0",
+      "urn:quasar:core": {
+        "schema": "urn:quasar:schema:core@1.0.0",
         "id": "meta_01J...",
         "data": { "mimeType": "application/pdf" }
       }
@@ -172,7 +172,7 @@ GET /v1/documents/{documentId}/content
 
 Optional query params that produce **Views** (deterministic derived content):
 
-- `view=urn:tybera:view:ocrText@1`
+- `view=urn:quasar:view:ocrText@1`
 - `stripSignatures=true`
 - `redactionProfile=public`
 
@@ -205,7 +205,7 @@ Request:
 {
   "inputs": {
     "sourceVersion": "current",
-    "targetNamespace": "urn:tybera:cedar:ocr",
+    "targetNamespace": "urn:quasar:ocr",
     "options": { "language": "en" }
   }
 }
@@ -233,7 +233,7 @@ Response:
   "finishedAt": "...",
   "error": null,
   "outputs": {
-    "derivedNamespaces": ["urn:tybera:cedar:ocr"],
+    "derivedNamespaces": ["urn:quasar:ocr"],
     "viewKeys": ["v1:..."]
   }
 }
@@ -243,5 +243,5 @@ Response:
 
 See:
 
-- **[Legacy Cedar integration](./legacy-cedar.md)** (read-through + import-on-read)
+- **[Legacy repository integration](./legacy-repos.md)** (read-through + import-on-read)
 

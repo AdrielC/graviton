@@ -5,10 +5,10 @@ import graviton.runtime.metrics.MetricsRegistry
 import zio.*
 import zio.http.*
 
-final case class CedarLegacyHttpApi(
-  repos: CedarRepos,
-  catalog: CedarCatalog,
-  fs: CedarFs,
+final case class LegacyRepoHttpApi(
+  repos: LegacyRepos,
+  catalog: LegacyCatalog,
+  fs: LegacyFs,
   metrics: Option[MetricsRegistry] = None,
 ):
 
@@ -24,21 +24,21 @@ final case class CedarLegacyHttpApi(
 
   private def respondForError(err: Throwable): UIO[Response] =
     err match
-      case e: CedarLegacyError.CatalogError.RepoNotConfigured  =>
+      case _: LegacyRepoError.CatalogError.RepoNotConfigured  =>
         ZIO.succeed(Response.status(Status.NotFound))
-      case _: CedarLegacyError.CatalogError.MetadataNotFound   =>
+      case _: LegacyRepoError.CatalogError.MetadataNotFound   =>
         ZIO.succeed(Response.status(Status.NotFound))
-      case _: CedarLegacyError.FsError.BinaryNotFound          =>
+      case _: LegacyRepoError.FsError.BinaryNotFound          =>
         ZIO.succeed(Response.status(Status.NotFound))
-      case _: CedarLegacyError.FsError.InvalidBinaryHash       =>
+      case _: LegacyRepoError.FsError.InvalidBinaryHash       =>
         ZIO.succeed(Response.status(Status.UnprocessableEntity))
-      case _: CedarLegacyError.CatalogError.MetadataInvalid    =>
+      case _: LegacyRepoError.CatalogError.MetadataInvalid    =>
         ZIO.succeed(Response.status(Status.UnprocessableEntity))
-      case _: CedarLegacyError.FsError.BinaryUnreadable        =>
+      case _: LegacyRepoError.FsError.BinaryUnreadable        =>
         ZIO.succeed(Response.status(Status.Conflict))
-      case _: CedarLegacyError.CatalogError.MetadataUnreadable =>
+      case _: LegacyRepoError.CatalogError.MetadataUnreadable =>
         ZIO.succeed(Response.status(Status.Conflict))
-      case _                                                   =>
+      case _                                                  =>
         ZIO.succeed(Response.status(Status.InternalServerError))
 
   private val getLegacyHandler: Handler[Any, Nothing, (String, String, Request), Response] =
