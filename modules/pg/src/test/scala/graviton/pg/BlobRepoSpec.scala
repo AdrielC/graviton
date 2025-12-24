@@ -62,12 +62,13 @@ object BlobRepoSpec extends ZIOSpecDefault {
           blobRepo  <- ZIO.service[BlobRepo]
           blockKey   = BlockKey(1.toShort, sampleHash(3))
           size       = PosLong.applyUnsafe(4096L)
+          blobSize   = NonNegLong.applyUnsafe(4096L)
           _         <- blockRepo.upsertBlock(blockKey, size, inline = None)
-          blobId    <- blobRepo.upsertBlob(BlobKey(blockKey.algoId, blockKey.hash, size, Some("application/octet-stream")))
-          written   <- ZStream(BlockInsert(blockKey.algoId, blockKey.hash, size, PosLong.applyUnsafe(1L)))
+          blobId    <- blobRepo.upsertBlob(BlobKey(blockKey.algoId, blockKey.hash, blobSize, Some("application/octet-stream")))
+          written   <- ZStream(BlockInsert(blockKey.algoId, blockKey.hash, size, NonNegLong.applyUnsafe(0L)))
                          .via(blobRepo.putBlobBlocks(blobId))
                          .runCollect
-          found     <- blobRepo.findBlobId(BlobKey(blockKey.algoId, blockKey.hash, size, Some("application/octet-stream")))
+          found     <- blobRepo.findBlobId(BlobKey(blockKey.algoId, blockKey.hash, blobSize, Some("application/octet-stream")))
           manifest  <- xa.transact {
                          sql"""
                             SELECT count(*) FROM manifest_entry WHERE blob_id = $blobId
