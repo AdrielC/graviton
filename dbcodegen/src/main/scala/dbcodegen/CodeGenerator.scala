@@ -249,6 +249,23 @@ object CodeGenerator {
       case Nil =>
         sb.append("  type Id = Null\n\n")
 
+      case single :: Nil =>
+        val col         = single
+        val baseType    = renderColumnType(col, forceRequired = true)
+        val idCodecName = "given_DbCodec_Id"
+
+        // NOTE: one-element named tuples are not stable through tooling (parser/printer tend to erase tuple-ness).
+        // For robustness we use an opaque over the base type and expose a stable unwrap.
+        sb.append(s"  opaque type Id = $baseType\n\n")
+
+        sb.append("  object Id:\n")
+        sb.append(s"    def apply(${col.scalaName}: $baseType): Id = ${col.scalaName}\n")
+        sb.append(s"    def unwrap(id: Id): $baseType = id\n\n")
+
+        sb.append(
+          s"  given $idCodecName: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => Id(value), id => Id.unwrap(id))\n\n",
+        )
+
       case _ =>
         val namedTuple  = renderNamedTuple(primaryKeyColumns)
         val tupleCtor   = renderTupleCtor(primaryKeyColumns)
@@ -516,7 +533,13 @@ object CodeGenerator {
       val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)
       if (primaryKeyColumns.nonEmpty) then
         val idGiven      = schemaGivenName(s"${table.scalaName}.Id")
-        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
+        val schemaSource =
+          primaryKeyColumns.toList match
+            case single :: Nil =>
+              val baseType = renderColumnType(single, forceRequired = true)
+              s"scala.compiletime.summonInline[Schema[$baseType]].transform(value => ${table.scalaName}.Id(value), id => ${table.scalaName}.Id.unwrap(id))"
+            case _ =>
+              renderIdSchemaSource(table.scalaName, primaryKeyColumns)
         sb.append(s"  given $idGiven: Schema[${table.scalaName}.Id] = $schemaSource\n")
 
       if (!table.isView) {}

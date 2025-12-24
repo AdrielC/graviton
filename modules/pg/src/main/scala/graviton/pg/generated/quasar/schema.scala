@@ -29,34 +29,49 @@ object VDocUploadClaims {
 }
 @Table(PostgresDbType) final case class SchemaRegistry(@Id @SqlName("schema_id") schemaId: java.util.UUID, @SqlName("org_id") orgId: Option[java.util.UUID], @SqlName("schema_urn") schemaUrn: String, @SqlName("schema_json") schemaJson: Json, @SqlName("canonical_hash") canonicalHash: Chunk[Byte], @SqlName("status") status: SchemaStatus, @SqlName("supersedes_schema_id") supersedesSchemaId: Option[java.util.UUID], @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object SchemaRegistry {
-  opaque type Id = schemaId: java.util.UUID
-  object Id { def apply(schemaId: java.util.UUID): Id = schemaId = schemaId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => schemaId = value, id => id.schemaId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(schemaId: java.util.UUID): Id = schemaId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[SchemaRegistry.Id] = None, orgId: Option[java.util.UUID] = None, schemaUrn: String, schemaJson: Json, canonicalHash: Chunk[Byte], status: Option[SchemaStatus] = None, supersedesSchemaId: Option[java.util.UUID] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[SchemaRegistry.Creator, SchemaRegistry, SchemaRegistry.Id]
 }
 @Table(PostgresDbType) final case class Org(@Id @SqlName("org_id") orgId: java.util.UUID, @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object Org {
-  opaque type Id = orgId: java.util.UUID
-  object Id { def apply(orgId: java.util.UUID): Id = orgId = orgId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => orgId = value, id => id.orgId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(orgId: java.util.UUID): Id = orgId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[Org.Id] = None, tenantId: java.util.UUID, name: String, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Org.Creator, Org, Org.Id]
 }
 @Table(PostgresDbType) final case class Tenant(@Id @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object Tenant {
-  opaque type Id = tenantId: java.util.UUID
-  object Id { def apply(tenantId: java.util.UUID): Id = tenantId = tenantId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => tenantId = value, id => id.tenantId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(tenantId: java.util.UUID): Id = tenantId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[Tenant.Id] = None, name: String, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Tenant.Creator, Tenant, Tenant.Id]
 }
 object Schemas {
   given vDocUploadClaimsSchema: Schema[VDocUploadClaims] = DeriveSchema.gen[VDocUploadClaims]
   given schemaRegistrySchema: Schema[SchemaRegistry] = DeriveSchema.gen[SchemaRegistry]
-  given schemaRegistryIdSchema: Schema[SchemaRegistry.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => schemaId = value, id => id.schemaId)
+  given schemaRegistryIdSchema: Schema[SchemaRegistry.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => SchemaRegistry.Id(value), id => SchemaRegistry.Id.unwrap(id))
   given orgSchema: Schema[Org] = DeriveSchema.gen[Org]
-  given orgIdSchema: Schema[Org.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => orgId = value, id => id.orgId)
+  given orgIdSchema: Schema[Org.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Org.Id(value), id => Org.Id.unwrap(id))
   given tenantSchema: Schema[Tenant] = DeriveSchema.gen[Tenant]
-  given tenantIdSchema: Schema[Tenant.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => tenantId = value, id => id.tenantId)
+  given tenantIdSchema: Schema[Tenant.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Tenant.Id(value), id => Tenant.Id.unwrap(id))
 }

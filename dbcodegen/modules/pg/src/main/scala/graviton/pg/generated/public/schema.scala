@@ -24,9 +24,12 @@ object Replicas {
 }
 @Table(PostgresDbType) final case class Manifests(@Id @SqlName("key") key: Chunk[Byte], @SqlName("manifest_data") manifestData: Chunk[Byte], @SqlName("schema_version") schemaVersion: Int, @SqlName("attributes") attributes: Option[Json], @SqlName("created_at") createdAt: java.time.OffsetDateTime, @SqlName("updated_at") updatedAt: java.time.OffsetDateTime) derives DbCodec
 object Manifests {
-  opaque type Id = key: Chunk[Byte]
-  object Id { def apply(key: Chunk[Byte]): Id = key = key }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => key = value, id => id.key)
+  opaque type Id = Chunk[Byte]
+  object Id {
+    def apply(key: Chunk[Byte]): Id = key
+    def unwrap(id: Id): Chunk[Byte] = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(key: Chunk[Byte], manifestData: Chunk[Byte], schemaVersion: Option[Int] = None, attributes: Option[Json] = None, createdAt: Option[java.time.OffsetDateTime] = None, updatedAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Manifests.Creator, Manifests, Manifests.Id]
 }
@@ -40,29 +43,36 @@ object BlobData {
 }
 @Table(PostgresDbType) final case class StorageSectors(@Id @SqlName("id") id: String, @SqlName("region") region: String, @SqlName("capacity_bytes") capacityBytes: NonNegLong, @SqlName("available_bytes") availableBytes: NonNegLong, @SqlName("created_at") createdAt: java.time.OffsetDateTime, @SqlName("updated_at") updatedAt: java.time.OffsetDateTime) derives DbCodec
 object StorageSectors {
-  opaque type Id = id: String
-  object Id { def apply(id: String): Id = id = id }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[String]].biMap(value => id = value, id => id.id)
+  opaque type Id = String
+  object Id {
+    def apply(id: String): Id = id
+    def unwrap(id: Id): String = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[String]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: String, region: String, capacityBytes: NonNegLong, availableBytes: NonNegLong, createdAt: Option[java.time.OffsetDateTime] = None, updatedAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[StorageSectors.Creator, StorageSectors, StorageSectors.Id]
 }
 @Table(PostgresDbType) final case class Blobs(@Id @SqlName("key") key: Chunk[Byte], @SqlName("size") size: NonNegLong, @SqlName("checksum") checksum: Option[Chunk[Byte]], @SqlName("content_type") contentType: Option[String], @SqlName("attributes") attributes: Option[Json], @SqlName("created_at") createdAt: java.time.OffsetDateTime, @SqlName("updated_at") updatedAt: java.time.OffsetDateTime, @SqlName("version") version: NonNegLong) derives DbCodec
 object Blobs {
-  opaque type Id = key: Chunk[Byte]
-  object Id { def apply(key: Chunk[Byte]): Id = key = key }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => key = value, id => id.key)
+  opaque type Id = Chunk[Byte]
+  object Id {
+    def apply(key: Chunk[Byte]): Id = key
+    def unwrap(id: Id): Chunk[Byte] = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Chunk[Byte]]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(key: Chunk[Byte], size: NonNegLong, checksum: Option[Chunk[Byte]] = None, contentType: Option[String] = None, attributes: Option[Json] = None, createdAt: Option[java.time.OffsetDateTime] = None, updatedAt: Option[java.time.OffsetDateTime] = None, version: Option[NonNegLong] = None) derives DbCodec
   val repo = Repo[Blobs.Creator, Blobs, Blobs.Id]
 }
+// ZIO Schema definitions for public
 object Schemas {
   given replicasSchema: Schema[Replicas] = DeriveSchema.gen[Replicas]
   given replicasIdSchema: Schema[Replicas.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], String, Long)]].transform(value => (key = value._1, sectorId = value._2, rangeStart = value._3), id => (id.key, id.sectorId, id.rangeStart))
   given manifestsSchema: Schema[Manifests] = DeriveSchema.gen[Manifests]
-  given manifestsIdSchema: Schema[Manifests.Id] = scala.compiletime.summonInline[Schema[Chunk[Byte]]].transform(value => key = value, id => id.key)
+  given manifestsIdSchema: Schema[Manifests.Id] = scala.compiletime.summonInline[Schema[Chunk[Byte]]].transform(value => Manifests.Id(value), id => Manifests.Id.unwrap(id))
   given blobDataSchema: Schema[BlobData] = DeriveSchema.gen[BlobData]
   given blobDataIdSchema: Schema[BlobData.Id] = scala.compiletime.summonInline[Schema[(Chunk[Byte], NonNegLong)]].transform(value => (key = value._1, chunkOffset = value._2), id => (id.key, id.chunkOffset))
   given storageSectorsSchema: Schema[StorageSectors] = DeriveSchema.gen[StorageSectors]
-  given storageSectorsIdSchema: Schema[StorageSectors.Id] = scala.compiletime.summonInline[Schema[String]].transform(value => id = value, id => id.id)
+  given storageSectorsIdSchema: Schema[StorageSectors.Id] = scala.compiletime.summonInline[Schema[String]].transform(value => StorageSectors.Id(value), id => StorageSectors.Id.unwrap(id))
   given blobsSchema: Schema[Blobs] = DeriveSchema.gen[Blobs]
-  given blobsIdSchema: Schema[Blobs.Id] = scala.compiletime.summonInline[Schema[Chunk[Byte]]].transform(value => key = value, id => id.key)
+  given blobsIdSchema: Schema[Blobs.Id] = scala.compiletime.summonInline[Schema[Chunk[Byte]]].transform(value => Blobs.Id(value), id => Blobs.Id.unwrap(id))
 }
