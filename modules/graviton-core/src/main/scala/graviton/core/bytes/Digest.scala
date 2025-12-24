@@ -51,10 +51,11 @@ object Digest:
 
   def fromString(value: String): Either[String, Digest] =
     ByteVector
-      .fromHex(value)
+      .fromHex(value, scodec.bits.Bases.Alphabets.HexLowercase)
+      .orElse(ByteVector.fromHex(value, scodec.bits.Bases.Alphabets.HexUppercase))
       .toRight(s"Invalid hex digest '$value'")
-      .map(_.toArray)
-      .flatMap(fromBytes)
+      .map(b => Digest(Chunk.fromArray(b.toArray)))
+      
 
   extension (digest: Digest)
     def value: Chunk[Byte]     = digest

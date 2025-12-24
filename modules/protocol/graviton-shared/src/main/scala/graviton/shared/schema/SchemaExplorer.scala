@@ -1,9 +1,9 @@
 package graviton.shared.schema
 
 import zio.Chunk
-import zio.json.{DeriveJsonCodec, JsonCodec}
+import zio.json.{JsonCodec}
 import zio.schema.{Schema, TypeId}
-import zio.schema.Schema.{Enum, Lazy, Optional, Primitive, Record, Transform}
+import zio.schema.Schema.{Enum, Optional, Primitive, Record, Transform}
 
 import scala.collection.mutable
 

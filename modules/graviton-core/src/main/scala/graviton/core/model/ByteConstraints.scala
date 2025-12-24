@@ -2,7 +2,10 @@ package graviton.core.model
 
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.numeric
-
+import zio.Chunk
+import scodec.bits.ByteVector
+import graviton.core.bytes.Hasher
+import graviton.core.bytes.Digest
 /**
  * Centralised size/index limits for block and upload handling. Constants align with the
  * legacy values on `main`, ensuring behaviour stays stable while richer wrappers evolve.
@@ -16,6 +19,14 @@ object ByteConstraints:
   val MinFileBytes: Long       = 0L
 
   type BlockSize       = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
+  object BlockSize:
+    type Constraint = numeric.Greater[0] & numeric.LessEqual[16777216]
+    def either(value: Int): Either[String, BlockSize] = value.refineEither[Constraint]
+    inline def unsafe(value: Int): BlockSize = value.asInstanceOf[BlockSize]
+
+    def unapply(value: String): Option[BlockSize] = 
+      scala.util.Try(value.toInt).toOption.flatMap(either(_).toOption)
+
   type UploadChunkSize = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
   type FileSize        = Long :| numeric.Greater[-1]
   type ChunkCount      = Long :| numeric.Greater[-1]
@@ -58,6 +69,7 @@ object ByteConstraints:
 end ByteConstraints
 
 type BlockSize       = ByteConstraints.BlockSize
+val BlockSize         = ByteConstraints.BlockSize
 type UploadChunkSize = ByteConstraints.UploadChunkSize
 type FileSize        = ByteConstraints.FileSize
 type ChunkCount      = ByteConstraints.ChunkCount

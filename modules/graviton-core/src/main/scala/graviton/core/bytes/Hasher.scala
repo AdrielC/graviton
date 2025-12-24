@@ -7,33 +7,52 @@ import java.nio.charset.StandardCharsets
 import scala.util.Try
 import scodec.bits.ByteVector
 import graviton.core.keys.KeyBits
+import java.util.concurrent.atomic.AtomicLong
+import graviton.core.types.BlockSize
+import scodec.bits.Bases.Alphabets.HexLowercase
 
 trait Hasher:
   def algo: HashAlgo
+  def inputSize: Long
   def update(chunk: Hasher.Digestable): Hasher
   def digest: Either[String, Digest]
+  def digestKeyBits: Either[String, KeyBits] =
+    digest.flatMap(d => KeyBits.create(algo, d, inputSize))
   def result: Either[String, Digest] = digest
   def reset: Unit
 
-private[graviton] final class HasherImpl(val algo: HashAlgo, private val md: MessageDigest) extends Hasher:
+private[graviton] final class HasherImpl(
+  val algo: HashAlgo, 
+  private val md: MessageDigest,
+  val _inputSize: AtomicLong
+) extends Hasher:
+  self: HasherImpl =>
+
+
 
   override def reset: Unit                              = md.reset()
   override def update(chunk: Hasher.Digestable): Hasher =
     chunk match
-      case chunk: Chunk[Byte] => md.update(chunk.toArray)
-      case chunk: Array[Byte] => md.update(chunk)
-      case chunk: ByteVector  => md.update(chunk.toArray)
+      case chunk: Chunk[Byte] => 
+        val arr = chunk.toArray
+        _inputSize.addAndGet(arr.length.toLong)
+        md.update(arr)
+        self
+      case chunk: Array[Byte] => 
+        val arr = chunk
+        _inputSize.addAndGet(arr.length.toLong)
+        md.update(arr)
+      case chunk: ByteVector  => 
+        val arr = chunk.toArray
+        _inputSize.addAndGet(arr.length.toLong)
+        md.update(arr)
       case s: String          =>
-        s match
-          case HashAlgo.keyBitsRegex(a, d, s) =>
-            (for
-              algo   <- HashAlgo.fromString(a)
-              digest <- Digest.fromString(d).toOption
-              size   <- Try(s.toLong).toOption
-            yield md.update(digest.bytes))
-              .getOrElse(md.update(s.getBytes(StandardCharsets.UTF_8)))
-          case _                              => md.update(s.getBytes(StandardCharsets.UTF_8))
-    this
+        import graviton.core.types.HexLower
+        ByteVector.fromHex(s, scodec.bits.Bases.Alphabets.HexLowercase)
+        .orElse(ByteVector.fromHex(s, scodec.bits.Bases.Alphabets.HexUppercase))
+        .flatMap(s => Digest.fromBytes(s.toArray).toOption)
+        .getOrElse(throw new IllegalArgumentException(s"Invalid hex digest '$s'"))
+    self
 
   override def digest: Either[String, Digest] =
     Digest.fromBytes(md.digest)
@@ -70,7 +89,7 @@ object Hasher:
     def default(provider: Option[JProvider] = None): Provider = new Provider {
       override def getInstance(hashAlgo: HashAlgo): Either[String, Hasher] =
         instantiate(hashAlgo.primaryName, provider)
-          .map(new HasherImpl(hashAlgo, _))
+          .map(new HasherImpl(hashAlgo, _, new AtomicLong(0L)))
           .left
           .map(err => Option(err).map(_.getMessage).getOrElse("Unknown error"))
     }

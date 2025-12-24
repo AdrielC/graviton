@@ -46,16 +46,16 @@ object CapRow:
   type StateRecord[Fx] = Record[FieldsOf[Fx]]
 
   object StateRecord:
-    def empty[Fx](using builder: StateBuilder[Fx]): StateRecord[Fx] =
+    inline def empty[Fx](using builder: StateBuilder[Fx]): StateRecord[Fx] =
       builder.empty
 
   trait StateBuilder[Fx]:
-    def empty: StateRecord[Fx]
+    inline def empty: StateRecord[Fx]
 
   object StateBuilder:
-    inline given derived[Fx](using ti: TypeIntersection[Fx]): StateBuilder[Fx] =
+    given derived[Fx](using ti: TypeIntersection[Fx]): StateBuilder[Fx] =
       new StateBuilder[Fx]:
-        def empty: StateRecord[Fx] =
+        inline def empty: StateRecord[Fx] =
           TypeIntersection
             .inlineAll[Fx](DefaultStateInliner)
             .foldLeft(Record.empty: Record[Any])(_ & _)
