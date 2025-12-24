@@ -61,11 +61,11 @@ object CedarLegacyHttpApiSpec extends ZIOSpecDefault:
       },
       test("missing metadata returns 404") {
         for
-          root     <- fixtureRoot
-          repos     = CedarRepos(List(CedarRepo("shortterm", root.resolve("shortterm"))))
-          catalog  <- CedarCatalogLive.make(repos)
-          fs       <- CedarFsLive.make(repos)
-          legacyApi = CedarLegacyHttpApi(repos, catalog, fs)
+          root      <- fixtureRoot
+          repos      = CedarRepos(List(CedarRepo("shortterm", root.resolve("shortterm"))))
+          catalog   <- CedarCatalogLive.make(repos)
+          fs        <- CedarFsLive.make(repos)
+          legacyApi  = CedarLegacyHttpApi(repos, catalog, fs)
           dashboard <- ZIO.succeed(new DatalakeDashboardService {
                          def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
                          def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
@@ -75,10 +75,10 @@ object CedarLegacyHttpApiSpec extends ZIOSpecDefault:
                        })
           blobStore <- InMemoryBlobStore.make()
           httpApi    = HttpApi(blobStore, dashboard, cedarLegacy = Some(legacyApi))
-          req      <- ZIO
-                        .fromEither(URL.decode("http://localhost/legacy/shortterm/missing-doc"))
-                        .map(url => Request.get(url))
-          resp     <- httpApi.app(req)
+          req       <- ZIO
+                         .fromEither(URL.decode("http://localhost/legacy/shortterm/missing-doc"))
+                         .map(url => Request.get(url))
+          resp      <- httpApi.app(req)
         yield assertTrue(resp.status == Status.NotFound)
       },
     )
