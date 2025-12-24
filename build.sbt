@@ -23,6 +23,7 @@ lazy val V = new {
   val zioPrelude = "1.0.0-RC23"
   val zioGrpc    = "0.6.3"
   val zioHttp    = "3.0.0-RC7"
+  val zioNio     = "2.0.2"
   val kyo        = "1.0-RC1"
   val iron       = "2.6.0"
   val awsV2      = "2.25.54"
@@ -163,11 +164,30 @@ buildFrontend := {
   log.info(s"Frontend built and copied to $targetDir")
 }
 
+// Task to build Quasar frontend and copy to docs
+lazy val buildQuasarFrontend = taskKey[Unit]("Build Quasar Scala.js frontend and copy to docs")
+buildQuasarFrontend := {
+  val log = Keys.streams.value.log
+  log.info("Building Quasar Scala.js frontend...")
+
+  val report    = (quasarFrontend / Compile / fastLinkJS).value
+  val sourceDir = (quasarFrontend / Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/public/quasar/js")
+
+  log.info(s"Copying Quasar Scala.js output from $sourceDir to $targetDir")
+  IO.delete(targetDir)
+  IO.createDirectory(targetDir)
+  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+
+  log.info(s"Quasar frontend built and copied to $targetDir")
+}
+
 // Combined task to build all docs assets
 lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
 buildDocsAssets := Def.sequential(
   generateDocs,
-  buildFrontend
+  buildFrontend,
+  buildQuasarFrontend
 ).value
 
 lazy val docs = (project in file("docs-mdoc"))
@@ -186,6 +206,9 @@ lazy val root = (project in file(".")).aggregate(
   core,
   streams,
   runtime,
+  quasarCore,
+  quasarHttp,
+  quasarLegacy,
   proto,
   grpc,
   http,
@@ -196,6 +219,7 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.jvm,
   sharedProtocol.js,
   frontend,
+  quasarFrontend,
   docs
 ).settings(
   baseSettings,
@@ -270,6 +294,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
+      "dev.zio" %% "zio-nio"     % V.zioNio,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
@@ -360,7 +385,49 @@ lazy val rocks = (project in file("modules/backend/graviton-rocks"))
 
 lazy val server = (project in file("modules/server/graviton-server"))
   .dependsOn(runtime, grpc, http, s3, pg, rocks)
-  .settings(baseSettings, name := "graviton-server")
+  .settings(
+    baseSettings,
+    name := "graviton-server",
+    libraryDependencies ++= Seq(
+      // Route all SLF4J logs (including dependencies) through Log4j2.
+      "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
+      "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
+      "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
+    ),
+  )
+
+lazy val quasarCore = (project in file("modules/quasar-core"))
+  .dependsOn(core)
+  .settings(
+    baseSettings,
+    name := "quasar-core",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
+      "dev.zio" %% "zio-json" % "0.7.3",
+    ),
+  )
+
+lazy val quasarHttp = (project in file("modules/quasar-http"))
+  .dependsOn(quasarCore, quasarLegacy)
+  .settings(
+    baseSettings,
+    name := "quasar-http",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
+      "dev.zio" %% "zio-http" % V.zioHttp,
+    ),
+  )
+
+lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
+  .dependsOn(quasarCore, runtime, http)
+  .settings(
+    baseSettings,
+    name := "quasar-legacy",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
+      "org.postgresql" % "postgresql" % V.pg,
+    ),
+  )
 
 // Shared protocol models for JVM and JS
 lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
@@ -401,4 +468,25 @@ lazy val frontend = (project in file("modules/frontend"))
       "com.raquo"       %%% "waypoint"     % V.waypoint,
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
+  )
+
+// Quasar frontend module with Scala.js + Laminar
+lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    baseSettings,
+    name := "quasar-frontend",
+    Test / fork := false, // Scala.js tests cannot be forked
+    scalaJSUseMainModuleInitializer := true,
+    scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("quasar.frontend")))
+    },
+    libraryDependencies ++= Seq(
+      "dev.zio"      %%% "zio"         % V.zio,
+      "dev.zio"      %%% "zio-json"    % "0.7.3",
+      "com.raquo"    %%% "laminar"     % V.laminar,
+      "com.raquo"    %%% "waypoint"    % V.waypoint,
+      "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,
+    ),
   )

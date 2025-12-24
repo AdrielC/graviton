@@ -64,7 +64,7 @@
   ./sbt docs/mdoc checkDocSnippets
   ```
 - Schema changes **must** be reflected in generated bindings:
-  1. Start a local PostgreSQL instance without Docker (e.g. `apt-get install postgresql` then `pg_ctlcluster 16 main start`).
+  1. Start a local PostgreSQL instance without Docker (e.g. `apt-get install postgresql` then `pg_ctlcluster 18 main start`).
   2. Apply `modules/pg/ddl.sql` to an empty database (for example `psql -d graviton -f modules/pg/ddl.sql`).
   3. Regenerate bindings with `PG_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/graviton PG_USERNAME=postgres PG_PASSWORD=postgres ./sbt "dbcodegen/run"`.
   4. Commit the updated files in `modules/pg/src/main/resources/generated/` together with the DDL change.

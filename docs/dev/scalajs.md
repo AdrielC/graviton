@@ -12,8 +12,10 @@ Graviton's interactive surfaces ride on the cross-compiled Scala.js frontend tha
 
 - `modules/frontend/src/main/scala/graviton/frontend/` - Laminar components, routing, shared UI models.
 - `modules/frontend/src/main/scala/graviton/frontend/Main.scala` - Scala.js entry point; bridges the bundle to `#graviton-app` on the docs page.
+- `modules/quasar-frontend/src/main/scala/quasar/frontend/` - Quasar Laminar app (tenant-implicit UI surface, starting with health + legacy import).
 - `modules/protocol/graviton-shared` - JVM/JS shared data types (compiled twice by sbt cross projects).
 - `docs/public/js/main.js` - Final bundle shipped with the docs (written by `buildFrontend`).
+- `docs/public/quasar/js/main.js` - Quasar demo bundle shipped with the docs (written by `buildQuasarFrontend`).
 
 ```bash
 tree modules/frontend/src/main/scala/graviton/frontend -L 1
@@ -42,7 +44,14 @@ npm run docs:dev
 - The `/demo` route dynamically imports `/js/main.js` from `docs/public/js/`. When running fastLinkJS, symlink or copy the fastopt bundle into `docs/public/js/main.js`:
 
 ```bash
-ln -sf ../../modules/frontend/target/scala-3.7.3/frontend-fastopt/main.js docs/public/js/main.js
+ln -sf ../../modules/frontend/target/scala-3.7.4/frontend-fastopt/main.js docs/public/js/main.js
+```
+
+The Quasar demo route (`/quasar-demo`) dynamically imports `/quasar/js/main.js`. For local iteration:
+
+```bash
+sbt ~quasarFrontend/fastLinkJS
+ln -sf ../../modules/quasar-frontend/target/scala-3.7.4/quasar-frontend-fastopt/main.js docs/public/quasar/js/main.js
 ```
 
 > For one-off previews, run `sbt buildFrontend` instead; it writes the release bundle for you.
