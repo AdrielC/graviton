@@ -365,7 +365,7 @@ lazy val quasarCore = (project in file("modules/quasar-core"))
   )
 
 lazy val quasarHttp = (project in file("modules/quasar-http"))
-  .dependsOn(quasarCore)
+  .dependsOn(quasarCore, quasarLegacy)
   .settings(
     baseSettings,
     name := "quasar-http",
@@ -382,6 +382,7 @@ lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
     name := "quasar-legacy",
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
+      "org.postgresql" % "postgresql" % V.pg,
     ),
   )
 
