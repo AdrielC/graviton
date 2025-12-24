@@ -210,6 +210,7 @@ lazy val core = (project in file("modules/graviton-core"))
       "io.getkyo" %% "kyo-data" % V.kyo,
       "io.getkyo" %% "kyo-core" % V.kyo,
       "io.getkyo" %% "kyo-prelude" % V.kyo,
+      "io.getkyo" %% "kyo-zio" % V.kyo,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
       "dev.zio" %% "zio-json" % "0.7.3",
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
