@@ -5,7 +5,6 @@ import BinaryAttr.PartialOps.*
 import BinaryAttrDiff.Record as DiffRecord
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
-import graviton.core.model.{ChunkCount, FileSize}
 import graviton.core.types.*
 
 import java.time.Instant

@@ -2,7 +2,7 @@ package graviton.runtime.model
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
-import graviton.core.types.{BlockIndex, BlockSize, CompressionLevel, KekId, MaxBlockBytes, NonceLength, Size}
+import graviton.core.types.{BlockIndex, BlockSize, CompressionLevel, KekId, MaxBlockBytes, NonceLength, SizeLong}
 import graviton.core.types.given
 import zio.Chunk
 import zio.schema.{DeriveSchema, Schema}
@@ -15,7 +15,7 @@ final case class CanonicalBlock private (
 ):
   def bytes: Chunk[Byte]         = payload
   def metadata: BinaryAttributes = attributes
-  def normalizedSize: Int        = size
+  def normalizedSize: Int        = size.value
 
 object CanonicalBlock:
 
@@ -52,7 +52,7 @@ object StoredBlock:
 
 final case class BlockManifestEntry(
   index: BlockIndex,
-  offset: Size,
+  offset: SizeLong,
   key: BinaryKey.Block,
   size: BlockSize,
 )
@@ -74,15 +74,15 @@ object BlockManifestEntry:
     if value < 0 then Left(s"Block index cannot be negative: $value")
     else Right(value.asInstanceOf[BlockIndex])
 
-  private def refineNonNegativeSize(value: Long, field: String): Either[String, Size] =
+  private def refineNonNegativeSize(value: Long, field: String): Either[String, SizeLong] =
     if value < 0 then Left(s"$field cannot be negative: $value")
-    else Right(value.asInstanceOf[Size])
+    else Right(value.asInstanceOf[SizeLong])
 
 final case class BlockManifest private (
   entries: Chunk[BlockManifestEntry],
   totalUncompressedBytes: Long,
 ):
-  def totalUncompressed: Either[String, Size] =
+  def totalUncompressed: Either[String, SizeLong] =
     BlockManifest.refineTotal(totalUncompressedBytes)
 
 object BlockManifest:
@@ -91,13 +91,13 @@ object BlockManifest:
   def build(entries: Chunk[BlockManifestEntry]): Either[String, BlockManifest] =
     val total =
       entries.foldLeft(0L) { (acc, entry) =>
-        acc + entry.size.toLong
+        acc + entry.size.value.toLong
       }
-    refineTotal(total).map(validTotal => BlockManifest(entries, validTotal))
+    refineTotal(total).map(validTotal => BlockManifest(entries, validTotal.value))
 
-  private def refineTotal(value: Long): Either[String, Size] =
+  private def refineTotal(value: Long): Either[String, SizeLong] =
     if value < 0 then Left(s"Total uncompressed size cannot be negative: $value")
-    else Right(value.asInstanceOf[Size])
+    else Right(value.asInstanceOf[SizeLong])
 
 final case class FrameAadPlan(
   includeOrgId: Boolean = true,

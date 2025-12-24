@@ -1,6 +1,5 @@
 package graviton.core.attributes
 
-import graviton.core.model.{ChunkCount, FileSize}
 import graviton.core.types.*
 import kyo.Record
 import kyo.Record.`~`

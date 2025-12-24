@@ -125,21 +125,49 @@ object HttpChunkedScan {
     )((state, byte) => stepDecode(state, byte))(flushDecode)
 
   val chunkedPipeline: ZPipeline[Any, Throwable, Byte, Byte] =
-    chunkedDecode.toPipeline >>> ZPipeline.mapChunksZIO { takes =>
-      val builder = ChunkBuilder.make[Byte]()
-      var idx     = 0
-      var failure = Option.empty[Throwable]
-      while (idx < takes.length && failure.isEmpty) do
-        takes(idx) match
-          case take: Take[Throwable, Chunk[Byte]] @unchecked =>
-            take.exit match
-              case Exit.Success(values) =>
-                values.foreach(builder ++= _)
-              case Exit.Failure(cause)  =>
-                failure = cause.failureOption.flatten
-        idx += 1
-      failure match
-        case Some(err) => ZIO.fail(err)
-        case None      => ZIO.succeed(builder.result())
-    }
+    // Note: This buffers the full response before emitting bytes (one chunk at end),
+    // ensuring the scan's flush semantics run exactly once at stream end.
+    ZPipeline.fromChannel(
+      ZChannel.unwrap {
+        ZIO.succeed {
+          val input = ChunkBuilder.make[Byte]()
+
+          def decodeAll(bytes: Chunk[Byte]): Either[Throwable, Chunk[Byte]] =
+            val takes   = chunkedDecode.runChunk(bytes.toArray.toIndexedSeq)
+            val builder = ChunkBuilder.make[Byte]()
+            var idx     = 0
+            var failure = Option.empty[Throwable]
+            while idx < takes.length && failure.isEmpty do
+              takes(idx) match
+                case take: Take[Throwable, Chunk[Byte]] @unchecked =>
+                  take.exit match
+                    case Exit.Success(values) =>
+                      values.foreach(builder ++= _)
+                    case Exit.Failure(cause)  =>
+                      failure = cause.failureOption.flatten
+              idx += 1
+            failure match
+              case Some(err) => Left(err)
+              case None      => Right(builder.result())
+
+          def loop: ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Byte], Unit] =
+            ZChannel.readWith(
+              (chunk: Chunk[Byte]) => {
+                input ++= chunk
+                loop
+              },
+              (err: Throwable) => ZChannel.fail(err),
+              (_: Any) =>
+                ZChannel.unwrap {
+                  ZIO.fromEither(decodeAll(input.result())).map { out =>
+                    if out.isEmpty then ZChannel.unit
+                    else ZChannel.writeChunk(Chunk(out))
+                  }
+                },
+            )
+
+          loop
+        }
+      }
+    )
 }

@@ -3,6 +3,7 @@ import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.ByteConstraints
 import graviton.core.model.Block.*
+import graviton.core.types.{ChunkCount, FileSize}
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -22,9 +23,10 @@ final case class Ingest(blockStore: BlockStore):
       digest     <- hasher.digest
       bits       <- KeyBits.create(algo, digest, block.length.toLong)
       key        <- BinaryKey.block(bits)
-      chunkCount <- ByteConstraints.refineChunkCount(1L)
+      chunkCount <- ChunkCount.either(1L)
+      size       <- FileSize.either(block.length.toLong)
       confirmed   = attrs
-                      .confirmSize(ByteConstraints.unsafeFileSize(block.length.toLong))
+                      .confirmSize(size)
                       .confirmChunkCount(chunkCount)
       canonical  <- CanonicalBlock.make(key, block, confirmed)
     yield canonical
