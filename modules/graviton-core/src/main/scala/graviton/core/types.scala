@@ -185,9 +185,7 @@ object types:
   trait SizeLong1 extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
   object SizeLong1 extends SizeLong1
 
-  type IndexLong0 = IndexLong0.T
   trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
-  object IndexLong0 extends IndexLong0
 
   // Legacy convenience names (now size-min-1, not index-min-0)
   type SizeLong = SizeLong.T
