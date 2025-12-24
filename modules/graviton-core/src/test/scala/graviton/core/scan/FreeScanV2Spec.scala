@@ -8,7 +8,6 @@ import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.scan.FS.*
 import graviton.core.scan.Tensor
-import graviton.core.scan.LabelEvidence.given
 import kyo.Tag.given
 import zio.*
 import zio.stream.*

@@ -23,6 +23,7 @@ lazy val V = new {
   val zioPrelude = "1.0.0-RC23"
   val zioGrpc    = "0.6.3"
   val zioHttp    = "3.0.0-RC7"
+  val kyo        = "0.19.0"
   val iron       = "2.6.0"
   val awsV2      = "2.25.54"
   val rocksdbJni = "8.11.3"
@@ -206,7 +207,9 @@ lazy val core = (project in file("modules/graviton-core"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-schema"  % V.zioSchema,
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
-      "io.getkyo" %% "kyo-data" % "0.19.0",
+      "io.getkyo" %% "kyo-data" % V.kyo,
+      "io.getkyo" %% "kyo-core" % V.kyo,
+      "io.getkyo" %% "kyo-prelude" % V.kyo,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
       "dev.zio" %% "zio-json" % "0.7.3",
       "dev.zio" %% "zio-prelude" % V.zioPrelude,

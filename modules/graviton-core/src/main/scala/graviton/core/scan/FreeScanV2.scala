@@ -11,40 +11,29 @@ import zio.*
 import zio.stream.*
 import zio.ChunkBuilder
 
-trait LabelEvidence[Label <: String]:
-  def value: String
-
-object LabelEvidence:
-  given literal[Label <: String](using literal: ValueOf[Label]): LabelEvidence[Label] =
-    new:
-      lazy val value = literal.value
-
 object Tensor:
-  type Pair[L <: String, R <: String, A, B] = Record[(L ~ A) & (R ~ B)]
+  type Pair[L <: String & Singleton, R <: String & Singleton, A, B] = Record[(L ~ A) & (R ~ B)]
 
-  def pack[L <: String, R <: String, A, B](left: A, right: B)(using LabelEvidence[L], LabelEvidence[R], Tag[A], Tag[B]): Pair[L, R, A, B] =
+  def pack[L <: String & Singleton, R <: String & Singleton, A, B](
+    left: A,
+    right: B,
+  )(using ValueOf[L], ValueOf[R], Tag[A], Tag[B]): Pair[L, R, A, B] =
     (Record.empty
-      & (summon[LabelEvidence[L]].value ~ left)
-      & (summon[LabelEvidence[R]].value ~ right)).asInstanceOf[Pair[L, R, A, B]]
+      & (summon[ValueOf[L]].value ~ left)
+      & (summon[ValueOf[R]].value ~ right)).asInstanceOf[Pair[L, R, A, B]]
 
-  def left[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[L]): A =
-    lookup[A](pair, summon[LabelEvidence[L]].value)
+  def left[L <: String & Singleton, R <: String & Singleton, A, B](pair: Pair[L, R, A, B])(using ValueOf[L], Tag[A]): A =
+    pair.selectDynamic[L, A](summon[ValueOf[L]].value)
 
-  def right[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[R]): B =
-    lookup[B](pair, summon[LabelEvidence[R]].value)
+  def right[L <: String & Singleton, R <: String & Singleton, A, B](pair: Pair[L, R, A, B])(using ValueOf[R], Tag[B]): B =
+    pair.selectDynamic[R, B](summon[ValueOf[R]].value)
 
-  def toTuple[L <: String, R <: String, A, B](pair: Pair[L, R, A, B])(using LabelEvidence[L], LabelEvidence[R]): (A, B) =
+  def toTuple[L <: String & Singleton, R <: String & Singleton, A, B](
+    pair: Pair[L, R, A, B]
+  )(using ValueOf[L], ValueOf[R], Tag[A], Tag[B]): (A, B) =
     (left(pair), right(pair))
 
-  private def lookup[A](record: Record[?], label: String): A =
-    record.toMap
-      .collectFirst {
-        case (field, value) if field.name == label =>
-          value.asInstanceOf[A]
-      }
-      .getOrElse(throw new NoSuchElementException(s"Field '$label' missing in tensor record"))
-
-final case class ScanBranch[A, B, Label <: String](scan: FreeScan[Prim, A, B])
+final case class ScanBranch[A, B, Label <: String & Singleton](scan: FreeScan[Prim, A, B])
 
 object ScanBranch:
   type AutoLeft  = "_0"
@@ -62,7 +51,7 @@ object FreeScan:
   final case class Id[Q[_, _], A]()                                                         extends FreeScan[Q, A, A]
   final case class Embed[Q[_, _], A, B](prim: Q[A, B])                                      extends FreeScan[Q, A, B]
   final case class Seq[Q[_, _], A, B, C](left: FreeScan[Q, A, B], right: FreeScan[Q, B, C]) extends FreeScan[Q, A, C]
-  final case class Par[Q[_, _], A, B, C, D, L <: String, R <: String](
+  final case class Par[Q[_, _], A, B, C, D, L <: String & Singleton, R <: String & Singleton](
     left: FreeScan[Q, A, B],
     right: FreeScan[Q, C, D],
   )(
@@ -70,8 +59,8 @@ object FreeScan:
     val outLeftTag: Tag[B],
     val inRightTag: Tag[C],
     val outRightTag: Tag[D],
-    val leftLabel: LabelEvidence[L],
-    val rightLabel: LabelEvidence[R],
+    val leftLabel: ValueOf[L],
+    val rightLabel: ValueOf[R],
   ) extends FreeScan[Q, Tensor.Pair[L, R, A, C], Tensor.Pair[L, R, B, D]]
 
 opaque type SafeFunction[-A, +B] = Chunk[Any => Any]
@@ -129,15 +118,19 @@ object FS:
     }(_ => Chunk.empty)
 
   def counter[A]: FreeScan[Prim, A, Long] =
-    fold[A, Long, Long](0L) { (count, _) =>
-      val next = count + 1
-      (next, Chunk(next))
+    type S = Record["count" ~ Long]
+    fold[A, Long, S]((Record.empty & ("count" ~ 0L)).asInstanceOf[S]) { (state, _) =>
+      val next  = state.count + 1
+      val nextS = (Record.empty & ("count" ~ next)).asInstanceOf[S]
+      (nextS, Chunk(next))
     }(_ => Chunk.empty)
 
   def byteCounter: FreeScan[Prim, Chunk[Byte], Long] =
-    fold[Chunk[Byte], Long, Long](0L) { (total, bytes) =>
-      val next = total + bytes.length
-      (next, Chunk(next))
+    type S = Record["totalBytes" ~ Long]
+    fold[Chunk[Byte], Long, S]((Record.empty & ("totalBytes" ~ 0L)).asInstanceOf[S]) { (state, bytes) =>
+      val next  = state.totalBytes + bytes.length
+      val nextS = (Record.empty & ("totalBytes" ~ next)).asInstanceOf[S]
+      (nextS, Chunk(next))
     }(_ => Chunk.empty)
 
   def hashBytes(algo: HashAlgo): FreeScan[Prim, Chunk[Byte], Either[String, Digest]] =
@@ -149,15 +142,22 @@ object FS:
     }(hasher => Chunk(hasher.flatMap(h => h.digest)))
 
   def buildManifest: FreeScan[Prim, ManifestEntry, Manifest] =
-    fold[ManifestEntry, Manifest, (List[ManifestEntry], Long)]((Nil, 0L)) { case ((entries, total), entry) =>
-      val spanLength = entry.span.length
-      val next       = (entry :: entries, total + spanLength)
-      (next, Chunk.empty)
-    } { case (entries, total) => Chunk(Manifest(entries.reverse, total)) }
+    type S = Record[("entries" ~ List[ManifestEntry]) & ("total" ~ Long)]
+    val init = (Record.empty & ("entries" ~ List.empty[ManifestEntry]) & ("total" ~ 0L)).asInstanceOf[S]
+    fold[ManifestEntry, Manifest, S](init) { (state, entry) =>
+      val nextEntries = entry :: state.entries
+      val nextTotal   = state.total + entry.span.length
+      val nextS       = (Record.empty & ("entries" ~ nextEntries) & ("total" ~ nextTotal)).asInstanceOf[S]
+      (nextS, Chunk.empty)
+    }(state => Chunk(Manifest(state.entries.reverse, state.total)))
 
   def fixedChunker(frameBytes: Int): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
     val safeSize = math.max(1, frameBytes)
-    fold[Chunk[Byte], Chunk[Byte], (Array[Byte], Int)]((Array.ofDim[Byte](safeSize), 0)) { case ((buffer, filled), chunk) =>
+    type S = Record[("buffer" ~ Array[Byte]) & ("filled" ~ Int)]
+    val init = (Record.empty & ("buffer" ~ Array.ofDim[Byte](safeSize)) & ("filled" ~ 0)).asInstanceOf[S]
+    fold[Chunk[Byte], Chunk[Byte], S](init) { (state, chunk) =>
+      val buffer   = state.buffer
+      val filled   = state.filled
       val out      = ChunkBuilder.make[Chunk[Byte]]()
       var writeIdx = filled
       var idx      = 0
@@ -168,22 +168,25 @@ object FS:
           out += Chunk.fromArray(java.util.Arrays.copyOf(buffer, safeSize))
           writeIdx = 0
         idx += 1
-      ((buffer, writeIdx), out.result())
-    } { case (buffer, filled) =>
+      val nextS    = (Record.empty & ("buffer" ~ buffer) & ("filled" ~ writeIdx)).asInstanceOf[S]
+      (nextS, out.result())
+    } { state =>
+      val buffer = state.buffer
+      val filled = state.filled
       if filled == 0 then Chunk.empty
       else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
-  def pair[L <: String, R <: String, A, B](
+  def pair[L <: String & Singleton, R <: String & Singleton, A, B](
     left: A,
     right: B,
-  )(using LabelEvidence[L], LabelEvidence[R], Tag[A], Tag[B]): Tensor.Pair[L, R, A, B] =
+  )(using ValueOf[L], ValueOf[R], Tag[A], Tag[B]): Tensor.Pair[L, R, A, B] =
     Tensor.pack(left, right)
 
   extension [A, B](left: FreeScan[Prim, A, B])
     infix def >>>[C](right: FreeScan[Prim, B, C]): FreeScan[Prim, A, C] = FreeScan.Seq(left, right)
 
-    inline def labelled[Label <: String]: ScanBranch[A, B, Label] = ScanBranch(left)
+    inline def labelled[Label <: String & Singleton]: ScanBranch[A, B, Label] = ScanBranch(left)
 
     infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D]): FreeScan[
       Prim,
@@ -192,7 +195,7 @@ object FS:
     ] =
       combineBranches(ScanBranch.autoLeft(left), ScanBranch.autoRight(right))
 
-    infix def ><[C, D, R <: String](right: ScanBranch[C, D, R])(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[R]): FreeScan[
+    infix def ><[C, D, R <: String & Singleton](right: ScanBranch[C, D, R])(using Tag[A], Tag[B], Tag[C], Tag[D], ValueOf[R]): FreeScan[
       Prim,
       Tensor.Pair[ScanBranch.AutoLeft, R, A, C],
       Tensor.Pair[ScanBranch.AutoLeft, R, B, D],
@@ -209,27 +212,27 @@ object FS:
 
     def runList(inputs: Iterable[A]): List[B] = runChunk(inputs).toList
 
-  extension [A, B, L <: String](left: ScanBranch[A, B, L])
-    infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L]): FreeScan[
+  extension [A, B, L <: String & Singleton](left: ScanBranch[A, B, L])
+    infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D], ValueOf[L]): FreeScan[
       Prim,
       Tensor.Pair[L, ScanBranch.AutoRight, A, C],
       Tensor.Pair[L, ScanBranch.AutoRight, B, D],
     ] =
       combineBranches(left, ScanBranch.autoRight(right))
 
-    infix def ><[C, D, R <: String](
+    infix def ><[C, D, R <: String & Singleton](
       right: ScanBranch[C, D, R]
-    )(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L], LabelEvidence[R]): FreeScan[
+    )(using Tag[A], Tag[B], Tag[C], Tag[D], ValueOf[L], ValueOf[R]): FreeScan[
       Prim,
       Tensor.Pair[L, R, A, C],
       Tensor.Pair[L, R, B, D],
     ] =
       combineBranches(left, right)
 
-  private def combineBranches[A, B, C, D, L <: String, R <: String](
+  private def combineBranches[A, B, C, D, L <: String & Singleton, R <: String & Singleton](
     left: ScanBranch[A, B, L],
     right: ScanBranch[C, D, R],
-  )(using Tag[A], Tag[B], Tag[C], Tag[D], LabelEvidence[L], LabelEvidence[R]): FreeScan[
+  )(using Tag[A], Tag[B], Tag[C], Tag[D], ValueOf[L], ValueOf[R]): FreeScan[
     Prim,
     Tensor.Pair[L, R, A, C],
     Tensor.Pair[L, R, B, D],
@@ -385,10 +388,12 @@ private object Compile:
         step.asInstanceOf[Step[A, B]]
 
       case par: FreeScan.Par[Prim, a, b, c, d, l, r] @unchecked =>
+        given Tag[a]                                                     = par.inLeftTag
         given Tag[b]                                                     = par.outLeftTag
+        given Tag[c]                                                     = par.inRightTag
         given Tag[d]                                                     = par.outRightTag
-        given LabelEvidence[l]                                           = par.leftLabel
-        given LabelEvidence[r]                                           = par.rightLabel
+        given ValueOf[l]                                                 = par.leftLabel
+        given ValueOf[r]                                                 = par.rightLabel
         val left: Step[a, b]                                             = build(par.left)
         val right: Step[c, d]                                            = build(par.right)
         val step: Step[Tensor.Pair[l, r, a, c], Tensor.Pair[l, r, b, d]] =
