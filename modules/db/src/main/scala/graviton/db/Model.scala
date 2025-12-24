@@ -117,7 +117,7 @@ final case class BlockInsert(
   algoId: Short,
   hash: HashBytes,
   size: PosLong,
-  offset: PosLong,
+  offset: NonNegLong,
 ) derives DbCodec,
       Schema
 
@@ -126,7 +126,7 @@ final case class BlockKey(algoId: Short, hash: HashBytes) derives DbCodec, Schem
 final case class BlobKey(
   algoId: Short,
   hash: HashBytes,
-  size: PosLong,
+  size: NonNegLong,
   mediaTypeHint: Option[String],
 ) derives DbCodec,
       Schema
