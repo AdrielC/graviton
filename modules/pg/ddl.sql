@@ -711,3 +711,182 @@ STABLE
 AS $$
   SELECT nullif(current_setting('app.org_id', true), '')::uuid;
 $$;
+
+-- ----------------------------------------------------------------
+-- Hot path helpers (resolution primitives)
+-- ----------------------------------------------------------------
+
+-- Pick best physical candidates for a logical block.
+--
+-- Ordering:
+--   1) sector priority (lower is better)
+--   2) freshest verification (NULLS LAST)
+--   3) most recently written
+CREATE OR REPLACE FUNCTION graviton.best_block_locations(
+  p_alg core.hash_alg,
+  p_hash_bytes bytea,
+  p_byte_length bigint,
+  p_limit int DEFAULT 5
+)
+RETURNS TABLE (
+  sector_priority int,
+  sector_id uuid,
+  blob_store_id uuid,
+  blob_store_type_id text,
+  block_location_id uuid,
+  status core.present_status,
+  locator jsonb,
+  locator_canonical text,
+  stored_length bigint,
+  frame_format int,
+  encryption jsonb,
+  written_at timestamptz,
+  verified_at timestamptz
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT
+    s.priority AS sector_priority,
+    s.sector_id,
+    s.blob_store_id,
+    bs.type_id AS blob_store_type_id,
+    bl.block_location_id,
+    bl.status,
+    bl.locator,
+    bl.locator_canonical,
+    bl.stored_length,
+    bl.frame_format,
+    bl.encryption,
+    bl.written_at,
+    bl.verified_at
+  FROM graviton.block_location bl
+  JOIN graviton.sector s
+    ON s.sector_id = bl.sector_id
+  JOIN graviton.blob_store bs
+    ON bs.blob_store_id = s.blob_store_id
+  WHERE bl.alg = p_alg
+    AND bl.hash_bytes = p_hash_bytes
+    AND bl.byte_length = p_byte_length
+    AND bl.status = 'present'
+    AND s.status = 'active'
+    AND bs.status = 'active'
+  ORDER BY
+    s.priority ASC,
+    bl.verified_at DESC NULLS LAST,
+    bl.written_at DESC
+  LIMIT GREATEST(p_limit, 0);
+$$;
+
+-- Convenience: best single location per block key.
+CREATE OR REPLACE VIEW graviton.v_best_block_location AS
+SELECT DISTINCT ON (bl.alg, bl.hash_bytes, bl.byte_length)
+  bl.alg,
+  bl.hash_bytes,
+  bl.byte_length,
+  s.priority AS sector_priority,
+  bl.sector_id,
+  s.blob_store_id,
+  bl.block_location_id,
+  bl.status,
+  bl.locator,
+  bl.locator_canonical,
+  bl.stored_length,
+  bl.frame_format,
+  bl.encryption,
+  bl.written_at,
+  bl.verified_at
+FROM graviton.block_location bl
+JOIN graviton.sector s
+  ON s.sector_id = bl.sector_id
+JOIN graviton.blob_store bs
+  ON bs.blob_store_id = s.blob_store_id
+WHERE bl.status = 'present'
+  AND s.status = 'active'
+  AND bs.status = 'active'
+ORDER BY
+  bl.alg,
+  bl.hash_bytes,
+  bl.byte_length,
+  s.priority ASC,
+  bl.verified_at DESC NULLS LAST,
+  bl.written_at DESC;
+
+-- Stream manifest pages for a blob in order (paged manifest hot path).
+CREATE OR REPLACE FUNCTION graviton.manifest_pages(
+  p_alg core.hash_alg,
+  p_hash_bytes bytea,
+  p_byte_length bigint
+)
+RETURNS TABLE (
+  page_no int,
+  entry_count int,
+  entries bytea
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT
+    p.page_no,
+    p.entry_count,
+    p.entries
+  FROM graviton.blob_manifest_page p
+  WHERE p.alg = p_alg
+    AND p.hash_bytes = p_hash_bytes
+    AND p.byte_length = p_byte_length
+  ORDER BY p.page_no ASC;
+$$;
+
+-- Full "blob → ordered block spans → best location" plan in one query.
+-- Intended for repair tooling and for building a streaming plan in the app layer.
+CREATE OR REPLACE FUNCTION graviton.resolve_blob_read_plan(
+  p_alg core.hash_alg,
+  p_hash_bytes bytea,
+  p_byte_length bigint
+)
+RETURNS TABLE (
+  ordinal int,
+  block_alg core.hash_alg,
+  block_hash_bytes bytea,
+  block_byte_length bigint,
+  block_offset bigint,
+  block_length bigint,
+  sector_priority int,
+  sector_id uuid,
+  blob_store_id uuid,
+  blob_store_type_id text,
+  locator jsonb,
+  locator_canonical text,
+  stored_length bigint,
+  verified_at timestamptz
+)
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT
+    bb.ordinal,
+    bb.block_alg,
+    bb.block_hash_bytes,
+    bb.block_byte_length,
+    bb.block_offset,
+    bb.block_length,
+    cand.sector_priority,
+    cand.sector_id,
+    cand.blob_store_id,
+    cand.blob_store_type_id,
+    cand.locator,
+    cand.locator_canonical,
+    cand.stored_length,
+    cand.verified_at
+  FROM graviton.blob_block bb
+  LEFT JOIN LATERAL graviton.best_block_locations(
+    bb.block_alg,
+    bb.block_hash_bytes,
+    bb.block_byte_length,
+    1
+  ) cand ON true
+  WHERE bb.alg = p_alg
+    AND bb.hash_bytes = p_hash_bytes
+    AND bb.byte_length = p_byte_length
+  ORDER BY bb.ordinal ASC;
+$$;
