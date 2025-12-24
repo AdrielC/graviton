@@ -205,6 +205,11 @@ object types:
   // Keep this value available for runtime checks.
   val MaxBlockBytes: Int = 16 * 1024 * 1024 // 16 MiB
 
+  // Upload chunk size is the upstream chunk boundary used by streaming ingest. It must be positive
+  // and must not exceed the maximum block size.
+  type UploadChunkSize = UploadChunkSize.T
+  object UploadChunkSize extends SizeSubtype.Trait[1, 16777216, 0, 1] // 16 MiB
+
   type BlockSize = BlockSize.T
   object BlockSize extends SizeSubtype.Trait[1, 16777216, 0, 1] // 16 MiB
 
@@ -228,6 +233,10 @@ object types:
 
   type BlockIndex = BlockIndex.T
   object BlockIndex extends IndexLong0
+
+  // Offsets are 0-based byte positions within a logical blob/manifest.
+  type Offset = Offset.T
+  object Offset extends IndexLong0
 
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]

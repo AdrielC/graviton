@@ -1,9 +1,8 @@
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.ByteConstraints
 import graviton.core.model.Block.*
-import graviton.core.types.{ChunkCount, FileSize}
+import graviton.core.types.{ChunkCount, FileSize, UploadChunkSize}
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.Chunker
@@ -36,7 +35,7 @@ final case class Ingest(blockStore: BlockStore):
     val sink  = blockStore.putBlocks()
 
     for
-      chunkSize <- ByteConstraints.refineUploadChunkSize(1 * 1024 * 1024).toTask
+      chunkSize <- UploadChunkSize.either(1 * 1024 * 1024).toTask
       result    <- bytes
                      .via(Chunker.fixed(chunkSize))
                      .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
