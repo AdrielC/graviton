@@ -70,12 +70,27 @@ generateDocs := {
   val targetDir = file("docs/public/scaladoc")
   val indexFile = targetDir / "index.html"
 
-  log.info("Generating Scaladoc for core modules...")
+  log.info("Generating Scaladoc for JVM modules...")
 
   val moduleDocs = List(
-    "core" -> (LocalProject("core") / Compile / doc).value,
-    "streams" -> (LocalProject("streams") / Compile / doc).value,
-    "runtime" -> (LocalProject("runtime") / Compile / doc).value
+    // Core runtime surface
+    "core"            -> (LocalProject("core") / Compile / doc).value,
+    "streams"         -> (LocalProject("streams") / Compile / doc).value,
+    "runtime"         -> (LocalProject("runtime") / Compile / doc).value,
+
+    // Protocol stack (JVM)
+    "graviton-shared" -> (sharedProtocol.jvm / Compile / doc).value,
+    "graviton-proto"  -> (LocalProject("proto") / Compile / doc).value,
+    "graviton-grpc"   -> (LocalProject("grpc") / Compile / doc).value,
+    "graviton-http"   -> (LocalProject("http") / Compile / doc).value,
+
+    // Backends (JVM)
+    "graviton-s3"     -> (LocalProject("s3") / Compile / doc).value,
+    "graviton-pg"     -> (LocalProject("pg") / Compile / doc).value,
+    "graviton-rocks"  -> (LocalProject("rocks") / Compile / doc).value,
+
+    // Server wiring (JVM)
+    "graviton-server" -> (LocalProject("server") / Compile / doc).value,
   )
 
   IO.delete(targetDir)
@@ -96,20 +111,28 @@ generateDocs := {
       |  <head>
       |    <meta charset="utf-8" />
       |    <meta name="viewport" content="width=device-width, initial-scale=1" />
-      |    <meta http-equiv="refresh" content="0; url=./core/index.html" />
       |    <title>Graviton Scaladoc</title>
       |    <style>
       |      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+      |      li { margin: 0.25rem 0; }
       |      code { background: rgba(0,0,0,0.06); padding: 0.1rem 0.3rem; border-radius: 0.3rem; }
       |    </style>
       |  </head>
       |  <body>
       |    <h1>Graviton Scaladoc</h1>
-      |    <p>Redirecting to <code>core</code>… If it doesn’t load, choose a module:</p>
+      |    <p>Choose a module:</p>
       |    <ul>
       |      <li><a href="./core/index.html">core</a></li>
       |      <li><a href="./streams/index.html">streams</a></li>
       |      <li><a href="./runtime/index.html">runtime</a></li>
+      |      <li><a href="./graviton-shared/index.html">graviton-shared</a></li>
+      |      <li><a href="./graviton-proto/index.html">graviton-proto</a></li>
+      |      <li><a href="./graviton-grpc/index.html">graviton-grpc</a></li>
+      |      <li><a href="./graviton-http/index.html">graviton-http</a></li>
+      |      <li><a href="./graviton-s3/index.html">graviton-s3</a></li>
+      |      <li><a href="./graviton-pg/index.html">graviton-pg</a></li>
+      |      <li><a href="./graviton-rocks/index.html">graviton-rocks</a></li>
+      |      <li><a href="./graviton-server/index.html">graviton-server</a></li>
       |    </ul>
       |  </body>
       |</html>

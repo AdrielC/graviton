@@ -10,10 +10,10 @@ This checklist captures the remaining work required before publishing Graviton f
 - Keep schema changes in lockstep with regenerated bindings in `modules/pg/src/main/resources/generated/` when the DDL evolves.
 
 ## Documentation and Guides
-- Replace remaining Torrent references with Graviton-centric language and port the binary streaming and chunking documentation from the prior project.
-- Write the binary-streaming guide (blocks, blobs, manifests, attributes) and link it from the Getting Started section.
+- Audit for legacy terminology and keep docs consistently Graviton-centric.
+- Keep the streaming docs cohesive: blocks/blobs/manifests/attributes + chunking, cross-linked from Getting Started.
 - Flesh out CLI usage pages that cover installation, command options, sample inputs/outputs, and end-to-end flows.
-- Add the Apache Tika module page and port the performance, API reference, and replication model notes from the legacy docs.
+- Keep API + ops pages aligned with the actual state of protocol handlers and backend implementations (avoid aspirational “full-featured” claims).
 
 ## Testing and Quality Gates
 - Keep running `TESTCONTAINERS=0 ./sbt scalafmtAll test` as the pre-merge validation set.
