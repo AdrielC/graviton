@@ -78,6 +78,12 @@ services:
       dockerfile: deploy/on-prem/v1/docker/graviton.Dockerfile
     environment:
       GRAVITON_HTTP_PORT: ${GRAVITON_HTTP_PORT:-8081}
+      GRAVITON_BLOB_BACKEND: ${GRAVITON_BLOB_BACKEND:-s3}
+      QUASAR_MINIO_URL: ${QUASAR_MINIO_URL:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      GRAVITON_S3_BUCKET: ${GRAVITON_S3_BUCKET:-graviton-blobs}
+      GRAVITON_S3_TMP_BUCKET: ${GRAVITON_S3_TMP_BUCKET:-graviton-tmp}
     ports:
       - "${GRAVITON_HTTP_PORT:-8081}:${GRAVITON_HTTP_PORT:-8081}"
     volumes:

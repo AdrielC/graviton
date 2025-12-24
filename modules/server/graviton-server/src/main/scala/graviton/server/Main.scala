@@ -1,5 +1,6 @@
 package graviton.server
 
+import graviton.backend.s3.S3BlobStore as MinioBlobStore
 import graviton.protocol.http.{HttpApi, MetricsHttpApi}
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
@@ -15,6 +16,9 @@ object Main extends ZIOAppDefault:
 
   private def envIntOr(name: String, default: Int): Int =
     sys.env.get(name).flatMap(_.trim.toIntOption).getOrElse(default)
+
+  private def envOr(name: String, default: String): String =
+    sys.env.get(name).map(_.trim).filter(_.nonEmpty).getOrElse(default)
 
   override def run: ZIO[Any, Any, Any] =
     for
@@ -60,9 +64,15 @@ object Main extends ZIOAppDefault:
           _      <- Server.serve(routes)
         yield ()
 
+      blobBackend = envOr("GRAVITON_BLOB_BACKEND", "memory").toLowerCase
+      blobLayer   =
+        blobBackend match
+          case "s3" | "minio" => MinioBlobStore.layerFromEnv
+          case _              => InMemoryBlobStore.layer
+
       _ <- program.provide(
              Server.defaultWithPort(port),
-             InMemoryBlobStore.layer,
+             blobLayer,
              DatalakeDashboardService.live,
              InMemoryMetricsRegistry.layer,
              ZLayer.succeed[Clock](Clock.ClockLive),
