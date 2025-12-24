@@ -1,8 +1,0 @@
-{
-"version": 3,
-"file": "quasar.frontend.-Quasar-App$-Page$-Legacy-Import$.js",
-"mappings": ";;AAagB;SAAA,gDAAA;C;AAAA,SAAA,gDAAA,uD;AAAA,gDAAA,CAAA,SAAA,OAAAA,wDAAA,CAAA,IAAA,G;AAAA,gDAAA,CAAA,SAAA,CAAA,WAAA,GAAA,gDAAA,C;AAAA;SAAA,gDAAA;C;AAAA,SAAA,gDAAA,uD;AAAA,gDAAA,CAAA,SAAA,GAAA,gDAAA,CAAA,SAAA,C;AAAA,gDAAA,CAAA,SAAA,CAAAC,4BAAA;ECwBuB,WAAAD,wDAAA,CAAA,oBAAA,ODxBvB;G;AAAA,gDAAA,CAAA,SAAA,CAAAE,WAAA;;G;AAAA,gDAAA,CAAA,SAAA,CAAAC,WAAA;;G;AAAA,gDAAA,CAAA,SAAA,CAAAC,eAAA;;G;AAAA,gDAAA,CAAA,SAAA,CAAAC,gBAAA;;G;AAAA,gDAAA,CAAA,SAAA,CAAAC,oBAAA,aAAA,CAAA;QAAAN,wDAAA,CAAA,qCAAA,KAAAA,wDAAA,CAAA,+BAAA,IEiHkC,CAAH,EAAG,GAAE,CAAF,CFjHlC;G;AAAA,gDAAA,CAAA,SAAA,CAAAO,yBAAA,aAAA,CAAA;EGuB0C,YHvB1C;G;AAAA,IAAA,gDAAA,OAAAP,wDAAA,CAAA,SAAA,GAAA,SAAA,CAAA,gDAAA;EAAA,6CAAA;EAAA,+BAAA;EAAA,QAAA;EAAA,SAAA;EAAA,qBAAA;EAAA,iBAAA;EAAA,yBAAA;EAAA,2BAAA;I;AAAA,SAAA,gDAAA,uD;AAAA,IAAA,gDAAA,C;AAAA,SAAA,gDAAA;QAAA,gDAAA;IAAA,gDAAA,OAAA,gDAAA;;SAAA,gDAAA;C;AAAA,SAAA,gDAAA,uD;",
-"sources": ["file:///workspace/modules/quasar-frontend/src/main/scala/quasar/frontend/QuasarApp.scala", "https://raw.githubusercontent.com/scala/scala/v2.13.16/src/library/scala/Product.scala", "https://raw.githubusercontent.com/scala-js/scala-js/v1.19.0/javalib/src/main/scala/java/lang/Integer.scala", "https://raw.githubusercontent.com/scala/scala3/3.7.4/library/src/scala/deriving/Mirror.scala"],
-"names": ["internal-3ebfae0cba70adf981029a0da5b1e4b5ab5d02c6", "productIterator", "hashCode", "toString", "productArity", "productPrefix", "productElement", "fromProduct"],
-"lineCount": 53
-}

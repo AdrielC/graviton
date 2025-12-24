@@ -1,8 +1,0 @@
-{
-"version": 3,
-"file": "quasar.frontend.-Main.js",
-"mappings": ";;;AAOO,SAAAA,qCAAA,CAAA,IAAA;EAAAC,yCAAA,CAAA,yBAAA,GAAA,WAAA,CAAA,IAAA;C;AAAA,SAAAD,qCAAA,4C;",
-"sources": ["file:///workspace/modules/quasar-frontend/src/main/scala/quasar/frontend/Main.scala"],
-"names": ["main", "quasar.frontend.-Main$"],
-"lineCount": 7
-}
