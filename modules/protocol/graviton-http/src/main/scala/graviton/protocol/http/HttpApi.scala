@@ -15,6 +15,7 @@ final case class HttpApi(
   blobStore: BlobStore,
   dashboard: DatalakeDashboardService,
   cedarLegacy: Option[CedarLegacyHttpApi] = None,
+  metrics: Option[MetricsHttpApi] = None,
 ) {
 
   private val snapshotHandler: Handler[Any, Nothing, Request, Response] =
@@ -50,7 +51,7 @@ final case class HttpApi(
   private val routes = Routes(
     Method.GET / "api" / "datalake" / "dashboard"            -> snapshotHandler,
     Method.GET / "api" / "datalake" / "dashboard" / "stream" -> streamHandler,
-  ) ++ cedarLegacy.map(_.routes).getOrElse(Routes.empty)
+  ) ++ cedarLegacy.map(_.routes).getOrElse(Routes.empty) ++ metrics.map(_.routes).getOrElse(Routes.empty)
 
   val app: Handler[Any, Nothing, Request, Response] = routes.toHandler
 }

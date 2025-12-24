@@ -1,7 +1,9 @@
 package graviton.server.metrics
 
 import graviton.runtime.metrics.MetricsRegistry
-import zio.ZIO
+import graviton.runtime.metrics.PrometheusTextRenderer
+import zio.*
 
 final case class PrometheusExporter(registry: MetricsRegistry):
-  def render: ZIO[Any, Nothing, String] = ZIO.succeed("# prometheus metrics placeholder")
+  def render: UIO[String] =
+    registry.snapshot.map(PrometheusTextRenderer.render)
