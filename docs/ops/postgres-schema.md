@@ -7,6 +7,8 @@ If you’re looking for the DDL itself:
 - **Deployable DDL**: `modules/backend/graviton-pg/src/main/resources/ddl.sql`
 - **Canonical copy**: `modules/pg/ddl.sql`
 
+If you’re looking for **code you can copy/paste into psql right now**, keep reading — this page is intentionally heavy on SQL.
+
 ### Goals
 
 - **Correctness first**: CAS invariants are enforced by constraints, not “best effort” app code.
@@ -80,12 +82,111 @@ Physical placement is encoded in `graviton.block_location.locator` (JSONB), and 
 
 We also persist a generated `locator_canonical` string for debugging and quick equality checks.
 
+Here is the actual “presence row” shape (simplified but accurate; see the DDL for the full table):
+
+```sql
+-- physical materialization (where bytes actually live)
+create table graviton.block_location (
+  block_location_id uuid primary key default gen_random_uuid(),
+
+  -- logical identity
+  alg         core.hash_alg not null,
+  hash_bytes  bytea not null,
+  byte_length core.byte_size not null,
+
+  -- placement
+  sector_id uuid not null references graviton.sector(sector_id),
+
+  -- backend-native locator contract
+  locator jsonb not null,
+
+  -- debuggable canonical string
+  locator_canonical text generated always as (
+    coalesce(locator->>'scheme','') || '://' ||
+    coalesce(locator->>'host', locator->>'bucket', '') || '/' ||
+    coalesce(locator->>'key', locator->>'path', '')
+  ) stored,
+
+  stored_length core.byte_size not null,
+  frame_format int not null default 1,
+  encryption jsonb not null default '{}'::jsonb,
+  status core.present_status not null default 'present',
+
+  written_at timestamptz not null default core.now_utc(),
+  verified_at timestamptz null,
+
+  foreign key (alg, hash_bytes, byte_length)
+    references graviton.block(alg, hash_bytes, byte_length),
+
+  constraint locator_is_object check (jsonb_typeof(locator) = 'object'),
+  constraint locator_has_scheme check (locator ? 'scheme'),
+  constraint locator_has_keyish check ((locator ? 'key') or (locator ? 'path')),
+
+  -- sicko contract enforcement
+  constraint locator_scheme_format check ((locator->>'scheme') ~ '^[a-z][a-z0-9+.-]*$'),
+  constraint locator_scheme_contract check (
+    case locator->>'scheme'
+      when 's3' then (locator ? 'bucket') and (locator ? 'key')
+      when 'fs' then (locator ? 'path')
+      when 'ceph' then (locator ? 'pool') and (locator ? 'key')
+      else true
+    end
+  )
+);
+```
+
+Example locators (these are the minimum shapes that pass checks):
+
+```sql
+-- s3
+select jsonb_build_object(
+  'scheme','s3',
+  'bucket','graviton-prod',
+  'key','blocks/sha256/ab/cd/abcd...',
+  'region','us-east-1'
+);
+
+-- fs
+select jsonb_build_object(
+  'scheme','fs',
+  'path','/var/lib/graviton/blocks/sha256/ab/cd/abcd...'
+);
+
+-- ceph
+select jsonb_build_object(
+  'scheme','ceph',
+  'pool','graviton',
+  'key','blocks/sha256/ab/cd/abcd...'
+);
+```
+
 ### Non-overlapping manifests
 
 `graviton.blob_block` includes a generated `span` range and a GiST exclusion constraint:
 
 - **No overlapping block spans** for the same blob.
 - This is a huge correctness win: you can’t write a logically corrupt manifest into the DB.
+
+This is the “no overlapping spans” trick in SQL (actual constraint form):
+
+```sql
+-- blob_block.span is generated:
+--   [block_offset, block_offset + block_length)
+alter table graviton.blob_block
+  add column span int8range generated always as (
+    int8range(block_offset, block_offset + block_length, '[)')
+  ) stored;
+
+-- forbid overlaps for the same blob key
+alter table graviton.blob_block
+  add constraint blob_block_non_overlapping
+  exclude using gist (
+    alg with =,
+    hash_bytes with =,
+    byte_length with =,
+    span with &&
+  );
+```
 
 ---
 
@@ -108,6 +209,45 @@ And org-aware foreign keys like:
 
 - `FOREIGN KEY (org_id, principal_id) REFERENCES quasar.principal(org_id, principal_id)`
 
+Here’s the “shape” of the partitioned document read-model (this is the hot path you list/search over):
+
+```sql
+create table quasar.document_current (
+  org_id uuid not null,
+  doc_id uuid not null,
+  current_version_id uuid not null,
+
+  content_kind quasar.content_kind not null,
+  content_ref jsonb not null,
+
+  status quasar.doc_status not null,
+  title text not null,
+  last_modified_at timestamptz not null default core.now_utc(),
+
+  primary key (org_id, doc_id),
+
+  -- org-aware FKs (the whole point)
+  foreign key (org_id, doc_id)
+    references quasar.document(org_id, doc_id) on delete cascade,
+
+  foreign key (org_id, current_version_id)
+    references quasar.document_version(org_id, doc_version_id),
+
+  constraint content_ref_is_object check (jsonb_typeof(content_ref) = 'object')
+) partition by hash (org_id);
+
+-- 16 hash partitions (p0..p15)
+do $$
+begin
+  for i in 0..15 loop
+    execute format(
+      'create table if not exists quasar.document_current_p%1$s partition of quasar.document_current for values with (modulus 16, remainder %1$s)',
+      i
+    );
+  end loop;
+end $$;
+```
+
 ### Row Level Security (RLS)
 
 The app should set the active org per transaction:
@@ -125,6 +265,20 @@ Special case: `quasar.schema_registry` allows both:
 - org-scoped schemas: `org_id = current_org_id()`
 - global schemas: `org_id IS NULL`
 
+This is what the policy actually looks like:
+
+```sql
+create or replace function quasar.current_org_id()
+returns uuid language sql stable as $$
+  select nullif(current_setting('app.org_id', true), '')::uuid;
+$$;
+
+alter table quasar.document_current enable row level security;
+create policy quasar_document_current_org_isolation
+  on quasar.document_current
+  using (org_id = quasar.current_org_id());
+```
+
 ---
 
 ## Hot path: “resolve content to bytes”
@@ -138,6 +292,64 @@ Use `graviton.best_block_locations(...)`:
 ```sql
 select *
 from graviton.best_block_locations('sha256', $1::bytea, $2::bigint, 5);
+```
+
+Here’s the full function definition (copy/pasteable):
+
+```sql
+create or replace function graviton.best_block_locations(
+  p_alg core.hash_alg,
+  p_hash_bytes bytea,
+  p_byte_length bigint,
+  p_limit int default 5
+)
+returns table (
+  sector_priority int,
+  sector_id uuid,
+  blob_store_id uuid,
+  blob_store_type_id text,
+  block_location_id uuid,
+  status core.present_status,
+  locator jsonb,
+  locator_canonical text,
+  stored_length bigint,
+  frame_format int,
+  encryption jsonb,
+  written_at timestamptz,
+  verified_at timestamptz
+)
+language sql stable as $$
+  select
+    s.priority as sector_priority,
+    s.sector_id,
+    s.blob_store_id,
+    bs.type_id as blob_store_type_id,
+    bl.block_location_id,
+    bl.status,
+    bl.locator,
+    bl.locator_canonical,
+    bl.stored_length,
+    bl.frame_format,
+    bl.encryption,
+    bl.written_at,
+    bl.verified_at
+  from graviton.block_location bl
+  join graviton.sector s
+    on s.sector_id = bl.sector_id
+  join graviton.blob_store bs
+    on bs.blob_store_id = s.blob_store_id
+  where bl.alg = p_alg
+    and bl.hash_bytes = p_hash_bytes
+    and bl.byte_length = p_byte_length
+    and bl.status = 'present'
+    and s.status = 'active'
+    and bs.status = 'active'
+  order by
+    s.priority asc,
+    bl.verified_at desc nulls last,
+    bl.written_at desc
+  limit greatest(p_limit, 0);
+$$;
 ```
 
 Ordering is:
@@ -171,6 +383,36 @@ This is meant for:
 - diagnostics (“why can’t we read this blob?”)
 - building a streaming plan in the app layer
 
+### Scala usage: call the hot path
+
+The dbcodegen output is now per-schema:
+
+- `graviton.pg.generated.graviton.*`
+- `graviton.pg.generated.quasar.*`
+
+Here’s a minimal “call the function” snippet using Magnum:
+
+```scala
+import com.augustnagro.magnum.*
+import com.augustnagro.magnum.magzio.*
+import graviton.db.{*, given}
+import graviton.pg.generated.graviton as g
+import zio.*
+
+def bestCandidates(
+  xa: TransactorZIO,
+  alg: g.HashAlg,
+  hash: Chunk[Byte],
+  bytes: Long,
+): Task[Chunk[(Int, java.util.UUID, Json)]] =
+  xa.transact {
+    sql"""
+      select sector_priority, sector_id, locator
+      from graviton.best_block_locations($alg, $hash, $bytes, 5)
+    """.query[(Int, java.util.UUID, Json)].run().map(Chunk.fromIterable)
+  }
+```
+
 ---
 
 ## Change notifications (pg_notify)
@@ -181,6 +423,35 @@ The DB emits invalidation events for key tables via `core.notify_change()`:
 - **channel `quasar_inval`**: document_current + outbox_job
 
 Payload is JSON including schema, table, op, ts, and the affected row.
+
+This is the notification trigger body (actual shape):
+
+```sql
+create or replace function core.notify_change()
+returns trigger language plpgsql as $$
+declare
+  payload jsonb;
+  chan text;
+begin
+  chan := case tg_table_schema
+    when 'graviton' then 'graviton_inval'
+    when 'quasar' then 'quasar_inval'
+    else 'core_inval'
+  end;
+
+  payload := jsonb_build_object(
+    'schema', tg_table_schema,
+    'table',  tg_table_name,
+    'op',     tg_op,
+    'ts',     clock_timestamp(),
+    'row',    case when tg_op in ('insert','update') then to_jsonb(new) else to_jsonb(old) end
+  );
+
+  perform pg_notify(chan, payload::text);
+  return coalesce(new, old);
+end;
+$$;
+```
 
 ---
 
