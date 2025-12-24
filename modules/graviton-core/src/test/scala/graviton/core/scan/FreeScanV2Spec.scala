@@ -8,7 +8,6 @@ import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.scan.FS.*
 import graviton.core.scan.Tensor
-import graviton.core.scan.LabelEvidence.given
 import kyo.Tag.given
 import zio.*
 import zio.stream.*
@@ -71,6 +70,30 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val outputs = chunker.runChunk(inputs).map(bytes => new String(bytes.toArray, ascii))
 
         assertTrue(outputs == List("abc", "de"))
+      },
+      test("Kyo interpreter matches pure runner (including flush)") {
+        val scan = fixedChunker(3)
+        val in   = List(chunk("ab"), chunk("cde"))
+
+        val expected = scan.runChunk(in).map(bytes => new String(bytes.toArray, ascii)).toList
+        val got      =
+          InterpretKyo
+            .runChunk(scan, kyo.Chunk.from(in))
+            .map(bytes => new String(bytes.toArray, ascii))
+            .toSeq
+            .toList
+
+        assertTrue(got == expected)
+      },
+      test("fanout (&&&) broadcasts input and returns Record output") {
+        val program =
+          counter[Chunk[Byte]].labelled["count"] &&&
+            byteCounter.labelled["bytes"]
+
+        val inputs  = List(chunk("ab"), chunk("c"), chunk("def"))
+        val outputs = program.runChunk(inputs).map(Tensor.toTuple["count", "bytes", Long, Long]).toList
+
+        assertTrue(outputs == List((1L, 2L), (2L, 3L), (3L, 6L)))
       },
       test("manifest builder aggregates entries") {
 
