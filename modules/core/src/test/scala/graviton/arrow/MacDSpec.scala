@@ -12,10 +12,10 @@ object MacDSpec extends ZIOSpecDefault:
 
   def spec = suite("MacD")(
     test("macdFlow halts on sentinel and exposes leftovers") {
-      val flow                         = MacD.macdFlow(frameBytes = 4, window = 3, stopMarker = chunk("STOP"))
-      val first                        = chunk("HELLOSPACE")
-      val second                       = chunk("STOP123")
-      val (reports, accumulatorState)  = MacD.drive(flow, List(first, second))
+      val flow                        = MacD.macdFlow(frameBytes = 4, window = 3, stopMarker = chunk("STOP"))
+      val first                       = chunk("HELLOSPACE")
+      val second                      = chunk("STOP123")
+      val (reports, accumulatorState) = MacD.drive(flow, List(first, second))
       assertTrue(reports.length == 2) &&
       assertTrue(reports(0).stopped == false) &&
       assertTrue(reports(0).hashes.nonEmpty) &&
@@ -23,5 +23,5 @@ object MacDSpec extends ZIOSpecDefault:
       assertTrue(reports(1).reason.exists(_.contains("stop"))) &&
       assertTrue(new String(reports(1).leftover.toArray, StandardCharsets.US_ASCII) == "3") &&
       assertTrue(new String(accumulatorState.buffer.toArray, StandardCharsets.US_ASCII) == "3")
-    },
+    }
   )

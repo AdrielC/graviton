@@ -6,12 +6,19 @@ import graviton.core.ranges.Span
 import graviton.core.ranges.given
 import graviton.core.types.HexLower
 import graviton.core.bytes.Digest
-
+import graviton.core.model.Block
+import java.lang.StringBuilder as JLSBuilder
+import zio.Chunk
+import graviton.core.bytes.Hasher
+import graviton.core.bytes.Hasher.given
 import scala.quoted.*
 
 object Interpolators:
 
   extension (inline sc: StringContext)
+    inline def bytes(inline args: Any*): Block =
+      ${ bytesBlockImpl('sc, 'args) }
+
     inline def hex(inline args: Any*): HexLower =
       ${ hexHexLowerImpl('sc, 'args) }
 
@@ -24,10 +31,45 @@ object Interpolators:
     inline def span(inline args: Any*): Span[Long] =
       ${ spanImpl('sc, 'args) }
 
-  private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit =
+  private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit                         =
     argsExpr match
       case Varargs(Seq()) => ()
       case _              => quotes.reflect.report.error(s"$name interpolator does not support arguments")
+
+  private def standardInterpolator(
+    process: String => String,
+    processArgs: Any => String,
+    args: scala.collection.Seq[Any],
+    parts: Seq[String],
+  ): Either[String, String] = {
+    StringContext.checkLengths(args, parts)
+    val pi   = parts.iterator
+    val ai   = args.iterator
+    val bldr = new JLSBuilder(process(pi.next()))
+    while (ai.hasNext) {
+      bldr append processArgs(ai.next())
+      bldr append process(pi.next())
+    }
+    Right(bldr.toString)
+  }
+  private def bytesBlockImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Block] =
+    import quotes.reflect.report
+    // ensureNoArgs("bytes", argsExpr)
+
+    standardInterpolator(
+      bytes => bytes.getBytes("US-ASCII").mkString,
+      (arg: Any) => arg.toString,
+      argsExpr
+        .asExprOf[List[Hasher.Digestable]]
+        .value
+        .toSeq
+        .flatMap(i => i.flatMap(i => Hasher.systemDefault.toSeq.map(h => h.update(i).digest))),
+      scExpr.value.toList.flatMap(_.parts),
+    ) match
+      case Right(bytes) => '{ Block.unsafe(zio.Chunk.fromArray(${ Expr(bytes.getBytes("US-ASCII")) })) }
+      case Left(err)    =>
+        report.error(err)
+        '{ compiletime.error(${ Expr(err) }) }
 
   private def hexHexLowerImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[HexLower] =
     import quotes.reflect.report
