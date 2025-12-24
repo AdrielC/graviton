@@ -20,6 +20,8 @@ libraryDependencies ++= Seq(
   "us.fatehi" % "schemacrawler-mysql"      % schemacrawlerV,
   "org.postgresql" % "postgresql"           % postgresV,
   "org.flywaydb"          % "flyway-core"              % "10.6.0",
+  // For "DDL -> code" without an external Postgres.
+  "io.zonky.test"       % "embedded-postgres" % embeddedPgV,
   // "mysql"                 % "mysql-connector-java"     % "8.0.33",
   //   "org.mariadb.jdbc"      % "mariadb-java-client"      % "3.1.2",A
   "org.slf4j" % "slf4j-simple" % "2.0.16", // Better logging output control
@@ -29,7 +31,6 @@ libraryDependencies ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "io.zonky.test"       % "embedded-postgres" % embeddedPgV % Test,
   "org.scalameta"      %% "munit"             % munitV       % Test,
 )
 

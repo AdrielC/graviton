@@ -3,6 +3,8 @@ package dbcodegen
 import java.io.File
 import java.util.logging.Level
 
+import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
+
 import scala.util.chaining.scalaUtilChainingOps
 import scala.util.matching.Regex
 import zio.{Exit, Runtime, Unsafe}
@@ -12,10 +14,17 @@ object DbMain {
   private lazy val log = java.util.logging.Logger.getGlobal.tap(_.setLevel(Level.WARNING))
 
   def main(args: Array[String]): Unit = {
-    val jdbcUrl = sys.props
-      .get("dbcodegen.jdbcUrl")
-      .orElse(sys.env.get("PG_JDBC_URL"))
-      .getOrElse("jdbc:postgresql://127.0.0.1:5432/postgres")
+    def propOrEnv(propKey: String, envKey: String): Option[String] =
+      sys.props.get(propKey).orElse(sys.env.get(envKey))
+
+    val ddlPathOpt =
+      propOrEnv("dbcodegen.ddl", "DBCODEGEN_DDL")
+        .orElse(propOrEnv("dbcodegen.ddlPath", "DBCODEGEN_DDL_PATH"))
+        .map(resolvePath)
+
+    val jdbcUrlFromEnvOrDefault =
+      propOrEnv("dbcodegen.jdbcUrl", "PG_JDBC_URL")
+        .getOrElse("jdbc:postgresql://127.0.0.1:5432/postgres")
 
     val username = sys.props
       .get("dbcodegen.username")
@@ -27,33 +36,43 @@ object DbMain {
       .orElse(sys.env.get("PG_PASSWORD"))
       .orElse(Some("postgres"))
 
-    val outputPath  = sys.props.getOrElse("dbcodegen.out", "modules/pg/src/main/scala/graviton/pg/generated")
-    val inspectOnly = sys.props.get("dbcodegen.inspect-only").contains("true")
-    val basePackage = sys.props.getOrElse("dbcodegen.basePackage", CodeGeneratorConfig.default.basePackage)
+    val outputPath =
+      propOrEnv("dbcodegen.out", "DBCODEGEN_OUT")
+        .getOrElse("modules/pg/src/main/scala/graviton/pg/generated")
+
+    val inspectOnly =
+      propOrEnv("dbcodegen.inspect-only", "DBCODEGEN_INSPECT_ONLY").contains("true")
+
+    val basePackage =
+      propOrEnv("dbcodegen.basePackage", "DBCODEGEN_BASE_PACKAGE")
+        .getOrElse(CodeGeneratorConfig.default.basePackage)
+
     val layout = sys.props
       .get("dbcodegen.layout")
+      .orElse(sys.env.get("DBCODEGEN_LAYOUT"))
       .flatMap(OutputLayout.fromString)
       .getOrElse(CodeGeneratorConfig.default.outputLayout)
-    val inspectConstraints = sys.props.get("dbcodegen.inspect-constraints").contains("true")
+    val inspectConstraints =
+      propOrEnv("dbcodegen.inspect-constraints", "DBCODEGEN_INSPECT_CONSTRAINTS").contains("true")
 
     val includeSchemas =
-      sys.props
-        .get("dbcodegen.schemas")
-        .orElse(sys.props.get("dbcodegen.includeSchemas"))
+      propOrEnv("dbcodegen.schemas", "DBCODEGEN_SCHEMAS")
+        .orElse(propOrEnv("dbcodegen.includeSchemas", "DBCODEGEN_INCLUDE_SCHEMAS"))
         .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet)
         .getOrElse(Set("core", "graviton", "quasar"))
 
     val excludeSchemas =
-      sys.props
-        .get("dbcodegen.excludeSchemas")
+      propOrEnv("dbcodegen.excludeSchemas", "DBCODEGEN_EXCLUDE_SCHEMAS")
         .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet)
         .getOrElse(CodeGeneratorConfig.default.excludeSchemas)
 
     val includeTablePattern: Option[Regex] =
-      sys.props.get("dbcodegen.includeTablesRegex").map(_.r)
+      propOrEnv("dbcodegen.includeTablesRegex", "DBCODEGEN_INCLUDE_TABLES_REGEX").map(_.r)
 
     val excludeTablePattern: Option[Regex] =
-      sys.props.get("dbcodegen.excludeTablesRegex").map(_.r).orElse(CodeGeneratorConfig.default.excludeTablePattern)
+      propOrEnv("dbcodegen.excludeTablesRegex", "DBCODEGEN_EXCLUDE_TABLES_REGEX")
+        .map(_.r)
+        .orElse(CodeGeneratorConfig.default.excludeTablePattern)
 
     val outDir = resolvePath(outputPath).tap { dir =>
       if (!dir.exists()) {
@@ -64,7 +83,7 @@ object DbMain {
     log.info(
       s"""
          |=== Database Code Generation ===
-         |  JDBC URL: $jdbcUrl
+         |  JDBC URL: $jdbcUrlFromEnvOrDefault
          |  Username: ${username.getOrElse("<anonymous>")}
          |  Output:   ${outDir.getAbsolutePath}
          |================================
@@ -87,7 +106,8 @@ object DbMain {
     val targetRootOpt = sys.props.get("dbcodegen.targetRoot").map(resolvePath).map(_.toPath)
     val scalaVersion  = sys.props.getOrElse("dbcodegen.scalaVersion", "3.7.4")
 
-    if (targetRootOpt.isDefined) {
+    def runCodegen(jdbcUrl: String): Unit =
+      if (targetRootOpt.isDefined) {
       // ZIO-style generator pipeline (inspired by zio-openai-codegen).
       val targetRoot = targetRootOpt.get
       val codegen    = new dbcodegen.generator.DbCodegen(
@@ -134,6 +154,20 @@ object DbMain {
           else
             log.info(s"Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
     }
+
+    ddlPathOpt match
+      case None =>
+        runCodegen(jdbcUrlFromEnvOrDefault)
+      case Some(ddlPath) =>
+        val postgres = EmbeddedPostgres.builder().setPort(0).start()
+        try {
+          val connection = postgres.getPostgresDatabase.getConnection
+          try SqlExecutor.executeSqlFile(connection, ddlPath)
+          finally connection.close()
+
+          val embeddedJdbcUrl = postgres.getJdbcUrl("postgres", username.getOrElse("postgres"))
+          runCodegen(embeddedJdbcUrl)
+        } finally postgres.close()
   }
 
   private def resolvePath(path: String): File = {

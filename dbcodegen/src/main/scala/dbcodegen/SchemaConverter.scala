@@ -19,6 +19,7 @@ object SchemaConverter {
     config: CodeGeneratorConfig,
   ): DataSchema = {
     val schemaName = Option(schema.getName).filter(_.nonEmpty).getOrElse("schema")
+    val schemaNameLower = schemaName.toLowerCase(Locale.ROOT)
 
     val collected = schemaTables.collect {
       case table if config.isTableIncluded(schemaName, table.getName) =>
@@ -103,10 +104,25 @@ object SchemaConverter {
         (table :: ts, enumOptions.toList ::: es, domainNames.toList ::: ds)
     }
 
+    val schemaEnums = {
+      val conn = connection.get()
+      try PgTypeResolver
+        .resolveEnums(schemaName, conn)
+        .map { case (enumName, labels) => DataEnum(enumName, labels.map(DataEnumValue(_))) }
+      finally {
+        val _ = connection.releaseConnection(conn)
+        ()
+      }
+    }
+
+    val enumsLocalToSchema =
+      (schemaEnums ++ enums.flatten)
+        .distinct
+
     DataSchema(
       schemaName,
       tables.distinct,
-      enums.flatten.distinct,
+      enumsLocalToSchema,
       schema,
       domains.distinct,
     )
@@ -119,17 +135,30 @@ object SchemaConverter {
     pgInfo: Option[PgTypeResolver.ColumnInfo],
     config: CodeGeneratorConfig,
   ): (String, Option[DataEnum]) = {
-    val _ = schema
+    val schemaNameLower = Option(schema.getName).filter(_.nonEmpty).getOrElse("schema").toLowerCase(Locale.ROOT)
     pgInfo match {
       case Some(info) =>
         info.enumLabels match {
           case Some(labels) =>
-            val enumName = info.arrayElemType.getOrElse(info.typname)
-            val dataEnum = DataEnum(enumName, labels.map(DataEnumValue(_)))
-            val base     = dataEnum.scalaName
-            val withArr  = if (info.typcategory == "A") s"Vector[$base]" else base
-            val scalaT   = if (column.isNullable && !column.isPartOfPrimaryKey) s"Option[$withArr]" else withArr
-            (scalaT, Some(dataEnum))
+            val enumName   = info.arrayElemType.getOrElse(info.typname)
+            val enumSchema = info.arrayElemSchema.getOrElse(info.typeSchema)
+            val dataEnum   = DataEnum(enumName, labels.map(DataEnumValue(_)))
+            val localRef   = dataEnum.scalaName
+            val typeRef =
+              if (enumSchema.toLowerCase(Locale.ROOT) == schemaNameLower)
+                localRef
+              else
+                s"${config.basePackage}.${enumSchema}.${localRef}"
+
+            val withArr = if (info.typcategory == "A") s"Vector[$typeRef]" else typeRef
+            val scalaT  = if (column.isNullable && !column.isPartOfPrimaryKey) s"Option[$withArr]" else withArr
+
+            val maybeLocalEnum =
+              if (enumSchema.toLowerCase(Locale.ROOT) == schemaNameLower)
+                Some(dataEnum)
+              else None
+
+            (scalaT, maybeLocalEnum)
           case None =>
             val typeName = info.arrayElemType.orElse(info.rangeSubType).getOrElse(info.typname)
             val targetType =

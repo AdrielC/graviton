@@ -99,24 +99,22 @@ object CodeGenerator {
       val iter = tablesPerSchema.toSeq.iterator
       while (iter.hasNext) {
         val (schema, tables) = iter.next()
-        if (tables.nonEmpty) {
-          val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
-          if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
-            renderScalaCode(dataSchema, config) match
-              case Left(err) => boundary.break(Left(err))
-              case Right(output) =>
-                val outputPath = outputPathFor(config, dataSchema)
-                if (!config.dryRun) {
-                  try {
-                    Files.createDirectories(outputPath.getParent)
-                    Files.write(outputPath, output.getBytes)
-                  } catch {
-                    case e: Throwable =>
-                      boundary.break(Left(CodegenError.WriteError(s"Failed writing '$outputPath': ${e.getMessage}")))
-                  }
+        val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
+        if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
+          renderScalaCode(dataSchema, config) match
+            case Left(err) => boundary.break(Left(err))
+            case Right(output) =>
+              val outputPath = outputPathFor(config, dataSchema)
+              if (!config.dryRun) {
+                try {
+                  Files.createDirectories(outputPath.getParent)
+                  Files.write(outputPath, output.getBytes)
+                } catch {
+                  case e: Throwable =>
+                    boundary.break(Left(CodegenError.WriteError(s"Failed writing '$outputPath': ${e.getMessage}")))
                 }
-                generated += outputPath
-          }
+              }
+              generated += outputPath
         }
       }
 
@@ -191,14 +189,14 @@ object CodeGenerator {
            |import graviton.db.{*, given}
            |import zio.Chunk
            |import zio.json.ast.Json
-         |import zio.schema.Schema
+           |import zio.schema.Schema
            |import zio.schema.validation.Validation
            |""".stripMargin
       parseStatements(importBlock) match
         case Left(err) => boundary.break(Left(err))
         case Right(parsed) => stats ++= parsed
 
-    val enumsRendered = renderEnums(schema)
+      val enumsRendered = renderEnums(schema)
       parseStatements(enumsRendered) match
         case Left(err) => boundary.break(Left(err))
         case Right(parsed) => stats ++= parsed
@@ -530,6 +528,19 @@ object CodeGenerator {
         dataEnum.values.foreach { value =>
           sb.append(s"  case ${value.scalaName} extends ${dataEnum.scalaName}(\"${escapeScalaString(value.name)}\")\n")
         }
+        sb.append("\n")
+        sb.append(s"object ${dataEnum.scalaName}:\n")
+        sb.append(s"  private val byValue: Map[String, ${dataEnum.scalaName}] = ${dataEnum.scalaName}.values.iterator.map(v => v.value -> v).toMap\n")
+        sb.append(s"  given DbCodec[${dataEnum.scalaName}] =\n")
+        sb.append(s"""    DbCodec[String].biMap(
+           |      str =>
+           |        byValue.getOrElse(
+           |          str,
+           |          throw IllegalArgumentException("Unknown ${dataEnum.name} value '" + str + "'"),
+           |        ),
+           |      _.value,
+           |    )
+           |""".stripMargin)
         sb.append("\n")
       }
       sb.toString

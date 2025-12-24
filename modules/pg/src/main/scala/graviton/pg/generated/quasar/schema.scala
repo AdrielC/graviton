@@ -6,72 +6,131 @@ import com.augustnagro.magnum._
 import graviton.db.{ _, given }
 import zio.Chunk
 import zio.json.ast.Json
-import zio.schema.{ DeriveSchema, Schema }
+import zio.schema.Schema
 import zio.schema.validation.Validation
-enum SchemaStatus(val value: String) {
+enum ContentKind(val value: String) derives Schema {
+  case blob extends ContentKind("blob")
+  case view extends ContentKind("view")
+}
+object ContentKind {
+  private val byValue: Map[String, ContentKind] = ContentKind.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[ContentKind] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown content_kind value '" + str + "'")), _.value)
+}
+enum DocStatus(val value: String) derives Schema {
+  case draft extends DocStatus("draft")
+  case active extends DocStatus("active")
+  case deleted extends DocStatus("deleted")
+}
+object DocStatus {
+  private val byValue: Map[String, DocStatus] = DocStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[DocStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown doc_status value '" + str + "'")), _.value)
+}
+enum Effect(val value: String) derives Schema {
+  case allow extends Effect("allow")
+  case deny extends Effect("deny")
+}
+object Effect {
+  private val byValue: Map[String, Effect] = Effect.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[Effect] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown effect value '" + str + "'")), _.value)
+}
+enum EmbeddingStatus(val value: String) derives Schema {
+  case pending extends EmbeddingStatus("pending")
+  case ready extends EmbeddingStatus("ready")
+  case stale extends EmbeddingStatus("stale")
+  case failed extends EmbeddingStatus("failed")
+}
+object EmbeddingStatus {
+  private val byValue: Map[String, EmbeddingStatus] = EmbeddingStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[EmbeddingStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown embedding_status value '" + str + "'")), _.value)
+}
+enum PrincipalKind(val value: String) derives Schema {
+  case user extends PrincipalKind("user")
+  case group extends PrincipalKind("group")
+  case service extends PrincipalKind("service")
+}
+object PrincipalKind {
+  private val byValue: Map[String, PrincipalKind] = PrincipalKind.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[PrincipalKind] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown principal_kind value '" + str + "'")), _.value)
+}
+enum ResourceKind(val value: String) derives Schema {
+  case document extends ResourceKind("document")
+  case folder extends ResourceKind("folder")
+  case namespace extends ResourceKind("namespace")
+  case schema extends ResourceKind("schema")
+}
+object ResourceKind {
+  private val byValue: Map[String, ResourceKind] = ResourceKind.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[ResourceKind] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown resource_kind value '" + str + "'")), _.value)
+}
+enum SchemaStatus(val value: String) derives Schema {
   case draft extends SchemaStatus("draft")
   case active extends SchemaStatus("active")
   case deprecated extends SchemaStatus("deprecated")
   case revoked extends SchemaStatus("revoked")
 }
-object SchemaStatus { given Schema[SchemaStatus] = DeriveSchema.gen[SchemaStatus] }
-enum LifecycleStatus(val value: String) {
-  case active extends LifecycleStatus("active")
-  case draining extends LifecycleStatus("draining")
-  case deprecated extends LifecycleStatus("deprecated")
-  case dead extends LifecycleStatus("dead")
+object SchemaStatus {
+  private val byValue: Map[String, SchemaStatus] = SchemaStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[SchemaStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown schema_status value '" + str + "'")), _.value)
 }
-object LifecycleStatus { given Schema[LifecycleStatus] = DeriveSchema.gen[LifecycleStatus] }
-@Table(PostgresDbType) final case class VDocUploadClaims(@SqlName("org_id") orgId: Option[java.util.UUID], @SqlName("doc_version_id") docVersionId: Option[java.util.UUID], @SqlName("namespace_id") namespaceId: Option[java.util.UUID], @SqlName("claimed_size") claimedSize: Option[NonNegLong], @SqlName("media_type") mediaType: Option[String], @SqlName("file_name") fileName: Option[String]) derives DbCodec
+enum UploadFileStatus(val value: String) derives Schema {
+  case uploading extends UploadFileStatus("uploading")
+  case complete extends UploadFileStatus("complete")
+  case failed extends UploadFileStatus("failed")
+}
+object UploadFileStatus {
+  private val byValue: Map[String, UploadFileStatus] = UploadFileStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[UploadFileStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown upload_file_status value '" + str + "'")), _.value)
+}
+enum UploadStatus(val value: String) derives Schema {
+  case open extends UploadStatus("open")
+  case uploading extends UploadStatus("uploading")
+  case `sealed` extends UploadStatus("sealed")
+  case expired extends UploadStatus("expired")
+  case aborted extends UploadStatus("aborted")
+  case finalized extends UploadStatus("finalized")
+}
+object UploadStatus {
+  private val byValue: Map[String, UploadStatus] = UploadStatus.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[UploadStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown upload_status value '" + str + "'")), _.value)
+}
+@Table(PostgresDbType) final case class VDocUploadClaims(@SqlName("org_id") orgId: Option[java.util.UUID], @SqlName("doc_version_id") docVersionId: Option[java.util.UUID], @SqlName("namespace_id") namespaceId: Option[java.util.UUID], @SqlName("claimed_size") claimedSize: Option[NonNegLong], @SqlName("media_type") mediaType: Option[String], @SqlName("file_name") fileName: Option[String]) derives DbCodec, Schema
 object VDocUploadClaims {
   type Id = Null
   val repo = ImmutableRepo[VDocUploadClaims, VDocUploadClaims.Id]
 }
-@Table(PostgresDbType) final case class SchemaRegistry(@Id @SqlName("schema_id") schemaId: java.util.UUID, @SqlName("org_id") orgId: Option[java.util.UUID], @SqlName("schema_urn") schemaUrn: String, @SqlName("schema_json") schemaJson: Json, @SqlName("canonical_hash") canonicalHash: Chunk[Byte], @SqlName("status") status: SchemaStatus, @SqlName("supersedes_schema_id") supersedesSchemaId: Option[java.util.UUID], @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
+@Table(PostgresDbType) final case class SchemaRegistry(@Id @SqlName("schema_id") schemaId: java.util.UUID, @SqlName("org_id") orgId: Option[java.util.UUID], @SqlName("schema_urn") schemaUrn: String, @SqlName("schema_json") schemaJson: Json, @SqlName("canonical_hash") canonicalHash: Chunk[Byte], @SqlName("status") status: SchemaStatus, @SqlName("supersedes_schema_id") supersedesSchemaId: Option[java.util.UUID], @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec, Schema
 object SchemaRegistry {
   opaque type Id = java.util.UUID
   object Id {
     def apply(schemaId: java.util.UUID): Id = schemaId
     def unwrap(id: Id): java.util.UUID = id
   }
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
-  final case class Creator(id: Option[SchemaRegistry.Id] = None, orgId: Option[java.util.UUID] = None, schemaUrn: String, schemaJson: Json, canonicalHash: Chunk[Byte], status: Option[SchemaStatus] = None, supersedesSchemaId: Option[java.util.UUID] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(id: Option[SchemaRegistry.Id] = None, orgId: Option[java.util.UUID] = None, schemaUrn: String, schemaJson: Json, canonicalHash: Chunk[Byte], status: Option[SchemaStatus] = None, supersedesSchemaId: Option[java.util.UUID] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec, Schema
   val repo = Repo[SchemaRegistry.Creator, SchemaRegistry, SchemaRegistry.Id]
 }
-@Table(PostgresDbType) final case class Org(@Id @SqlName("org_id") orgId: java.util.UUID, @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
+@Table(PostgresDbType) final case class Org(@Id @SqlName("org_id") orgId: java.util.UUID, @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: graviton.pg.generated.core.LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec, Schema
 object Org {
   opaque type Id = java.util.UUID
   object Id {
     def apply(orgId: java.util.UUID): Id = orgId
     def unwrap(id: Id): java.util.UUID = id
   }
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
-  final case class Creator(id: Option[Org.Id] = None, tenantId: java.util.UUID, name: String, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(id: Option[Org.Id] = None, tenantId: java.util.UUID, name: String, status: Option[graviton.pg.generated.core.LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec, Schema
   val repo = Repo[Org.Creator, Org, Org.Id]
 }
-@Table(PostgresDbType) final case class Tenant(@Id @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
+@Table(PostgresDbType) final case class Tenant(@Id @SqlName("tenant_id") tenantId: java.util.UUID, @SqlName("name") name: String, @SqlName("status") status: graviton.pg.generated.core.LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec, Schema
 object Tenant {
   opaque type Id = java.util.UUID
   object Id {
     def apply(tenantId: java.util.UUID): Id = tenantId
     def unwrap(id: Id): java.util.UUID = id
   }
-  given given_DbCodec_Id: DbCodec[Id] =
-    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
-  final case class Creator(id: Option[Tenant.Id] = None, name: String, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(id: Option[Tenant.Id] = None, name: String, status: Option[graviton.pg.generated.core.LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec, Schema
   val repo = Repo[Tenant.Creator, Tenant, Tenant.Id]
-}
-object Schemas {
-  given vDocUploadClaimsSchema: Schema[VDocUploadClaims] = DeriveSchema.gen[VDocUploadClaims]
-  given schemaRegistrySchema: Schema[SchemaRegistry] = DeriveSchema.gen[SchemaRegistry]
-  given schemaRegistryIdSchema: Schema[SchemaRegistry.Id] =
-    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => SchemaRegistry.Id(value), id => SchemaRegistry.Id.unwrap(id))
-  given orgSchema: Schema[Org] = DeriveSchema.gen[Org]
-  given orgIdSchema: Schema[Org.Id] =
-    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Org.Id(value), id => Org.Id.unwrap(id))
-  given tenantSchema: Schema[Tenant] = DeriveSchema.gen[Tenant]
-  given tenantIdSchema: Schema[Tenant.Id] =
-    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Tenant.Id(value), id => Tenant.Id.unwrap(id))
 }
