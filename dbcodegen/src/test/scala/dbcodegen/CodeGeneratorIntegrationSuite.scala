@@ -5,6 +5,7 @@ import munit.FunSuite
 
 import java.io.File
 import java.nio.file.Files
+import scala.meta.*
 
 final class CodeGeneratorIntegrationSuite extends FunSuite {
 
@@ -46,7 +47,19 @@ final class CodeGeneratorIntegrationSuite extends FunSuite {
       val generatedSource = Files.readString(rendered).trim
       val expectedSource  = Files.readString(expected).trim
 
-      assertEquals(generatedSource, expectedSource)
+      // The codegen uses scala.meta `syntax` + scalafmt, so textual output can legitimately shift
+      // (imports ordering, whitespace, etc.). Compare the parsed tree instead to ensure semantic stability.
+      val obtainedAst = dialects.Scala3(generatedSource).parse[Source] match
+        case Parsed.Success(tree) => tree
+        case Parsed.Error(pos, msg, _) =>
+          fail(s"Failed to parse generated source at ${pos.startLine}:${pos.startColumn}: $msg\n$generatedSource")
+
+      val expectedAst = dialects.Scala3(expectedSource).parse[Source] match
+        case Parsed.Success(tree) => tree
+        case Parsed.Error(pos, msg, _) =>
+          fail(s"Failed to parse expected snapshot at ${pos.startLine}:${pos.startColumn}: $msg\n$expectedSource")
+
+      assertEquals(obtainedAst.structure, expectedAst.structure)
     } finally {
       postgres.close()
     }

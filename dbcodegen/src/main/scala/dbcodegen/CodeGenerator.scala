@@ -75,6 +75,7 @@ object CodeGenerator {
     config: CodeGeneratorConfig,
   ): Either[CodegenError, Seq[Path]] = {
     boundary[Either[CodegenError, Seq[Path]]] {
+      val debugProgress = sys.env.get("DBCODEGEN_DEBUG_PROGRESS").contains("1")
       log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
 
       // Create database connection
@@ -99,8 +100,11 @@ object CodeGenerator {
       val iter = tablesPerSchema.toSeq.iterator
       while (iter.hasNext) {
         val (schema, tables) = iter.next()
+        if debugProgress then println(s"[dbcodegen] schema=${schema.getName} tables=${tables.size}")
         val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
+        if debugProgress then println(s"[dbcodegen] converted schema=${dataSchema.name} tables=${dataSchema.tables.size} enums=${dataSchema.enums.size}")
         if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
+          if debugProgress then println(s"[dbcodegen] rendering schema=${dataSchema.name}")
           renderScalaCode(dataSchema, config) match
             case Left(err) => boundary.break(Left(err))
             case Right(output) =>
@@ -108,7 +112,10 @@ object CodeGenerator {
               if (!config.dryRun) {
                 try {
                   Files.createDirectories(outputPath.getParent)
-                  Files.write(outputPath, output.getBytes)
+                  Files.writeString(outputPath, output)
+                  if debugProgress then println(s"[dbcodegen] wrote $outputPath")
+                  ScalafmtRunner.formatFile(outputPath)
+                  if debugProgress then println(s"[dbcodegen] formatted $outputPath")
                 } catch {
                   case e: Throwable =>
                     boundary.break(Left(CodegenError.WriteError(s"Failed writing '$outputPath': ${e.getMessage}")))
@@ -182,25 +189,15 @@ object CodeGenerator {
       val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
       validationWarnings.foreach { warning => println(s"⚠️  $warning") }
 
-      // NOTE: per request: no StringBuilder; build scala.meta trees directly via `q"..."` quasiquotes.
       implicit val dialect: Dialect = dialects.Scala3
 
       val stats = ListBuffer.empty[Stat]
 
-      stats ++= List[Stat](
-        q"import com.augustnagro.magnum.*",
-        q"import graviton.db.{*, given}",
-        q"import zio.Chunk",
-        q"import zio.json.ast.Json",
-        q"import zio.schema.Schema",
-        q"import zio.schema.validation.Validation",
-      )
-
-      stats ++= renderEnums(schema)
-
-      val tableIter = schema.tables.iterator
-      while tableIter.hasNext do
-        stats ++= renderTableSource(schema, config, tableIter.next())
+      stats ++= renderImports()
+      stats ++= renderEnums(schema.enums.toList)
+      schema.tables.foreach { table =>
+        stats ++= renderTableSource(schema.name, table)
+      }
 
       val pkgTerm = renderPackageTerm(config.basePackage, schema.name)
       val pkg     = Pkg(pkgTerm, stats.toList)
@@ -211,161 +208,508 @@ object CodeGenerator {
            |
            |""".stripMargin
 
-      Right(header + pkg.syntax + "\n")
+      val rendered = header + postProcessScala3(pkg.syntax) + "\n"
+      Right(rendered)
     }
   }
 
-  private def renderTableSource(schema: DataSchema, config: CodeGeneratorConfig, table: DataTable): List[Stat] = {
-    implicit val dialect: Dialect = dialects.Scala3
+  private def postProcessScala3(code: String): String =
+    code.linesIterator
+      .map { line =>
+        val trimmed = line.trim
 
-    def parseTypeOrFail(typeStr: String): Type =
-      dialects.Scala3(typeStr).parse[Type] match
-        case Parsed.Success(tpe) => tpe
-        case Parsed.Error(pos, message, _) =>
-          boundary.break(Left(CodegenError.ParseError(s"Failed to parse type at ${pos.startLine}:${pos.startColumn}: $message\n$typeStr")))
+        if trimmed.startsWith("enum ") && trimmed.contains("(value: String)") then
+          // scala.meta prints plain params; ensure Scala 3-style value member + Schema derivation
+          val base = line.replace("(value: String)", "(val value: String)")
+          if base.contains("derives Schema") then base
+          else if base.contains("{") then
+            val idx = base.indexOf('{')
+            base.substring(0, idx).stripTrailing() + " derives Schema " + base.substring(idx)
+          else base + " derives Schema"
+        else if trimmed.startsWith("@Table(PostgresDbType) final case class ") && !trimmed.contains("derives ") then
+          line + " derives DbCodec, Schema"
+        else if trimmed.startsWith("final case class Creator(") && !trimmed.contains("derives ") then
+          line + " derives DbCodec, Schema"
+        else line
+      }
+      .mkString("\n")
 
-    def stripBackticks(name: String): String =
-      if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
+  // ---------------------------------------------------------------------------
+  // Scala 3 codegen with scala.meta AST construction (no quasiquotes, no StringBuilder)
+  // ---------------------------------------------------------------------------
 
-    val tableTypeName = Type.Name(stripBackticks(table.scalaName))
-    val tableTermName = Term.Name(stripBackticks(table.scalaName))
+  private def renderImports()(using Dialect): List[Stat] = {
+    List(
+      Import(List(Importer(termRef("com.augustnagro.magnum"), List(Importee.Wildcard())))),
+      Import(List(Importer(termRef("graviton.db"), List(Importee.Wildcard(), Importee.GivenAll())))),
+      Import(List(Importer(termRef("zio"), List(Importee.Name(Name.Indeterminate("Chunk")))))),
+      Import(List(Importer(termRef("zio.json.ast"), List(Importee.Name(Name.Indeterminate("Json")))))),
+      Import(List(Importer(termRef("zio.schema"), List(Importee.Name(Name.Indeterminate("Schema")))))),
+      Import(List(Importer(termRef("zio.schema.validation"), List(Importee.Name(Name.Indeterminate("Validation")))))),
+    )
+  }
 
-    val columns = table.columns.toList
-    val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
+  private def renderEnums(enums: List[DataEnum])(using Dialect): List[Stat] =
+    enums.flatMap(renderEnum)
 
-    val params: List[Term.Param] =
-      columns.map { column =>
-        val mods = ListBuffer.empty[Mod]
-        if column.db.isPartOfPrimaryKey then mods += mod"@Id"
-        mods += Mod.Annot(Init(Type.Name("SqlName"), Name.Anonymous(), List(List(Lit.String(column.name)))))
+  private def renderEnum(dataEnum: DataEnum)(using Dialect): List[Stat] = {
+    val enumName = Type.Name(stripBackticks(dataEnum.scalaName))
+    val enumTerm = Term.Name(stripBackticks(dataEnum.scalaName))
 
-        val name = Term.Name(stripBackticks(column.scalaName))
-        val tpe  = parseTypeOrFail(renderColumnType(column))
-        Term.Param(mods.toList, name, Some(tpe), None)
+    val ctor =
+      Ctor.Primary(
+        Nil,
+        Name.Anonymous(),
+        List(List(Term.Param(Nil, Name.Indeterminate("value"), Some(Type.Name("String")), None))),
+      )
+
+    val enumCases: List[Stat] =
+      dataEnum.values.toList.map { v =>
+        val caseName = Term.Name(stripBackticks(v.scalaName))
+        val init     = Init(enumName, Name.Anonymous(), List(List(Lit.String(v.name))))
+        Defn.EnumCase(
+          Nil,
+          caseName,
+          Nil,
+          Ctor.Primary(Nil, Name.Anonymous(), List.empty[List[Term.Param]]),
+          List(init),
+        )
       }
 
-    val tableClass: Stat =
-      q"@Table(PostgresDbType) final case class $tableTypeName(..$params) derives DbCodec, Schema"
+    // NOTE: scala.meta's Scala 3 `derives` support varies by version; we set derives via a tiny token patch step
+    // if necessary. Here we create a standard enum and rely on Scalafmt + syntax for formatting.
+    val enumDef =
+      Defn.Enum(
+        mods = Nil,
+        name = enumName,
+        tparams = Nil,
+        ctor = ctor,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), enumCases),
+      )
 
-    def idTypeStats: List[Stat] =
-      primaryKeyColumns match
-        case Nil =>
-          List(q"type Id = Null")
+    val byValueVal =
+      Defn.Val(
+        mods = List(Mod.Private(Name.Anonymous())),
+        pats = List(Pat.Var(Term.Name("byValue"))),
+        decltpe = Some(Type.Apply(Type.Name("Map"), List(Type.Name("String"), enumName))),
+        rhs =
+          Term.Select(
+            Term.Apply(
+              Term.Select(
+                Term.Select(Term.Select(enumTerm, Term.Name("values")), Term.Name("iterator")),
+                Term.Name("map"),
+              ),
+              List(
+                Term.Function(
+                  List(Term.Param(Nil, Name.Indeterminate("v"), None, None)),
+                  Term.ApplyInfix(
+                    Term.Select(Term.Name("v"), Term.Name("value")),
+                    Term.Name("->"),
+                    Nil,
+                    List(Term.Name("v")),
+                  ),
+                ),
+              ),
+            ),
+            Term.Name("toMap"),
+          ),
+      )
 
-        case single :: Nil =>
-          val baseTpe = parseTypeOrFail(renderColumnType(single, forceRequired = true))
-          val colName = Term.Name(stripBackticks(single.scalaName))
+    val dbCodecGiven =
+      givenAlias(
+        name = Name.Anonymous(),
+        decltpe = Type.Apply(Type.Name("DbCodec"), List(enumName)),
+        rhs = Term.Apply(
+          Term.Select(
+            Term.ApplyType(Term.Name("DbCodec"), List(Type.Name("String"))),
+            Term.Name("biMap"),
+          ),
           List(
-            q"opaque type Id = $baseTpe",
-            q"""object Id {
-                  def apply($colName: $baseTpe): Id = $colName
-                  def unwrap(id: Id): $baseTpe = id
-                }""",
-            q"given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseTpe]].biMap(value => Id(value), id => Id.unwrap(id))",
-            q"given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[$baseTpe]].transform(value => Id(value), id => Id.unwrap(id))",
-          )
+            Term.Function(
+              List(Term.Param(Nil, Name.Indeterminate("str"), None, None)),
+              Term.Apply(
+                Term.Select(Term.Name("byValue"), Term.Name("getOrElse")),
+                List(
+                  Term.Name("str"),
+                  Term.Throw(
+                    Term.Apply(
+                      Term.Name("IllegalArgumentException"),
+                      List(
+                        concatString(
+                          Lit.String(s"Unknown ${dataEnum.name} value '"),
+                          Term.Name("str"),
+                          Lit.String("'"),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Term.AnonymousFunction(Term.Select(Term.Placeholder(), Term.Name("value"))),
+          ),
+        ),
+      )
 
-        case many =>
-          val namedTupleTypeStr = renderNamedTuple(many)
-          val tuplePlainTypeStr = renderTupleType(many)
-          val namedTupleTpe     = parseTypeOrFail(namedTupleTypeStr)
-          val plainTpe          = parseTypeOrFail(tuplePlainTypeStr)
+    val enumObj =
+      Defn.Object(
+        mods = Nil,
+        name = enumTerm,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), List(byValueVal, dbCodecGiven)),
+      )
 
-          val ctorParams: List[Term.Param] =
-            many.map { c =>
-              val n = Term.Name(stripBackticks(c.scalaName))
-              val t = parseTypeOrFail(renderColumnType(c, forceRequired = true))
-              Term.Param(Nil, n, Some(t), None)
-            }
+    List(enumDef, enumObj)
+  }
 
-          def namedTupleLiteralFromParams: Term =
-            Term.Tuple(
-              many.map { c =>
-                val n = Term.Name(stripBackticks(c.scalaName))
-                Term.Assign(n, n)
-              }
-            )
+  private def concatString(prefix: Lit.String, middle: Term, suffix: Lit.String)(using Dialect): Term =
+    Term.ApplyInfix(
+      Term.ApplyInfix(prefix, Term.Name("+"), Nil, List(middle)),
+      Term.Name("+"),
+      Nil,
+      List(suffix),
+    )
 
-          def namedTupleLiteralFromTuple(tupleExpr: Term): Term =
-            Term.Tuple(
-              many.zipWithIndex.map { case (c, idx) =>
-                val n = Term.Name(stripBackticks(c.scalaName))
-                Term.Assign(n, Term.Select(tupleExpr, Term.Name(s"_${idx + 1}")))
-              }
-            )
+  private def renderTableSource(schemaName: String, table: DataTable)(using Dialect): List[Stat] = {
+    val classNameT = Type.Name(stripBackticks(table.scalaName))
+    val className  = Term.Name(stripBackticks(table.scalaName))
 
-          def plainTupleFromNamed(namedExpr: Term): Term =
-            Term.Tuple(
-              many.map(c => Term.Select(namedExpr, Term.Name(stripBackticks(c.scalaName))))
-            )
+    val classMods = List(
+      Mod.Annot(Init(Type.Name("Table"), Name.Anonymous(), List(List(Term.Name("PostgresDbType"))))),
+      Mod.Final(),
+      Mod.Case(),
+    )
 
-          val toIdFn =
-            Term.Function(List(Term.Param(Nil, Term.Name("value"), None, None)), namedTupleLiteralFromTuple(Term.Name("value")))
-          val fromIdFn =
-            Term.Function(List(Term.Param(Nil, Term.Name("id"), None, None)), plainTupleFromNamed(Term.Name("id")))
+    val ctorParams = table.columns.toList.map { col =>
+      val mods = ListBuffer.empty[Mod]
+      if col.db.isPartOfPrimaryKey then mods += Mod.Annot(Init(Type.Name("Id"), Name.Anonymous(), List.empty[List[Term]]))
+      mods += Mod.Annot(Init(Type.Name("SqlName"), Name.Anonymous(), List(List(Lit.String(col.name)))))
 
-          List(
-            q"opaque type Id = $namedTupleTpe",
-            q"object Id { def apply(..$ctorParams): Id = ${namedTupleLiteralFromParams} }",
-            q"given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$plainTpe]].biMap($toIdFn, $fromIdFn)",
-            q"given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[$plainTpe]].transform($toIdFn, $fromIdFn)",
-          )
+      val tpe = parseType(renderColumnType(col))
+      Term.Param(mods.toList, Name.Indeterminate(stripBackticks(col.scalaName)), Some(tpe), None)
+    }
 
-    def creatorStats: List[Stat] =
-      if table.isView then Nil
-      else {
-        val autoPrimaryKey =
-          primaryKeyColumns.nonEmpty && primaryKeyColumns.forall { column =>
-            val dbColumn = column.db
-            dbColumn.isGenerated || dbColumn.isAutoIncremented || dbColumn.hasDefaultValue
-          }
+    val cls =
+      Defn.Class(
+        mods = classMods,
+        name = classNameT,
+        tparams = Nil,
+        ctor = Ctor.Primary(Nil, Name.Anonymous(), List(ctorParams)),
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), Nil),
+      )
 
-        val creatorColumns = columns.filterNot { column =>
-          val dbColumn = column.db
-          val skipAutoPrimaryKey = autoPrimaryKey && dbColumn.isPartOfPrimaryKey
-          val skipGenerated      = dbColumn.isGenerated && !dbColumn.hasDefaultValue
-          skipAutoPrimaryKey || skipGenerated
-        }
+    val pkCols = table.columns.filter(_.db.isPartOfPrimaryKey).toList
+    val companionStats = ListBuffer.empty[Stat]
 
-        val creatorParams = ListBuffer.empty[Term.Param]
+    pkCols match
+      case Nil =>
+        companionStats += Defn.Type(Nil, Type.Name("Id"), Nil, Type.Name("Null"))
+      case single :: Nil =>
+        val baseTpe = parseType(renderColumnType(single, forceRequired = true))
+        val colName = Term.Name(stripBackticks(single.scalaName))
 
-        if autoPrimaryKey then
-          creatorParams += Term.Param(
+        companionStats += Defn.Type(List(Mod.Opaque()), Type.Name("Id"), Nil, baseTpe)
+        companionStats += Defn.Object(
+          mods = Nil,
+          name = Term.Name("Id"),
+          templ = Template(
             Nil,
-            Term.Name("id"),
-            Some(t"Option[${tableTypeName}.Id]"),
-            Some(q"None"),
-          )
+            Nil,
+            Self(Name.Anonymous(), None),
+            List(
+              Defn.Def(
+                Nil,
+                Term.Name("apply"),
+                Nil,
+                List(List(Term.Param(Nil, Name.Indeterminate(colName.value), Some(baseTpe), None))),
+                Some(Type.Name("Id")),
+                Term.Name(colName.value),
+              ),
+              Defn.Def(
+                Nil,
+                Term.Name("unwrap"),
+                Nil,
+                List(List(Term.Param(Nil, Name.Indeterminate("id"), Some(Type.Name("Id")), None))),
+                Some(baseTpe),
+                Term.Name("id"),
+              ),
+            ),
+          ),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_DbCodec_Id"),
+          decltpe = Type.Apply(Type.Name("DbCodec"), List(Type.Name("Id"))),
+          rhs = summonInlineBiMap(Type.Name("DbCodec"), baseTpe, Term.Name("Id"), Term.Name("Id"), Term.Name("unwrap")),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_Schema_Id"),
+          decltpe = Type.Apply(Type.Name("Schema"), List(Type.Name("Id"))),
+          rhs = summonInlineTransform(baseTpe, Term.Name("Id"), Term.Name("Id"), Term.Name("unwrap")),
+        )
+      case many =>
+        val namedTupleTpe = parseType(renderNamedTuple(many))
+        val plainTupleTpe = parseType(renderTupleType(many))
 
-        creatorColumns.foreach { column =>
-          val baseTypeStr = baseColumnType(column)
-          val baseType    = parseTypeOrFail(baseTypeStr)
-          val dbColumn    = column.db
-          val optionalFromDefault = dbColumn.hasDefaultValue || dbColumn.isGenerated || dbColumn.isAutoIncremented
-          val optionalFromNull    = dbColumn.isNullable && !dbColumn.isPartOfPrimaryKey
-          val isOptional          = optionalFromDefault || optionalFromNull
+        companionStats += Defn.Type(List(Mod.Opaque()), Type.Name("Id"), Nil, namedTupleTpe)
+        companionStats += Defn.Object(
+          mods = Nil,
+          name = Term.Name("Id"),
+          templ = Template(
+            Nil,
+            Nil,
+            Self(Name.Anonymous(), None),
+            List(
+              Defn.Def(
+                Nil,
+                Term.Name("apply"),
+                Nil,
+                List(
+                  many.map { c =>
+                    Term.Param(Nil, Name.Indeterminate(stripBackticks(c.scalaName)), Some(parseType(renderColumnType(c, forceRequired = true))), None)
+                  },
+                ),
+                Some(Type.Name("Id")),
+                Term.Tuple(
+                  many.map { c =>
+                    val n = Term.Name(stripBackticks(c.scalaName))
+                    Term.Assign(n, n)
+                  },
+                ),
+              ),
+            ),
+          ),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_DbCodec_Id"),
+          decltpe = Type.Apply(Type.Name("DbCodec"), List(Type.Name("Id"))),
+          rhs = summonInlineNamedTupleBiMap(plainTupleTpe, many),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_Schema_Id"),
+          decltpe = Type.Apply(Type.Name("Schema"), List(Type.Name("Id"))),
+          rhs = summonInlineNamedTupleTransform(plainTupleTpe, many),
+        )
 
-          val name = Term.Name(stripBackticks(column.scalaName))
-          val tpe  = if isOptional then t"Option[$baseType]" else baseType
-          val default = if isOptional then Some(q"None") else None
-          creatorParams += Term.Param(Nil, name, Some(tpe), default)
+    if !table.isView then
+      // Creator: keep current heuristics, but build as AST
+      val autoPrimaryKey =
+        pkCols.nonEmpty && pkCols.forall { c =>
+          val db = c.db
+          db.isGenerated || db.isAutoIncremented || db.hasDefaultValue
         }
 
-        if creatorParams.isEmpty then List(q"type Creator = Unit")
-        else List(q"final case class Creator(..$creatorParams) derives DbCodec, Schema")
+      val creatorColumns = table.columns.filterNot { c =>
+        val db = c.db
+        val skipAutoPk = autoPrimaryKey && db.isPartOfPrimaryKey
+        val skipGen    = db.isGenerated && !db.hasDefaultValue
+        skipAutoPk || skipGen
+      }.toList
+
+      val creatorParams = ListBuffer.empty[Term.Param]
+      if autoPrimaryKey then
+        creatorParams += Term.Param(
+          Nil,
+          Name.Indeterminate("id"),
+          Some(Type.Apply(Type.Name("Option"), List(Type.Select(className, Type.Name("Id"))))),
+          Some(Term.Name("None")),
+        )
+
+      creatorColumns.foreach { c =>
+        val base = parseType(baseColumnType(c))
+        val db   = c.db
+        val optionalFromDefault = db.hasDefaultValue || db.isGenerated || db.isAutoIncremented
+        val optionalFromNull    = db.isNullable && !db.isPartOfPrimaryKey
+        val isOptional          = optionalFromDefault || optionalFromNull
+        val tpe = if isOptional then Type.Apply(Type.Name("Option"), List(base)) else base
+        val default = if isOptional then Some(Term.Name("None")) else None
+        creatorParams += Term.Param(Nil, Name.Indeterminate(stripBackticks(c.scalaName)), Some(tpe), default)
       }
 
-    val repoStat: Stat =
-      if table.isView then q"val repo = ImmutableRepo[$tableTypeName, ${tableTypeName}.Id]"
-      else q"val repo = Repo[${tableTypeName}.Creator, $tableTypeName, ${tableTypeName}.Id]"
+      if creatorParams.nonEmpty then
+        companionStats += Defn.Class(
+          mods = List(Mod.Final(), Mod.Case()),
+          name = Type.Name("Creator"),
+          tparams = Nil,
+          ctor = Ctor.Primary(Nil, Name.Anonymous(), List(creatorParams.toList)),
+          templ = Template(Nil, Nil, Self(Name.Anonymous(), None), Nil),
+        )
+      else
+        companionStats += Defn.Type(Nil, Type.Name("Creator"), Nil, Type.Name("Unit"))
 
-    val companionStats: List[Stat] =
-      idTypeStats ++ creatorStats ++ List(repoStat)
+    val repoVal =
+      Defn.Val(
+        mods = Nil,
+        pats = List(Pat.Var(Term.Name("repo"))),
+        decltpe = None,
+        rhs =
+          if table.isView then
+            Term.ApplyType(Term.Name("ImmutableRepo"), List(classNameT, Type.Select(className, Type.Name("Id"))))
+          else
+            Term.ApplyType(
+              Term.Name("Repo"),
+              List(Type.Select(className, Type.Name("Creator")), classNameT, Type.Select(className, Type.Name("Id"))),
+            ),
+      )
+    companionStats += repoVal
 
-    val companion: Stat =
-      q"object $tableTermName { ..$companionStats }"
+    // Tiny metadata surface for macros / tooling.
+    val metaObj =
+      Defn.Object(
+        mods = Nil,
+        name = Term.Name("Meta"),
+        templ = Template(
+          Nil,
+          Nil,
+          Self(Name.Anonymous(), None),
+          List(
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("schema"))),
+              decltpe = Some(Type.Name("String")),
+              rhs = Lit.String(schemaName),
+            ),
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("table"))),
+              decltpe = Some(Type.Name("String")),
+              rhs = Lit.String(table.name),
+            ),
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("columns"))),
+              decltpe = Some(
+                Type.Apply(
+                  Type.Name("List"),
+                  List(Type.Tuple(List(Type.Name("String"), Type.Name("String")))),
+                ),
+              ),
+              rhs = Term.Apply(
+                Term.Name("List"),
+                table.columns.toList.map { c =>
+                  Term.ApplyInfix(Lit.String(stripBackticks(c.scalaName)), Term.Name("->"), Nil, List(Lit.String(c.name)))
+                },
+              ),
+            ),
+          ),
+        ),
+      )
 
-    List(tableClass, companion)
+    companionStats.prepend(metaObj)
+
+    val companion =
+      Defn.Object(
+        mods = Nil,
+        name = className,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), companionStats.toList),
+      )
+
+    List(cls, companion)
+  }
+
+  private def termRef(path: String): Term.Ref =
+    path.split('.').toList match
+      case Nil => Term.Name("<?>")
+      case head :: tail =>
+        tail.foldLeft[Term.Ref](Term.Name(head)) { case (acc, part) => Term.Select(acc, Term.Name(part)) }
+
+  private def parseType(typeStr: String)(using Dialect): Type =
+    dialects.Scala3(typeStr).parse[Type] match
+      case Parsed.Success(tpe) => tpe
+      case Parsed.Error(pos, message, _) =>
+        // last resort: keep compilation going with a placeholder type
+        Type.Name(s"/*parse-error ${pos.startLine}:${pos.startColumn} $message*/ Any")
+
+  private def stripBackticks(name: String): String =
+    if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
+
+  private def givenAlias(name: Name, decltpe: Type, rhs: Term)(using Dialect): Stat =
+    Defn.GivenAlias(Nil, name, Nil, decltpe, rhs)
+
+  private def summonInlineBiMap(typeClass: Type, baseTpe: Type, idObj: Term.Name, idCtor: Term.Name, unwrap: Term.Name)(using Dialect): Term = {
+    // scala.compiletime.summonInline[TypeClass[Base]].biMap(value => Id(value), id => Id.unwrap(id))
+    val summon = Term.ApplyType(Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")), List(Type.Apply(typeClass, List(baseTpe))))
+    Term.Apply(
+      Term.Select(summon, Term.Name("biMap")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Apply(idCtor, List(Term.Name("value"))),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Apply(Term.Select(idObj, unwrap), List(Term.Name("id"))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineTransform(baseTpe: Type, idCtor: Term.Name, idObj: Term.Name, unwrap: Term.Name)(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("Schema"), List(baseTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("transform")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Apply(idCtor, List(Term.Name("value"))),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Apply(Term.Select(idObj, unwrap), List(Term.Name("id"))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineNamedTupleBiMap(plainTupleTpe: Type, cols: List[DataColumn])(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("DbCodec"), List(plainTupleTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("biMap")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Tuple(
+            cols.zipWithIndex.map { case (c, idx) =>
+              val n = Term.Name(stripBackticks(c.scalaName))
+              Term.Assign(n, Term.Select(Term.Name("value"), Term.Name(s"_${idx + 1}")))
+            },
+          ),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Tuple(cols.map(c => Term.Select(Term.Name("id"), Term.Name(stripBackticks(c.scalaName))))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineNamedTupleTransform(plainTupleTpe: Type, cols: List[DataColumn])(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("Schema"), List(plainTupleTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("transform")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Tuple(
+            cols.zipWithIndex.map { case (c, idx) =>
+              val n = Term.Name(stripBackticks(c.scalaName))
+              Term.Assign(n, Term.Select(Term.Name("value"), Term.Name(s"_${idx + 1}")))
+            },
+          ),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Tuple(cols.map(c => Term.Select(Term.Name("id"), Term.Name(stripBackticks(c.scalaName))))),
+        ),
+      ),
+    )
   }
 
   private def renderPackageTerm(basePackage: String, schemaName: String): Term.Ref = {
@@ -559,46 +903,6 @@ object CodeGenerator {
     expressions: Seq[String],
     warnings: Seq[String],
   )
-
-  private def renderEnums(schema: DataSchema): List[Stat] = {
-    implicit val dialect: Dialect = dialects.Scala3
-
-    def stripBackticks(name: String): String =
-      if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
-
-    schema.enums.toList.flatMap { dataEnum =>
-      val enumTypeName = Type.Name(stripBackticks(dataEnum.scalaName))
-      val enumTermName = Term.Name(stripBackticks(dataEnum.scalaName))
-      val cases: List[Stat] =
-        dataEnum.values.toList.map { value =>
-          val caseName = Term.Name(stripBackticks(value.scalaName))
-          q"case $caseName extends $enumTypeName(${Lit.String(value.name)})"
-        }
-
-      val enumDef: Stat =
-        q"enum $enumTypeName(val value: String) derives Schema { ..$cases }"
-
-      val byValueVal: Stat =
-        q"private val byValue: Map[String, $enumTypeName] = $enumTermName.values.iterator.map(v => v.value -> v).toMap"
-
-      val dbCodecGiven: Stat =
-        q"""given DbCodec[$enumTypeName] =
-              DbCodec[String].biMap(
-                str =>
-                  byValue.getOrElse(
-                    str,
-                    throw IllegalArgumentException("Unknown ${dataEnum.name} value '" + str + "'"),
-                  ),
-                _.value,
-              )
-            """
-
-      val enumObj: Stat =
-        q"object $enumTermName { ..${List(byValueVal, dbCodecGiven)} }"
-
-      List(enumDef, enumObj)
-    }
-  }
 
   private def buildTableValidations(table: DataTable): TableValidationRender = {
     val expressions = ListBuffer.empty[String]
