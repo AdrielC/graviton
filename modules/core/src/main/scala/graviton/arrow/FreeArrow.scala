@@ -317,7 +317,7 @@ end FreeArrow
 final case class Frame(bytes: Chunk[Byte], ordinal: Long, rolling: Long, flagged: Boolean)
 
 object Frame:
-  def apply(bytes: Chunk[Byte], ordinal: Long, rolling: Long, flagged: Boolean): Frame = Frame(bytes, ordinal, rolling, flagged)
+  def apply(bytes: Chunk[Byte], ordinal: Long, rolling: Long, flagged: Boolean): Frame = new Frame(bytes, ordinal, rolling, flagged)
 
   given Conversion[Chunk[Byte], Frame] = Frame(_, 0, 0, false)
   given Conversion[Frame, Chunk[Byte]] = _.bytes

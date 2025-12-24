@@ -57,7 +57,7 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
           req        <- ZIO
                           .fromEither(URL.decode("http://localhost/internal/legacy/shortterm/doc-1"))
                           .map(url => Request.get(url).addHeader("x-internal-token", "test-token"))
-          resp       <- internalApp(req)
+          resp       <- ZIO.scoped(internalApp(req))
           body       <- resp.body.asString
         yield assertTrue(resp.status == Status.Ok, body == "hello\n")
       },
@@ -81,7 +81,7 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
           req        <- ZIO
                           .fromEither(URL.decode("http://localhost/internal/legacy/shortterm/missing-doc"))
                           .map(url => Request.get(url).addHeader("x-internal-token", "test-token"))
-          resp       <- internalApp(req)
+          resp       <- ZIO.scoped(internalApp(req))
         yield assertTrue(resp.status == Status.NotFound)
       },
     )

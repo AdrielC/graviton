@@ -70,25 +70,19 @@ object types:
   // ---------------------------
 
   trait SizeTrait[Tpe <: Int | Long](using integral: Integral[Tpe], discrete: DiscreteDomain[Tpe]):
-    parent =>
-
     type TotalMax = TotalMaxT[Tpe]
     inline def TotalMax: TotalMax = compiletime.constValue[TotalMaxT[Tpe]]
 
     type TotalMin = TotalMinT[Tpe]
     inline def TotalMin: TotalMin = compiletime.constValue[TotalMinT[Tpe]]
 
-    type TCConstraint[Mx <: Tpe, Mn <: Tpe] =
-      numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx] & numeric.LessEqual[TotalMax] & numeric.GreaterEqual[TotalMin]
-
-    trait Specialized[
-      Mn <: Tpe,
-      Mx <: Tpe,
-      Z <: Tpe,
-      O <: Tpe,
-      TC[mn <: Mn, mx <: Mx, z <: Z, o <: O] <: parent.Trait[mn, mx, z, o],
-    ](using mnV: ValueOf[Mn], mxV: ValueOf[Mx], zV: ValueOf[Z], oV: ValueOf[O]):
-      self: Trait[Mn, Mx, Z, O] & RefinedType[Tpe, TCConstraint[Mn, Mx]] =>
+    trait Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
+      using mnV: ValueOf[Mn],
+      mxV: ValueOf[Mx],
+      zV: ValueOf[Z],
+      oV: ValueOf[O],
+    ) extends RefinedTypeExt[Tpe, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]]:
+      self =>
 
       type Max  = self.T
       type Min  = self.T
@@ -98,8 +92,10 @@ object types:
       // Stable value-level bounds for this refined type.
       val Max: self.T  = self.applyUnsafe(mxV.value)
       val Min: self.T  = self.applyUnsafe(mnV.value)
-      val Zero: self.T = self.applyUnsafe(zV.value)
-      val One: self.T  = self.applyUnsafe(oV.value)
+      // Note: Some refined families (e.g. sizes/counts) forbid 0, so "Zero" may not exist.
+      // We still provide a total value by failing closed to Min.
+      val Zero: self.T = self.either(zV.value).fold(_ => Min, identity)
+      val One: self.T  = self.either(oV.value).fold(_ => Min, identity)
 
       inline def unsafe(t: Tpe): self.T =
         self.applyUnsafe(t)
@@ -107,49 +103,65 @@ object types:
       def eitherT(t: Tpe): Either[String, self.T] =
         self.either(t)
 
-    trait Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
-      using Constraint[Tpe, GreaterEqual[Z]],
-      Constraint[Tpe, LessEqual[Mx]],
-    ) extends RefinedSubtypeExt[Tpe, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]],
-          parent.Specialized[Mn, Mx, Z, O, Trait]:
-      self =>
-
-      given Constraint[T, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]] =
-        new Constraint[T, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]]:
-          inline def message: String            = "value is out of bounds"
-          inline def test(inline v: T): Boolean = (v >== Min) && (v <== Max)
-
       given DiscreteDomain[self.T] with
-        def next(v: self.T): self.T     = option(integral.plus(v.value, One.value)).flatMap(option).getOrElse(v) // bounded step
-        def previous(v: self.T): self.T = option(integral.minus(v.value, One.value)).flatMap(option).getOrElse(v)
+        def next(v: self.T): self.T =
+          option(integral.plus(v.value, One.value)).getOrElse(v)
+
+        def previous(v: self.T): self.T =
+          option(integral.minus(v.value, One.value)).getOrElse(v)
 
       given Integral[self.T] with
         def fromInt(n: Int): self.T =
           self.either(integral.fromInt(n)).fold(_ => Zero, identity) // fail closed-ish
-        def toInt(n: self.T): Int               = integral.toInt(n.value)
-        def compare(x: self.T, y: self.T): Int  = integral.compare(x.value, y.value)
+
+        def parseString(str: String): Option[self.T] =
+          integral.parseString(str).flatMap(option)
+
+        def toInt(n: self.T): Int       = integral.toInt(n.value)
+        def toLong(n: self.T): Long     = integral.toLong(n.value)
+        def toFloat(n: self.T): Float   = integral.toFloat(n.value)
+        def toDouble(n: self.T): Double = integral.toDouble(n.value)
+
+        def compare(x: self.T, y: self.T): Int =
+          integral.compare(x.value, y.value)
+
         def plus(x: self.T, y: self.T): self.T =
           // fail closed: if out of range, clamp to Max is not allowed; return x (caller can use checkedAdd)
-          option(integral.plus(x.value, y.value)).flatMap(option).getOrElse(x)
+          option(integral.plus(x.value, y.value)).getOrElse(x)
+
         def minus(x: self.T, y: self.T): self.T =
-          option(integral.minus(x.value, y.value)).flatMap(option).getOrElse(x)
+          option(integral.minus(x.value, y.value)).getOrElse(x)
+
         def times(x: self.T, y: self.T): self.T =
-          option(integral.times(x.value, y.value)).flatMap(option).getOrElse(x)
-        def negate(x: self.T): self.T           = Zero
+          option(integral.times(x.value, y.value)).getOrElse(x)
+
+        def negate(x: self.T): self.T =
+          option(integral.negate(x.value)).getOrElse(Zero)
+
+        def quot(x: self.T, y: self.T): self.T =
+          if y.value == integral.zero then Zero
+          else option(integral.quot(x.value, y.value)).getOrElse(Zero)
+
+        def rem(x: self.T, y: self.T): self.T =
+          if y.value == integral.zero then Zero
+          else option(integral.rem(x.value, y.value)).getOrElse(Zero)
 
       extension (value: self.T)
 
-        // fixed: increment means add, not multiply
+        // increment means add, not multiply
         inline def increment(n: Int :| numeric.GreaterEqual[0]): Either[String, self.T] =
-          either(integral.fromInt(n)).flatMap(nT => self.either(integral.plus(value.value, nT.value)))
+          self.either(integral.plus(value.value, integral.fromInt(n)))
 
         infix def >==(other: self.T): Boolean = integral.gteq(value.value, other.value)
         infix def <==(other: self.T): Boolean = integral.lteq(value.value, other.value)
         infix def gt(other: self.T): Boolean  = integral.gt(value.value, other.value)
         infix def lt(other: self.T): Boolean  = integral.lt(value.value, other.value)
 
-        def next: Option[self.T]     = option(discrete.next(value))
-        def previous: Option[self.T] = option(discrete.previous(value))
+        def next: Option[self.T] =
+          option(integral.plus(value.value, One.value))
+
+        def previous: Option[self.T] =
+          option(integral.minus(value.value, One.value))
 
         // explicit checked ops (no saturation)
         def checkedAdd(other: self.T): Either[String, self.T] =
@@ -177,13 +189,13 @@ object types:
   // - Sizes/counts/bytes are 1-based (min = 1)
   // ---------------------------
 
+  trait Size1 extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
+  object Size extends Size1
   type Size = Size.T
-	type Size1 = Size
-  object Size extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
 
+  trait SizeLong1 extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
+  object SizeLong extends SizeLong1
   type SizeLong = SizeLong.T
-	type SizeLong1 = SizeLong
-  object SizeLong extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
 
   trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
 
@@ -203,7 +215,7 @@ object types:
   object Algo extends RefinedTypeExt[String, AlgoConstraint]
 
   trait HexTrait[C <: Match[? <: String]] extends RefinedTypeExt[String, C]:
-    extension (value: T) def length: Int = value.length
+    extension (value: T) def length: Int = value.value.length
 
   type HexString = HexString.T
   object HexString extends HexTrait[HexConstraint]
