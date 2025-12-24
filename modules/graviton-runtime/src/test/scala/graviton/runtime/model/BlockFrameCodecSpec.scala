@@ -3,7 +3,7 @@ package graviton.runtime.model
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.ByteConstraints
+import graviton.core.types.FileSize
 import zio.*
 import zio.stream.ZStream
 import zio.Chunk
@@ -45,9 +45,8 @@ object BlockFrameCodecSpec extends ZIOSpecDefault:
                   .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
                   .mapError(msg => new IllegalArgumentException(msg))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-      attrs   = BinaryAttributes.empty.confirmSize(
-                  ByteConstraints.unsafeFileSize(bytes.length.toLong)
-                )
+      size   <- ZIO.fromEither(FileSize.either(bytes.length.toLong)).mapError(msg => new IllegalArgumentException(msg))
+      attrs   = BinaryAttributes.empty.confirmSize(size)
       block  <- ZIO
                   .fromEither(CanonicalBlock.make(key, bytes, attrs))
                   .mapError(msg => new IllegalArgumentException(msg))

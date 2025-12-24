@@ -92,8 +92,10 @@ object types:
       // Stable value-level bounds for this refined type.
       val Max: self.T  = self.applyUnsafe(mxV.value)
       val Min: self.T  = self.applyUnsafe(mnV.value)
-      val Zero: self.T = self.applyUnsafe(zV.value)
-      val One: self.T  = self.applyUnsafe(oV.value)
+      // Note: Some refined families (e.g. sizes/counts) forbid 0, so "Zero" may not exist.
+      // We still provide a total value by failing closed to Min.
+      val Zero: self.T = self.either(zV.value).fold(_ => Min, identity)
+      val One: self.T  = self.either(oV.value).fold(_ => Min, identity)
 
       inline def unsafe(t: Tpe): self.T =
         self.applyUnsafe(t)
@@ -115,9 +117,9 @@ object types:
         def parseString(str: String): Option[self.T] =
           integral.parseString(str).flatMap(option)
 
-        def toInt(n: self.T): Int      = integral.toInt(n.value)
-        def toLong(n: self.T): Long    = integral.toLong(n.value)
-        def toFloat(n: self.T): Float  = integral.toFloat(n.value)
+        def toInt(n: self.T): Int       = integral.toInt(n.value)
+        def toLong(n: self.T): Long     = integral.toLong(n.value)
+        def toFloat(n: self.T): Float   = integral.toFloat(n.value)
         def toDouble(n: self.T): Double = integral.toDouble(n.value)
 
         def compare(x: self.T, y: self.T): Int =
@@ -150,10 +152,10 @@ object types:
         inline def increment(n: Int :| numeric.GreaterEqual[0]): Either[String, self.T] =
           self.either(integral.plus(value.value, integral.fromInt(n)))
 
-        infix def >==(other: self.T): Boolean  = integral.gteq(value.value, other.value)
-        infix def <==(other: self.T): Boolean  = integral.lteq(value.value, other.value)
-        infix def gt(other: self.T): Boolean   = integral.gt(value.value, other.value)
-        infix def lt(other: self.T): Boolean   = integral.lt(value.value, other.value)
+        infix def >==(other: self.T): Boolean = integral.gteq(value.value, other.value)
+        infix def <==(other: self.T): Boolean = integral.lteq(value.value, other.value)
+        infix def gt(other: self.T): Boolean  = integral.gt(value.value, other.value)
+        infix def lt(other: self.T): Boolean  = integral.lt(value.value, other.value)
 
         def next: Option[self.T] =
           option(integral.plus(value.value, One.value))
