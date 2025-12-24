@@ -178,11 +178,11 @@ object types:
   // ---------------------------
 
   type Size = Size.T
-  type Size1 = Size
+	type Size1 = Size
   object Size extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
 
   type SizeLong = SizeLong.T
-  type SizeLong1 = SizeLong
+	type SizeLong1 = SizeLong
   object SizeLong extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
 
   trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
