@@ -3,10 +3,10 @@
 # and (optionally) expose a Docker-compatible socket for Testcontainers.
 #
 # Usage:
-#   scripts/bootstrap-podman-postgres.sh [--pg 17] [--port 5432] [--name graviton-pg] \
+#   scripts/bootstrap-podman-postgres.sh [--pg 18] [--port 5432] [--name graviton-pg] \
 #       [--ddl modules/pg/ddl.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
 #
-# Defaults: PG_VERSION=17, PORT=5432, NAME=graviton-pg, DDL=modules/pg/ddl.sql, EXPORT_DOCKER_HOST=on
+# Defaults: PG_VERSION=18, PORT=5432, NAME=graviton-pg, DDL=modules/pg/ddl.sql, EXPORT_DOCKER_HOST=on
 #
 # What it does:
 #   - Installs Podman (and pasta/slirp4netns) if missing (Ubuntu/Debian/Fedora/Arch/Alpine).
@@ -85,7 +85,7 @@ install_pkg() {
 }
 
 ############ args ############
-PG_VERSION="${PG_VERSION:-17}"
+PG_VERSION="${PG_VERSION:-18}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
 PG_NAME="${PG_NAME:-graviton-pg}"

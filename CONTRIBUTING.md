@@ -73,7 +73,7 @@ Thank you for helping improve Graviton! This guide outlines the workflow, coding
 ## Database schema changes
 Schema updates must be reflected in generated bindings so migrations and code stay in lockstep:
 
-1. Start a local PostgreSQL instance without Docker (for example: `apt-get install postgresql && sudo pg_ctlcluster 16 main start`).
+1. Start a local PostgreSQL instance without Docker (for example: `apt-get install postgresql && sudo pg_ctlcluster 18 main start`).
 2. Apply the DDL to an empty database:
 
    ```bash

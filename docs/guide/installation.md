@@ -13,7 +13,7 @@ This guide covers installing and configuring Graviton for development and produc
 
 ### Optional Components
 
-- **PostgreSQL 16+**: For metadata and object storage backend
+- **PostgreSQL 18+**: For metadata and object storage backend
 - **RocksDB**: Embedded key-value storage (automatically included)
 - **S3-Compatible Storage**: AWS S3, MinIO, or compatible services
 - **Docker**: For running PostgreSQL via TestContainers
@@ -63,10 +63,10 @@ Graviton is currently in development. Releases will be published to Maven Centra
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install postgresql-16
+sudo apt-get install postgresql-18
 
 # macOS
-brew install postgresql@16
+brew install postgresql@18
 
 # Or use Docker
 docker run -d \
@@ -74,7 +74,7 @@ docker run -d \
   -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=graviton \
   -p 5432:5432 \
-  postgres:16
+  postgres:18
 ```
 
 2. **Apply DDL Schema**:

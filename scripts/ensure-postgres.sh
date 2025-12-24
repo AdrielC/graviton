@@ -8,7 +8,7 @@ set -euo pipefail
 #
 # Usage:
 #   ./scripts/ensure-postgres.sh [--engine auto|docker|podman] \
-#       [--pg-version 17] [--name graviton-pg] \
+#       [--pg-version 18] [--name graviton-pg] \
 #       [--host 127.0.0.1] [--port 5432] \
 #       [--db postgres] [--user postgres] [--password postgres]
 #
@@ -17,7 +17,7 @@ set -euo pipefail
 #
 
 ENGINE="auto"                      # auto | docker | podman
-PG_VERSION="${PG_VERSION:-17}"
+PG_VERSION="${PG_VERSION:-18}"
 NAME="${PG_NAME:-graviton-pg}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"

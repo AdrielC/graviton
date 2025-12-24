@@ -197,7 +197,7 @@ object PostgresBlobStoreSpec extends ZIOSpecDefault {
   val containerLayer = ZLayer.scoped {
     ZIO.acquireRelease(
       ZIO.attempt {
-        val container = PostgreSQLContainer("postgres:16")
+        val container = PostgreSQLContainer("postgres:18")
         container.start()
         container
       }

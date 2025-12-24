@@ -63,6 +63,86 @@ flowchart LR
   class observability ops
 ```
 
+## Quasar + Graviton (service topology)
+
+```mermaid
+flowchart TB
+  %% ===== Clients =====
+  Clerk["Clients\n(Browser • Integrations)"]
+  Admin["Ops / Admin"]
+
+  %% ===== Edge =====
+  GW["Gateway\n(Caddy / Nginx)\nTLS + Routing"]
+
+  %% ===== Quasar =====
+  QAPI["Quasar API\nAuthZ • Metadata • Workflows • Audit"]
+  R["Redis\nSessions • Rate Limits"]
+
+  %% ===== Database =====
+  PG["PostgreSQL\nDocs • Versions • Metadata • Jobs"]
+
+  %% ===== Storage Routing =====
+  SC["Shardcake\nShard Routing"]
+
+  %% ===== CAS Layer =====
+  subgraph Graviton["Graviton CAS Layer"]
+    G1["Graviton Node A"]
+    G2["Graviton Node B"]
+    G3["Graviton Node C"]
+  end
+
+  %% ===== Object Storage =====
+  subgraph ObjectStore["Object Storage"]
+    MIO["MinIO\nEncrypted Buckets"]
+  end
+
+  %% ===== Jobs / Plugins =====
+  JR["Job Runner"]
+  OCR["OCR Plugin"]
+  CLS["Classify / Tag Plugin"]
+
+  %% ===== Observability =====
+  P["Prometheus"]
+  G["Grafana"]
+  L["Central Logs"]
+
+  %% ===== Client Flow =====
+  Clerk -->|HTTPS| GW
+  Admin -->|HTTPS| GW
+  GW -->|HTTPS| QAPI
+
+  %% ===== Core Dependencies =====
+  QAPI --> PG
+  QAPI --> R
+
+  %% ===== Storage Flow =====
+  QAPI -->|Stream blobs| SC
+  SC --> G1
+  SC --> G2
+  SC --> G3
+
+  %% ===== CAS to Object Store =====
+  G1 -->|Blocks / Blobs| MIO
+  G2 -->|Blocks / Blobs| MIO
+  G3 -->|Blocks / Blobs| MIO
+
+  %% ===== Job Execution =====
+  QAPI -->|Enqueue jobs| PG
+  JR -->|Claim jobs| PG
+  JR -->|Read / Write content| SC
+  JR --> OCR
+  JR --> CLS
+  OCR -->|Derived views| QAPI
+  CLS -->|Derived metadata| QAPI
+
+  %% ===== Observability =====
+  QAPI --> P
+  JR --> P
+  P --> G
+  QAPI --> L
+  JR --> L
+```
+
 ## Core
 
 `graviton-core` contains purely functional data structures and codecs:
