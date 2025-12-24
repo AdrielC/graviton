@@ -1,395 +1,713 @@
+-- Graviton/Quasar "authoritative" schema (alpha: major overhauls welcome)
+--
+-- Target: Postgres 16+.
+-- Notes:
+-- - Intentionally avoids PG18-only features (uuidv7, virtual-by-default generated cols).
+-- - pgvector is OPTIONAL (guarded so DDL still applies if not installed).
+--
+-- This file is treated as source-of-truth for deployment and codegen.
+
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SET check_function_bodies = off;
-SET search_path = public, pg_catalog;
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;         -- digest(...), gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;          -- trigram search on text
--- (enable pg_stat_statements in the cluster for perf insights)
+-- ----------------------- Extensions -----------------------------
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid(), digest(...)
+CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text (contrib)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram search
+CREATE EXTENSION IF NOT EXISTS btree_gin;  -- optional (contrib)
+CREATE EXTENSION IF NOT EXISTS btree_gist; -- exclusion constraints on composite keys (contrib)
 
--- ----------------------- Domains -------------------------------
-CREATE DOMAIN hash_bytes  AS bytea CHECK (octet_length(VALUE) BETWEEN 16 AND 64);
-CREATE DOMAIN small_bytes AS bytea CHECK (octet_length(VALUE) <= 1048576);   -- 1 MiB
-CREATE DOMAIN store_key   AS bytea CHECK (octet_length(VALUE) = 32);         -- 256-bit digest
-
-COMMENT ON DOMAIN hash_bytes  IS 'Opaque binary hash digests with algorithm-specific widths';
-COMMENT ON DOMAIN small_bytes IS 'Inline payloads that fit inside 1 MiB, typically metadata or previews';
-COMMENT ON DOMAIN store_key   IS 'Stable 256-bit identity for a Store record (algo + deployment fingerprint)';
-
--- future-proof over enums (no painful ALTER TYPE ADD VALUE):
-CREATE DOMAIN replica_status_t AS text
-  CHECK (VALUE IN ('active','quarantined','deprecated','lost'));
-CREATE DOMAIN store_status_t AS text
-  CHECK (VALUE IN ('active','paused','retired'));
-
--- -------------------- Reference Tables -------------------------
-CREATE TABLE hash_algorithm (
-  id       SMALLSERIAL PRIMARY KEY,
-  name     TEXT UNIQUE NOT NULL,      -- 'blake3', 'sha256', ...
-  is_fips  BOOLEAN NOT NULL DEFAULT FALSE
-);
-
-COMMENT ON TABLE hash_algorithm IS 'Well known hashing algorithms used across Block/Blob materialization';
-COMMENT ON COLUMN hash_algorithm.id IS 'Small surrogate key referenced by block/blob rows';
-COMMENT ON COLUMN hash_algorithm.name IS 'Canonical lowercase algorithm name (sha-256, blake3, md5, …)';
-COMMENT ON COLUMN hash_algorithm.is_fips IS 'TRUE if the algorithm is approved for FIPS 140-3 usage';
-
-CREATE TABLE build_info (
-  id            BIGSERIAL PRIMARY KEY,
-  app_name      TEXT NOT NULL,
-  version       TEXT NOT NULL,
-  git_sha       TEXT NOT NULL,
-  scala_version TEXT NOT NULL,
-  zio_version   TEXT NOT NULL,
-  built_at      TIMESTAMPTZ NOT NULL,
-  launched_at   TIMESTAMPTZ NOT NULL,
-  is_current    BOOLEAN NOT NULL DEFAULT FALSE
-);
-CREATE UNIQUE INDEX build_info_one_current ON build_info (is_current) WHERE is_current;
-
-COMMENT ON TABLE build_info IS 'Build metadata for the running application instances';
-COMMENT ON COLUMN build_info.app_name IS 'Executable or distribution identifier (e.g. graviton-cli)';
-COMMENT ON COLUMN build_info.version IS 'Semantic version string baked into the artifact';
-COMMENT ON COLUMN build_info.git_sha IS 'Git commit SHA that produced the binary';
-COMMENT ON COLUMN build_info.scala_version IS 'Scala compiler version used to produce this build';
-COMMENT ON COLUMN build_info.zio_version IS 'Primary ZIO runtime version compiled against';
-COMMENT ON COLUMN build_info.built_at IS 'UTC timestamp when the binary was built';
-COMMENT ON COLUMN build_info.launched_at IS 'UTC timestamp when this build instance was launched';
-COMMENT ON COLUMN build_info.is_current IS 'Flag used to pin the active build row used by health endpoints';
-
--- ----------------------- Stores --------------------------------
-CREATE TABLE store (
-  key               store_key       PRIMARY KEY,        -- digest(impl_id || 0x00 || dv || 0x00 || build_fp)
-  impl_id           TEXT            NOT NULL,           -- 's3','fs','minio','ceph',...
-  build_fp          bytea           NOT NULL,           -- empty/zero if build-agnostic
-  dv_schema_urn     TEXT            NOT NULL,           -- schema URI/URN for DV
-  dv_canonical_bin  bytea           NOT NULL,           -- canonical DV bytes (stable codec)
-  dv_json_preview   JSONB,                              -- optional pretty/debug
-  status            store_status_t  NOT NULL DEFAULT 'active',
-  version           BIGINT          NOT NULL DEFAULT 0, -- bumped on UPDATE by trigger
-  created_at        TIMESTAMPTZ     NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ     NOT NULL DEFAULT now(),
-  dv_hash           bytea GENERATED ALWAYS AS (digest(dv_canonical_bin, 'sha256')) STORED,
-  CONSTRAINT store_version_nonneg CHECK (version >= 0)
-);
-
--- HOT paths
-CREATE INDEX store_status_idx            ON store (status);
-CREATE INDEX store_status_updated_idx    ON store (status, updated_at DESC);
-CREATE UNIQUE INDEX store_uniqueness     ON store (impl_id, build_fp, dv_hash);
--- searchy fields (gitops/ops browsing)
-CREATE INDEX store_schema_trgm           ON store USING GIN (dv_schema_urn gin_trgm_ops);
-CREATE INDEX store_impl_trgm             ON store USING GIN (impl_id gin_trgm_ops);
--- age sweeps (cheap & tiny)
-CREATE INDEX store_updated_brin          ON store USING BRIN (updated_at);
-
-COMMENT ON TABLE store IS 'Logical blob/block store configuration and deployment fingerprint';
-COMMENT ON COLUMN store.key IS 'Deterministic identifier derived from implementation + deployment version';
-COMMENT ON COLUMN store.impl_id IS 'Backend implementation discriminator (fs, s3, gcs, …)';
-COMMENT ON COLUMN store.build_fp IS 'Opaque binary fingerprint of the running binary or plugin build';
-COMMENT ON COLUMN store.dv_schema_urn IS 'Schema URI describing the deployment vector payload';
-COMMENT ON COLUMN store.dv_canonical_bin IS 'Canonical binary encoding of the deployment vector';
-COMMENT ON COLUMN store.dv_json_preview IS 'Optional JSON projection used for dashboards and debugging';
-COMMENT ON COLUMN store.status IS 'Operational status used by placement and repair workflows';
-COMMENT ON COLUMN store.version IS 'Monotonic version incremented by trigger for optimistic locking';
-COMMENT ON COLUMN store.created_at IS 'Creation timestamp for the store record';
-COMMENT ON COLUMN store.updated_at IS 'Last mutation timestamp (managed by store_touch trigger)';
-COMMENT ON COLUMN store.dv_hash IS 'SHA-256 digest of dv_canonical_bin to dedupe identical payloads';
-
--- auto version/updated_at
-CREATE OR REPLACE FUNCTION store_touch() RETURNS trigger AS $$
+-- pgvector is optional: don't fail schema install if the extension isn't available.
+DO $$
 BEGIN
-  NEW.updated_at := now();
-  NEW.version    := COALESCE(OLD.version, 0) + 1;
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+    EXECUTE 'CREATE EXTENSION IF NOT EXISTS vector';
+  END IF;
+END $$;
+
+-- ----------------------- Schemas --------------------------------
+CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS graviton;
+CREATE SCHEMA IF NOT EXISTS quasar;
+
+-- ----------------- Core domains + enums -------------------------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'hash_alg'
+  ) THEN
+    EXECUTE 'CREATE TYPE core.hash_alg AS ENUM (''sha256'', ''blake3'')';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'byte_size'
+  ) THEN
+    EXECUTE 'CREATE DOMAIN core.byte_size AS bigint CHECK (VALUE >= 0)';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'nonempty_text'
+  ) THEN
+    EXECUTE 'CREATE DOMAIN core.nonempty_text AS text CHECK (length(trim(VALUE)) > 0)';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'lifecycle_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE core.lifecycle_status AS ENUM (''active'',''draining'',''deprecated'',''dead'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'present_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE core.present_status AS ENUM (''present'',''missing'',''corrupt'',''relocating'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'core' AND t.typname = 'job_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE core.job_status AS ENUM (''queued'',''leased'',''succeeded'',''failed'',''dead'')';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION core.now_utc()
+RETURNS timestamptz
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT now();
+$$;
+
+-- generic updated_at trigger helper
+CREATE OR REPLACE FUNCTION core.touch_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := clock_timestamp();
   RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER store_touch_trg
-BEFORE UPDATE ON store
-FOR EACH ROW EXECUTE FUNCTION store_touch();
-
--- ------------------------ Block (CAS) --------------------------
-CREATE TABLE block (
-  algo_id      SMALLINT     NOT NULL REFERENCES hash_algorithm(id),
-  hash         hash_bytes   NOT NULL,
-  size_bytes   BIGINT       NOT NULL,
-  created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
-  inline_bytes small_bytes,                 -- optional tiny payload
-  PRIMARY KEY (algo_id, hash),
-  CONSTRAINT block_inline_len_consistent
-    CHECK (inline_bytes IS NULL OR octet_length(inline_bytes) = size_bytes)
-);
-ALTER TABLE block
-  ADD CONSTRAINT block_size_positive CHECK (size_bytes > 0);
--- Optional: ensure inline_bytes is only used for small blocks
-ALTER TABLE block
-  ADD CONSTRAINT block_inline_threshold CHECK (inline_bytes IS NULL OR size_bytes <= 1048576);
-CREATE INDEX block_size_idx   ON block (size_bytes);
-CREATE INDEX block_created_br ON block USING BRIN (created_at);
-
-COMMENT ON TABLE block IS 'Deduplicated binary blocks addressed by (algorithm, hash)';
-COMMENT ON COLUMN block.algo_id IS 'hash_algorithm reference specifying the digest algorithm used';
-COMMENT ON COLUMN block.hash IS 'Raw digest bytes for the block contents';
-COMMENT ON COLUMN block.size_bytes IS 'Exact size of the block payload in bytes';
-COMMENT ON COLUMN block.created_at IS 'Timestamp when the block row was inserted';
-COMMENT ON COLUMN block.inline_bytes IS 'Optional inline payload for very small blocks (<= 1 MiB)';
-
--- -------------------- Replicas ---------------------------------
-CREATE TABLE replica (
-  id               BIGSERIAL PRIMARY KEY,
-  algo_id          SMALLINT      NOT NULL,
-  hash             hash_bytes    NOT NULL,
-  store_key        store_key     NOT NULL REFERENCES store(key),
-  sector           TEXT,
-  status           replica_status_t NOT NULL DEFAULT 'active',
-  size_bytes       BIGINT        NOT NULL CHECK (size_bytes > 0),
-  etag             TEXT,
-  storage_class    TEXT,
-  first_seen_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
-  last_verified_at TIMESTAMPTZ,
-  UNIQUE (algo_id, hash, store_key),
-  FOREIGN KEY (algo_id, hash) REFERENCES block(algo_id, hash) ON DELETE CASCADE
-);
--- accelerate common probes
-CREATE INDEX replica_by_block            ON replica (algo_id, hash);
-CREATE INDEX replica_block_status_idx    ON replica (algo_id, hash, status);
-CREATE INDEX replica_by_store_status     ON replica (store_key, status);
-CREATE INDEX replica_last_verified_active_idx ON replica (last_verified_at) WHERE status = 'active';
--- Only one "active" replica per store+block? (toggle if desired)
--- CREATE UNIQUE INDEX replica_one_active_per_store
---   ON replica (algo_id, hash, store_key)
---   WHERE status = 'active';
-
-COMMENT ON TABLE replica IS 'Physical materializations of a block on a concrete store';
-COMMENT ON COLUMN replica.algo_id IS 'hash_algorithm identifier of the associated block';
-COMMENT ON COLUMN replica.hash IS 'Digest bytes referencing the associated block';
-COMMENT ON COLUMN replica.store_key IS 'Foreign key to store identifying where this replica resides';
-COMMENT ON COLUMN replica.sector IS 'Optional placement hint (rack/availability-zone) supplied by the store';
-COMMENT ON COLUMN replica.status IS 'Operational health for the replica (active/quarantined/deprecated/lost)';
-COMMENT ON COLUMN replica.size_bytes IS 'Size reported by the backend for auditing';
-COMMENT ON COLUMN replica.etag IS 'Opaque backend checksum or ETag provided by the store';
-COMMENT ON COLUMN replica.storage_class IS 'Backend storage-class tier (STANDARD, GLACIER, …)';
-COMMENT ON COLUMN replica.first_seen_at IS 'Timestamp when this replica was first ingested';
-COMMENT ON COLUMN replica.last_verified_at IS 'Last time a verification probe succeeded for this replica';
-
--- ------------------------- Blobs --------------------------------
-CREATE TABLE blob (
-  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  algo_id        SMALLINT    NOT NULL REFERENCES hash_algorithm(id),
-  hash           hash_bytes  NOT NULL,
-  size_bytes     BIGINT      NOT NULL,
-  media_type_hint TEXT,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (algo_id, hash, size_bytes),
-  CONSTRAINT blob_size_nonneg CHECK (size_bytes >= 0)
-);
--- Accelerate GC/age scans
-CREATE INDEX blob_created_brin ON blob USING BRIN (created_at);
-CREATE INDEX blob_media_type_search ON blob USING GIN (to_tsvector('simple', coalesce(media_type_hint, '')));
-
-COMMENT ON TABLE blob IS 'High-level logical blob manifest that stitches together many blocks';
-COMMENT ON COLUMN blob.id IS 'Stable UUID identifier for this blob';
-COMMENT ON COLUMN blob.algo_id IS 'hash_algorithm identifier for the blob-level digest';
-COMMENT ON COLUMN blob.hash IS 'Blob-level digest computed over ordered manifest bytes';
-COMMENT ON COLUMN blob.size_bytes IS 'Total size of the blob represented by this manifest';
-COMMENT ON COLUMN blob.media_type_hint IS 'Optional MIME type hint derived from sniffing or user metadata';
-COMMENT ON COLUMN blob.created_at IS 'Timestamp when this blob manifest was recorded';
-
-CREATE TABLE manifest_entry (
-  blob_id        UUID        NOT NULL REFERENCES blob(id) ON DELETE CASCADE,
-  seq            INT         NOT NULL,
-  block_algo_id  SMALLINT    NOT NULL,
-  block_hash     hash_bytes  NOT NULL,
-  offset_bytes   BIGINT      NOT NULL,
-  size_bytes     BIGINT      NOT NULL CHECK (size_bytes > 0),
-  PRIMARY KEY (blob_id, seq),
-  FOREIGN KEY (block_algo_id, block_hash) REFERENCES block(algo_id, hash),
-  CONSTRAINT manifest_entry_seq_nonneg CHECK (seq >= 0),
-  CONSTRAINT manifest_entry_offset_nonneg CHECK (offset_bytes >= 0)
-);
-CREATE INDEX manifest_entry_by_block      ON manifest_entry (block_algo_id, block_hash);
-CREATE INDEX manifest_entry_blob_seq_idx  ON manifest_entry (blob_id, seq);
-CREATE INDEX manifest_entry_blob_offset_idx ON manifest_entry (blob_id, offset_bytes);
-
--- 🍒 Sicko bit: forbid overlapping block spans per blob using an exclusion constraint
--- uses range types + GiST to ensure [offset, offset+len) segments never overlap
-ALTER TABLE manifest_entry
-  ADD COLUMN span int8range GENERATED ALWAYS AS (int8range(offset_bytes, offset_bytes + size_bytes, '[)')) STORED;
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-ALTER TABLE manifest_entry
-  ADD CONSTRAINT manifest_entry_non_overlapping
-  EXCLUDE USING gist (blob_id WITH =, span WITH &&);
-
-COMMENT ON TABLE manifest_entry IS 'Ordered mapping from blob byte ranges to block references';
-COMMENT ON COLUMN manifest_entry.blob_id IS 'Foreign key to the owning blob manifest';
-COMMENT ON COLUMN manifest_entry.seq IS 'Dense 0-based sequence number describing block order';
-COMMENT ON COLUMN manifest_entry.block_algo_id IS 'hash_algorithm identifier for the referenced block';
-COMMENT ON COLUMN manifest_entry.block_hash IS 'Digest bytes for the referenced block';
-COMMENT ON COLUMN manifest_entry.offset_bytes IS 'Starting offset of this block segment within the blob';
-COMMENT ON COLUMN manifest_entry.size_bytes IS 'Size in bytes of the blob segment backed by this block';
-COMMENT ON COLUMN manifest_entry.span IS 'Generated int8range used by the GiST exclusion constraint';
-
--- ---------------------- Merkle Snapshots -----------------------
-CREATE TABLE merkle_snapshot (
-  id                 BIGSERIAL   PRIMARY KEY,
-  query_fingerprint  bytea       NOT NULL,
-  algo_id            SMALLINT    NOT NULL REFERENCES hash_algorithm(id),
-  root_hash          hash_bytes  NOT NULL,
-  at_time            TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-  note               TEXT
-);
-
-COMMENT ON TABLE merkle_snapshot IS 'Materialized Merkle roots for catalog queries (for audits and proofs)';
-COMMENT ON COLUMN merkle_snapshot.query_fingerprint IS 'Stable hash of the query definition feeding this snapshot';
-COMMENT ON COLUMN merkle_snapshot.algo_id IS 'hash_algorithm identifier used to compute the Merkle root';
-COMMENT ON COLUMN merkle_snapshot.root_hash IS 'Merkle root digest of the snapshot payload';
-COMMENT ON COLUMN merkle_snapshot.at_time IS 'Collection timestamp for the Merkle snapshot';
-COMMENT ON COLUMN merkle_snapshot.note IS 'Optional human readable context for the snapshot';
-
--- ---------------------- Helper Views -----------------------------
-
-CREATE OR REPLACE VIEW v_store_inventory AS
-SELECT
-  s.key,
-  s.impl_id,
-  s.status,
-  s.updated_at,
-  COUNT(r.*)                        AS total_replicas,
-  COUNT(*) FILTER (WHERE r.status = 'active')       AS active_replicas,
-  COUNT(*) FILTER (WHERE r.status = 'quarantined')  AS quarantined_replicas,
-  COUNT(*) FILTER (WHERE r.status = 'deprecated')   AS deprecated_replicas,
-  COUNT(*) FILTER (WHERE r.status = 'lost')         AS lost_replicas,
-  MIN(r.first_seen_at)              AS first_replica_seen_at,
-  MAX(r.last_verified_at)           AS last_replica_verified_at
-FROM store s
-LEFT JOIN replica r ON r.store_key = s.key
-GROUP BY s.key, s.impl_id, s.status, s.updated_at;
-
-COMMENT ON VIEW v_store_inventory IS 'Roll-up view summarising replica distribution and health per store';
-
-CREATE OR REPLACE VIEW v_block_replica_health AS
-SELECT
-  b.algo_id,
-  b.hash,
-  b.size_bytes,
-  b.created_at,
-  COUNT(r.*)                                             AS replica_count,
-  COUNT(*) FILTER (WHERE r.status = 'active')            AS active_count,
-  COUNT(*) FILTER (WHERE r.status = 'quarantined')       AS quarantined_count,
-  COUNT(*) FILTER (WHERE r.status = 'deprecated')        AS deprecated_count,
-  COUNT(*) FILTER (WHERE r.status = 'lost')              AS lost_count,
-  MAX(r.last_verified_at)                                AS last_verified_at,
-  bool_or(r.status = 'active')                           AS has_active,
-  bool_or(r.status = 'lost')                             AS has_lost
-FROM block b
-LEFT JOIN replica r ON r.algo_id = b.algo_id AND r.hash = b.hash
-GROUP BY b.algo_id, b.hash, b.size_bytes, b.created_at;
-
-COMMENT ON VIEW v_block_replica_health IS 'Aggregate health signals for each block across all replicas';
-
-CREATE OR REPLACE VIEW v_blob_manifest AS
-SELECT
-  bl.id,
-  bl.hash,
-  bl.size_bytes,
-  bl.media_type_hint,
-  bl.created_at,
-  jsonb_agg(
-    jsonb_build_object(
-      'seq', me.seq,
-      'offset', me.offset_bytes,
-      'size', me.size_bytes,
-      'algo_id', me.block_algo_id,
-      'hash', encode(me.block_hash, 'hex')
-    )
-    ORDER BY me.seq
-  ) AS manifest
-FROM blob bl
-LEFT JOIN manifest_entry me ON me.blob_id = bl.id
-GROUP BY bl.id, bl.hash, bl.size_bytes, bl.media_type_hint, bl.created_at;
-
-COMMENT ON VIEW v_blob_manifest IS 'Convenience JSON projection of blob manifests for APIs and debugging';
-
--- ---------------------- Utility Functions -----------------------
-
-CREATE OR REPLACE FUNCTION ensure_hash_algorithm(p_name TEXT, p_is_fips BOOLEAN DEFAULT FALSE)
-RETURNS SMALLINT AS $$
-DECLARE
-  result_id SMALLINT;
-BEGIN
-  INSERT INTO hash_algorithm (name, is_fips)
-  VALUES (p_name, p_is_fips)
-  ON CONFLICT (name) DO UPDATE SET is_fips = EXCLUDED.is_fips
-  RETURNING id INTO result_id;
-  RETURN result_id;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-COMMENT ON FUNCTION ensure_hash_algorithm(TEXT, BOOLEAN) IS 'Idempotently create or lookup a hash_algorithm row and return its id';
+-- ---------------- Graviton (CAS substrate) ----------------------
 
-CREATE OR REPLACE FUNCTION mark_replica_verified(p_replica_id BIGINT, p_verified_at TIMESTAMPTZ DEFAULT now())
-RETURNS VOID AS $$
-BEGIN
-  UPDATE replica
-     SET last_verified_at = p_verified_at,
-         status = CASE WHEN status = 'lost' THEN 'quarantined' ELSE status END
-   WHERE id = p_replica_id;
-END;
-$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION graviton.is_valid_cas_key(
+  alg core.hash_alg,
+  hash_bytes bytea,
+  byte_length bigint
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT
+    byte_length >= 0
+    AND hash_bytes IS NOT NULL
+    AND length(hash_bytes) > 0;
+$$;
 
-COMMENT ON FUNCTION mark_replica_verified(BIGINT, TIMESTAMPTZ) IS 'Update replica.last_verified_at and optionally de-escalate lost replicas back to quarantined';
-
-CREATE OR REPLACE FUNCTION promote_store_status(p_store_key store_key, p_status store_status_t)
-RETURNS VOID AS $$
-BEGIN
-  UPDATE store
-     SET status = p_status
-   WHERE key = p_store_key;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION promote_store_status(store_key, store_status_t) IS 'Bump a store record into a new status without exposing raw UPDATEs to clients';
-CREATE INDEX merkle_query_at_idx     ON merkle_snapshot (query_fingerprint, at_time DESC);
-CREATE INDEX merkle_at_brin          ON merkle_snapshot USING BRIN (at_time);
-
--- ------------------- Change Notifications ----------------------
-CREATE OR REPLACE FUNCTION graviton_notify_change() RETURNS trigger AS $$
-DECLARE
-  payload jsonb;
-BEGIN
-  payload := jsonb_build_object(
-    'table', TG_TABLE_NAME,
-    'op',    TG_OP,
-    'ts',    now(),
-    'row',   CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN to_jsonb(NEW) ELSE to_jsonb(OLD) END
+CREATE OR REPLACE FUNCTION graviton.cas_ref(
+  alg core.hash_alg,
+  hash_bytes bytea,
+  byte_length bigint
+)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT jsonb_build_object(
+    'alg', alg::text,
+    'hash_bytes_b64', encode(hash_bytes, 'base64'),
+    'byte_length', byte_length
   );
-  PERFORM pg_notify('graviton_inval', payload::text);
-  RETURN COALESCE(NEW, OLD);
-END; $$ LANGUAGE plpgsql;
+$$;
 
-CREATE TRIGGER store_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON store
-FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
+-- 1.2 Storage topology
+CREATE TABLE graviton.blob_store (
+  blob_store_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  type_id       core.nonempty_text NOT NULL,     -- 's3','minio','fs','ceph',...
+  config        jsonb NOT NULL,
+  status        core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at    timestamptz NOT NULL DEFAULT core.now_utc(),
+  updated_at    timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT blob_store_config_is_object CHECK (jsonb_typeof(config) = 'object')
+);
+CREATE INDEX blob_store_type_status_idx ON graviton.blob_store (type_id, status);
+CREATE TRIGGER blob_store_touch_trg
+BEFORE UPDATE ON graviton.blob_store
+FOR EACH ROW EXECUTE FUNCTION core.touch_updated_at();
 
-CREATE TRIGGER block_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON block
-FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
+CREATE TABLE graviton.sector (
+  sector_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  blob_store_id uuid NOT NULL REFERENCES graviton.blob_store(blob_store_id),
+  name          core.nonempty_text NOT NULL,
+  priority      int NOT NULL DEFAULT 100,            -- lower = preferred for reads
+  policy        jsonb NOT NULL DEFAULT '{}'::jsonb,  -- placement/replication hints
+  status        core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at    timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT sector_policy_is_object CHECK (jsonb_typeof(policy) = 'object'),
+  UNIQUE (blob_store_id, name)
+);
+CREATE INDEX sector_read_pref_idx ON graviton.sector (status, priority, sector_id);
 
-CREATE TRIGGER blob_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON blob
-FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
+-- 1.3 Blocks (immutable chunks)
+CREATE TABLE graviton.block (
+  alg         core.hash_alg NOT NULL,
+  hash_bytes  bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT core.now_utc(),
+  attrs       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (alg, hash_bytes, byte_length),
+  CONSTRAINT block_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
+  CONSTRAINT block_len_positive CHECK (byte_length > 0),
+  CONSTRAINT block_attrs_is_object CHECK (jsonb_typeof(attrs) = 'object')
+);
+CREATE INDEX block_created_idx ON graviton.block (created_at DESC);
 
-CREATE TRIGGER replica_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON replica
-FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
+CREATE TABLE graviton.block_location (
+  block_location_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  alg         core.hash_alg NOT NULL,
+  hash_bytes  bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  sector_id   uuid NOT NULL REFERENCES graviton.sector(sector_id),
+  locator     jsonb NOT NULL,
+  locator_canonical text GENERATED ALWAYS AS (
+    coalesce(locator->>'scheme','') || '://' ||
+    coalesce(locator->>'host', locator->>'bucket', '') || '/' ||
+    coalesce(locator->>'key', locator->>'path', '')
+  ) STORED,
+  stored_length core.byte_size NOT NULL,
+  frame_format  int NOT NULL DEFAULT 1,
+  encryption    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status        core.present_status NOT NULL DEFAULT 'present',
+  written_at    timestamptz NOT NULL DEFAULT core.now_utc(),
+  verified_at   timestamptz NULL,
+  FOREIGN KEY (alg, hash_bytes, byte_length)
+    REFERENCES graviton.block(alg, hash_bytes, byte_length),
+  CONSTRAINT locator_is_object CHECK (jsonb_typeof(locator) = 'object'),
+  CONSTRAINT encryption_is_object CHECK (jsonb_typeof(encryption) = 'object'),
+  CONSTRAINT locator_has_scheme CHECK (locator ? 'scheme'),
+  CONSTRAINT locator_has_keyish CHECK ((locator ? 'key') OR (locator ? 'path')),
+  CONSTRAINT stored_length_nonneg CHECK (stored_length >= 0)
+);
+CREATE INDEX block_location_lookup_idx
+  ON graviton.block_location (alg, hash_bytes, byte_length, status, sector_id)
+  INCLUDE (stored_length, verified_at, written_at);
+CREATE INDEX block_location_locator_gin
+  ON graviton.block_location USING gin (locator jsonb_path_ops);
+CREATE INDEX block_location_sector_status_idx
+  ON graviton.block_location (sector_id, status);
 
--- ------------------ (Optional) RLS Scaffolding -----------------
--- flip this on if you need per-tenant isolation later; policies are examples
--- ALTER TABLE store ENABLE ROW LEVEL SECURITY;
--- CREATE POLICY store_read_all  ON store FOR SELECT USING (true);
--- CREATE POLICY store_write_app ON store FOR INSERT WITH CHECK (current_setting('graviton.app_role', true) = 'writer');
--- CREATE POLICY store_upd_app   ON store FOR UPDATE USING (current_setting('graviton.app_role', true) = 'writer');
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'graviton' AND t.typname = 'verify_result'
+  ) THEN
+    EXECUTE 'CREATE TYPE graviton.verify_result AS ENUM (''ok'',''missing'',''hash_mismatch'',''decrypt_fail'',''other'')';
+  END IF;
+END $$;
 
--- ------------------ Seed hash algorithms -----------------------
-SELECT ensure_hash_algorithm('sha-256', TRUE);
-SELECT ensure_hash_algorithm('blake3', FALSE);
-SELECT ensure_hash_algorithm('md5', FALSE);
+CREATE TABLE graviton.block_verify_event (
+  event_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  alg               core.hash_alg NOT NULL,
+  hash_bytes        bytea NOT NULL,
+  byte_length       core.byte_size NOT NULL,
+  block_location_id uuid NULL REFERENCES graviton.block_location(block_location_id),
+  result            graviton.verify_result NOT NULL,
+  details           jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at        timestamptz NOT NULL DEFAULT core.now_utc(),
+  FOREIGN KEY (alg, hash_bytes, byte_length)
+    REFERENCES graviton.block(alg, hash_bytes, byte_length),
+  CONSTRAINT details_is_object CHECK (jsonb_typeof(details) = 'object')
+);
+CREATE INDEX block_verify_event_block_idx
+  ON graviton.block_verify_event (alg, hash_bytes, byte_length, created_at DESC);
+
+-- 1.4 Blobs + manifests
+CREATE TABLE graviton.blob (
+  alg         core.hash_alg NOT NULL,
+  hash_bytes  bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT core.now_utc(),
+  block_count int NOT NULL,
+  chunker     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  attrs       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (alg, hash_bytes, byte_length),
+  CONSTRAINT blob_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
+  CONSTRAINT blob_block_count_nonneg CHECK (block_count >= 0),
+  CONSTRAINT chunker_is_object CHECK (jsonb_typeof(chunker) = 'object'),
+  CONSTRAINT attrs_is_object CHECK (jsonb_typeof(attrs) = 'object')
+);
+CREATE INDEX blob_created_idx ON graviton.blob (created_at DESC);
+
+CREATE TABLE graviton.blob_manifest_page (
+  alg         core.hash_alg NOT NULL,
+  hash_bytes  bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  page_no     int NOT NULL,
+  entry_count int NOT NULL,
+  entries     bytea NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (alg, hash_bytes, byte_length, page_no),
+  FOREIGN KEY (alg, hash_bytes, byte_length)
+    REFERENCES graviton.blob(alg, hash_bytes, byte_length),
+  CONSTRAINT page_no_nonneg CHECK (page_no >= 0),
+  CONSTRAINT entry_count_nonneg CHECK (entry_count >= 0)
+);
+CREATE INDEX blob_manifest_page_read_idx
+  ON graviton.blob_manifest_page (alg, hash_bytes, byte_length, page_no);
+
+-- Optional relational manifest (SQL introspection + repair tooling)
+CREATE TABLE graviton.blob_block (
+  alg             core.hash_alg NOT NULL,
+  hash_bytes      bytea NOT NULL,
+  byte_length     core.byte_size NOT NULL,
+  ordinal         int NOT NULL,
+  block_alg       core.hash_alg NOT NULL,
+  block_hash_bytes bytea NOT NULL,
+  block_byte_length core.byte_size NOT NULL,
+  block_offset    core.byte_size NOT NULL,
+  block_length    core.byte_size NOT NULL,
+  span int8range GENERATED ALWAYS AS (
+    int8range(block_offset, block_offset + block_length, '[)')
+  ) STORED,
+  PRIMARY KEY (alg, hash_bytes, byte_length, ordinal),
+  FOREIGN KEY (alg, hash_bytes, byte_length)
+    REFERENCES graviton.blob(alg, hash_bytes, byte_length),
+  FOREIGN KEY (block_alg, block_hash_bytes, block_byte_length)
+    REFERENCES graviton.block(alg, hash_bytes, byte_length),
+  CONSTRAINT ordinal_nonneg CHECK (ordinal >= 0),
+  CONSTRAINT offsets_valid CHECK (block_offset >= 0 AND block_length > 0)
+);
+CREATE INDEX blob_block_lookup_idx
+  ON graviton.blob_block (alg, hash_bytes, byte_length, ordinal)
+  INCLUDE (block_alg, block_hash_bytes, block_byte_length, block_offset, block_length);
+ALTER TABLE graviton.blob_block
+  ADD CONSTRAINT blob_block_non_overlapping
+  EXCLUDE USING gist (alg WITH =, hash_bytes WITH =, byte_length WITH =, span WITH &&);
+
+-- 1.5 Views + transforms (DAG)
+CREATE TABLE graviton.transform (
+  transform_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         core.nonempty_text NOT NULL,
+  version      core.nonempty_text NOT NULL,
+  arg_schema   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at   timestamptz NOT NULL DEFAULT core.now_utc(),
+  UNIQUE (name, version),
+  CONSTRAINT arg_schema_is_object CHECK (jsonb_typeof(arg_schema) = 'object')
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'graviton' AND t.typname = 'view_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE graviton.view_status AS ENUM (''virtual'',''materialized'',''failed'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'graviton' AND t.typname = 'input_kind'
+  ) THEN
+    EXECUTE 'CREATE TYPE graviton.input_kind AS ENUM (''blob'',''view'')';
+  END IF;
+END $$;
+
+CREATE TABLE graviton.view (
+  view_id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  canonical_key  bytea NOT NULL UNIQUE,
+  status         graviton.view_status NOT NULL DEFAULT 'virtual',
+  created_at     timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+CREATE TABLE graviton.view_input (
+  view_id     uuid NOT NULL REFERENCES graviton.view(view_id) ON DELETE CASCADE,
+  ordinal     int NOT NULL,
+  input_kind  graviton.input_kind NOT NULL,
+  input_ref   jsonb NOT NULL,
+  PRIMARY KEY (view_id, ordinal),
+  CONSTRAINT ordinal_nonneg CHECK (ordinal >= 0),
+  CONSTRAINT input_ref_is_object CHECK (jsonb_typeof(input_ref) = 'object')
+);
+
+CREATE TABLE graviton.view_op (
+  view_id       uuid NOT NULL REFERENCES graviton.view(view_id) ON DELETE CASCADE,
+  ordinal       int NOT NULL,
+  transform_id  uuid NOT NULL REFERENCES graviton.transform(transform_id),
+  args          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (view_id, ordinal),
+  CONSTRAINT ordinal_nonneg CHECK (ordinal >= 0),
+  CONSTRAINT args_is_object CHECK (jsonb_typeof(args) = 'object')
+);
+
+CREATE TABLE graviton.view_materialization (
+  view_id uuid PRIMARY KEY REFERENCES graviton.view(view_id) ON DELETE CASCADE,
+  result_alg core.hash_alg NOT NULL,
+  result_hash_bytes bytea NOT NULL,
+  result_byte_length core.byte_size NOT NULL,
+  materialized_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  cache_status core.lifecycle_status NOT NULL DEFAULT 'active',
+  FOREIGN KEY (result_alg, result_hash_bytes, result_byte_length)
+    REFERENCES graviton.blob(alg, hash_bytes, byte_length)
+);
+
+-- ---------------- Quasar (application substrate) ----------------
+
+CREATE TABLE quasar.tenant (
+  tenant_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name      core.nonempty_text NOT NULL UNIQUE,
+  status    core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+CREATE TABLE quasar.org (
+  org_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES quasar.tenant(tenant_id),
+  name      core.nonempty_text NOT NULL,
+  status    core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  UNIQUE (tenant_id, name)
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'principal_kind'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.principal_kind AS ENUM (''user'',''group'',''service'')';
+  END IF;
+END $$;
+
+CREATE TABLE quasar.principal (
+  principal_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id       uuid NOT NULL REFERENCES quasar.org(org_id),
+  kind         quasar.principal_kind NOT NULL,
+  display_name text NOT NULL,
+  status       core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at   timestamptz NOT NULL DEFAULT core.now_utc()
+);
+CREATE INDEX principal_org_kind_idx ON quasar.principal (org_id, kind, status);
+
+CREATE TABLE quasar.principal_external_identity (
+  principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id) ON DELETE CASCADE,
+  issuer       core.nonempty_text NOT NULL,
+  subject      core.nonempty_text NOT NULL,
+  claims       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  last_seen_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (principal_id, issuer, subject),
+  UNIQUE (issuer, subject),
+  CONSTRAINT claims_is_object CHECK (jsonb_typeof(claims) = 'object')
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'upload_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.upload_status AS ENUM (''open'',''uploading'',''sealed'',''expired'',''aborted'',''finalized'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'upload_file_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.upload_file_status AS ENUM (''uploading'',''complete'',''failed'')';
+  END IF;
+END $$;
+
+CREATE TABLE quasar.upload_session (
+  upload_session_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  status quasar.upload_status NOT NULL DEFAULT 'open',
+  expires_at timestamptz NOT NULL,
+  constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
+  client_context jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT constraints_is_object CHECK (jsonb_typeof(constraints) = 'object'),
+  CONSTRAINT client_context_is_object CHECK (jsonb_typeof(client_context) = 'object')
+);
+
+CREATE TABLE quasar.upload_file (
+  upload_file_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  upload_session_id uuid NOT NULL REFERENCES quasar.upload_session(upload_session_id) ON DELETE CASCADE,
+  client_file_name text NOT NULL,
+  declared_size core.byte_size NULL,
+  declared_hash jsonb NULL,
+  status quasar.upload_file_status NOT NULL DEFAULT 'uploading',
+  result_blob_ref jsonb NULL,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT declared_hash_is_object CHECK (declared_hash IS NULL OR jsonb_typeof(declared_hash) = 'object'),
+  CONSTRAINT result_blob_ref_is_object CHECK (result_blob_ref IS NULL OR jsonb_typeof(result_blob_ref) = 'object')
+);
+
+CREATE TABLE quasar.upload_part (
+  upload_file_id uuid NOT NULL REFERENCES quasar.upload_file(upload_file_id) ON DELETE CASCADE,
+  part_no int NOT NULL,
+  byte_range int8range NOT NULL,
+  etag text NULL,
+  status core.present_status NOT NULL DEFAULT 'present',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (upload_file_id, part_no),
+  CONSTRAINT nonempty_range CHECK (lower(byte_range) < upper(byte_range))
+);
+CREATE INDEX upload_part_range_gist ON quasar.upload_part USING gist (upload_file_id, byte_range);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'doc_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.doc_status AS ENUM (''draft'',''active'',''deleted'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'content_kind'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.content_kind AS ENUM (''blob'',''view'')';
+  END IF;
+END $$;
+
+CREATE TABLE quasar.document (
+  doc_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  title text NOT NULL,
+  status quasar.doc_status NOT NULL DEFAULT 'draft',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+CREATE TABLE quasar.document_version (
+  doc_version_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  doc_id uuid NOT NULL REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+  version int NOT NULL,
+  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  content_kind quasar.content_kind NOT NULL,
+  content_ref jsonb NOT NULL,
+  UNIQUE (doc_id, version),
+  CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
+);
+CREATE INDEX document_version_doc_idx ON quasar.document_version (doc_id, version DESC);
+
+CREATE TABLE quasar.document_current (
+  doc_id uuid PRIMARY KEY REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  current_version_id uuid NOT NULL REFERENCES quasar.document_version(doc_version_id),
+  content_kind quasar.content_kind NOT NULL,
+  content_ref jsonb NOT NULL,
+  status quasar.doc_status NOT NULL,
+  title text NOT NULL,
+  last_modified_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
+);
+CREATE INDEX document_current_org_status_idx ON quasar.document_current (org_id, status, last_modified_at DESC);
+
+CREATE TABLE quasar.document_alias (
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  system core.nonempty_text NOT NULL,
+  external_id text NOT NULL,
+  doc_id uuid NOT NULL REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, system, external_id)
+);
+CREATE INDEX document_alias_doc_idx ON quasar.document_alias (doc_id);
+
+CREATE TABLE quasar.namespace (
+  namespace_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  urn core.nonempty_text NOT NULL UNIQUE,
+  status core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'schema_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.schema_status AS ENUM (''draft'',''active'',''deprecated'',''revoked'')';
+  END IF;
+END $$;
+
+CREATE TABLE quasar.schema_registry (
+  schema_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NULL REFERENCES quasar.org(org_id),
+  schema_urn core.nonempty_text NOT NULL,
+  schema_json jsonb NOT NULL,
+  canonical_hash bytea NOT NULL UNIQUE,
+  status quasar.schema_status NOT NULL DEFAULT 'draft',
+  supersedes_schema_id uuid NULL REFERENCES quasar.schema_registry(schema_id),
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT schema_json_is_object CHECK (jsonb_typeof(schema_json) = 'object')
+);
+CREATE INDEX schema_registry_lookup_idx ON quasar.schema_registry (schema_urn, status, created_at DESC);
+
+CREATE TABLE quasar.document_namespace (
+  doc_version_id uuid NOT NULL REFERENCES quasar.document_version(doc_version_id) ON DELETE CASCADE,
+  namespace_id uuid NOT NULL REFERENCES quasar.namespace(namespace_id),
+  schema_id uuid NULL REFERENCES quasar.schema_registry(schema_id),
+  data jsonb NOT NULL,
+  is_valid boolean NOT NULL DEFAULT true,
+  validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
+  PRIMARY KEY (doc_version_id, namespace_id),
+  CONSTRAINT data_is_object_or_array CHECK (jsonb_typeof(data) IN ('object','array')),
+  CONSTRAINT validation_errors_is_array CHECK (jsonb_typeof(validation_errors) = 'array')
+);
+CREATE INDEX doc_namespace_data_gin ON quasar.document_namespace USING gin (data jsonb_path_ops);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'resource_kind'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.resource_kind AS ENUM (''document'',''folder'',''namespace'',''schema'')';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'effect'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.effect AS ENUM (''allow'',''deny'')';
+  END IF;
+END $$;
+
+CREATE TABLE quasar.acl_entry (
+  acl_entry_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  resource_kind quasar.resource_kind NOT NULL,
+  resource_id uuid NOT NULL,
+  principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  effect quasar.effect NOT NULL,
+  capabilities bigint NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+CREATE INDEX acl_resource_idx ON quasar.acl_entry (org_id, resource_kind, resource_id);
+CREATE INDEX acl_principal_idx ON quasar.acl_entry (org_id, principal_id);
+
+CREATE TABLE quasar.policy (
+  policy_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  name core.nonempty_text NOT NULL,
+  ast jsonb NOT NULL,
+  status core.lifecycle_status NOT NULL DEFAULT 'active',
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT ast_is_object CHECK (jsonb_typeof(ast) = 'object'),
+  UNIQUE (org_id, name)
+);
+CREATE INDEX policy_org_status_idx ON quasar.policy (org_id, status);
+
+-- Optional: doc-level embeddings (requires pgvector extension to be installed)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'embedding_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.embedding_status AS ENUM (''pending'',''ready'',''stale'',''failed'')';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
+    EXECUTE $sql$
+      CREATE TABLE IF NOT EXISTS quasar.document_embedding (
+        doc_id uuid PRIMARY KEY REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+        org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+        current_version_id uuid NOT NULL,
+        model core.nonempty_text NOT NULL,
+        dims int NOT NULL,
+        embedding vector NOT NULL,
+        status quasar.embedding_status NOT NULL DEFAULT 'pending',
+        updated_at timestamptz NOT NULL DEFAULT core.now_utc(),
+        CONSTRAINT dims_positive CHECK (dims > 0)
+      );
+    $sql$;
+  END IF;
+END $$;
+
+-- 2.8 Jobs / outbox
+CREATE TABLE quasar.outbox_job (
+  job_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  kind core.nonempty_text NOT NULL,
+  dedupe_key core.nonempty_text NOT NULL UNIQUE,
+  payload jsonb NOT NULL,
+  status core.job_status NOT NULL DEFAULT 'queued',
+  lease_owner text NULL,
+  lease_expires_at timestamptz NULL,
+  attempts int NOT NULL DEFAULT 0,
+  next_run_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT payload_is_object CHECK (jsonb_typeof(payload) = 'object')
+);
+CREATE INDEX outbox_runnable_idx ON quasar.outbox_job (status, next_run_at)
+  WHERE status IN ('queued','leased');
+CREATE INDEX outbox_lease_idx ON quasar.outbox_job (lease_owner, lease_expires_at);
+
+-- ----------------------- RLS scaffolding ------------------------
+CREATE OR REPLACE FUNCTION quasar.current_org_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT nullif(current_setting('app.org_id', true), '')::uuid;
+$$;
