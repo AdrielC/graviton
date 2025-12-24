@@ -48,7 +48,7 @@ final case class HttpApi(
       )
     }
 
-  private val routes = Routes(
+  val routes: Routes[Any, Nothing] = Routes(
     Method.GET / "api" / "datalake" / "dashboard"            -> snapshotHandler,
     Method.GET / "api" / "datalake" / "dashboard" / "stream" -> streamHandler,
   ) ++ legacyRepo.map(_.routes).getOrElse(Routes.empty) ++ metrics.map(_.routes).getOrElse(Routes.empty)
