@@ -21,8 +21,8 @@ object ByteConstraintsSpec extends ZIOSpecDefault:
         val withinLimit  = ByteConstraints.enforceFileLimit(512L, 1024L)
         assertTrue(within.isRight && below.isLeft && exceedsLimit.isLeft && withinLimit.isRight)
       },
-      test("ChunkCount disallows negatives") {
-        val valid   = ByteConstraints.refineChunkCount(0L)
+      test("ChunkCount must be positive") {
+        val valid   = ByteConstraints.refineChunkCount(1L)
         val invalid = ByteConstraints.refineChunkCount(-1L)
         assertTrue(valid.isRight && invalid.isLeft)
       },

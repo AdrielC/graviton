@@ -72,7 +72,7 @@ final class InMemoryBlobStore private (
     yield BlobWriteResult(key, locator, attrs)
 
   private def deriveChunkCount(length: Int): Long =
-    if length <= 0 then 0L
+    if length <= 0 then 0L // will be rejected by refineChunkCount; empty blobs are not persisted
     else ((length - 1) / ByteConstraints.MaxBlockBytes + 1).toLong
 
   private def defaultLocator(key: BinaryKey): BlobLocator =
