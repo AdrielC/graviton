@@ -157,6 +157,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Datalake Dashboard', link: '/ops/datalake-dashboard' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
+          { text: 'Postgres Schema (Alpha Overhaul)', link: '/ops/postgres-schema' },
           { text: 'Deployment', link: '/ops/deployment' },
           { text: 'Performance Tuning', link: '/ops/performance' }
         ]
