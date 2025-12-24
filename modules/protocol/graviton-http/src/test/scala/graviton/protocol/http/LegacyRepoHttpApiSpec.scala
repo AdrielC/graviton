@@ -8,6 +8,7 @@ import graviton.shared.dashboard.DashboardSamples
 import graviton.shared.schema.SchemaExplorer
 import zio.*
 import zio.http.*
+import zio.stream.ZSink
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
