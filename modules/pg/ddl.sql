@@ -737,6 +737,64 @@ END $$;
 
 CREATE INDEX document_alias_doc_idx ON quasar.document_alias (org_id, doc_id);
 
+-- ---------------- Legacy repository mappings (compat) ----------------
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'legacy_import_status'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.legacy_import_status AS ENUM (''importing'',''imported'',''failed'')';
+  END IF;
+END $$;
+
+-- Map (org_id, legacy_repo, legacy_doc_id) -> doc_id + status.
+CREATE TABLE quasar.legacy_doc_map (
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  legacy_repo core.nonempty_text NOT NULL,
+  legacy_doc_id text NOT NULL,
+  doc_id uuid NOT NULL,
+  status quasar.legacy_import_status NOT NULL DEFAULT 'imported',
+  imported_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, legacy_repo, legacy_doc_id)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.legacy_doc_map_p%1$s PARTITION OF quasar.legacy_doc_map FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX legacy_doc_map_doc_idx ON quasar.legacy_doc_map (org_id, doc_id);
+
+-- Map (org_id, legacy_repo, legacy_binary_hash) -> blob key (as opaque text).
+-- This supports dedupe across multiple legacy doc ids referencing the same binary hash.
+CREATE TABLE quasar.legacy_binary_map (
+  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  legacy_repo core.nonempty_text NOT NULL,
+  legacy_binary_hash core.nonempty_text NOT NULL,
+  blob_key core.nonempty_text NOT NULL,
+  imported_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, legacy_repo, legacy_binary_hash)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.legacy_binary_map_p%1$s PARTITION OF quasar.legacy_binary_map FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 -- Namespaces + schema registry
 CREATE TABLE quasar.namespace (
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
