@@ -71,6 +71,20 @@ object FreeScanV2Spec extends ZIOSpecDefault:
 
         assertTrue(outputs == List("abc", "de"))
       },
+      test("Kyo interpreter matches pure runner (including flush)") {
+        val scan = fixedChunker(3)
+        val in   = List(chunk("ab"), chunk("cde"))
+
+        val expected = scan.runChunk(in).map(bytes => new String(bytes.toArray, ascii)).toList
+        val got      =
+          InterpretKyo
+            .runChunk(scan, kyo.Chunk.from(in))
+            .map(bytes => new String(bytes.toArray, ascii))
+            .toSeq
+            .toList
+
+        assertTrue(got == expected)
+      },
       test("fanout (&&&) broadcasts input and returns Record output") {
         val program =
           counter[Chunk[Byte]].labelled["count"] &&&

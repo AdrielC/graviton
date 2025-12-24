@@ -33,7 +33,7 @@ object KyoSickoScan:
   object parse:
 
     /** Parse an integer from each input string. */
-    def int: Pipe[String, Int, Parse & Abort[ParseFailed]] =
+    def int: Pipe[String, Int, Abort[ParseFailed]] =
       Pipe.identity[String].map { (s: String) =>
         Parse.run(s)(Parse.int)
       }
@@ -42,7 +42,7 @@ object KyoSickoScan:
      * Parse a hex chunk-size prefix (e.g. `"A;ext=1"` -> 10).
      * Stops at the first `;` (if present) and parses hex digits.
      */
-    def hexChunkSize: Pipe[String, Int, Parse & Abort[ParseFailed]] =
+    def hexChunkSize: Pipe[String, Int, Abort[ParseFailed]] =
       Pipe.identity[String].map { (s: String) =>
         val hexPart   = s.takeWhile(_ != ';')
         val hexDigits =
