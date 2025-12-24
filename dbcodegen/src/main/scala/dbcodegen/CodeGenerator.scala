@@ -191,14 +191,14 @@ object CodeGenerator {
            |import graviton.db.{*, given}
            |import zio.Chunk
            |import zio.json.ast.Json
-           |import zio.schema.{DeriveSchema, Schema}
+         |import zio.schema.Schema
            |import zio.schema.validation.Validation
            |""".stripMargin
       parseStatements(importBlock) match
         case Left(err) => boundary.break(Left(err))
         case Right(parsed) => stats ++= parsed
 
-      val enumsRendered = renderEnums(schema)
+    val enumsRendered = renderEnums(schema)
       parseStatements(enumsRendered) match
         case Left(err) => boundary.break(Left(err))
         case Right(parsed) => stats ++= parsed
@@ -210,10 +210,6 @@ object CodeGenerator {
           case Left(err) => boundary.break(Left(err))
           case Right(parsed) => stats ++= parsed
       }
-
-      parseStatements(renderZioSchemas(schema, validationResults)) match
-        case Left(err) => boundary.break(Left(err))
-        case Right(parsed) => stats ++= parsed
 
       val pkgTerm = renderPackageTerm(config.basePackage, schema.name)
       val pkg     = Pkg(pkgTerm, stats.toList)
@@ -240,7 +236,7 @@ object CodeGenerator {
       val suffix = if (idx == columns.size - 1) "" else ","
       sb.append(s"  ${column.scalaName}: $tpe$suffix\n")
     }
-    sb.append(") derives DbCodec\n\n")
+    sb.append(") derives DbCodec, Schema\n\n")
 
     sb.append(s"object ${table.scalaName}:\n")
     val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
@@ -253,6 +249,7 @@ object CodeGenerator {
         val col         = single
         val baseType    = renderColumnType(col, forceRequired = true)
         val idCodecName = "given_DbCodec_Id"
+        val idSchemaName = "given_Schema_Id"
 
         // NOTE: one-element named tuples are not stable through tooling (parser/printer tend to erase tuple-ness).
         // For robustness we use an opaque over the base type and expose a stable unwrap.
@@ -265,11 +262,15 @@ object CodeGenerator {
         sb.append(
           s"  given $idCodecName: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => Id(value), id => Id.unwrap(id))\n\n",
         )
+        sb.append(
+          s"  given $idSchemaName: Schema[Id] = scala.compiletime.summonInline[Schema[$baseType]].transform(value => Id(value), id => Id.unwrap(id))\n\n",
+        )
 
       case _ =>
         val namedTuple  = renderNamedTuple(primaryKeyColumns)
         val tupleCtor   = renderTupleCtor(primaryKeyColumns)
         val idCodecName = "given_DbCodec_Id"
+        val idSchemaName = "given_Schema_Id"
 
         sb.append(s"  opaque type Id = $namedTuple\n\n")
 
@@ -278,6 +279,9 @@ object CodeGenerator {
 
         val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
         sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
+
+        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
+        sb.append(s"  given $idSchemaName: Schema[Id] = $schemaSource\n\n")
 
     if (!table.isView) {
       val autoPrimaryKey =
@@ -302,7 +306,7 @@ object CodeGenerator {
           val suffix = if idx == creatorFields.size - 1 then "" else ","
           sb.append(s"    $line$suffix\n")
         }
-        sb.append("  ) derives DbCodec\n\n")
+        sb.append("  ) derives DbCodec, Schema\n\n")
       } else {
         sb.append("  type Creator = Unit\n\n")
       }
@@ -512,43 +516,6 @@ object CodeGenerator {
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
 
-  private def renderZioSchemas(schema: DataSchema, validationMap: Map[String, TableValidationRender]): String = {
-    val sb = new StringBuilder
-    sb.append(s"// ZIO Schema definitions for ${schema.name}\n")
-    sb.append("object Schemas {\n")
-
-    schema.tables.foreach { table =>
-      val tableGiven = schemaGivenName(table.scalaName)
-
-      val tableValidations = validationMap.getOrElse(table.scalaName, TableValidationRender(Seq.empty, Seq.empty))
-      combineValidationExpressions(table.scalaName, tableValidations.expressions) match
-        case Some(validationExpr) =>
-          sb.append(s"  given $tableGiven: Schema[${table.scalaName}] =\n")
-          sb.append(s"    DeriveSchema.gen[${table.scalaName}].validation(\n")
-          sb.append(indentLines(validationExpr, 6))
-          sb.append("\n    )\n")
-        case None =>
-          sb.append(s"  given $tableGiven: Schema[${table.scalaName}] = DeriveSchema.gen[${table.scalaName}]\n")
-
-      val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)
-      if (primaryKeyColumns.nonEmpty) then
-        val idGiven      = schemaGivenName(s"${table.scalaName}.Id")
-        val schemaSource =
-          primaryKeyColumns.toList match
-            case single :: Nil =>
-              val baseType = renderColumnType(single, forceRequired = true)
-              s"scala.compiletime.summonInline[Schema[$baseType]].transform(value => ${table.scalaName}.Id(value), id => ${table.scalaName}.Id.unwrap(id))"
-            case _ =>
-              renderIdSchemaSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idGiven: Schema[${table.scalaName}.Id] = $schemaSource\n")
-
-      if (!table.isView) {}
-    }
-
-    sb.append("}\n")
-    sb.toString
-  }
-
   private final case class TableValidationRender(
     expressions: Seq[String],
     warnings: Seq[String],
@@ -559,13 +526,11 @@ object CodeGenerator {
     else
       val sb = new StringBuilder
       schema.enums.foreach { dataEnum =>
-        sb.append(s"enum ${dataEnum.scalaName}(val value: String):\n")
+        sb.append(s"enum ${dataEnum.scalaName}(val value: String) derives Schema:\n")
         dataEnum.values.foreach { value =>
           sb.append(s"  case ${value.scalaName} extends ${dataEnum.scalaName}(\"${escapeScalaString(value.name)}\")\n")
         }
         sb.append("\n")
-        sb.append(s"object ${dataEnum.scalaName}:\n")
-        sb.append(s"  given Schema[${dataEnum.scalaName}] = DeriveSchema.gen[${dataEnum.scalaName}]\n\n")
       }
       sb.toString
   }
@@ -825,17 +790,5 @@ object CodeGenerator {
       case c => c.toString
     }
 
-  private def schemaGivenName(typeName: String): String = {
-    val pascal = typeName
-      .split("\\.")
-      .filter(_.nonEmpty)
-      .map(_.capitalize)
-      .mkString
-
-    val camel =
-      if pascal.isEmpty then "schema"
-      else s"${pascal.head.toLower}${pascal.tail}"
-
-    s"${camel}Schema"
-  }
+  // (schemaGivenName removed: we now use `derives Schema` for models)
 }
