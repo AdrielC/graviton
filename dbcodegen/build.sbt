@@ -11,6 +11,7 @@ lazy val embeddedPgV     = "2.0.4"
 lazy val munitV          = "1.0.0"
 
 libraryDependencies ++= Seq(
+  "dev.zio" %% "zio"                          % "2.1.9",
   "us.fatehi" % "schemacrawler-tools"       % schemacrawlerV,
   "us.fatehi" % "schemacrawler-postgresql"  % schemacrawlerV,
   "us.fatehi" % "schemacrawler-utility"     % schemacrawlerV,
