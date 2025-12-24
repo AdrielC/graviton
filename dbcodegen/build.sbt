@@ -2,15 +2,17 @@ import sbt.CrossVersion
 
 name := "dbcodegen"
 
-scalaVersion := "3.7.3"
+scalaVersion := "3.7.4"
 
 lazy val scalateV        = "1.10.1"
 lazy val postgresV       = "42.7.1"
 lazy val schemacrawlerV  = "16.27.1"
 lazy val embeddedPgV     = "2.0.4"
 lazy val munitV          = "1.0.0"
+lazy val scalafmtIfaceV  = "3.9.4"
 
 libraryDependencies ++= Seq(
+  "dev.zio" %% "zio"                          % "2.1.9",
   "us.fatehi" % "schemacrawler-tools"       % schemacrawlerV,
   "us.fatehi" % "schemacrawler-postgresql"  % schemacrawlerV,
   "us.fatehi" % "schemacrawler-utility"     % schemacrawlerV,
@@ -19,16 +21,20 @@ libraryDependencies ++= Seq(
   "us.fatehi" % "schemacrawler-mysql"      % schemacrawlerV,
   "org.postgresql" % "postgresql"           % postgresV,
   "org.flywaydb"          % "flyway-core"              % "10.6.0",
+  // For "DDL -> code" without an external Postgres.
+  "io.zonky.test"       % "embedded-postgres" % embeddedPgV,
+  "org.scalameta"       % "scalafmt-interfaces" % scalafmtIfaceV,
+  // scalafmt-interfaces needs an engine implementation on the classpath
+  "org.scalameta"       % "scalafmt-dynamic_2.13" % scalafmtIfaceV,
   // "mysql"                 % "mysql-connector-java"     % "8.0.33",
   //   "org.mariadb.jdbc"      % "mariadb-java-client"      % "3.1.2",A
   "org.slf4j" % "slf4j-simple" % "2.0.16", // Better logging output control
-  "org.scalameta" %% "scalameta" % "4.9.4" cross CrossVersion.for3Use2_13,
+  "org.scalameta" %% "scalameta" % "4.14.3" cross CrossVersion.for3Use2_13,
   "org.scalatra.scalate" %% "scalate-core" % scalateV exclude("org.scala-lang.modules", "scala-collection-compat_2.13"),
   "org.scalatra.scalate" %% "scalate-util" % scalateV exclude("org.scala-lang.modules", "scala-collection-compat_2.13")
 )
 
 libraryDependencies ++= Seq(
-  "io.zonky.test"       % "embedded-postgres" % embeddedPgV % Test,
   "org.scalameta"      %% "munit"             % munitV       % Test,
 )
 
