@@ -24,8 +24,8 @@ object BinaryAttrDiff:
       digests = diff(advertised.digestsValue, confirmed.digestsValue),
       custom = diff(advertised.customValue, confirmed.customValue),
     )(
-      using scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.model.FileSize]]],
-      scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.model.ChunkCount]]],
+      using scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.types.FileSize]]],
+      scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.types.ChunkCount]]],
       scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.types.Mime]]],
       scala.compiletime.summonInline[Tag[AttrDiff[Map[graviton.core.types.Algo, graviton.core.types.HexLower]]]],
       scala.compiletime.summonInline[Tag[AttrDiff[Map[String, String]]]],
