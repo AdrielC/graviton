@@ -5,6 +5,7 @@ import graviton.core.bytes.*
 import graviton.core.keys.*
 import graviton.core.locator.*
 import graviton.core.model.ByteConstraints
+import graviton.core.types.{ChunkCount, FileSize}
 import graviton.runtime.model.*
 import zio.*
 import zio.stream.*
@@ -47,6 +48,9 @@ final class InMemoryBlobStore private (
 
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
+      _      <- ZIO
+                  .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
+                  .when(bytes.isEmpty)
       hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
       algo    = hasher.algo
       _       = hasher.update(bytes.toArray)
@@ -56,10 +60,10 @@ final class InMemoryBlobStore private (
                   .mapError(msg => new IllegalArgumentException(msg))
       key    <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
       size   <- ZIO
-                  .fromEither(ByteConstraints.refineFileSize(bytes.length.toLong))
+                  .fromEither(FileSize.either(bytes.length.toLong))
                   .mapError(msg => new IllegalArgumentException(msg))
       count  <- ZIO
-                  .fromEither(ByteConstraints.refineChunkCount(deriveChunkCount(bytes.length)))
+                  .fromEither(ChunkCount.either(deriveChunkCount(bytes.length)))
                   .mapError(msg => new IllegalArgumentException(msg))
       attrs   = plan.attributes
                   .confirmSize(size)
@@ -76,7 +80,7 @@ final class InMemoryBlobStore private (
     else ((length - 1) / ByteConstraints.MaxBlockBytes + 1).toLong
 
   private def defaultLocator(key: BinaryKey): BlobLocator =
-    BlobLocator(scheme, bucket, key.bits.digest.hex)
+    BlobLocator(scheme, bucket, key.bits.digest.hex.value)
 
 private final case class StoredBlob(
   bytes: Chunk[Byte],

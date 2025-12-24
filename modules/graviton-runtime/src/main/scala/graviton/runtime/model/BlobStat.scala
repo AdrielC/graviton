@@ -1,6 +1,5 @@
 package graviton.runtime.model
 
-import graviton.core.model.ByteConstraints
 import graviton.core.types.FileSize
 import java.time.Instant
 import zio.Chunk
@@ -13,8 +12,8 @@ final case class BlobStat(size: FileSize, digest: Digest, lastModified: Instant)
 object BlobStat:
   private val fileSizeSchema: Schema[FileSize] =
     Schema[Long].transformOrFail(
-      value => ByteConstraints.refineFileSize(value),
-      refined => Right(refined.asInstanceOf[Long]),
+      value => FileSize.either(value),
+      refined => Right(refined.value),
     )
 
   private val sizeField: Schema.Field[BlobStat, FileSize] =

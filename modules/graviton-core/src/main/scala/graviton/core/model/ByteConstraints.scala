@@ -17,7 +17,8 @@ object ByteConstraints:
   val MaxBlockBytes: Int       = 16 * 1024 * 1024 // 16 MiB
   val MinUploadChunkBytes: Int = 1
   val MaxUploadChunkBytes: Int = MaxBlockBytes
-  val MinFileBytes: Long       = 0L
+  // File/blob sizes must be > 0. Empty blobs are not supported.
+  val MinFileBytes: Long       = 1L
 
   type BlockSize = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
   object BlockSize:
@@ -29,7 +30,7 @@ object ByteConstraints:
       scala.util.Try(value.toInt).toOption.flatMap(either(_).toOption)
 
   type UploadChunkSize = Int :| (numeric.Greater[0] & numeric.LessEqual[16777216])
-  type FileSize        = Long :| numeric.Greater[-1]
+  type FileSize        = Long :| numeric.Greater[0]
   type ChunkCount      = Long :| numeric.Greater[-1]
   type ChunkIndex      = Long :| numeric.Greater[-1]
   type BlockIndex      = Long :| numeric.Greater[-1]
@@ -45,7 +46,7 @@ object ByteConstraints:
     else Right(value.asInstanceOf[UploadChunkSize])
 
   def refineFileSize(value: Long): Either[String, FileSize] =
-    if value < MinFileBytes then Left(s"File size cannot be negative, got $value")
+    if value < MinFileBytes then Left(s"File size must be positive, got $value")
     else Right(value.asInstanceOf[FileSize])
 
   /**
@@ -65,7 +66,7 @@ object ByteConstraints:
     else Right(value.asInstanceOf[BlockIndex])
 
   inline def unsafeBlockSize(value: Int): BlockSize = value.asInstanceOf[BlockSize]
-  inline def unsafeFileSize(value: Long): FileSize  = value.refineUnsafe[numeric.Greater[-1]]
+  inline def unsafeFileSize(value: Long): FileSize  = value.refineUnsafe[numeric.Greater[0]]
 
 end ByteConstraints
 
