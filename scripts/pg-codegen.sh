@@ -4,7 +4,7 @@ set -euo pipefail
 # Start a temporary PostgreSQL container, run db codegen, then clean up.
 # Usage: pg-codegen.sh [postgres-version]
 
-PG_VERSION=${1:-17}
+PG_VERSION=${1:-18}
 PG_PASSWORD=${PG_PASSWORD:-postgres}
 CONTAINER_NAME="graviton-pg-codegen"
 

@@ -13,7 +13,7 @@ Be respectful, collaborative, and professional. We're building something great t
 - **JDK 21+**: OpenJDK or Oracle JDK
 - **sbt 1.11+**: Scala build tool
 - **Git**: Version control
-- **PostgreSQL 16+** (optional): For integration tests
+- **PostgreSQL 18+** (optional): For integration tests
 - **Node.js 20+**: For documentation and the Scala.js demo bundle
 
 ### Clone and Build

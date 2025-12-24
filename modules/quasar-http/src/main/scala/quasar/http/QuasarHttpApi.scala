@@ -10,7 +10,7 @@ import zio.http.*
  * is the landing spot for the tenant-implicit document API described in docs.
  */
 final case class QuasarHttpApi(
-  legacyImport: Option[LegacyImportHttpApi] = None,
+  legacyImport: Option[LegacyImportHttpApi] = None
 ):
 
   val routes: Routes[Any, Nothing] =

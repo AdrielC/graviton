@@ -140,7 +140,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16
+    image: postgres:18
     environment:
       - POSTGRES_DB=graviton
       - POSTGRES_USER=graviton

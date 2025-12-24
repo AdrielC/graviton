@@ -5,4 +5,3 @@ final case class JdbcConfig(
   username: String,
   password: String,
 )
-

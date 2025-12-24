@@ -20,4 +20,3 @@ object TenantContext:
 
   def static(org: UUID, principal: UUID): ULayer[TenantContext] =
     ZLayer.succeed(Static(org, principal))
-
