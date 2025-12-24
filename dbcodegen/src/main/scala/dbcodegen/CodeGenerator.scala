@@ -182,32 +182,25 @@ object CodeGenerator {
       val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
       validationWarnings.foreach { warning => println(s"⚠️  $warning") }
 
+      // NOTE: per request: no StringBuilder; build scala.meta trees directly via `q"..."` quasiquotes.
+      implicit val dialect: Dialect = dialects.Scala3
+
       val stats = ListBuffer.empty[Stat]
 
-      val importBlock =
-        """import com.augustnagro.magnum.*
-           |import graviton.db.{*, given}
-           |import zio.Chunk
-           |import zio.json.ast.Json
-           |import zio.schema.Schema
-           |import zio.schema.validation.Validation
-           |""".stripMargin
-      parseStatements(importBlock) match
-        case Left(err) => boundary.break(Left(err))
-        case Right(parsed) => stats ++= parsed
+      stats ++= List[Stat](
+        q"import com.augustnagro.magnum.*",
+        q"import graviton.db.{*, given}",
+        q"import zio.Chunk",
+        q"import zio.json.ast.Json",
+        q"import zio.schema.Schema",
+        q"import zio.schema.validation.Validation",
+      )
 
-      val enumsRendered = renderEnums(schema)
-      parseStatements(enumsRendered) match
-        case Left(err) => boundary.break(Left(err))
-        case Right(parsed) => stats ++= parsed
+      stats ++= renderEnums(schema)
 
       val tableIter = schema.tables.iterator
-      while (tableIter.hasNext) {
-        val table = tableIter.next()
-        parseStatements(renderTableSource(table)) match
-          case Left(err) => boundary.break(Left(err))
-          case Right(parsed) => stats ++= parsed
-      }
+      while tableIter.hasNext do
+        stats ++= renderTableSource(schema, config, tableIter.next())
 
       val pkgTerm = renderPackageTerm(config.basePackage, schema.name)
       val pkg     = Pkg(pkgTerm, stats.toList)
@@ -222,110 +215,158 @@ object CodeGenerator {
     }
   }
 
-  private def renderTableSource(table: DataTable): String = {
-    val sb = new StringBuilder
-    sb.append("@Table(PostgresDbType)\n")
-    sb.append(s"final case class ${table.scalaName}(\n")
-    val columns = table.columns
-    columns.zipWithIndex.foreach { case (column, idx) =>
-      if (column.db.isPartOfPrimaryKey) sb.append("  @Id\n")
-      sb.append(s"  @SqlName(\"${column.name}\")\n")
-      val tpe = renderColumnType(column)
-      val suffix = if (idx == columns.size - 1) "" else ","
-      sb.append(s"  ${column.scalaName}: $tpe$suffix\n")
-    }
-    sb.append(") derives DbCodec, Schema\n\n")
+  private def renderTableSource(schema: DataSchema, config: CodeGeneratorConfig, table: DataTable): List[Stat] = {
+    implicit val dialect: Dialect = dialects.Scala3
 
-    sb.append(s"object ${table.scalaName}:\n")
+    def parseTypeOrFail(typeStr: String): Type =
+      dialects.Scala3(typeStr).parse[Type] match
+        case Parsed.Success(tpe) => tpe
+        case Parsed.Error(pos, message, _) =>
+          boundary.break(Left(CodegenError.ParseError(s"Failed to parse type at ${pos.startLine}:${pos.startColumn}: $message\n$typeStr")))
+
+    def stripBackticks(name: String): String =
+      if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
+
+    val tableTypeName = Type.Name(stripBackticks(table.scalaName))
+    val tableTermName = Term.Name(stripBackticks(table.scalaName))
+
+    val columns = table.columns.toList
     val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
 
-    primaryKeyColumns.toList match
-      case Nil =>
-        sb.append("  type Id = Null\n\n")
+    val params: List[Term.Param] =
+      columns.map { column =>
+        val mods = ListBuffer.empty[Mod]
+        if column.db.isPartOfPrimaryKey then mods += mod"@Id"
+        mods += Mod.Annot(Init(Type.Name("SqlName"), Name.Anonymous(), List(List(Lit.String(column.name)))))
 
-      case single :: Nil =>
-        val col         = single
-        val baseType    = renderColumnType(col, forceRequired = true)
-        val idCodecName = "given_DbCodec_Id"
-        val idSchemaName = "given_Schema_Id"
+        val name = Term.Name(stripBackticks(column.scalaName))
+        val tpe  = parseTypeOrFail(renderColumnType(column))
+        Term.Param(mods.toList, name, Some(tpe), None)
+      }
 
-        // NOTE: one-element named tuples are not stable through tooling (parser/printer tend to erase tuple-ness).
-        // For robustness we use an opaque over the base type and expose a stable unwrap.
-        sb.append(s"  opaque type Id = $baseType\n\n")
+    val tableClass: Stat =
+      q"@Table(PostgresDbType) final case class $tableTypeName(..$params) derives DbCodec, Schema"
 
-        sb.append("  object Id:\n")
-        sb.append(s"    def apply(${col.scalaName}: $baseType): Id = ${col.scalaName}\n")
-        sb.append(s"    def unwrap(id: Id): $baseType = id\n\n")
+    def idTypeStats: List[Stat] =
+      primaryKeyColumns match
+        case Nil =>
+          List(q"type Id = Null")
 
-        sb.append(
-          s"  given $idCodecName: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseType]].biMap(value => Id(value), id => Id.unwrap(id))\n\n",
-        )
-        sb.append(
-          s"  given $idSchemaName: Schema[Id] = scala.compiletime.summonInline[Schema[$baseType]].transform(value => Id(value), id => Id.unwrap(id))\n\n",
-        )
+        case single :: Nil =>
+          val baseTpe = parseTypeOrFail(renderColumnType(single, forceRequired = true))
+          val colName = Term.Name(stripBackticks(single.scalaName))
+          List(
+            q"opaque type Id = $baseTpe",
+            q"""object Id {
+                  def apply($colName: $baseTpe): Id = $colName
+                  def unwrap(id: Id): $baseTpe = id
+                }""",
+            q"given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$baseTpe]].biMap(value => Id(value), id => Id.unwrap(id))",
+            q"given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[$baseTpe]].transform(value => Id(value), id => Id.unwrap(id))",
+          )
 
-      case _ =>
-        val namedTuple  = renderNamedTuple(primaryKeyColumns)
-        val tupleCtor   = renderTupleCtor(primaryKeyColumns)
-        val idCodecName = "given_DbCodec_Id"
-        val idSchemaName = "given_Schema_Id"
+        case many =>
+          val namedTupleTypeStr = renderNamedTuple(many)
+          val tuplePlainTypeStr = renderTupleType(many)
+          val namedTupleTpe     = parseTypeOrFail(namedTupleTypeStr)
+          val plainTpe          = parseTypeOrFail(tuplePlainTypeStr)
 
-        sb.append(s"  opaque type Id = $namedTuple\n\n")
+          val ctorParams: List[Term.Param] =
+            many.map { c =>
+              val n = Term.Name(stripBackticks(c.scalaName))
+              val t = parseTypeOrFail(renderColumnType(c, forceRequired = true))
+              Term.Param(Nil, n, Some(t), None)
+            }
 
-        sb.append("  object Id:\n")
-        sb.append(s"    def apply($tupleCtor): Id = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
+          def namedTupleLiteralFromParams: Term =
+            Term.Tuple(
+              many.map { c =>
+                val n = Term.Name(stripBackticks(c.scalaName))
+                Term.Assign(n, n)
+              }
+            )
 
-        val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
+          def namedTupleLiteralFromTuple(tupleExpr: Term): Term =
+            Term.Tuple(
+              many.zipWithIndex.map { case (c, idx) =>
+                val n = Term.Name(stripBackticks(c.scalaName))
+                Term.Assign(n, Term.Select(tupleExpr, Term.Name(s"_${idx + 1}")))
+              }
+            )
 
-        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idSchemaName: Schema[Id] = $schemaSource\n\n")
+          def plainTupleFromNamed(namedExpr: Term): Term =
+            Term.Tuple(
+              many.map(c => Term.Select(namedExpr, Term.Name(stripBackticks(c.scalaName))))
+            )
 
-    if (!table.isView) {
-      val autoPrimaryKey =
-        primaryKeyColumns.nonEmpty && primaryKeyColumns.forall { column =>
+          val toIdFn =
+            Term.Function(List(Term.Param(Nil, Term.Name("value"), None, None)), namedTupleLiteralFromTuple(Term.Name("value")))
+          val fromIdFn =
+            Term.Function(List(Term.Param(Nil, Term.Name("id"), None, None)), plainTupleFromNamed(Term.Name("id")))
+
+          List(
+            q"opaque type Id = $namedTupleTpe",
+            q"object Id { def apply(..$ctorParams): Id = ${namedTupleLiteralFromParams} }",
+            q"given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[$plainTpe]].biMap($toIdFn, $fromIdFn)",
+            q"given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[$plainTpe]].transform($toIdFn, $fromIdFn)",
+          )
+
+    def creatorStats: List[Stat] =
+      if table.isView then Nil
+      else {
+        val autoPrimaryKey =
+          primaryKeyColumns.nonEmpty && primaryKeyColumns.forall { column =>
+            val dbColumn = column.db
+            dbColumn.isGenerated || dbColumn.isAutoIncremented || dbColumn.hasDefaultValue
+          }
+
+        val creatorColumns = columns.filterNot { column =>
           val dbColumn = column.db
-          dbColumn.isGenerated || dbColumn.isAutoIncremented || dbColumn.hasDefaultValue
+          val skipAutoPrimaryKey = autoPrimaryKey && dbColumn.isPartOfPrimaryKey
+          val skipGenerated      = dbColumn.isGenerated && !dbColumn.hasDefaultValue
+          skipAutoPrimaryKey || skipGenerated
         }
-      val creatorColumns = columns.filterNot { column =>
-        val dbColumn = column.db
-        val skipAutoPrimaryKey = autoPrimaryKey && dbColumn.isPartOfPrimaryKey
-        val skipGenerated      = dbColumn.isGenerated && !dbColumn.hasDefaultValue
-        skipAutoPrimaryKey || skipGenerated
+
+        val creatorParams = ListBuffer.empty[Term.Param]
+
+        if autoPrimaryKey then
+          creatorParams += Term.Param(
+            Nil,
+            Term.Name("id"),
+            Some(t"Option[${tableTypeName}.Id]"),
+            Some(q"None"),
+          )
+
+        creatorColumns.foreach { column =>
+          val baseTypeStr = baseColumnType(column)
+          val baseType    = parseTypeOrFail(baseTypeStr)
+          val dbColumn    = column.db
+          val optionalFromDefault = dbColumn.hasDefaultValue || dbColumn.isGenerated || dbColumn.isAutoIncremented
+          val optionalFromNull    = dbColumn.isNullable && !dbColumn.isPartOfPrimaryKey
+          val isOptional          = optionalFromDefault || optionalFromNull
+
+          val name = Term.Name(stripBackticks(column.scalaName))
+          val tpe  = if isOptional then t"Option[$baseType]" else baseType
+          val default = if isOptional then Some(q"None") else None
+          creatorParams += Term.Param(Nil, name, Some(tpe), default)
+        }
+
+        if creatorParams.isEmpty then List(q"type Creator = Unit")
+        else List(q"final case class Creator(..$creatorParams) derives DbCodec, Schema")
       }
 
-      val creatorFields =
-        (if autoPrimaryKey then Seq(s"id: Option[${table.scalaName}.Id] = None") else Seq.empty) ++
-          creatorColumns.map(renderCreatorField)
+    val repoStat: Stat =
+      if table.isView then q"val repo = ImmutableRepo[$tableTypeName, ${tableTypeName}.Id]"
+      else q"val repo = Repo[${tableTypeName}.Creator, $tableTypeName, ${tableTypeName}.Id]"
 
-      if (creatorFields.nonEmpty) {
-        sb.append(s"  final case class Creator(\n")
-        creatorFields.zipWithIndex.foreach { case (line, idx) =>
-          val suffix = if idx == creatorFields.size - 1 then "" else ","
-          sb.append(s"    $line$suffix\n")
-        }
-        sb.append("  ) derives DbCodec, Schema\n\n")
-      } else {
-        sb.append("  type Creator = Unit\n\n")
-      }
-    }
+    val companionStats: List[Stat] =
+      idTypeStats ++ creatorStats ++ List(repoStat)
 
-    if (table.isView)
-      sb.append(s"  val repo = ImmutableRepo[${table.scalaName}, ${table.scalaName}.Id]\n\n")
-    else
-      sb.append(s"  val repo = Repo[${table.scalaName}.Creator, ${table.scalaName}, ${table.scalaName}.Id]\n\n")
+    val companion: Stat =
+      q"object $tableTermName { ..$companionStats }"
 
-    sb.toString
+    List(tableClass, companion)
   }
-
-  private def parseStatements(code: String): Either[CodegenError, List[Stat]] =
-    val trimmed = code.trim
-    if trimmed.isEmpty then Right(Nil)
-    else
-      dialects.Scala3(trimmed).parse[Source] match
-        case Parsed.Success(tree) => Right(tree.stats)
-        case Parsed.Error(pos, message, _) =>
-          Left(CodegenError.ParseError(s"Failed to parse generated code at ${pos.startLine}:${pos.startColumn}: $message\n$code"))
 
   private def renderPackageTerm(basePackage: String, schemaName: String): Term.Ref = {
     val parts =
@@ -519,31 +560,44 @@ object CodeGenerator {
     warnings: Seq[String],
   )
 
-  private def renderEnums(schema: DataSchema): String = {
-    if schema.enums.isEmpty then ""
-    else
-      val sb = new StringBuilder
-      schema.enums.foreach { dataEnum =>
-        sb.append(s"enum ${dataEnum.scalaName}(val value: String) derives Schema:\n")
-        dataEnum.values.foreach { value =>
-          sb.append(s"  case ${value.scalaName} extends ${dataEnum.scalaName}(\"${escapeScalaString(value.name)}\")\n")
+  private def renderEnums(schema: DataSchema): List[Stat] = {
+    implicit val dialect: Dialect = dialects.Scala3
+
+    def stripBackticks(name: String): String =
+      if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
+
+    schema.enums.toList.flatMap { dataEnum =>
+      val enumTypeName = Type.Name(stripBackticks(dataEnum.scalaName))
+      val enumTermName = Term.Name(stripBackticks(dataEnum.scalaName))
+      val cases: List[Stat] =
+        dataEnum.values.toList.map { value =>
+          val caseName = Term.Name(stripBackticks(value.scalaName))
+          q"case $caseName extends $enumTypeName(${Lit.String(value.name)})"
         }
-        sb.append("\n")
-        sb.append(s"object ${dataEnum.scalaName}:\n")
-        sb.append(s"  private val byValue: Map[String, ${dataEnum.scalaName}] = ${dataEnum.scalaName}.values.iterator.map(v => v.value -> v).toMap\n")
-        sb.append(s"  given DbCodec[${dataEnum.scalaName}] =\n")
-        sb.append(s"""    DbCodec[String].biMap(
-           |      str =>
-           |        byValue.getOrElse(
-           |          str,
-           |          throw IllegalArgumentException("Unknown ${dataEnum.name} value '" + str + "'"),
-           |        ),
-           |      _.value,
-           |    )
-           |""".stripMargin)
-        sb.append("\n")
-      }
-      sb.toString
+
+      val enumDef: Stat =
+        q"enum $enumTypeName(val value: String) derives Schema { ..$cases }"
+
+      val byValueVal: Stat =
+        q"private val byValue: Map[String, $enumTypeName] = $enumTermName.values.iterator.map(v => v.value -> v).toMap"
+
+      val dbCodecGiven: Stat =
+        q"""given DbCodec[$enumTypeName] =
+              DbCodec[String].biMap(
+                str =>
+                  byValue.getOrElse(
+                    str,
+                    throw IllegalArgumentException("Unknown ${dataEnum.name} value '" + str + "'"),
+                  ),
+                _.value,
+              )
+            """
+
+      val enumObj: Stat =
+        q"object $enumTermName { ..${List(byValueVal, dbCodecGiven)} }"
+
+      List(enumDef, enumObj)
+    }
   }
 
   private def buildTableValidations(table: DataTable): TableValidationRender = {
