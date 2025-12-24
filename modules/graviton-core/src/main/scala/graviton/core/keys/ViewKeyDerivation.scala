@@ -1,8 +1,8 @@
 package graviton.core.keys
 
+import graviton.core.canonical.CanonicalEncoding
 import graviton.core.bytes.{Digest, HashAlgo}
 
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 
 /**
@@ -23,18 +23,11 @@ object ViewKeyDerivation:
   private val Prefix = "graviton:view:v1".getBytes(StandardCharsets.UTF_8)
 
   def derive(base: BinaryKey, transform: ViewTransform): Either[String, KeyBits] =
-    val baseBits = base.bits
-
-    val algoBytes = baseBits.algo.primaryName.getBytes(StandardCharsets.UTF_8)
-    val sizeBytes = ByteBuffer.allocate(8).putLong(baseBits.size).array()
-    val digest    = baseBits.digest.bytes
+    val baseBits  = base.bits
+    val baseBytes = CanonicalEncoding.KeyBitsV1.encode(baseBits)
 
     val payload =
-      Prefix ++
-        ByteBuffer.allocate(4).putInt(algoBytes.length).array() ++ algoBytes ++
-        ByteBuffer.allocate(4).putInt(digest.length).array() ++ digest ++
-        sizeBytes ++
-        transform.canonicalBytes
+      Prefix ++ baseBytes ++ transform.canonicalBytes
 
     for
       // v1: always SHA-256 for view keys (stable and ubiquitous).

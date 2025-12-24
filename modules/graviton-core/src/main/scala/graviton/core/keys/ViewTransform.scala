@@ -3,8 +3,7 @@ package keys
 
 import zio.schema.{DeriveSchema, Schema}
 
-import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import graviton.core.canonical.CanonicalEncoding
 import scala.collection.immutable.ListMap
 
 final case class ViewTransform(name: String, args: ListMap[String, String], scope: Option[String]):
@@ -20,7 +19,7 @@ final case class ViewTransform(name: String, args: ListMap[String, String], scop
 
   /** Byte-level canonical encoding for hashing. */
   def canonicalBytes: Array[Byte] =
-    ViewTransform.canonicalBytes(this)
+    CanonicalEncoding.ViewTransformV1.encode(this)
 
 object ViewTransform:
 
@@ -51,37 +50,5 @@ object ViewTransform:
 
     if badKeys.nonEmpty then Left(s"Non-deterministic arg keys are forbidden in view transforms: ${badKeys.mkString(", ")}")
     else Right(transform)
-
-  def canonicalBytes(transform: ViewTransform): Array[Byte] =
-    // Length-prefixed UTF-8 fields, fixed ordering.
-    // Format (v1):
-    //   u8 version = 1
-    //   name: u32 len + bytes
-    //   scope: u8 present + (u32 len + bytes if present)
-    //   args: u32 count + repeated (key, value) each (u32 len + bytes)
-    val version: Byte = 1
-
-    val args0 = transform.normalizedArgs
-
-    def utf8(s: String): Array[Byte] =
-      Option(s).getOrElse("").getBytes(StandardCharsets.UTF_8)
-
-    def sized(bytes: Array[Byte]): Array[Byte] =
-      val len = bytes.length
-      val bb  = ByteBuffer.allocate(4 + len)
-      bb.putInt(len)
-      bb.put(bytes)
-      bb.array()
-
-    val nameBytes  = sized(utf8(transform.name))
-    val scopeBytes =
-      transform.scope match
-        case None        => Array(0.toByte)
-        case Some(value) => Array(1.toByte) ++ sized(utf8(value))
-
-    val argsCount = ByteBuffer.allocate(4).putInt(args0.length).array()
-    val argsBytes = args0.flatMap { case (k, v) => sized(utf8(k)) ++ sized(utf8(v)) }.toArray
-
-    Array(version) ++ nameBytes ++ scopeBytes ++ argsCount ++ argsBytes
 
   given Schema[ViewTransform] = DeriveSchema.gen[ViewTransform]
