@@ -21,6 +21,15 @@ object SchemaConverter {
     val schemaName = Option(schema.getName).filter(_.nonEmpty).getOrElse("schema")
     val schemaNameLower = schemaName.toLowerCase(Locale.ROOT)
 
+    if !config.isSchemaIncluded(schemaName) then
+      return DataSchema(
+        name = schemaName,
+        tables = Seq.empty,
+        enums = Seq.empty,
+        db = schema,
+        domains = Seq.empty,
+      )
+
     val collected = schemaTables.collect {
       case table if config.isTableIncluded(schemaName, table.getName) =>
         val usableColumns = table.getColumns.asScala.filter(column => !column.isHidden)

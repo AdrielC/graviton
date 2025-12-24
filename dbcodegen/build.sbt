@@ -9,6 +9,7 @@ lazy val postgresV       = "42.7.1"
 lazy val schemacrawlerV  = "16.27.1"
 lazy val embeddedPgV     = "2.0.4"
 lazy val munitV          = "1.0.0"
+lazy val scalafmtIfaceV  = "3.9.4"
 
 libraryDependencies ++= Seq(
   "dev.zio" %% "zio"                          % "2.1.9",
@@ -22,6 +23,9 @@ libraryDependencies ++= Seq(
   "org.flywaydb"          % "flyway-core"              % "10.6.0",
   // For "DDL -> code" without an external Postgres.
   "io.zonky.test"       % "embedded-postgres" % embeddedPgV,
+  "org.scalameta"       % "scalafmt-interfaces" % scalafmtIfaceV,
+  // scalafmt-interfaces needs an engine implementation on the classpath
+  "org.scalameta"       % "scalafmt-dynamic_2.13" % scalafmtIfaceV,
   // "mysql"                 % "mysql-connector-java"     % "8.0.33",
   //   "org.mariadb.jdbc"      % "mariadb-java-client"      % "3.1.2",A
   "org.slf4j" % "slf4j-simple" % "2.0.16", // Better logging output control
