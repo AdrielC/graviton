@@ -257,6 +257,7 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
+      "com.github.luben" % "blake3" % V.blake3,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test

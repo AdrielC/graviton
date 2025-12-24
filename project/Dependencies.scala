@@ -24,6 +24,7 @@ object Dependencies {
     // Misc
     val iron       = "3.2.2"
     val awsV2      = "2.25.54"
+    val blake3     = "3.1.2"
     val rocksdbJni = "8.11.3"
     val pg         = "42.7.4"
     val laminar    = "17.1.0"
