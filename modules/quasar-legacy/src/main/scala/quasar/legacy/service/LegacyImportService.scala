@@ -55,7 +55,7 @@ final class LegacyImportService(
     for
       result <- fs.open(ref.repo, ref.binaryHash).run(blobStore.put())
       // We intentionally do not derive a "document id" from legacy ids. This blob key is CAS-derived.
-      key     = BlobKey(result.key.bits.digest.hex)
+      key     = BlobKey(result.key.bits.digest.hex.value)
       _      <- mappings.upsertBinary(orgId, ref, key)
     yield key
 

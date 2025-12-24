@@ -137,7 +137,7 @@ object MacD:
             (updated, out)
           }.asInstanceOf[Stage[I, O]]
         case Prim.WindowAnnotate(window) =>
-          Stage[Chunk[Frame], Either[StopSignal, Chunk[Frame]]] { (state, frames) =>
+          Stage[Chunk[Chunk[Byte]], Chunk[Frame]] { (state, frames) =>
             (state, annotate(frames, window))
           }.asInstanceOf[Stage[I, O]]
         case p: Prim.ShortCircuit[l]     =>
@@ -216,20 +216,20 @@ object MacD:
       .getOrElse(ChunkAccumulator.empty)
     (builder.result(), leftovers)
 
-  private def annotate(frames: Chunk[Frame], window: Int): Either[StopSignal, Chunk[Frame]] =
+  private def annotate(frames: Chunk[Chunk[Byte]], window: Int): Chunk[Frame] =
     val builder  = ChunkBuilder.make[Frame]()
     val ordinals = Iterator.from(0).map(_.toLong)
     val data     = frames.iterator.zip(ordinals)
     val rolling  = scala.collection.mutable.Queue.empty[Long]
-    data.foreach { case (chunk, ordinal) =>
-      val sum         = chunk.bytes.foldLeft(0L)((acc, byte) => acc + (byte & 0xff))
+    data.foreach { case (bytes, ordinal) =>
+      val sum         = bytes.foldLeft(0L)((acc, byte) => acc + (byte & 0xff))
       rolling.enqueue(sum)
       if rolling.size > math.max(1, window) then rolling.dequeue()
       val windowTotal = rolling.sum
-      val flagged     = sum % 2 == 0 || chunk.bytes.exists(_ < 0)
-      builder += Frame(chunk.bytes, ordinal, windowTotal, flagged)
+      val flagged     = sum % 2 == 0 || bytes.exists(_ < 0)
+      builder += Frame(bytes, ordinal, windowTotal, flagged)
     }
-    Right(builder.result())
+    builder.result()
 
   inline def chunker[l <: String & Singleton](frameBytes: Int): ChunkerHandle[l | "chunker", Prim] =
     ChunkerHandle.make[l, Prim](frameBytes, ((slot, frameBytes) => MacD.Prim.FixedChunker(slot, frameBytes)))()

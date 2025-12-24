@@ -6,7 +6,6 @@ import zio.test.*
 import zio.test.Assertion.*
 import zio.ChunkBuilder
 import graviton.core.scan.FS.*
-import graviton.core.macros.Interpolators.{hex, bin}
 
 object HttpChunkedScanSpec extends ZIOSpecDefault:
 
@@ -43,8 +42,8 @@ object HttpChunkedScanSpec extends ZIOSpecDefault:
         assert(output)(isRight(equalTo(Chunk("HelloWorld"))))
       },
       test("pipeline view flattens to raw bytes") {
-        val payload = bytes"3\r\nabc\r\n0\r\n\r\n"
-        val stream  = ZStream.fromChunk(payload)
+        val payload = Chunk.fromArray("3\r\nabc\r\n0\r\n\r\n".getBytes("US-ASCII"))
+        val stream  = ZStream.fromIterable(payload)
         val program = stream.via(HttpChunkedScan.chunkedPipeline).runCollect
         assertZIO(program.map(bytes => new String(bytes.toArray, "US-ASCII")))(equalTo("abc"))
       },

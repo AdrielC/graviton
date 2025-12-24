@@ -14,9 +14,9 @@ object InternalOnlyMiddleware:
 
   private val HeaderName = "x-internal-token"
 
-  def requireToken(expected: String)(handler: Handler[Any, Nothing, Request, Response]): Handler[Any, Nothing, Request, Response] =
+  def requireToken[R](expected: String)(handler: Handler[R, Nothing, Request, Response]): Handler[R, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
       val provided = req.rawHeader(HeaderName)
-      if provided.contains(expected) then handler(req)
+      if provided.contains(expected) then ZIO.scoped(handler(req))
       else ZIO.succeed(Response.status(Status.Unauthorized))
     }

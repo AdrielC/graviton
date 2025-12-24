@@ -76,7 +76,7 @@ final class InMemoryBlobStore private (
     else ((length - 1) / ByteConstraints.MaxBlockBytes + 1).toLong
 
   private def defaultLocator(key: BinaryKey): BlobLocator =
-    BlobLocator(scheme, bucket, key.bits.digest.hex)
+    BlobLocator(scheme, bucket, key.bits.digest.hex.value)
 
 private final case class StoredBlob(
   bytes: Chunk[Byte],
