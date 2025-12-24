@@ -21,7 +21,7 @@ object SchemaConverter {
     val schemaName = Option(schema.getName).filter(_.nonEmpty).getOrElse("schema")
 
     val collected = schemaTables.collect {
-      case table if config.schemaTableFilter(schemaName, table.getName) =>
+      case table if config.isTableIncluded(schemaName, table.getName) =>
         val usableColumns = table.getColumns.asScala.filter(column => !column.isHidden)
 
         val pgColumnInfo = {

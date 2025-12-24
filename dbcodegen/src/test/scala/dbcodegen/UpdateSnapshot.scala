@@ -8,7 +8,7 @@ import scala.util.Using
 
 object UpdateSnapshot:
   def main(args: Array[String]): Unit =
-    val base = Path.of("..")
+    val base = Path.of(".")
     val pg = EmbeddedPostgres.builder().setPort(0).start()
     try
       val connection = pg.getPostgresDatabase.getConnection
@@ -18,14 +18,20 @@ object UpdateSnapshot:
       val config = CodeGeneratorConfig.default.copy(
         outDir = base.resolve("modules/pg/src/main/scala/graviton/pg/generated"),
         templateFiles = Seq.empty,
+        includeSchemas = Set("public"),
+        basePackage = "graviton.pg.generated",
       )
 
-      val _ = CodeGenerator.generate(
+      CodeGenerator.generate(
         jdbcUrl = pg.getJdbcUrl("postgres", "postgres"),
         username = Some("postgres"),
         password = Some("postgres"),
         config = config,
-      )
+      ) match
+        case Left(err) =>
+          System.err.println(err.message)
+        case Right(_) =>
+          ()
     finally
       pg.close()
 
