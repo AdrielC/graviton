@@ -24,7 +24,7 @@ import java.nio.charset.StandardCharsets
 object MinioCasRoundTripSpec extends ZIOSpecDefault:
 
   private val enabled: Boolean =
-    sys.env.get("GRAVITON_IT").exists(v => v.trim == "1" || v.trim.equalsIgnoreCase("true"))
+    sys.env.get("GRAVITON_MINIO_IT").exists(v => v.trim == "1" || v.trim.equalsIgnoreCase("true"))
 
   private val blobLayer: ZLayer[Any, Throwable, BlobStore] =
     ZLayer.make[BlobStore](
@@ -37,7 +37,7 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     if !enabled then
       suite("MinIO + Postgres CAS round-trip")(
-        test("skipped (set GRAVITON_IT=1 to enable)") {
+        test("skipped (set GRAVITON_MINIO_IT=1 to enable)") {
           ZIO.succeed(assertTrue(true))
         }
       )

@@ -5,12 +5,13 @@ import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{HttpApi, MetricsHttpApi}
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
-import graviton.runtime.stores.{BlobStore, CasBlobStore}
+import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore, FsBlockStore}
 import graviton.shared.ApiModels.*
 import zio.*
 import zio.http.*
 import zio.json.EncoderOps
 
+import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 object Main extends ZIOAppDefault:
@@ -75,8 +76,21 @@ object Main extends ZIOAppDefault:
               S3BlockStore.layerFromEnv,
               CasBlobStore.layer,
             )
+          case "fs"           =>
+            val root   = Path.of(envOr("GRAVITON_FS_ROOT", "./.graviton"))
+            val prefix = envOr("GRAVITON_FS_BLOCK_PREFIX", "cas/blocks")
+            ZLayer.make[BlobStore](
+              PgDataSource.layerFromEnv,
+              PgBlobManifestRepo.layer,
+              ZLayer.succeed[BlockStore](new FsBlockStore(root, prefix)),
+              CasBlobStore.layer,
+            )
           case other          =>
-            ZLayer.fail(new IllegalArgumentException(s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3' or 'minio')"))
+            ZLayer.fail(
+              new IllegalArgumentException(
+                s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
+              )
+            )
 
       _ <- program.provide(
              Server.defaultWithPort(port),
