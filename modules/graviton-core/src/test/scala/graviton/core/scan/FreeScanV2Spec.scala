@@ -71,6 +71,16 @@ object FreeScanV2Spec extends ZIOSpecDefault:
 
         assertTrue(outputs == List("abc", "de"))
       },
+      test("fanout (&&&) broadcasts input and returns Record output") {
+        val program =
+          counter[Chunk[Byte]].labelled["count"] &&&
+            byteCounter.labelled["bytes"]
+
+        val inputs  = List(chunk("ab"), chunk("c"), chunk("def"))
+        val outputs = program.runChunk(inputs).map(Tensor.toTuple["count", "bytes", Long, Long]).toList
+
+        assertTrue(outputs == List((1L, 2L), (2L, 3L), (3L, 6L)))
+      },
       test("manifest builder aggregates entries") {
 
         val digest = "0" * runtimeHashAlgo.hexLength

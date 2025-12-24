@@ -188,6 +188,26 @@ object FS:
 
     inline def labelled[Label <: String & Singleton]: ScanBranch[A, B, Label] = ScanBranch(left)
 
+    /** Wrap each output value into a single-field `kyo.Record` ("named tuple"). */
+    inline def asField[Label <: String & Singleton](using ValueOf[Label]): FreeScan[Prim, A, Record[Label ~ B]] =
+      left >>> map[B, Record[Label ~ B]] { b =>
+        (Record.empty & (summon[ValueOf[Label]].value ~ b)).asInstanceOf[Record[Label ~ B]]
+      }
+
+    /**
+     * Fanout / broadcast: run both scans on the same input.
+     *
+     * This is the classic `&&&` operator, but the output is a `kyo.Record` (Tensor Pair).
+     */
+    infix def &&&[C](right: FreeScan[Prim, A, C])(using Tag[A], Tag[B], Tag[C]): FreeScan[
+      Prim,
+      A,
+      Tensor.Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, B, C],
+    ] =
+      map[A, Tensor.Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, A, A]] { a =>
+        pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, A, A](a, a)
+      } >>> (left >< right)
+
     infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D]): FreeScan[
       Prim,
       Tensor.Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, A, C],
@@ -213,6 +233,26 @@ object FS:
     def runList(inputs: Iterable[A]): List[B] = runChunk(inputs).toList
 
   extension [A, B, L <: String & Singleton](left: ScanBranch[A, B, L])
+    /** Broadcast with a labelled left branch. */
+    infix def &&&[C](right: FreeScan[Prim, A, C])(using Tag[A], Tag[B], Tag[C], ValueOf[L]): FreeScan[
+      Prim,
+      A,
+      Tensor.Pair[L, ScanBranch.AutoRight, B, C],
+    ] =
+      map[A, Tensor.Pair[L, ScanBranch.AutoRight, A, A]] { a =>
+        pair[L, ScanBranch.AutoRight, A, A](a, a)
+      } >>> (left >< right)
+
+    /** Broadcast with labelled left/right branches. */
+    infix def &&&[C, R <: String & Singleton](right: ScanBranch[A, C, R])(using Tag[A], Tag[B], Tag[C], ValueOf[L], ValueOf[R]): FreeScan[
+      Prim,
+      A,
+      Tensor.Pair[L, R, B, C],
+    ] =
+      map[A, Tensor.Pair[L, R, A, A]] { a =>
+        pair[L, R, A, A](a, a)
+      } >>> (left >< right)
+
     infix def ><[C, D](right: FreeScan[Prim, C, D])(using Tag[A], Tag[B], Tag[C], Tag[D], ValueOf[L]): FreeScan[
       Prim,
       Tensor.Pair[L, ScanBranch.AutoRight, A, C],
