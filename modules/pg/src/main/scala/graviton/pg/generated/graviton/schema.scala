@@ -53,17 +53,25 @@ object VBestBlockLocation {
 }
 @Table(PostgresDbType) final case class BlockVerifyEvent(@Id @SqlName("event_id") eventId: java.util.UUID, @SqlName("alg") alg: HashAlg, @SqlName("hash_bytes") hashBytes: Chunk[Byte], @SqlName("byte_length") byteLength: NonNegLong, @SqlName("block_location_id") blockLocationId: Option[java.util.UUID], @SqlName("result") result: VerifyResult, @SqlName("details") details: Json, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object BlockVerifyEvent {
-  opaque type Id = eventId: java.util.UUID
-  object Id { def apply(eventId: java.util.UUID): Id = eventId = eventId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => eventId = value, id => id.eventId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(eventId: java.util.UUID): Id = eventId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[BlockVerifyEvent.Id] = None, alg: HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong, blockLocationId: Option[java.util.UUID] = None, result: VerifyResult, details: Option[Json] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[BlockVerifyEvent.Creator, BlockVerifyEvent, BlockVerifyEvent.Id]
 }
 @Table(PostgresDbType) final case class BlockLocation(@Id @SqlName("block_location_id") blockLocationId: java.util.UUID, @SqlName("alg") alg: HashAlg, @SqlName("hash_bytes") hashBytes: Chunk[Byte], @SqlName("byte_length") byteLength: NonNegLong, @SqlName("sector_id") sectorId: java.util.UUID, @SqlName("locator") locator: Json, @SqlName("locator_canonical") locatorCanonical: Option[String], @SqlName("stored_length") storedLength: NonNegLong, @SqlName("frame_format") frameFormat: Int, @SqlName("encryption") encryption: Json, @SqlName("status") status: PresentStatus, @SqlName("written_at") writtenAt: java.time.OffsetDateTime, @SqlName("verified_at") verifiedAt: Option[java.time.OffsetDateTime]) derives DbCodec
 object BlockLocation {
-  opaque type Id = blockLocationId: java.util.UUID
-  object Id { def apply(blockLocationId: java.util.UUID): Id = blockLocationId = blockLocationId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => blockLocationId = value, id => id.blockLocationId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(blockLocationId: java.util.UUID): Id = blockLocationId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[BlockLocation.Id] = None, alg: HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong, sectorId: java.util.UUID, locator: Json, locatorCanonical: Option[String] = None, storedLength: NonNegLong, frameFormat: Option[Int] = None, encryption: Option[Json] = None, status: Option[PresentStatus] = None, writtenAt: Option[java.time.OffsetDateTime] = None, verifiedAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[BlockLocation.Creator, BlockLocation, BlockLocation.Id]
 }
@@ -77,9 +85,13 @@ object ViewOp {
 }
 @Table(PostgresDbType) final case class ViewMaterialization(@Id @SqlName("view_id") viewId: java.util.UUID, @SqlName("result_alg") resultAlg: HashAlg, @SqlName("result_hash_bytes") resultHashBytes: Chunk[Byte], @SqlName("result_byte_length") resultByteLength: NonNegLong, @SqlName("materialized_at") materializedAt: java.time.OffsetDateTime, @SqlName("cache_status") cacheStatus: LifecycleStatus) derives DbCodec
 object ViewMaterialization {
-  opaque type Id = viewId: java.util.UUID
-  object Id { def apply(viewId: java.util.UUID): Id = viewId = viewId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => viewId = value, id => id.viewId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(viewId: java.util.UUID): Id = viewId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(viewId: java.util.UUID, resultAlg: HashAlg, resultHashBytes: Chunk[Byte], resultByteLength: NonNegLong, materializedAt: Option[java.time.OffsetDateTime] = None, cacheStatus: Option[LifecycleStatus] = None) derives DbCodec
   val repo = Repo[ViewMaterialization.Creator, ViewMaterialization, ViewMaterialization.Id]
 }
@@ -93,9 +105,13 @@ object ViewInput {
 }
 @Table(PostgresDbType) final case class Sector(@Id @SqlName("sector_id") sectorId: java.util.UUID, @SqlName("blob_store_id") blobStoreId: java.util.UUID, @SqlName("name") name: String, @SqlName("priority") priority: Int, @SqlName("policy") policy: Json, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object Sector {
-  opaque type Id = sectorId: java.util.UUID
-  object Id { def apply(sectorId: java.util.UUID): Id = sectorId = sectorId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => sectorId = value, id => id.sectorId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(sectorId: java.util.UUID): Id = sectorId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[Sector.Id] = None, blobStoreId: java.util.UUID, name: String, priority: Option[Int] = None, policy: Option[Json] = None, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Sector.Creator, Sector, Sector.Id]
 }
@@ -117,17 +133,25 @@ object BlobBlock {
 }
 @Table(PostgresDbType) final case class View(@Id @SqlName("view_id") viewId: java.util.UUID, @SqlName("canonical_key") canonicalKey: Chunk[Byte], @SqlName("status") status: ViewStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object View {
-  opaque type Id = viewId: java.util.UUID
-  object Id { def apply(viewId: java.util.UUID): Id = viewId = viewId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => viewId = value, id => id.viewId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(viewId: java.util.UUID): Id = viewId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[View.Id] = None, canonicalKey: Chunk[Byte], status: Option[ViewStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[View.Creator, View, View.Id]
 }
 @Table(PostgresDbType) final case class Transform(@Id @SqlName("transform_id") transformId: java.util.UUID, @SqlName("name") name: String, @SqlName("version") version: String, @SqlName("arg_schema") argSchema: Json, @SqlName("created_at") createdAt: java.time.OffsetDateTime) derives DbCodec
 object Transform {
-  opaque type Id = transformId: java.util.UUID
-  object Id { def apply(transformId: java.util.UUID): Id = transformId = transformId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => transformId = value, id => id.transformId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(transformId: java.util.UUID): Id = transformId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[Transform.Id] = None, name: String, version: String, argSchema: Option[Json] = None, createdAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[Transform.Creator, Transform, Transform.Id]
 }
@@ -141,9 +165,13 @@ object Block {
 }
 @Table(PostgresDbType) final case class BlobStore(@Id @SqlName("blob_store_id") blobStoreId: java.util.UUID, @SqlName("type_id") typeId: String, @SqlName("config") config: Json, @SqlName("status") status: LifecycleStatus, @SqlName("created_at") createdAt: java.time.OffsetDateTime, @SqlName("updated_at") updatedAt: java.time.OffsetDateTime) derives DbCodec
 object BlobStore {
-  opaque type Id = blobStoreId: java.util.UUID
-  object Id { def apply(blobStoreId: java.util.UUID): Id = blobStoreId = blobStoreId }
-  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => blobStoreId = value, id => id.blobStoreId)
+  opaque type Id = java.util.UUID
+  object Id {
+    def apply(blobStoreId: java.util.UUID): Id = blobStoreId
+    def unwrap(id: Id): java.util.UUID = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
   final case class Creator(id: Option[BlobStore.Id] = None, typeId: String, config: Json, status: Option[LifecycleStatus] = None, createdAt: Option[java.time.OffsetDateTime] = None, updatedAt: Option[java.time.OffsetDateTime] = None) derives DbCodec
   val repo = Repo[BlobStore.Creator, BlobStore, BlobStore.Id]
 }
@@ -158,29 +186,34 @@ object Blob {
 object Schemas {
   given vBestBlockLocationSchema: Schema[VBestBlockLocation] = DeriveSchema.gen[VBestBlockLocation]
   given blockVerifyEventSchema: Schema[BlockVerifyEvent] = DeriveSchema.gen[BlockVerifyEvent]
-  given blockVerifyEventIdSchema: Schema[BlockVerifyEvent.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => eventId = value, id => id.eventId)
+  given blockVerifyEventIdSchema: Schema[BlockVerifyEvent.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => BlockVerifyEvent.Id(value), id => BlockVerifyEvent.Id.unwrap(id))
   given blockLocationSchema: Schema[BlockLocation] = DeriveSchema.gen[BlockLocation]
-  given blockLocationIdSchema: Schema[BlockLocation.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => blockLocationId = value, id => id.blockLocationId)
+  given blockLocationIdSchema: Schema[BlockLocation.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => BlockLocation.Id(value), id => BlockLocation.Id.unwrap(id))
   given viewOpSchema: Schema[ViewOp] = DeriveSchema.gen[ViewOp]
   given viewOpIdSchema: Schema[ViewOp.Id] = scala.compiletime.summonInline[Schema[(java.util.UUID, Int)]].transform(value => (viewId = value._1, ordinal = value._2), id => (id.viewId, id.ordinal))
   given viewMaterializationSchema: Schema[ViewMaterialization] = DeriveSchema.gen[ViewMaterialization]
-  given viewMaterializationIdSchema: Schema[ViewMaterialization.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => viewId = value, id => id.viewId)
+  given viewMaterializationIdSchema: Schema[ViewMaterialization.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => (viewId = value,), id => id.viewId)
   given viewInputSchema: Schema[ViewInput] = DeriveSchema.gen[ViewInput]
   given viewInputIdSchema: Schema[ViewInput.Id] = scala.compiletime.summonInline[Schema[(java.util.UUID, Int)]].transform(value => (viewId = value._1, ordinal = value._2), id => (id.viewId, id.ordinal))
   given sectorSchema: Schema[Sector] = DeriveSchema.gen[Sector]
-  given sectorIdSchema: Schema[Sector.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => sectorId = value, id => id.sectorId)
+  given sectorIdSchema: Schema[Sector.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => (sectorId = value,), id => id.sectorId)
   given blobManifestPageSchema: Schema[BlobManifestPage] = DeriveSchema.gen[BlobManifestPage]
   given blobManifestPageIdSchema: Schema[BlobManifestPage.Id] = scala.compiletime.summonInline[Schema[(HashAlg, Chunk[Byte], NonNegLong, Int)]].transform(value => (alg = value._1, hashBytes = value._2, byteLength = value._3, pageNo = value._4), id => (id.alg, id.hashBytes, id.byteLength, id.pageNo))
   given blobBlockSchema: Schema[BlobBlock] = DeriveSchema.gen[BlobBlock]
   given blobBlockIdSchema: Schema[BlobBlock.Id] = scala.compiletime.summonInline[Schema[(HashAlg, Chunk[Byte], NonNegLong, Int)]].transform(value => (alg = value._1, hashBytes = value._2, byteLength = value._3, ordinal = value._4), id => (id.alg, id.hashBytes, id.byteLength, id.ordinal))
   given viewSchema: Schema[View] = DeriveSchema.gen[View]
-  given viewIdSchema: Schema[View.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => viewId = value, id => id.viewId)
+  given viewIdSchema: Schema[View.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => View.Id(value), id => View.Id.unwrap(id))
   given transformSchema: Schema[Transform] = DeriveSchema.gen[Transform]
-  given transformIdSchema: Schema[Transform.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => transformId = value, id => id.transformId)
+  given transformIdSchema: Schema[Transform.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Transform.Id(value), id => Transform.Id.unwrap(id))
   given blockSchema: Schema[Block] = DeriveSchema.gen[Block]
   given blockIdSchema: Schema[Block.Id] = scala.compiletime.summonInline[Schema[(HashAlg, Chunk[Byte], NonNegLong)]].transform(value => (alg = value._1, hashBytes = value._2, byteLength = value._3), id => (id.alg, id.hashBytes, id.byteLength))
   given blobStoreSchema: Schema[BlobStore] = DeriveSchema.gen[BlobStore]
-  given blobStoreIdSchema: Schema[BlobStore.Id] = scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => blobStoreId = value, id => id.blobStoreId)
+  given blobStoreIdSchema: Schema[BlobStore.Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => BlobStore.Id(value), id => BlobStore.Id.unwrap(id))
   given blobSchema: Schema[Blob] = DeriveSchema.gen[Blob]
   given blobIdSchema: Schema[Blob.Id] = scala.compiletime.summonInline[Schema[(HashAlg, Chunk[Byte], NonNegLong)]].transform(value => (alg = value._1, hashBytes = value._2, byteLength = value._3), id => (id.alg, id.hashBytes, id.byteLength))
 }

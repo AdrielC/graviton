@@ -85,7 +85,7 @@ object DbMain {
     )
 
     val targetRootOpt = sys.props.get("dbcodegen.targetRoot").map(resolvePath).map(_.toPath)
-    val scalaVersion  = sys.props.getOrElse("dbcodegen.scalaVersion", "3.7.3")
+    val scalaVersion  = sys.props.getOrElse("dbcodegen.scalaVersion", "3.7.4")
 
     if (targetRootOpt.isDefined) {
       // ZIO-style generator pipeline (inspired by zio-openai-codegen).
