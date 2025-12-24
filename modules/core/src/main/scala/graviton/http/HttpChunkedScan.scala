@@ -78,14 +78,11 @@ object HttpChunkedScan {
         bodyBuf(bodyIndex) = b
         val nextRemaining = remaining - 1
         val nextIndex     = bodyIndex + 1
-        if nextRemaining == 0 then
-          (DecoderState(Phase.ExpectingBodyCr, Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
-        else
-          (DecoderState(Phase.ReadingBody(nextRemaining), Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
+        if nextRemaining == 0 then (DecoderState(Phase.ExpectingBodyCr, Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
+        else (DecoderState(Phase.ReadingBody(nextRemaining), Chunk.empty, bodyBuf, nextIndex, 0), Chunk.empty)
 
       case Phase.ExpectingBodyCr =>
-        if b == Cr then
-          (DecoderState(Phase.ExpectingBodyLf, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
+        if b == Cr then (DecoderState(Phase.ExpectingBodyLf, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
         else
           (
             DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0),
@@ -104,10 +101,8 @@ object HttpChunkedScan {
 
       case Phase.ReadingTrailers =>
         if (nextWindow & 0xffff) == 0x0d0a then
-          if lineBuf.isEmpty then
-            (DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
-          else
-            (DecoderState(Phase.ReadingTrailers, Chunk.empty, bodyBuf, 0, 0), Chunk.empty)
+          if lineBuf.isEmpty then (DecoderState(Phase.Done, Chunk.empty, bodyBuf, bodyIndex, 0), Chunk.empty)
+          else (DecoderState(Phase.ReadingTrailers, Chunk.empty, bodyBuf, 0, 0), Chunk.empty)
         else
           val nextBuf = if b == Cr then lineBuf else lineBuf :+ b
           (DecoderState(Phase.ReadingTrailers, nextBuf, bodyBuf, bodyIndex, nextWindow & 0xffff), Chunk.empty)

@@ -41,7 +41,7 @@ final case class LegacyRepoHttpApi(
       case _                                                  =>
         ZIO.succeed(Response.status(Status.InternalServerError))
 
-  private val getLegacyHandler: Handler[Any, Nothing, (String, String, Request), Response] =
+  val getLegacyHandler: Handler[Any, Nothing, (String, String, Request), Response] =
     Handler.fromFunctionZIO[(String, String, Request)] { case (repo, docId, _) =>
       val id   = LegacyId(repo = repo, docId = docId)
       val tags = Map("repo" -> repo)

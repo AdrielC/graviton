@@ -7,6 +7,7 @@ import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
 import scalapb.compiler.Version
+
 lazy val docSnippetMappings =
   settingKey[Seq[DocSnippet]]("Mappings between documentation files and compiled snippet sources.")
 
@@ -16,24 +17,7 @@ lazy val syncDocSnippets =
 lazy val checkDocSnippets =
   taskKey[Unit]("Verify that documentation snippet blocks are up to date.")
 
-lazy val V = new {
-  val scala3     = "3.7.4"
-  val zio        = "2.1.9"
-  val zioSchema  = "1.5.0"
-  val zioPrelude = "1.0.0-RC23"
-  val zioGrpc    = "0.6.3"
-  val zioHttp    = "3.0.0-RC7"
-  val zioNio     = "2.0.2"
-  val kyo        = "1.0-RC1"
-  val iron       = "2.6.0"
-  val awsV2      = "2.25.54"
-  val rocksdbJni = "8.11.3"
-  val pg         = "42.7.4"
-  val laminar    = "17.1.0"
-  val waypoint   = "8.0.0"
-  val scalajsDom = "2.8.0"
-  val grpc       = "1.65.1"
-}
+lazy val V = Dependencies.V
 
 ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.graviton"
@@ -220,7 +204,8 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.js,
   frontend,
   quasarFrontend,
-  docs
+  docs,
+  `core-v1`
 ).settings(
   baseSettings,
   publish / skip := true,
@@ -248,6 +233,15 @@ lazy val root = (project in file(".")).aggregate(
   }
 )
 
+lazy val `core-v1` = (project in file("modules/core"))
+  .dependsOn(core)
+  .settings(baseSettings,
+    name := "graviton-core-v1",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-prelude-experimental" % V.zioPrelude,
+		)
+  )
+
 lazy val core = (project in file("modules/graviton-core"))
   .settings(baseSettings,
     name := "graviton-core",
@@ -260,7 +254,6 @@ lazy val core = (project in file("modules/graviton-core"))
       "io.getkyo" %% "kyo-prelude" % V.kyo,
       "io.getkyo" %% "kyo-zio" % V.kyo,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
-      "dev.zio" %% "zio-json" % "0.7.3",
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
@@ -349,7 +342,7 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio"        % V.zio,
       "dev.zio" %% "zio-http"   % V.zioHttp,
       "dev.zio" %% "zio-schema" % V.zioSchema,
-      "dev.zio" %% "zio-json"   % "0.7.3",
+      "dev.zio" %% "zio-schema-json" % V.zioSchema,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -403,7 +396,7 @@ lazy val quasarCore = (project in file("modules/quasar-core"))
     name := "quasar-core",
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-json" % "0.7.3",
+      "dev.zio" %% "zio-json" % "0.8.0",
     ),
   )
 
@@ -415,6 +408,7 @@ lazy val quasarHttp = (project in file("modules/quasar-http"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "dev.zio" %% "zio-http" % V.zioHttp,
+      "org.postgresql" % "postgresql" % V.pg,
     ),
   )
 
@@ -438,7 +432,6 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
     name := "graviton-shared",
     libraryDependencies ++= Seq(
       "dev.zio" %%% "zio"                 % V.zio,
-      "dev.zio" %%% "zio-json"            % "0.7.3",
       "dev.zio" %%% "zio-schema"          % V.zioSchema,
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %%% "zio-schema-json"     % V.zioSchema
@@ -463,7 +456,7 @@ lazy val frontend = (project in file("modules/frontend"))
     },
     libraryDependencies ++= Seq(
       "dev.zio"         %%% "zio"          % V.zio,
-      "dev.zio"         %%% "zio-json"     % "0.7.3",
+      "dev.zio"         %%% "zio-schema-json"     % V.zioSchema,
       "com.raquo"       %%% "laminar"      % V.laminar,
       "com.raquo"       %%% "waypoint"     % V.waypoint,
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
@@ -484,7 +477,7 @@ lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
     },
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"         % V.zio,
-      "dev.zio"      %%% "zio-json"    % "0.7.3",
+      "dev.zio"      %%% "zio-json"    % "0.8.0",
       "com.raquo"    %%% "laminar"     % V.laminar,
       "com.raquo"    %%% "waypoint"    % V.waypoint,
       "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,

@@ -33,7 +33,7 @@ object BinaryKeyCodec:
         val keyBits      = digestEither.flatMap(d => KeyBits.create(algo, d, size.toLong))
         Attempt.fromEither(keyBits.left.map(Err(_)))
       },
-      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex), keyBits.size)),
+      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex.value), keyBits.size)),
     )
 
   private val attributesCodec: Codec[ListMap[String, String]] =
@@ -114,11 +114,11 @@ object BinaryKeyCodec:
             Attempt.fromEither(
               BinaryKey
                 .manifest(bits)
-                .map(manifest => BinaryKey.view(manifest, view))
+                .flatMap(manifest => BinaryKey.view(manifest, view))
                 .left
                 .map(Err(_))
             )
           },
-          key => Attempt.successful((key.bits, key.transform)),
+          key => Attempt.successful((key.base.bits, key.transform)),
         ),
       )
