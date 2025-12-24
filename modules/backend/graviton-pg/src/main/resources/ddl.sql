@@ -154,10 +154,6 @@ CREATE INDEX replica_by_block            ON replica (algo_id, hash);
 CREATE INDEX replica_block_status_idx    ON replica (algo_id, hash, status);
 CREATE INDEX replica_by_store_status     ON replica (store_key, status);
 CREATE INDEX replica_last_verified_active_idx ON replica (last_verified_at) WHERE status = 'active';
--- Only one "active" replica per store+block? (toggle if desired)
--- CREATE UNIQUE INDEX replica_one_active_per_store
---   ON replica (algo_id, hash, store_key)
---   WHERE status = 'active';
 
 COMMENT ON TABLE replica IS 'Physical materializations of a block on a concrete store';
 COMMENT ON COLUMN replica.algo_id IS 'hash_algorithm identifier of the associated block';
@@ -210,8 +206,7 @@ CREATE INDEX manifest_entry_by_block      ON manifest_entry (block_algo_id, bloc
 CREATE INDEX manifest_entry_blob_seq_idx  ON manifest_entry (blob_id, seq);
 CREATE INDEX manifest_entry_blob_offset_idx ON manifest_entry (blob_id, offset_bytes);
 
--- 🍒 Sicko bit: forbid overlapping block spans per blob using an exclusion constraint
--- uses range types + GiST to ensure [offset, offset+len) segments never overlap
+-- forbid overlapping block spans per blob using an exclusion constraint
 ALTER TABLE manifest_entry
   ADD COLUMN span int8range GENERATED ALWAYS AS (int8range(offset_bytes, offset_bytes + size_bytes, '[)')) STORED;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
@@ -381,13 +376,6 @@ FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
 CREATE TRIGGER replica_inval_trg
 AFTER INSERT OR UPDATE OR DELETE ON replica
 FOR EACH ROW EXECUTE FUNCTION graviton_notify_change();
-
--- ------------------ (Optional) RLS Scaffolding -----------------
--- flip this on if you need per-tenant isolation later; policies are examples
--- ALTER TABLE store ENABLE ROW LEVEL SECURITY;
--- CREATE POLICY store_read_all  ON store FOR SELECT USING (true);
--- CREATE POLICY store_write_app ON store FOR INSERT WITH CHECK (current_setting('graviton.app_role', true) = 'writer');
--- CREATE POLICY store_upd_app   ON store FOR UPDATE USING (current_setting('graviton.app_role', true) = 'writer');
 
 -- ------------------ Seed hash algorithms -----------------------
 SELECT ensure_hash_algorithm('sha-256', TRUE);
