@@ -216,7 +216,10 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
-    )
+    ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((3, _)) => Seq(compilerPlugin("com.kubuszok" % "hearth-cross-quotes_3" % "0.2.0"))
+      case _            => Seq.empty
+    })
   )
 
 lazy val streams = (project in file("modules/graviton-streams"))
