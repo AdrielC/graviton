@@ -12,6 +12,10 @@ object FramedManifest:
 
   private val Version: Byte = 1
 
+  // Hard bounds (P0): enforced in code to avoid OOM-by-valid-input.
+  private val MaxManifestEntries: Int     = 16384
+  private val MaxAnnotationsPerEntry: Int = 256
+
   private def combine[A, B](first: Codec[A], second: Codec[B]): Codec[(A, B)] =
     new Codec[(A, B)]:
       override def sizeBound: SizeBound = first.sizeBound + second.sizeBound
@@ -52,36 +56,49 @@ object FramedManifest:
       value => Attempt.successful(value),
     )
 
-  private val attributesCodec: Codec[Map[String, String]] =
+  private val annotationsCodec: Codec[Map[String, String]] =
     listOfN(uint16, combine(variableSizeBytes(uint16, utf8), variableSizeBytes(uint16, utf8))).exmap(
       pairs =>
-        val builder                   = Map.newBuilder[String, String]
-        val seen                      = scala.collection.mutable.HashSet.empty[String]
-        var duplicate: Option[String] = None
+        if pairs.length > MaxAnnotationsPerEntry then
+          Attempt.failure(Err(s"Too many annotations: ${pairs.length} (max $MaxAnnotationsPerEntry)"))
+        else
+          val builder                   = Map.newBuilder[String, String]
+          val seen                      = scala.collection.mutable.HashSet.empty[String]
+          var duplicate: Option[String] = None
 
-        pairs.foreach { case (key, value) =>
-          if !seen.add(key) then duplicate = Some(key)
-          builder += key -> value
-        }
+          pairs.foreach { case (key, value) =>
+            if !seen.add(key) then duplicate = Some(key)
+            builder += key -> value
+          }
 
-        duplicate match
-          case Some(key) => Attempt.failure(Err(s"Duplicate key '$key' in attributes"))
-          case None      => Attempt.successful(builder.result())
+          duplicate match
+            case Some(key) => Attempt.failure(Err(s"Duplicate key '$key' in attributes"))
+            case None      => Attempt.successful(builder.result())
       ,
-      map => Attempt.successful(map.toList.sortBy(_._1)),
+      map =>
+        if map.size > MaxAnnotationsPerEntry then Attempt.failure(Err(s"Too many annotations: ${map.size} (max $MaxAnnotationsPerEntry)"))
+        else Attempt.successful(map.toList.sortBy(_._1)),
     )
 
   private val manifestEntryCodec: Codec[ManifestEntry] =
-    combine(combine(combine(BinaryKeyCodec.codec, int64), int64), attributesCodec).exmap(
-      { case (((key, start), end), attrs) =>
-        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, attrs)).left.map(Err(_)))
+    combine(combine(combine(BinaryKeyCodec.codec, int64), int64), annotationsCodec).exmap(
+      { case (((key, start), end), annotations) =>
+        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, annotations)).left.map(Err(_)))
       },
-      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.attributes)),
+      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.annotations)),
     )
 
   private val entriesWithSizeCodec: Codec[(List[ManifestEntry], Long)] =
     combine(
       nonNegativeInt("entry count")
+        .exmap(
+          count =>
+            if count <= MaxManifestEntries then Attempt.successful(count)
+            else Attempt.failure(Err(s"Manifest has too many entries: $count (max $MaxManifestEntries)")),
+          count =>
+            if count <= MaxManifestEntries then Attempt.successful(count)
+            else Attempt.failure(Err(s"Manifest has too many entries: $count (max $MaxManifestEntries)")),
+        )
         .consume(count => listOfN(provide(count), manifestEntryCodec))(entries => entries.length),
       nonNegativeLong("total size"),
     )

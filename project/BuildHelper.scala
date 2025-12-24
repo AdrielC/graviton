@@ -9,6 +9,18 @@ object BuildHelper {
     Test / testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     // Fork tests in a separate JVM to prevent OOM issues
     Test / fork := true,
+    
+
+    /// enable Test frameworks
+
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"          % Dependencies.V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % Dependencies.V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % Dependencies.V.zio % Test
+    ),
+
+    
+    Test / testOptions += Tests.Argument(TestFrameworks.ZIOTest, "-oD"),
     // Set reasonable heap size for tests to prevent OOM with streaming/concurrent tests
     Test / javaOptions ++= Seq(
       "-Xmx2G",   // Maximum heap size

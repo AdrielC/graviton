@@ -392,7 +392,7 @@ object MissionControl:
   private def renderScenarioCard(scenario: Scenario, scenarioVar: Var[Scenario]): HtmlElement =
     div(
       cls := "scenario-card",
-      cls.toggle("active") <-- scenarioVar.signal.map(_.id == scenario.id),
+      cls("active") <-- scenarioVar.signal.map(_.id == scenario.id),
       onClick --> { _ => scenarioVar.set(scenario) },
       div(cls := "scenario-icon", scenario.icon),
       h4(scenario.title),
@@ -412,7 +412,7 @@ object MissionControl:
   private def renderChunkerChip(mode: ChunkerMode, chunkerVar: Var[ChunkerMode]): HtmlElement =
     button(
       cls := "chunker-chip",
-      cls.toggle("active") <-- chunkerVar.signal.map(_ == mode),
+      cls("active") <-- chunkerVar.signal.map(_ == mode),
       span(cls := "chip-icon", mode.icon),
       div(
         span(mode.label),

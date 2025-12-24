@@ -14,7 +14,6 @@ import zio.Chunk
 final case class HttpApi(
   blobStore: BlobStore,
   dashboard: DatalakeDashboardService,
-  legacyRepo: Option[LegacyRepoHttpApi] = None,
   metrics: Option[MetricsHttpApi] = None,
 ) {
 
@@ -48,10 +47,10 @@ final case class HttpApi(
       )
     }
 
-  private val routes = Routes(
+  val routes: Routes[Any, Nothing] = Routes(
     Method.GET / "api" / "datalake" / "dashboard"            -> snapshotHandler,
     Method.GET / "api" / "datalake" / "dashboard" / "stream" -> streamHandler,
-  ) ++ legacyRepo.map(_.routes).getOrElse(Routes.empty) ++ metrics.map(_.routes).getOrElse(Routes.empty)
+  ) ++ metrics.map(_.routes).getOrElse(Routes.empty)
 
   val app: Handler[Any, Nothing, Request, Response] = routes.toHandler
 }
