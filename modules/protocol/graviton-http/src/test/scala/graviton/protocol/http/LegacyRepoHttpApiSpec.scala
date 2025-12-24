@@ -85,3 +85,5 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
         yield assertTrue(resp.status == Status.NotFound)
       },
     )
+      // Some zio-http handlers use scoped resources (streaming bodies, etc).
+      .provideSomeLayerShared(Scope.default)
