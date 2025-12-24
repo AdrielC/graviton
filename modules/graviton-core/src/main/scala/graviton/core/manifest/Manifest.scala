@@ -3,7 +3,17 @@ package graviton.core.manifest
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
 
-final case class ManifestEntry(key: BinaryKey, span: Span[Long], attributes: Map[String, String])
+/**
+ * A single manifest span pointing at a content-addressed key.
+ *
+ * `annotations` are intentionally non-semantic:
+ * - MUST NOT affect view/key derivation
+ * - MUST NOT change storage semantics
+ * - MUST be safe to drop without changing meaning
+ *
+ * If you need semantic flags (compression/encryption/layout), model them as typed fields.
+ */
+final case class ManifestEntry(key: BinaryKey, span: Span[Long], annotations: Map[String, String])
 
 final case class Manifest(entries: List[ManifestEntry], size: Long)
 
