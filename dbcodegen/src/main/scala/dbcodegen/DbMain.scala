@@ -5,6 +5,7 @@ import java.util.logging.Level
 
 import scala.util.chaining.scalaUtilChainingOps
 import scala.util.matching.Regex
+import zio.{Exit, Runtime, Unsafe}
 
 object DbMain {
 
@@ -83,21 +84,56 @@ object DbMain {
       dryRun = inspectOnly,
     )
 
-    val resultsE = CodeGenerator.generate(
-      jdbcUrl = jdbcUrl,
-      username = username,
-      password = password,
-      config = config,
-    )
+    val targetRootOpt = sys.props.get("dbcodegen.targetRoot").map(resolvePath).map(_.toPath)
+    val scalaVersion  = sys.props.getOrElse("dbcodegen.scalaVersion", "3.7.3")
 
-    resultsE match
-      case Left(err) =>
-        System.err.println(err.message)
-      case Right(results) =>
-        if (inspectOnly)
-          log.info("Inspect-only mode complete")
-        else
-          log.info(s"Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
+    if (targetRootOpt.isDefined) {
+      // ZIO-style generator pipeline (inspired by zio-openai-codegen).
+      val targetRoot = targetRootOpt.get
+      val codegen    = new dbcodegen.generator.DbCodegen(
+        dbcodegen.generator.DbCodegenParameters(
+          targetRoot = targetRoot,
+          scalaVersion = scalaVersion,
+        ),
+      )
+
+      val program =
+        codegen
+          .run(jdbcUrl, username, password, config)
+          .provide(
+            dbcodegen.generator.DbModelLoader.live,
+            dbcodegen.generator.Generator.live,
+            dbcodegen.generator.CodeFileGenerator.live,
+          )
+
+      Unsafe.unsafe { implicit u =>
+        Runtime.default.unsafe.run(program) match
+          case Exit.Success(paths) =>
+            if (inspectOnly)
+              log.info("Inspect-only mode complete")
+            else
+              log.info(s"Generated ${paths.size} file(s) into $targetRoot")
+          case Exit.Failure(cause) =>
+            System.err.println(cause.prettyPrint)
+      }
+    } else {
+      // Legacy pipeline: uses `dbcodegen.out` as a concrete output directory.
+      val resultsE = CodeGenerator.generate(
+        jdbcUrl = jdbcUrl,
+        username = username,
+        password = password,
+        config = config,
+      )
+
+      resultsE match
+        case Left(err) =>
+          System.err.println(err.message)
+        case Right(results) =>
+          if (inspectOnly)
+            log.info("Inspect-only mode complete")
+          else
+            log.info(s"Generated ${results.size} file(s) into ${outDir.getAbsolutePath}")
+    }
   }
 
   private def resolvePath(path: String): File = {

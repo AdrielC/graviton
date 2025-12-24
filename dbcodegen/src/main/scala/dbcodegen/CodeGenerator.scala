@@ -102,7 +102,7 @@ object CodeGenerator {
         if (tables.nonEmpty) {
           val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
           if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
-            generateScalaCode(dataSchema, config) match
+            renderScalaCode(dataSchema, config) match
               case Left(err) => boundary.break(Left(err))
               case Right(output) =>
                 val outputPath = outputPathFor(config, dataSchema)
@@ -170,12 +170,12 @@ object CodeGenerator {
     println("=== END CONSTRAINTS INSPECTION ===\n")
   }
 
-  private def outputPathFor(config: CodeGeneratorConfig, schema: DataSchema): Path =
+  private[dbcodegen] def outputPathFor(config: CodeGeneratorConfig, schema: DataSchema): Path =
     config.outputLayout match
       case OutputLayout.PerSchemaDirectory => config.outDir.resolve(schema.name).resolve("schema.scala")
       case OutputLayout.FlatFiles          => config.outDir.resolve(s"${schema.name}.scala")
 
-  private def generateScalaCode(schema: DataSchema, config: CodeGeneratorConfig): Either[CodegenError, String] = {
+  private[dbcodegen] def renderScalaCode(schema: DataSchema, config: CodeGeneratorConfig): Either[CodegenError, String] = {
     boundary[Either[CodegenError, String]] {
       val validationResults = schema.tables.map { table =>
         table.scalaName -> buildTableValidations(table)
