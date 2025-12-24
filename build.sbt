@@ -141,11 +141,30 @@ buildFrontend := {
   log.info(s"Frontend built and copied to $targetDir")
 }
 
+// Task to build Quasar frontend and copy to docs
+lazy val buildQuasarFrontend = taskKey[Unit]("Build Quasar Scala.js frontend and copy to docs")
+buildQuasarFrontend := {
+  val log = Keys.streams.value.log
+  log.info("Building Quasar Scala.js frontend...")
+
+  val report    = (quasarFrontend / Compile / fastLinkJS).value
+  val sourceDir = (quasarFrontend / Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/public/quasar/js")
+
+  log.info(s"Copying Quasar Scala.js output from $sourceDir to $targetDir")
+  IO.delete(targetDir)
+  IO.createDirectory(targetDir)
+  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+
+  log.info(s"Quasar frontend built and copied to $targetDir")
+}
+
 // Combined task to build all docs assets
 lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
 buildDocsAssets := Def.sequential(
   generateDocs,
-  buildFrontend
+  buildFrontend,
+  buildQuasarFrontend
 ).value
 
 lazy val docs = (project in file("docs-mdoc"))
@@ -177,6 +196,7 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.jvm,
   sharedProtocol.js,
   frontend,
+  quasarFrontend,
   docs
 ).settings(
   baseSettings,
@@ -425,4 +445,25 @@ lazy val frontend = (project in file("modules/frontend"))
       "com.raquo"       %%% "waypoint"     % V.waypoint,
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
+  )
+
+// Quasar frontend module with Scala.js + Laminar
+lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    baseSettings,
+    name := "quasar-frontend",
+    Test / fork := false, // Scala.js tests cannot be forked
+    scalaJSUseMainModuleInitializer := true,
+    scalaJSLinkerConfig ~= {
+      _.withModuleKind(ModuleKind.ESModule)
+        .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("quasar.frontend")))
+    },
+    libraryDependencies ++= Seq(
+      "dev.zio"      %%% "zio"         % V.zio,
+      "dev.zio"      %%% "zio-json"    % "0.7.3",
+      "com.raquo"    %%% "laminar"     % V.laminar,
+      "com.raquo"    %%% "waypoint"    % V.waypoint,
+      "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,
+    ),
   )

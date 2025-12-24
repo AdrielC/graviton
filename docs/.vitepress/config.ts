@@ -33,7 +33,8 @@ export default withMermaid(defineConfig({
         external: [
           // Treat Scala.js modules as external to avoid bundling issues
           /^\/graviton\/js\/.+\.js$/,
-          /^\/js\/.+\.js$/
+          /^\/js\/.+\.js$/,
+          /^\/quasar\/js\/.+\.js$/
         ]
       }
     }
@@ -61,6 +62,7 @@ export default withMermaid(defineConfig({
     // Scala.js modules (dynamically loaded)
     /^\/graviton\/js\/.+/,
     /^\/js\/.+/,
+    /^\/quasar\/js\/.+/,
   ],
   markdown: {
     theme: {
@@ -103,6 +105,7 @@ export default withMermaid(defineConfig({
       { text: 'API', link: '/api' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
+      { text: 'Quasar Demo', link: '/quasar-demo' },
       // Note: VitePress automatically prefixes `base` for internal links.
       // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
       { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
@@ -188,7 +191,8 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
-          { text: 'Live Demo', link: '/demo' }
+          { text: 'Live Demo', link: '/demo' },
+          { text: 'Quasar Demo', link: '/quasar-demo' }
         ]
       }
     ],
