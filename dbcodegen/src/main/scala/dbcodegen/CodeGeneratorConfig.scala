@@ -54,7 +54,13 @@ object CodeGeneratorConfig {
             }
             .orElse(Some("java.lang.Object"))
     },
-    schemaTableFilter = (_: String, _: String) => true,
+    schemaTableFilter = (schema: String, table: String) => {
+      val s = Option(schema).getOrElse("")
+      val t = Option(table).getOrElse("")
+      val allowedSchema = Set("core", "graviton", "quasar").contains(s)
+      val isPartitionChild = t.matches(".*_p\\d+$")
+      allowedSchema && !isPartitionChild
+    },
     scalafmt = true,
     scalaVersion = defaultScalaVersion,
     schemaCrawlerOptions = CodeGenerator.SchemaCrawlerOptions.default,
