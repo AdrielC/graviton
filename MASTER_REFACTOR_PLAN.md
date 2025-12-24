@@ -1,6 +1,6 @@
-# Cedar 2.0 Binary Store Refactor
+# Binary Store Refactor
 
-This document records the agreed plan for evolving the Graviton (Cedar 2.0) storage
+This document records the agreed plan for evolving the Graviton storage
 stack. The objective is to provide a unified, type-safe API for storing binary
 streams while preserving rich metadata and enabling both deduplicated and direct
 file ingestion paths.
@@ -48,7 +48,7 @@ The core API stays centred on the **single-sink** operation. Both
 enough data to materialise a `BinaryKey`, and then return that key together with
 any leftover `Bytes`. Callers can inspect the leftovers to decide whether to
 retry, split the upload, or surface an error. This keeps the primitive
-signature aligned with Cedar’s CAS semantics while supporting user-provided
+signature aligned with CAS semantics while supporting user-provided
 keys.
 
 On top of that primitive we expose a **manifest-building sink** (tentatively

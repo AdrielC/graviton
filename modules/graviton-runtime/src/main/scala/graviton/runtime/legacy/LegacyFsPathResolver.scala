@@ -6,7 +6,7 @@ import java.nio.file.{Files, Path}
 
 import scala.jdk.CollectionConverters.*
 
-object CedarFsPathResolver:
+object LegacyFsPathResolver:
 
   final case class Settings(
     binariesDirName: String = "binaries",
@@ -24,10 +24,10 @@ object CedarFsPathResolver:
         val h = s.trim.toLowerCase
         hexHash.matches(h)
 
-  def normalizeHash(repo: String, raw: String): IO[CedarLegacyError.FsError, String] =
+  def normalizeHash(repo: String, raw: String): IO[LegacyRepoError.FsError, String] =
     ZIO.succeed(raw).map(_.trim.toLowerCase).flatMap { h =>
       if looksLikeHash(h) then ZIO.succeed(h)
-      else ZIO.fail(CedarLegacyError.FsError.InvalidBinaryHash(repo, raw, "expected lowercase hex length 32..128"))
+      else ZIO.fail(LegacyRepoError.FsError.InvalidBinaryHash(repo, raw, "expected lowercase hex length 32..128"))
     }
 
   private def candidates(binariesRoot: Path, h: String, exts: List[String]): List[Path] =
@@ -92,28 +92,28 @@ object CedarFsPathResolver:
   final case class Resolution(path: Path, tried: List[Path])
 
   def resolveBinaryPath(
-    repo: CedarRepo,
+    repo: LegacyRepo,
     hash: String,
     settings: Settings,
     index: LiveIndex,
-  ): IO[CedarLegacyError.FsError, Resolution] =
+  ): IO[LegacyRepoError.FsError, Resolution] =
     for
       h           <- normalizeHash(repo.name, hash)
       binariesRoot = repo.root.resolve(settings.binariesDirName)
       tried0       = candidates(binariesRoot, h, settings.candidateExtensions)
       fast        <- firstExistingPath(tried0)
-                       .mapError(th => CedarLegacyError.FsError.BinaryUnreadable(repo.name, h, binariesRoot, th))
+                       .mapError(th => LegacyRepoError.FsError.BinaryUnreadable(repo.name, h, binariesRoot, th))
       res         <- fast match
                        case Some(p) => ZIO.succeed(Resolution(p, tried0))
                        case None    =>
-                         if !settings.enableIndexFallback then ZIO.fail(CedarLegacyError.FsError.BinaryNotFound(repo.name, h, tried0))
+                         if !settings.enableIndexFallback then ZIO.fail(LegacyRepoError.FsError.BinaryNotFound(repo.name, h, tried0))
                          else
                            index
                              .getOrBuild(binariesRoot)
-                             .mapError(th => CedarLegacyError.FsError.BinaryUnreadable(repo.name, h, binariesRoot, th))
+                             .mapError(th => LegacyRepoError.FsError.BinaryUnreadable(repo.name, h, binariesRoot, th))
                              .flatMap { idx =>
                                idx.get(h) match
                                  case Some(p) => ZIO.succeed(Resolution(p, tried0))
-                                 case None    => ZIO.fail(CedarLegacyError.FsError.BinaryNotFound(repo.name, h, tried0))
+                                 case None    => ZIO.fail(LegacyRepoError.FsError.BinaryNotFound(repo.name, h, tried0))
                              }
     yield res

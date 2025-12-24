@@ -18,8 +18,8 @@ The metadata snapshot on a `DocumentVersion` is a single JSON object:
 ```json
 {
   "namespaces": {
-    "urn:tybera:quasar:core": {
-      "schema": "urn:tybera:schema:quasar-core@1.0.0",
+    "urn:quasar:core": {
+      "schema": "urn:quasar:schema:core@1.0.0",
       "id": "meta_01J...",
       "data": {
         "mimeType": "application/pdf",
@@ -27,8 +27,8 @@ The metadata snapshot on a `DocumentVersion` is a single JSON object:
         "ingest": { "source": "upload", "receivedAt": "2025-12-24T18:00:00Z" }
       }
     },
-    "urn:tybera:cedar:case": {
-      "schema": "urn:tybera:schema:cedar-case@1.2.0",
+    "urn:quasar:case": {
+      "schema": "urn:quasar:schema:case@1.2.0",
       "id": "meta_01K...",
       "data": {
         "caseNumber": "CV-2024-123",
@@ -80,10 +80,10 @@ Response:
 
 ```json
 {
-  "namespaceUrn": "urn:tybera:cedar:case",
+  "namespaceUrn": "urn:quasar:case",
   "entry": {
     "id": "meta_01K...",
-    "schema": "urn:tybera:schema:cedar-case@1.2.0",
+    "schema": "urn:quasar:schema:case@1.2.0",
     "data": { "caseNumber": "CV-2024-123", "courtLocation": "Washoe" }
   }
 }
@@ -105,8 +105,8 @@ Request:
   "mode": "canonical | derived",
   "bundle": {
     "namespaces": {
-      "urn:tybera:cedar:entities": {
-        "schema": "urn:tybera:schema:cedar-entities@1.0.0",
+      "urn:quasar:entities": {
+        "schema": "urn:quasar:schema:entities@1.0.0",
         "id": "meta_01M...",
         "data": { "people": ["Jane Doe"], "orgs": ["Acme LLC"] }
       }
@@ -216,8 +216,8 @@ Content-Type: application/json
 
 ```json
 {
-  "schemaUrn": "urn:tybera:schema:cedar-case@1.2.0",
-  "namespaceUrn": "urn:tybera:cedar:case",
+  "schemaUrn": "urn:quasar:schema:case@1.2.0",
+  "namespaceUrn": "urn:quasar:case",
   "lifecycle": "published",
   "jsonSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

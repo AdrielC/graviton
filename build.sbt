@@ -164,6 +164,9 @@ lazy val root = (project in file(".")).aggregate(
   core,
   streams,
   runtime,
+  quasarCore,
+  quasarHttp,
+  quasarLegacy,
   proto,
   grpc,
   http,
@@ -347,6 +350,38 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
+    ),
+  )
+
+lazy val quasarCore = (project in file("modules/quasar-core"))
+  .dependsOn(core)
+  .settings(
+    baseSettings,
+    name := "quasar-core",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
+      "dev.zio" %% "zio-json" % "0.7.3",
+    ),
+  )
+
+lazy val quasarHttp = (project in file("modules/quasar-http"))
+  .dependsOn(quasarCore)
+  .settings(
+    baseSettings,
+    name := "quasar-http",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
+      "dev.zio" %% "zio-http" % V.zioHttp,
+    ),
+  )
+
+lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
+  .dependsOn(quasarCore, runtime, http)
+  .settings(
+    baseSettings,
+    name := "quasar-legacy",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio" % V.zio,
     ),
   )
 
