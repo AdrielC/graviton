@@ -28,6 +28,7 @@ private[graviton] final class HasherImpl(
 ) extends Hasher:
   self: HasherImpl =>
 
+  override def inputSize: Long                          = _inputSize.get()
   override def reset: Unit                              = md.reset()
   override def update(chunk: Hasher.Digestable): Hasher =
     chunk match
@@ -44,13 +45,14 @@ private[graviton] final class HasherImpl(
         val arr = chunk.toArray
         _inputSize.addAndGet(arr.length.toLong)
         md.update(arr)
+      case digest: Digest     =>
+        val arr = digest.bytes
+        _inputSize.addAndGet(arr.length.toLong)
+        md.update(arr)
       case s: String          =>
-        import graviton.core.types.HexLower
-        ByteVector
-          .fromHex(s, scodec.bits.Bases.Alphabets.HexLowercase)
-          .orElse(ByteVector.fromHex(s, scodec.bits.Bases.Alphabets.HexUppercase))
-          .flatMap(s => Digest.fromBytes(s.toArray).toOption)
-          .getOrElse(throw new IllegalArgumentException(s"Invalid hex digest '$s'"))
+        val arr = s.getBytes(StandardCharsets.UTF_8)
+        _inputSize.addAndGet(arr.length.toLong)
+        md.update(arr)
     self
 
   override def digest: Either[String, Digest] =

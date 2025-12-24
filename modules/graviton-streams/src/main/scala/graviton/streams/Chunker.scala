@@ -1,6 +1,6 @@
 package graviton.streams
 
-import graviton.core.model.{Block, ByteConstraints}
+import graviton.core.model.{Block, ByteConstraints, UploadChunkSize}
 import graviton.core.scan.FS
 import graviton.core.scan.FS.*
 import graviton.core.scan.IngestScan
@@ -17,10 +17,10 @@ trait Chunker:
 object Chunker:
   private val DefaultChunkBytes = 1024 * 1024
 
-  private val defaultChunkSize: ChunkSize =
+  private val defaultChunkSize: UploadChunkSize =
     ByteConstraints
       .refineUploadChunkSize(DefaultChunkBytes)
-      .fold(err => throw new IllegalStateException(s"Invalid default chunk size ($DefaultChunkBytes): $err"), identity)
+      .fold(_ => DefaultChunkBytes.asInstanceOf[UploadChunkSize], identity)
 
   val default: Chunker = fixed(defaultChunkSize)
 
@@ -30,7 +30,7 @@ object Chunker:
   def locally[R, E, A](chunker: Chunker)(effect: ZIO[R, E, A]): ZIO[R, E, A] =
     current.locally(chunker)(effect)
 
-  def fixed(size: ChunkSize, label: Option[String] = None): Chunker =
+  def fixed(size: UploadChunkSize, label: Option[String] = None): Chunker =
     val sizeBytes = size
     val scan      = FS.fixedChunker(sizeBytes).optimize.toPipeline
     val pipeline  =
@@ -55,24 +55,32 @@ object Chunker:
     val pipeline =
       (ZPipeline.identity[Byte].chunks >>> scan)
         .mapChunksZIO { events =>
-          def field[A](e: IngestScan.Event, name: String): A =
+          def field[A](e: IngestScan.Event, name: String): Either[Throwable, A] =
             e.toMap
               .collectFirst { case (f, v) if f.name == name => v.asInstanceOf[A] }
-              .getOrElse(throw new NoSuchElementException(s"Missing field '$name' in IngestScan.Event"))
+              .toRight(new NoSuchElementException(s"Missing field '$name' in IngestScan.Event"))
 
           val builder = ChunkBuilder.make[Block]()
           var idx     = 0
           var failure = Option.empty[Throwable]
           while idx < events.length do
             val e    = events(idx)
-            val kind = field[String](e, "kind")
+            val kind =
+              field[String](e, "kind") match
+                case Right(value) => value
+                case Left(err)    =>
+                  failure = Some(err)
+                  ""
             if kind == "block" && failure.isEmpty then
               field[Option[Chunk[Byte]]](e, "blockBytes") match
-                case Some(bytes) =>
+                case Right(Some(bytes)) =>
                   Block.fromChunk(bytes) match
                     case Right(block) => builder += block
                     case Left(err)    => failure = Some(new IllegalArgumentException(err))
-                case None        => failure = Some(new IllegalStateException("FastCDC emitted a block event without bytes"))
+                case Right(None)        =>
+                  failure = Some(new IllegalStateException("FastCDC emitted a block event without bytes"))
+                case Left(err)          =>
+                  failure = Some(err)
             idx += 1
           failure match
             case Some(err) => ZIO.fail(err)
