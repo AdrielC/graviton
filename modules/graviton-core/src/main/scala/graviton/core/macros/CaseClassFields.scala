@@ -1,25 +1,16 @@
 package graviton.core.macros
 
-import scala.quoted.*
-
 /**
- * Small TASTy macro utilities for working with case classes at compile-time.
+ * Small macro utilities for working with case classes at compile-time.
  *
- * This is useful for:
- * - building better error messages
- * - wiring codecs/metrics with stable field-name lists
- * - avoiding stringly-typed duplication
+ * The macro implementation lives in `internal/CaseClassFieldsMacrosImpl.scala` (cross-quotes / Hearth `MacroCommons`).
+ * Scala-version-specific wiring lives in `scala-2/` and `scala-3/` adapters.
  */
-object CaseClassFields:
+object CaseClassFields extends CaseClassFieldsCompanionCompat:
 
-  /** Returns the case class field names for `A` at compile time. */
-  inline def names[A]: List[String] = ${ namesImpl[A] }
+  /** Import this to enable derivation logging. */
+  sealed trait LogDerivation
 
-  private def namesImpl[A: Type](using Quotes): Expr[List[String]] =
-    import quotes.reflect.*
-
-    val sym = TypeRepr.of[A].typeSymbol
-    if !sym.flags.is(Flags.Case) then report.errorAndAbort(s"CaseClassFields.names: expected a case class, got ${sym.fullName}")
-
-    val fields = sym.caseFields.map(_.name)
-    Expr.ofList(fields.map(Expr(_)))
+  object debug:
+    /** Enables logs from the macro expansion (useful when debugging derivation failures). */
+    given logDerivation: LogDerivation = new LogDerivation {}
