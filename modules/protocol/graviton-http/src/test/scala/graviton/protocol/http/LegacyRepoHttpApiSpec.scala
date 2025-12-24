@@ -38,47 +38,50 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
       },
       test("GET /legacy/{repo}/{docId} returns 200 + body") {
         for
-          root      <- fixtureRoot
-          repos      = LegacyRepos(List(LegacyRepo("shortterm", root.resolve("shortterm"))))
-          catalog   <- LegacyCatalogLive.make(repos)
-          fs        <- LegacyFsLive.make(repos)
-          api        = LegacyRepoHttpApi(repos, catalog, fs)
-          dashboard <- ZIO.succeed(new DatalakeDashboardService {
-                         def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
-                         def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
-                         def explorer: UIO[SchemaExplorer.Graph]                          = ZIO.succeed(DashboardSamples.schemaExplorer)
-                         def updates                                                      = zio.stream.ZStream.empty
-                         def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
-                       })
-          blobStore <- InMemoryBlobStore.make()
-          httpApi    = HttpApi(blobStore, dashboard, legacyRepo = Some(api))
-          req       <- ZIO
-                         .fromEither(URL.decode("http://localhost/legacy/shortterm/doc-1"))
-                         .map(url => Request.get(url))
-          resp      <- httpApi.app(req)
-          body      <- resp.body.asString
+          root       <- fixtureRoot
+          repos       = LegacyRepos(List(LegacyRepo("shortterm", root.resolve("shortterm"))))
+          catalog    <- LegacyCatalogLive.make(repos)
+          fs         <- LegacyFsLive.make(repos)
+          api         = LegacyRepoHttpApi(repos, catalog, fs)
+          internal    = InternalHttpApi(token = "test-token", legacyRepo = api)
+          dashboard  <- ZIO.succeed(new DatalakeDashboardService {
+                          def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
+                          def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
+                          def explorer: UIO[SchemaExplorer.Graph]                          = ZIO.succeed(DashboardSamples.schemaExplorer)
+                          def updates                                                      = zio.stream.ZStream.empty
+                          def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
+                        })
+          blobStore  <- InMemoryBlobStore.make()
+          httpApi     = HttpApi(blobStore, dashboard)
+          internalApp = internal.routes.toHandler
+          req        <- ZIO
+                          .fromEither(URL.decode("http://localhost/internal/legacy/shortterm/doc-1"))
+                          .map(url => Request.get(url).addHeader("x-internal-token", "test-token"))
+          resp       <- internalApp(req)
+          body       <- resp.body.asString
         yield assertTrue(resp.status == Status.Ok, body == "hello\n")
       },
       test("missing metadata returns 404") {
         for
-          root      <- fixtureRoot
-          repos      = LegacyRepos(List(LegacyRepo("shortterm", root.resolve("shortterm"))))
-          catalog   <- LegacyCatalogLive.make(repos)
-          fs        <- LegacyFsLive.make(repos)
-          api        = LegacyRepoHttpApi(repos, catalog, fs)
-          dashboard <- ZIO.succeed(new DatalakeDashboardService {
-                         def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
-                         def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
-                         def explorer: UIO[SchemaExplorer.Graph]                          = ZIO.succeed(DashboardSamples.schemaExplorer)
-                         def updates                                                      = zio.stream.ZStream.empty
-                         def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
-                       })
-          blobStore <- InMemoryBlobStore.make()
-          httpApi    = HttpApi(blobStore, dashboard, legacyRepo = Some(api))
-          req       <- ZIO
-                         .fromEither(URL.decode("http://localhost/legacy/shortterm/missing-doc"))
-                         .map(url => Request.get(url))
-          resp      <- httpApi.app(req)
+          root       <- fixtureRoot
+          repos       = LegacyRepos(List(LegacyRepo("shortterm", root.resolve("shortterm"))))
+          catalog    <- LegacyCatalogLive.make(repos)
+          fs         <- LegacyFsLive.make(repos)
+          api         = LegacyRepoHttpApi(repos, catalog, fs)
+          internal    = InternalHttpApi(token = "test-token", legacyRepo = api)
+          dashboard  <- ZIO.succeed(new DatalakeDashboardService {
+                          def snapshot                                                     = ZIO.succeed(DashboardSamples.snapshot)
+                          def metaschema                                                   = ZIO.succeed(DashboardSamples.metaschema)
+                          def explorer: UIO[SchemaExplorer.Graph]                          = ZIO.succeed(DashboardSamples.schemaExplorer)
+                          def updates                                                      = zio.stream.ZStream.empty
+                          def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
+                        })
+          blobStore  <- InMemoryBlobStore.make()
+          internalApp = internal.routes.toHandler
+          req        <- ZIO
+                          .fromEither(URL.decode("http://localhost/internal/legacy/shortterm/missing-doc"))
+                          .map(url => Request.get(url).addHeader("x-internal-token", "test-token"))
+          resp       <- internalApp(req)
         yield assertTrue(resp.status == Status.NotFound)
       },
     )

@@ -29,7 +29,6 @@ object Main extends ZIOAppDefault:
                           val api = HttpApi(
                             blobStore = blobStore,
                             dashboard = dashboard,
-                            legacyRepo = None,
                             metrics = Some(MetricsHttpApi(metrics)),
                           )
 
@@ -66,5 +65,7 @@ object Main extends ZIOAppDefault:
              InMemoryBlobStore.layer,
              DatalakeDashboardService.live,
              InMemoryMetricsRegistry.layer,
+             ZLayer.succeed[Clock](Clock.ClockLive),
+             ZLayer.succeed[Random](Random.RandomLive),
            )
     yield ()

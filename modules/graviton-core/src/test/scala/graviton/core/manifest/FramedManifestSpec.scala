@@ -28,12 +28,13 @@ object FramedManifestSpec extends ZIOSpecDefault:
           for
             bits1    <- makeBits(12L)
             bits2    <- makeBits(5L)
+            viewKey  <- ZIO.fromEither(BinaryKey.View(bits2, view)).mapError(_.toString)
             manifest <- ZIO
                           .fromEither(
                             Manifest.fromEntries(
                               List(
                                 ManifestEntry(BinaryKey.Blob(bits1), Span.unsafe(0L, 11L), attrs),
-                                ManifestEntry(BinaryKey.View(bits2, view), Span.unsafe(12L, 16L), Map.empty),
+                                ManifestEntry(viewKey, Span.unsafe(12L, 16L), Map.empty),
                               )
                             )
                           )

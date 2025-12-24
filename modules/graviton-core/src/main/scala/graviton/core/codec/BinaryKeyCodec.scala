@@ -114,11 +114,11 @@ object BinaryKeyCodec:
             Attempt.fromEither(
               BinaryKey
                 .manifest(bits)
-                .map(manifest => BinaryKey.view(manifest, view))
+                .flatMap(manifest => BinaryKey.view(manifest, view))
                 .left
                 .map(Err(_))
             )
           },
-          key => Attempt.successful((key.bits, key.transform)),
+          key => Attempt.successful((key.base.bits, key.transform)),
         ),
       )

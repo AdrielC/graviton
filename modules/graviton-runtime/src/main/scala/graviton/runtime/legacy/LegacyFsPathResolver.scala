@@ -15,7 +15,9 @@ object LegacyFsPathResolver:
     candidateExtensions: List[String] = List("", ".bin", ".dat", ".pdf"),
   )
 
-  private val hexHash = "^[0-9a-f]{32,128}$".r
+  // v1 guardrail: accept SHA-1 (40 hex) .. SHA-256 (64 hex) by default.
+  // Anything else is rejected early to prevent path traversal and junk inputs.
+  private val hexHash = "^[0-9a-f]{40,64}$".r
 
   def looksLikeHash(raw: String): Boolean =
     raw match
@@ -116,4 +118,13 @@ object LegacyFsPathResolver:
                                  case Some(p) => ZIO.succeed(Resolution(p, tried0))
                                  case None    => ZIO.fail(LegacyRepoError.FsError.BinaryNotFound(repo.name, h, tried0))
                              }
+      // Final safety: resolve symlinks/real paths and ensure the result stays under binariesRoot.
+      _           <- ZIO
+                       .attemptBlocking {
+                         val rootReal = binariesRoot.toRealPath()
+                         val fileReal = res.path.toRealPath()
+                         if !fileReal.startsWith(rootReal) then
+                           throw new SecurityException(s"resolved path escapes binaries root: $fileReal (root: $rootReal)")
+                       }
+                       .mapError(th => LegacyRepoError.FsError.BinaryUnreadable(repo.name, h, binariesRoot, th))
     yield res

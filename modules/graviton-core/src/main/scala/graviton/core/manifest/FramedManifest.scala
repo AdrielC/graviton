@@ -52,7 +52,7 @@ object FramedManifest:
       value => Attempt.successful(value),
     )
 
-  private val attributesCodec: Codec[Map[String, String]] =
+  private val annotationsCodec: Codec[Map[String, String]] =
     listOfN(uint16, combine(variableSizeBytes(uint16, utf8), variableSizeBytes(uint16, utf8))).exmap(
       pairs =>
         val builder                   = Map.newBuilder[String, String]
@@ -72,11 +72,11 @@ object FramedManifest:
     )
 
   private val manifestEntryCodec: Codec[ManifestEntry] =
-    combine(combine(combine(BinaryKeyCodec.codec, int64), int64), attributesCodec).exmap(
-      { case (((key, start), end), attrs) =>
-        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, attrs)).left.map(Err(_)))
+    combine(combine(combine(BinaryKeyCodec.codec, int64), int64), annotationsCodec).exmap(
+      { case (((key, start), end), annotations) =>
+        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, annotations)).left.map(Err(_)))
       },
-      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.attributes)),
+      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.annotations)),
     )
 
   private val entriesWithSizeCodec: Codec[(List[ManifestEntry], Long)] =
