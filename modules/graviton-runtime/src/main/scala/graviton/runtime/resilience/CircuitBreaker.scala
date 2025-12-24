@@ -19,7 +19,7 @@ final case class CircuitBreakerRejected(message: String) extends Exception(messa
  * - HALF_OPEN: allow a probe; on success close; on failure re-open.
  */
 final class CircuitBreaker private (
-  state: Ref[CircuitState],
+  state: Ref.Synchronized[CircuitState],
   maxFailures: Int,
   openFor: Duration,
 ):
@@ -44,20 +44,22 @@ final class CircuitBreaker private (
     state.set(CircuitState.Closed(failures = 0)).unit
 
   private def onFailure: URIO[Clock, Unit] =
-    for
-      now <- Clock.instant
-      _   <- state.update {
-               case CircuitState.Closed(n)   =>
-                 val next = n + 1
-                 if next >= maxFailures then CircuitState.Open(now.plusMillis(openFor.toMillis))
-                 else CircuitState.Closed(next)
-               case CircuitState.HalfOpen    =>
-                 CircuitState.Open(now.plusMillis(openFor.toMillis))
-               case s @ CircuitState.Open(_) =>
-                 s
-             }
-    yield ()
+    Clock.instant.flatMap { now =>
+      state.modifyZIO {
+        case CircuitState.Closed(n)   =>
+          val next =
+            if (n + 1) >= maxFailures then CircuitState.Open(now.plusMillis(openFor.toMillis))
+            else CircuitState.Closed(n + 1)
+          ZIO.succeed(() -> next)
+        case CircuitState.HalfOpen    =>
+          ZIO.succeed(() -> CircuitState.Open(now.plusMillis(openFor.toMillis)))
+        case s @ CircuitState.Open(_) =>
+          ZIO.succeed(() -> s)
+      }.unit
+    }
 
 object CircuitBreaker:
   def make(maxFailures: Int, openFor: Duration): UIO[CircuitBreaker] =
-    Ref.make[CircuitState](CircuitState.Closed(0)).map(ref => new CircuitBreaker(ref, maxFailures, openFor))
+    Ref.Synchronized
+      .make[CircuitState](CircuitState.Closed(0))
+      .map(ref => new CircuitBreaker(ref, maxFailures, openFor))

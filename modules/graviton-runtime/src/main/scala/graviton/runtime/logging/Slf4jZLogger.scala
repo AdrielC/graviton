@@ -32,20 +32,27 @@ object Slf4jZLogger:
             s"${message()} ($ann)"
           }
 
-        val throwable = cause.squashTrace
+        val throwable: Throwable | Null =
+          cause.failureOption match
+            case Some(t: Throwable) => t
+            case _                  => null
+
+        val renderedWithCause =
+          if cause.isEmpty then rendered
+          else s"$rendered\n${cause.prettyPrint}"
 
         logLevel match
           case LogLevel.Trace   =>
-            if throwable eq null then logger.trace(rendered) else logger.trace(rendered, throwable)
+            if throwable == null then logger.trace(renderedWithCause) else logger.trace(rendered, throwable)
           case LogLevel.Debug   =>
-            if throwable eq null then logger.debug(rendered) else logger.debug(rendered, throwable)
+            if throwable == null then logger.debug(renderedWithCause) else logger.debug(rendered, throwable)
           case LogLevel.Info    =>
-            if throwable eq null then logger.info(rendered) else logger.info(rendered, throwable)
+            if throwable == null then logger.info(renderedWithCause) else logger.info(rendered, throwable)
           case LogLevel.Warning =>
-            if throwable eq null then logger.warn(rendered) else logger.warn(rendered, throwable)
+            if throwable == null then logger.warn(renderedWithCause) else logger.warn(rendered, throwable)
           case LogLevel.Error   =>
-            if throwable eq null then logger.error(rendered) else logger.error(rendered, throwable)
+            if throwable == null then logger.error(renderedWithCause) else logger.error(rendered, throwable)
           case LogLevel.Fatal   =>
-            if throwable eq null then logger.error(rendered) else logger.error(rendered, throwable)
+            if throwable == null then logger.error(renderedWithCause) else logger.error(rendered, throwable)
       }
     }
