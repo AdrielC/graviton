@@ -5,7 +5,7 @@ import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{HttpApi, MetricsHttpApi}
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
-import graviton.runtime.stores.{BlobStore, CasBlobStore, InMemoryBlobStore}
+import graviton.runtime.stores.{BlobStore, CasBlobStore}
 import graviton.shared.ApiModels.*
 import zio.*
 import zio.http.*
@@ -65,7 +65,7 @@ object Main extends ZIOAppDefault:
           _      <- Server.serve(routes)
         yield ()
 
-      blobBackend = envOr("GRAVITON_BLOB_BACKEND", "memory").toLowerCase
+      blobBackend = envOr("GRAVITON_BLOB_BACKEND", "s3").toLowerCase
       blobLayer   =
         blobBackend match
           case "s3" | "minio" =>
@@ -75,7 +75,8 @@ object Main extends ZIOAppDefault:
               S3BlockStore.layerFromEnv,
               CasBlobStore.layer,
             )
-          case _              => InMemoryBlobStore.layer
+          case other          =>
+            ZLayer.fail(new IllegalArgumentException(s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3' or 'minio')"))
 
       _ <- program.provide(
              Server.defaultWithPort(port),
