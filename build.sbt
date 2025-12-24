@@ -23,6 +23,7 @@ lazy val V = new {
   val zioPrelude = "1.0.0-RC23"
   val zioGrpc    = "0.6.3"
   val zioHttp    = "3.0.0-RC7"
+  val zioNio     = "2.0.2"
   val kyo        = "1.0-RC1"
   val iron       = "2.6.0"
   val awsV2      = "2.25.54"
@@ -247,6 +248,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
+      "dev.zio" %% "zio-nio"     % V.zioNio,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
@@ -337,7 +339,16 @@ lazy val rocks = (project in file("modules/backend/graviton-rocks"))
 
 lazy val server = (project in file("modules/server/graviton-server"))
   .dependsOn(runtime, grpc, http, s3, pg, rocks)
-  .settings(baseSettings, name := "graviton-server")
+  .settings(
+    baseSettings,
+    name := "graviton-server",
+    libraryDependencies ++= Seq(
+      // Route all SLF4J logs (including dependencies) through Log4j2.
+      "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
+      "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
+      "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
+    ),
+  )
 
 // Shared protocol models for JVM and JS
 lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
