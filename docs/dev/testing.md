@@ -382,6 +382,7 @@ test("concurrent uploads") {
 
 ```scala
 import zio.test.TestAspect.*
+import zio.*
 
 // Run in parallel
 suite("Fast tests")(
@@ -392,27 +393,27 @@ suite("Fast tests")(
 
 // Timeout
 test("long operation") {
-  ???
+  ZIO.sleep(1.second) *> ZIO.succeed(assertTrue(true))
 } @@ timeout(10.seconds)
 
 // Retry flaky tests
 test("network operation") {
-  ???
+  ZIO.succeed(assertTrue(true))
 } @@ flaky @@ retry(3)
 
 // Ignore in CI
 test("manual test") {
-  ???
+  ZIO.succeed(assertTrue(true))
 } @@ ignore
 
 // Run before others
 test("setup") {
-  ???
+  ZIO.succeed(assertTrue(true))
 } @@ before(Console.printLine("Starting tests"))
 
 // Platform-specific
 test("linux only") {
-  ???
+  ZIO.succeed(assertTrue(true))
 } @@ ifProp("os.name")(_.toLowerCase.contains("linux"))
 ```
 
@@ -421,44 +422,28 @@ test("linux only") {
 ### BlobStore Contract
 
 ```scala
-trait BlobStoreContract {
+import graviton.runtime.stores.{BlobStore, InMemoryBlobStore}
+import zio.*
+import zio.stream.*
+import zio.test.*
+
+trait BlobStoreContract:
   def makeStore: UIO[BlobStore]
-  
-  def spec = suite("BlobStore Contract")(
-    test("put and get round-trip") {
-      for {
-        store <- makeStore
-        key = BinaryKey.random
-        data = Chunk.fromArray("test".getBytes)
-        _ <- store.put(key, data)
-        retrieved <- store.get(key)
-      } yield assertTrue(retrieved == data)
-    },
-    
-    test("overwrite existing key") {
-      for {
-        store <- makeStore
-        key = BinaryKey.random
-        data1 = Chunk.fromArray("first".getBytes)
-        data2 = Chunk.fromArray("second".getBytes)
-        _ <- store.put(key, data1)
-        _ <- store.put(key, data2)
-        retrieved <- store.get(key)
-      } yield assertTrue(retrieved == data2)
-    },
-    
-    // More contract tests...
-  )
-}
 
-// Implementations
-object InMemoryBlobStoreContractSpec extends BlobStoreContract {
-  def makeStore = InMemoryBlobStore.make
-}
+  def spec: Spec[Any, Throwable] =
+    suite("BlobStore Contract")(
+      test("put and get round-trip") {
+        val payload = "test".getBytes("UTF-8")
+        for
+          store <- makeStore
+          write <- ZStream.fromIterable(payload).run(store.put())
+          out   <- store.get(write.key).runCollect
+        yield assertTrue(out.toArray.sameElements(payload))
+      },
+    )
 
-object PostgresBlobStoreContractSpec extends BlobStoreContract {
-  def makeStore = ???  // Set up test container
-}
+object InMemoryBlobStoreContractSpec extends BlobStoreContract:
+  def makeStore = InMemoryBlobStore.make().widen
 ```
 
 ## Coverage
@@ -539,7 +524,7 @@ jobs:
 
 ```scala
 test("debug test") {
-  ???
+  ZIO.succeed(assertTrue(true))
 } @@ TestAspect.debug  // Enables debug logging
 ```
 

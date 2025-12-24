@@ -1,5 +1,7 @@
 # Graviton Blobstore v1 gRPC API
 
+> Status: the protobuf contracts are the source of truth, but server-side implementations are still being wired through to the runtime ports. Use this page as an API reference for the *intended* shape, and check the `protocol/graviton-grpc` module for what is currently implemented.
+
 Graviton Blobstore v1 exposes three coordinated gRPC services beneath the package `io.graviton.blobstore.v1`:
 
 - **UploadGateway** – the frames-first ingestion pipe with schema-aware metadata, raw chunk fallback, events, and keepalives.
