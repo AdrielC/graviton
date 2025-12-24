@@ -8,6 +8,7 @@ import scala.collection.mutable.ListBuffer
 import org.slf4j.LoggerFactory
 import schemacrawler.tools.utility.SchemaCrawlerUtility
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder
+import scala.util.boundary
 import scala.jdk.CollectionConverters.given
 import scala.meta.*
 import scala.meta.prettyprinters.Syntax
@@ -28,11 +29,19 @@ object CodeGenerator {
   
   object Mode:
     given Conversion[Mode, String] = _.toString
-    def fromString(s: String): Mode = s match
-      case "production" => Production
-      case "development" => Development
-      case _ => throw new IllegalArgumentException(s"Invalid mode: $s")
+    def fromString(s: String): Option[Mode] =
+      Option(s).map(_.trim.toLowerCase(Locale.ROOT)).collect {
+        case "production"  => Production
+        case "development" => Development
+      }
   end Mode
+
+  sealed trait CodegenError:
+    def message: String
+
+  object CodegenError:
+    final case class ParseError(message: String) extends CodegenError
+    final case class WriteError(message: String) extends CodegenError
 
   case class SchemaCrawlerOptions(
     quoteIdentifiers: Boolean = true,
@@ -64,54 +73,61 @@ object CodeGenerator {
     username: Option[String],
     password: Option[String],
     config: CodeGeneratorConfig,
-  ): Seq[Path] = {
-    
-    println("🚀 Starting database schema generation...")
-    log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
+  ): Either[CodegenError, Seq[Path]] = {
+    boundary[Either[CodegenError, Seq[Path]]] {
+      val debugProgress = sys.env.get("DBCODEGEN_DEBUG_PROGRESS").contains("1")
+      log.debug(s"JDBC URL: $jdbcUrl, Username: $username")
 
-    // Create database connection
-    val ds = DbConnectionSource(jdbcUrl, username, password)
+      // Create database connection
+      val ds = DbConnectionSource(jdbcUrl, username, password)
 
-    // Set up schema crawler
-    val crawlOpts = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions()
-    val retrOpts  = SchemaCrawlerUtility.matchSchemaRetrievalOptions(ds)
-    val catalog   = SchemaCrawlerUtility.getCatalog(ds, retrOpts, crawlOpts, config.schemaCrawlerOptions.toConfig)
+      // Set up schema crawler
+      val crawlOpts = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions()
+      val retrOpts  = SchemaCrawlerUtility.matchSchemaRetrievalOptions(ds)
+      val catalog   = SchemaCrawlerUtility.getCatalog(ds, retrOpts, crawlOpts, config.schemaCrawlerOptions.toConfig)
 
-    // Group tables by schema
-    val schemas = catalog.getSchemas().asScala.toSeq
-    val tablesPerSchema = schemas.map { schema =>
-      val tables = catalog.getTables(schema).asScala.toSeq
-      schema -> tables
-    }.toMap
+      // Group tables by schema
+      val schemas = catalog.getSchemas().asScala.toSeq
+      val tablesPerSchema = schemas.map { schema =>
+        val tables = catalog.getTables(schema).asScala.toSeq
+        schema -> tables
+      }.toMap
 
-    println("ℹ️  Note: Using direct code generation instead of template processing due to Scalate/Scala 3.7.3 incompatibility")
+      // Generate code for each schema (one file per schema).
+      // IMPORTANT: schemas live under distinct subpackages to avoid name collisions (e.g. shared enums).
+      val generated = ListBuffer.empty[Path]
 
-    // Generate code for each schema (one file per schema).
-    // IMPORTANT: schemas live under distinct subpackages to avoid name collisions (e.g. shared enums).
-    val results = for {
-      (schema, tables) <- tablesPerSchema.toSeq
-      if tables.nonEmpty
-      dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
-      if dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty
-    } yield {
-      println(s"📝 Generating code for schema '${schema.getName}'")
+      val iter = tablesPerSchema.toSeq.iterator
+      while (iter.hasNext) {
+        val (schema, tables) = iter.next()
+        if debugProgress then println(s"[dbcodegen] schema=${schema.getName} tables=${tables.size}")
+        val dataSchema = SchemaConverter.toDataSchema(schema, ds, tables, config)
+        if debugProgress then println(s"[dbcodegen] converted schema=${dataSchema.name} tables=${dataSchema.tables.size} enums=${dataSchema.enums.size}")
+        if (dataSchema.tables.nonEmpty || dataSchema.enums.nonEmpty) {
+          if debugProgress then println(s"[dbcodegen] rendering schema=${dataSchema.name}")
+          renderScalaCode(dataSchema, config) match
+            case Left(err) => boundary.break(Left(err))
+            case Right(output) =>
+              val outputPath = outputPathFor(config, dataSchema)
+              if (!config.dryRun) {
+                try {
+                  Files.createDirectories(outputPath.getParent)
+                  Files.writeString(outputPath, output)
+                  if debugProgress then println(s"[dbcodegen] wrote $outputPath")
+                  ScalafmtRunner.formatFile(outputPath)
+                  if debugProgress then println(s"[dbcodegen] formatted $outputPath")
+                } catch {
+                  case e: Throwable =>
+                    boundary.break(Left(CodegenError.WriteError(s"Failed writing '$outputPath': ${e.getMessage}")))
+                }
+              }
+              generated += outputPath
+        }
+      }
 
-      val output = generateScalaCode(dataSchema)
-
-      val outputPath = config.outDir.resolve(dataSchema.name).resolve("schema.scala")
-      Files.createDirectories(outputPath.getParent)
-      Files.write(outputPath, output.getBytes)
-
-      println(s"✅ Generated: $outputPath")
-      outputPath
+      if (config.inspectConstraints) inspectConstraints(tablesPerSchema)
+      Right(generated.toSeq)
     }
-
-    println(s"🎉 Schema generation completed. Generated ${results.size} files.")
-    
-    // Log constraints for inspection
-    inspectConstraints(tablesPerSchema)
-    
-    results
   }
 
   private def inspectConstraints(tablesPerSchema: Map[schemacrawler.schema.Schema, Seq[schemacrawler.schema.Table]]): Unit = {
@@ -159,134 +175,561 @@ object CodeGenerator {
     println("=== END CONSTRAINTS INSPECTION ===\n")
   }
 
-  private def generateScalaCode(schema: DataSchema): String = {
-    val validationResults = schema.tables.map { table =>
-      table.scalaName -> buildTableValidations(table)
-    }.toMap
+  private[dbcodegen] def outputPathFor(config: CodeGeneratorConfig, schema: DataSchema): Path =
+    config.outputLayout match
+      case OutputLayout.PerSchemaDirectory => config.outDir.resolve(schema.name).resolve("schema.scala")
+      case OutputLayout.FlatFiles          => config.outDir.resolve(s"${schema.name}.scala")
 
-    val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
-    validationWarnings.foreach { warning => println(s"⚠️  $warning") }
+  private[dbcodegen] def renderScalaCode(schema: DataSchema, config: CodeGeneratorConfig): Either[CodegenError, String] = {
+    boundary[Either[CodegenError, String]] {
+      val validationResults = schema.tables.map { table =>
+        table.scalaName -> buildTableValidations(table)
+      }.toMap
 
-    val stats = ListBuffer.empty[Stat]
+      val validationWarnings = validationResults.valuesIterator.flatMap(_.warnings).toSeq.distinct
+      validationWarnings.foreach { warning => println(s"⚠️  $warning") }
 
-    val importBlock =
-      """import com.augustnagro.magnum.*
-         |import graviton.db.{*, given}
-         |import zio.Chunk
-         |import zio.json.ast.Json
-         |import zio.schema.{DeriveSchema, Schema}
-         |import zio.schema.validation.Validation
-         |""".stripMargin
-    stats ++= parseStatements(importBlock)
+      implicit val dialect: Dialect = dialects.Scala3
 
-    val enumsRendered = renderEnums(schema)
-    stats ++= parseStatements(enumsRendered)
+      val stats = ListBuffer.empty[Stat]
 
-    schema.tables.foreach { table =>
-      stats ++= parseStatements(renderTableSource(table))
+      stats ++= renderImports()
+      stats ++= renderEnums(schema.enums.toList)
+      schema.tables.foreach { table =>
+        stats ++= renderTableSource(schema.name, table)
+      }
+
+      val pkgTerm = renderPackageTerm(config.basePackage, schema.name)
+      val pkg     = Pkg(pkgTerm, stats.toList)
+
+      val header =
+        s"""// Code generated by dbcodegen. DO NOT EDIT.
+           |// Schema: ${schema.name}
+           |
+           |""".stripMargin
+
+      val rendered = header + postProcessScala3(pkg.syntax) + "\n"
+      Right(rendered)
     }
+  }
 
-    stats ++= parseStatements(renderZioSchemas(schema, validationResults))
+  private def postProcessScala3(code: String): String =
+    code.linesIterator
+      .map { line =>
+        val trimmed = line.trim
 
-    val pkgTerm =
-      Term.Select(
-        Term.Select(
-          Term.Select(Term.Name("graviton"), Term.Name("pg")),
-          Term.Name("generated"),
-        ),
-        Term.Name(schema.name),
+        if trimmed.startsWith("enum ") && trimmed.contains("(value: String)") then
+          // scala.meta prints plain params; ensure Scala 3-style value member + Schema derivation
+          val base = line.replace("(value: String)", "(val value: String)")
+          if base.contains("derives Schema") then base
+          else if base.contains("{") then
+            val idx = base.indexOf('{')
+            base.substring(0, idx).stripTrailing() + " derives Schema " + base.substring(idx)
+          else base + " derives Schema"
+        else if trimmed.startsWith("@Table(PostgresDbType) final case class ") && !trimmed.contains("derives ") then
+          line + " derives DbCodec, Schema"
+        else if trimmed.startsWith("final case class Creator(") && !trimmed.contains("derives ") then
+          line + " derives DbCodec, Schema"
+        else line
+      }
+      .mkString("\n")
+
+  // ---------------------------------------------------------------------------
+  // Scala 3 codegen with scala.meta AST construction (no quasiquotes, no StringBuilder)
+  // ---------------------------------------------------------------------------
+
+  private def renderImports()(using Dialect): List[Stat] = {
+    List(
+      Import(List(Importer(termRef("com.augustnagro.magnum"), List(Importee.Wildcard())))),
+      Import(List(Importer(termRef("graviton.db"), List(Importee.Wildcard(), Importee.GivenAll())))),
+      Import(List(Importer(termRef("zio"), List(Importee.Name(Name.Indeterminate("Chunk")))))),
+      Import(List(Importer(termRef("zio.json.ast"), List(Importee.Name(Name.Indeterminate("Json")))))),
+      Import(List(Importer(termRef("zio.schema"), List(Importee.Name(Name.Indeterminate("Schema")))))),
+      Import(List(Importer(termRef("zio.schema.validation"), List(Importee.Name(Name.Indeterminate("Validation")))))),
+    )
+  }
+
+  private def renderEnums(enums: List[DataEnum])(using Dialect): List[Stat] =
+    enums.flatMap(renderEnum)
+
+  private def renderEnum(dataEnum: DataEnum)(using Dialect): List[Stat] = {
+    val enumName = Type.Name(stripBackticks(dataEnum.scalaName))
+    val enumTerm = Term.Name(stripBackticks(dataEnum.scalaName))
+
+    val ctor =
+      Ctor.Primary(
+        Nil,
+        Name.Anonymous(),
+        List(List(Term.Param(Nil, Name.Indeterminate("value"), Some(Type.Name("String")), None))),
       )
 
-    val pkg = Pkg(pkgTerm, stats.toList)
+    val enumCases: List[Stat] =
+      dataEnum.values.toList.map { v =>
+        val caseName = Term.Name(stripBackticks(v.scalaName))
+        val init     = Init(enumName, Name.Anonymous(), List(List(Lit.String(v.name))))
+        Defn.EnumCase(
+          Nil,
+          caseName,
+          Nil,
+          Ctor.Primary(Nil, Name.Anonymous(), List.empty[List[Term.Param]]),
+          List(init),
+        )
+      }
 
-    val header =
-      s"""// Code generated by dbcodegen. DO NOT EDIT.
-         |// Schema: ${schema.name}
-         |
-         |""".stripMargin
+    // NOTE: scala.meta's Scala 3 `derives` support varies by version; we set derives via a tiny token patch step
+    // if necessary. Here we create a standard enum and rely on Scalafmt + syntax for formatting.
+    val enumDef =
+      Defn.Enum(
+        mods = Nil,
+        name = enumName,
+        tparams = Nil,
+        ctor = ctor,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), enumCases),
+      )
 
-    header + pkg.syntax + "\n"
+    val byValueVal =
+      Defn.Val(
+        mods = List(Mod.Private(Name.Anonymous())),
+        pats = List(Pat.Var(Term.Name("byValue"))),
+        decltpe = Some(Type.Apply(Type.Name("Map"), List(Type.Name("String"), enumName))),
+        rhs =
+          Term.Select(
+            Term.Apply(
+              Term.Select(
+                Term.Select(Term.Select(enumTerm, Term.Name("values")), Term.Name("iterator")),
+                Term.Name("map"),
+              ),
+              List(
+                Term.Function(
+                  List(Term.Param(Nil, Name.Indeterminate("v"), None, None)),
+                  Term.ApplyInfix(
+                    Term.Select(Term.Name("v"), Term.Name("value")),
+                    Term.Name("->"),
+                    Nil,
+                    List(Term.Name("v")),
+                  ),
+                ),
+              ),
+            ),
+            Term.Name("toMap"),
+          ),
+      )
+
+    val dbCodecGiven =
+      givenAlias(
+        name = Name.Anonymous(),
+        decltpe = Type.Apply(Type.Name("DbCodec"), List(enumName)),
+        rhs = Term.Apply(
+          Term.Select(
+            Term.ApplyType(Term.Name("DbCodec"), List(Type.Name("String"))),
+            Term.Name("biMap"),
+          ),
+          List(
+            Term.Function(
+              List(Term.Param(Nil, Name.Indeterminate("str"), None, None)),
+              Term.Apply(
+                Term.Select(Term.Name("byValue"), Term.Name("getOrElse")),
+                List(
+                  Term.Name("str"),
+                  Term.Throw(
+                    Term.Apply(
+                      Term.Name("IllegalArgumentException"),
+                      List(
+                        concatString(
+                          Lit.String(s"Unknown ${dataEnum.name} value '"),
+                          Term.Name("str"),
+                          Lit.String("'"),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Term.AnonymousFunction(Term.Select(Term.Placeholder(), Term.Name("value"))),
+          ),
+        ),
+      )
+
+    val enumObj =
+      Defn.Object(
+        mods = Nil,
+        name = enumTerm,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), List(byValueVal, dbCodecGiven)),
+      )
+
+    List(enumDef, enumObj)
   }
 
-  private def renderTableSource(table: DataTable): String = {
-    val sb = new StringBuilder
-    sb.append("@Table(PostgresDbType)\n")
-    sb.append(s"final case class ${table.scalaName}(\n")
-    val columns = table.columns
-    columns.zipWithIndex.foreach { case (column, idx) =>
-      if (column.db.isPartOfPrimaryKey) sb.append("  @Id\n")
-      sb.append(s"  @SqlName(\"${column.name}\")\n")
-      val tpe = renderColumnType(column)
-      val suffix = if (idx == columns.size - 1) "" else ","
-      sb.append(s"  ${column.scalaName}: $tpe$suffix\n")
+  private def concatString(prefix: Lit.String, middle: Term, suffix: Lit.String)(using Dialect): Term =
+    Term.ApplyInfix(
+      Term.ApplyInfix(prefix, Term.Name("+"), Nil, List(middle)),
+      Term.Name("+"),
+      Nil,
+      List(suffix),
+    )
+
+  private def renderTableSource(schemaName: String, table: DataTable)(using Dialect): List[Stat] = {
+    val classNameT = Type.Name(stripBackticks(table.scalaName))
+    val className  = Term.Name(stripBackticks(table.scalaName))
+
+    val classMods = List(
+      Mod.Annot(Init(Type.Name("Table"), Name.Anonymous(), List(List(Term.Name("PostgresDbType"))))),
+      Mod.Final(),
+      Mod.Case(),
+    )
+
+    val ctorParams = table.columns.toList.map { col =>
+      val mods = ListBuffer.empty[Mod]
+      if col.db.isPartOfPrimaryKey then mods += Mod.Annot(Init(Type.Name("Id"), Name.Anonymous(), List.empty[List[Term]]))
+      mods += Mod.Annot(Init(Type.Name("SqlName"), Name.Anonymous(), List(List(Lit.String(col.name)))))
+
+      val tpe = parseType(renderColumnType(col))
+      Term.Param(mods.toList, Name.Indeterminate(stripBackticks(col.scalaName)), Some(tpe), None)
     }
-    sb.append(") derives DbCodec\n\n")
 
-    sb.append(s"object ${table.scalaName}:\n")
-    val primaryKeyColumns = columns.filter(_.db.isPartOfPrimaryKey)
+    val cls =
+      Defn.Class(
+        mods = classMods,
+        name = classNameT,
+        tparams = Nil,
+        ctor = Ctor.Primary(Nil, Name.Anonymous(), List(ctorParams)),
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), Nil),
+      )
 
-    primaryKeyColumns.toList match
+    val pkCols = table.columns.filter(_.db.isPartOfPrimaryKey).toList
+    val companionStats = ListBuffer.empty[Stat]
+
+    pkCols match
       case Nil =>
-        sb.append("  type Id = Null\n\n")
+        companionStats += Defn.Type(Nil, Type.Name("Id"), Nil, Type.Name("Null"))
+      case single :: Nil =>
+        val baseTpe = parseType(renderColumnType(single, forceRequired = true))
+        val colName = Term.Name(stripBackticks(single.scalaName))
 
-      case _ =>
-        val namedTuple  = renderNamedTuple(primaryKeyColumns)
-        val tupleCtor   = renderTupleCtor(primaryKeyColumns)
-        val idCodecName = "given_DbCodec_Id"
+        companionStats += Defn.Type(List(Mod.Opaque()), Type.Name("Id"), Nil, baseTpe)
+        companionStats += Defn.Object(
+          mods = Nil,
+          name = Term.Name("Id"),
+          templ = Template(
+            Nil,
+            Nil,
+            Self(Name.Anonymous(), None),
+            List(
+              Defn.Def(
+                Nil,
+                Term.Name("apply"),
+                Nil,
+                List(List(Term.Param(Nil, Name.Indeterminate(colName.value), Some(baseTpe), None))),
+                Some(Type.Name("Id")),
+                Term.Name(colName.value),
+              ),
+              Defn.Def(
+                Nil,
+                Term.Name("unwrap"),
+                Nil,
+                List(List(Term.Param(Nil, Name.Indeterminate("id"), Some(Type.Name("Id")), None))),
+                Some(baseTpe),
+                Term.Name("id"),
+              ),
+            ),
+          ),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_DbCodec_Id"),
+          decltpe = Type.Apply(Type.Name("DbCodec"), List(Type.Name("Id"))),
+          rhs = summonInlineBiMap(Type.Name("DbCodec"), baseTpe, Term.Name("Id"), Term.Name("Id"), Term.Name("unwrap")),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_Schema_Id"),
+          decltpe = Type.Apply(Type.Name("Schema"), List(Type.Name("Id"))),
+          rhs = summonInlineTransform(baseTpe, Term.Name("Id"), Term.Name("Id"), Term.Name("unwrap")),
+        )
+      case many =>
+        val namedTupleTpe = parseType(renderNamedTuple(many))
+        val plainTupleTpe = parseType(renderTupleType(many))
 
-        sb.append(s"  opaque type Id = $namedTuple\n\n")
+        companionStats += Defn.Type(List(Mod.Opaque()), Type.Name("Id"), Nil, namedTupleTpe)
+        companionStats += Defn.Object(
+          mods = Nil,
+          name = Term.Name("Id"),
+          templ = Template(
+            Nil,
+            Nil,
+            Self(Name.Anonymous(), None),
+            List(
+              Defn.Def(
+                Nil,
+                Term.Name("apply"),
+                Nil,
+                List(
+                  many.map { c =>
+                    Term.Param(Nil, Name.Indeterminate(stripBackticks(c.scalaName)), Some(parseType(renderColumnType(c, forceRequired = true))), None)
+                  },
+                ),
+                Some(Type.Name("Id")),
+                Term.Tuple(
+                  many.map { c =>
+                    val n = Term.Name(stripBackticks(c.scalaName))
+                    Term.Assign(n, n)
+                  },
+                ),
+              ),
+            ),
+          ),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_DbCodec_Id"),
+          decltpe = Type.Apply(Type.Name("DbCodec"), List(Type.Name("Id"))),
+          rhs = summonInlineNamedTupleBiMap(plainTupleTpe, many),
+        )
+        companionStats += givenAlias(
+          name = Name.Indeterminate("given_Schema_Id"),
+          decltpe = Type.Apply(Type.Name("Schema"), List(Type.Name("Id"))),
+          rhs = summonInlineNamedTupleTransform(plainTupleTpe, many),
+        )
 
-        sb.append("  object Id:\n")
-        sb.append(s"    def apply($tupleCtor): Id = ${renderNamedTupleLiteralFromParams(primaryKeyColumns)}\n\n")
-
-        val codecSource = renderIdCodecSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idCodecName: DbCodec[Id] = $codecSource\n\n")
-
-    if (!table.isView) {
+    if !table.isView then
+      // Creator: keep current heuristics, but build as AST
       val autoPrimaryKey =
-        primaryKeyColumns.nonEmpty && primaryKeyColumns.forall { column =>
-          val dbColumn = column.db
-          dbColumn.isGenerated || dbColumn.isAutoIncremented || dbColumn.hasDefaultValue
+        pkCols.nonEmpty && pkCols.forall { c =>
+          val db = c.db
+          db.isGenerated || db.isAutoIncremented || db.hasDefaultValue
         }
-      val creatorColumns = columns.filterNot { column =>
-        val dbColumn = column.db
-        val skipAutoPrimaryKey = autoPrimaryKey && dbColumn.isPartOfPrimaryKey
-        val skipGenerated      = dbColumn.isGenerated && !dbColumn.hasDefaultValue
-        skipAutoPrimaryKey || skipGenerated
+
+      val creatorColumns = table.columns.filterNot { c =>
+        val db = c.db
+        val skipAutoPk = autoPrimaryKey && db.isPartOfPrimaryKey
+        val skipGen    = db.isGenerated && !db.hasDefaultValue
+        skipAutoPk || skipGen
+      }.toList
+
+      val creatorParams = ListBuffer.empty[Term.Param]
+      if autoPrimaryKey then
+        creatorParams += Term.Param(
+          Nil,
+          Name.Indeterminate("id"),
+          Some(Type.Apply(Type.Name("Option"), List(Type.Select(className, Type.Name("Id"))))),
+          Some(Term.Name("None")),
+        )
+
+      creatorColumns.foreach { c =>
+        val base = parseType(baseColumnType(c))
+        val db   = c.db
+        val optionalFromDefault = db.hasDefaultValue || db.isGenerated || db.isAutoIncremented
+        val optionalFromNull    = db.isNullable && !db.isPartOfPrimaryKey
+        val isOptional          = optionalFromDefault || optionalFromNull
+        val tpe = if isOptional then Type.Apply(Type.Name("Option"), List(base)) else base
+        val default = if isOptional then Some(Term.Name("None")) else None
+        creatorParams += Term.Param(Nil, Name.Indeterminate(stripBackticks(c.scalaName)), Some(tpe), default)
       }
 
-      val creatorFields =
-        (if autoPrimaryKey then Seq(s"id: Option[${table.scalaName}.Id] = None") else Seq.empty) ++
-          creatorColumns.map(renderCreatorField)
+      if creatorParams.nonEmpty then
+        companionStats += Defn.Class(
+          mods = List(Mod.Final(), Mod.Case()),
+          name = Type.Name("Creator"),
+          tparams = Nil,
+          ctor = Ctor.Primary(Nil, Name.Anonymous(), List(creatorParams.toList)),
+          templ = Template(Nil, Nil, Self(Name.Anonymous(), None), Nil),
+        )
+      else
+        companionStats += Defn.Type(Nil, Type.Name("Creator"), Nil, Type.Name("Unit"))
 
-      if (creatorFields.nonEmpty) {
-        sb.append(s"  final case class Creator(\n")
-        creatorFields.zipWithIndex.foreach { case (line, idx) =>
-          val suffix = if idx == creatorFields.size - 1 then "" else ","
-          sb.append(s"    $line$suffix\n")
-        }
-        sb.append("  ) derives DbCodec\n\n")
-      } else {
-        sb.append("  type Creator = Unit\n\n")
-      }
-    }
+    val repoVal =
+      Defn.Val(
+        mods = Nil,
+        pats = List(Pat.Var(Term.Name("repo"))),
+        decltpe = None,
+        rhs =
+          if table.isView then
+            Term.ApplyType(Term.Name("ImmutableRepo"), List(classNameT, Type.Select(className, Type.Name("Id"))))
+          else
+            Term.ApplyType(
+              Term.Name("Repo"),
+              List(Type.Select(className, Type.Name("Creator")), classNameT, Type.Select(className, Type.Name("Id"))),
+            ),
+      )
+    companionStats += repoVal
 
-    if (table.isView)
-      sb.append(s"  val repo = ImmutableRepo[${table.scalaName}, ${table.scalaName}.Id]\n\n")
-    else
-      sb.append(s"  val repo = Repo[${table.scalaName}.Creator, ${table.scalaName}, ${table.scalaName}.Id]\n\n")
+    // Tiny metadata surface for macros / tooling.
+    val metaObj =
+      Defn.Object(
+        mods = Nil,
+        name = Term.Name("Meta"),
+        templ = Template(
+          Nil,
+          Nil,
+          Self(Name.Anonymous(), None),
+          List(
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("schema"))),
+              decltpe = Some(Type.Name("String")),
+              rhs = Lit.String(schemaName),
+            ),
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("table"))),
+              decltpe = Some(Type.Name("String")),
+              rhs = Lit.String(table.name),
+            ),
+            Defn.Val(
+              mods = List(Mod.Inline()),
+              pats = List(Pat.Var(Term.Name("columns"))),
+              decltpe = Some(
+                Type.Apply(
+                  Type.Name("List"),
+                  List(Type.Tuple(List(Type.Name("String"), Type.Name("String")))),
+                ),
+              ),
+              rhs = Term.Apply(
+                Term.Name("List"),
+                table.columns.toList.map { c =>
+                  Term.ApplyInfix(Lit.String(stripBackticks(c.scalaName)), Term.Name("->"), Nil, List(Lit.String(c.name)))
+                },
+              ),
+            ),
+          ),
+        ),
+      )
 
-    sb.toString
+    companionStats.prepend(metaObj)
+
+    val companion =
+      Defn.Object(
+        mods = Nil,
+        name = className,
+        templ = Template(Nil, Nil, Self(Name.Anonymous(), None), companionStats.toList),
+      )
+
+    List(cls, companion)
   }
 
-  private def parseStatements(code: String): List[Stat] =
-    val trimmed = code.trim
-    if trimmed.isEmpty then Nil
-    else
-      dialects.Scala3(trimmed).parse[Source] match
-        case Parsed.Success(tree) => tree.stats
-        case Parsed.Error(pos, message, _) =>
-          throw new IllegalArgumentException(s"Failed to parse generated code at ${pos.startLine}:${pos.startColumn}: $message\n$code")
+  private def termRef(path: String): Term.Ref =
+    path.split('.').toList match
+      case Nil => Term.Name("<?>")
+      case head :: tail =>
+        tail.foldLeft[Term.Ref](Term.Name(head)) { case (acc, part) => Term.Select(acc, Term.Name(part)) }
+
+  private def parseType(typeStr: String)(using Dialect): Type =
+    dialects.Scala3(typeStr).parse[Type] match
+      case Parsed.Success(tpe) => tpe
+      case Parsed.Error(pos, message, _) =>
+        // last resort: keep compilation going with a placeholder type
+        Type.Name(s"/*parse-error ${pos.startLine}:${pos.startColumn} $message*/ Any")
+
+  private def stripBackticks(name: String): String =
+    if name.startsWith("`") && name.endsWith("`") && name.length >= 2 then name.drop(1).dropRight(1) else name
+
+  private def givenAlias(name: Name, decltpe: Type, rhs: Term)(using Dialect): Stat =
+    Defn.GivenAlias(Nil, name, Nil, decltpe, rhs)
+
+  private def summonInlineBiMap(typeClass: Type, baseTpe: Type, idObj: Term.Name, idCtor: Term.Name, unwrap: Term.Name)(using Dialect): Term = {
+    // scala.compiletime.summonInline[TypeClass[Base]].biMap(value => Id(value), id => Id.unwrap(id))
+    val summon = Term.ApplyType(Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")), List(Type.Apply(typeClass, List(baseTpe))))
+    Term.Apply(
+      Term.Select(summon, Term.Name("biMap")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Apply(idCtor, List(Term.Name("value"))),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Apply(Term.Select(idObj, unwrap), List(Term.Name("id"))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineTransform(baseTpe: Type, idCtor: Term.Name, idObj: Term.Name, unwrap: Term.Name)(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("Schema"), List(baseTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("transform")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Apply(idCtor, List(Term.Name("value"))),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Apply(Term.Select(idObj, unwrap), List(Term.Name("id"))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineNamedTupleBiMap(plainTupleTpe: Type, cols: List[DataColumn])(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("DbCodec"), List(plainTupleTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("biMap")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Tuple(
+            cols.zipWithIndex.map { case (c, idx) =>
+              val n = Term.Name(stripBackticks(c.scalaName))
+              Term.Assign(n, Term.Select(Term.Name("value"), Term.Name(s"_${idx + 1}")))
+            },
+          ),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Tuple(cols.map(c => Term.Select(Term.Name("id"), Term.Name(stripBackticks(c.scalaName))))),
+        ),
+      ),
+    )
+  }
+
+  private def summonInlineNamedTupleTransform(plainTupleTpe: Type, cols: List[DataColumn])(using Dialect): Term = {
+    val summon = Term.ApplyType(
+      Term.Select(termRef("scala.compiletime"), Term.Name("summonInline")),
+      List(Type.Apply(Type.Name("Schema"), List(plainTupleTpe))),
+    )
+    Term.Apply(
+      Term.Select(summon, Term.Name("transform")),
+      List(
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("value"), None, None)),
+          Term.Tuple(
+            cols.zipWithIndex.map { case (c, idx) =>
+              val n = Term.Name(stripBackticks(c.scalaName))
+              Term.Assign(n, Term.Select(Term.Name("value"), Term.Name(s"_${idx + 1}")))
+            },
+          ),
+        ),
+        Term.Function(
+          List(Term.Param(Nil, Name.Indeterminate("id"), None, None)),
+          Term.Tuple(cols.map(c => Term.Select(Term.Name("id"), Term.Name(stripBackticks(c.scalaName))))),
+        ),
+      ),
+    )
+  }
+
+  private def renderPackageTerm(basePackage: String, schemaName: String): Term.Ref = {
+    val parts =
+      basePackage
+        .split("\\.")
+        .iterator
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .toList
+
+    val all = parts :+ schemaName
+    all match
+      case Nil =>
+        Term.Name("generated")
+      case head :: tail =>
+        tail.foldLeft[Term.Ref](Term.Name(head)) { case (acc, part) =>
+          Term.Select(acc, Term.Name(part))
+        }
+  }
 
   private def renderColumnType(column: DataColumn, forceRequired: Boolean = false): String = {
     val base = baseColumnType(column)
@@ -456,57 +899,10 @@ object CodeGenerator {
       case single :: Nil => s"$namedExpr.${single.scalaName}"
       case many => many.map(column => s"$namedExpr.${column.scalaName}").mkString("(", ", ", ")")
 
-  private def renderZioSchemas(schema: DataSchema, validationMap: Map[String, TableValidationRender]): String = {
-    val sb = new StringBuilder
-    sb.append(s"// ZIO Schema definitions for ${schema.name}\n")
-    sb.append("object Schemas {\n")
-
-    schema.tables.foreach { table =>
-      val tableGiven = schemaGivenName(table.scalaName)
-
-      val tableValidations = validationMap.getOrElse(table.scalaName, TableValidationRender(Seq.empty, Seq.empty))
-      combineValidationExpressions(table.scalaName, tableValidations.expressions) match
-        case Some(validationExpr) =>
-          sb.append(s"  given $tableGiven: Schema[${table.scalaName}] =\n")
-          sb.append(s"    DeriveSchema.gen[${table.scalaName}].validation(\n")
-          sb.append(indentLines(validationExpr, 6))
-          sb.append("\n    )\n")
-        case None =>
-          sb.append(s"  given $tableGiven: Schema[${table.scalaName}] = DeriveSchema.gen[${table.scalaName}]\n")
-
-      val primaryKeyColumns = table.columns.filter(_.db.isPartOfPrimaryKey)
-      if (primaryKeyColumns.nonEmpty) then
-        val idGiven      = schemaGivenName(s"${table.scalaName}.Id")
-        val schemaSource = renderIdSchemaSource(table.scalaName, primaryKeyColumns)
-        sb.append(s"  given $idGiven: Schema[${table.scalaName}.Id] = $schemaSource\n")
-
-      if (!table.isView) {}
-    }
-
-    sb.append("}\n")
-    sb.toString
-  }
-
   private final case class TableValidationRender(
     expressions: Seq[String],
     warnings: Seq[String],
   )
-
-  private def renderEnums(schema: DataSchema): String = {
-    if schema.enums.isEmpty then ""
-    else
-      val sb = new StringBuilder
-      schema.enums.foreach { dataEnum =>
-        sb.append(s"enum ${dataEnum.scalaName}(val value: String):\n")
-        dataEnum.values.foreach { value =>
-          sb.append(s"  case ${value.scalaName} extends ${dataEnum.scalaName}(\"${escapeScalaString(value.name)}\")\n")
-        }
-        sb.append("\n")
-        sb.append(s"object ${dataEnum.scalaName}:\n")
-        sb.append(s"  given Schema[${dataEnum.scalaName}] = DeriveSchema.gen[${dataEnum.scalaName}]\n\n")
-      }
-      sb.toString
-  }
 
   private def buildTableValidations(table: DataTable): TableValidationRender = {
     val expressions = ListBuffer.empty[String]
@@ -763,17 +1159,5 @@ object CodeGenerator {
       case c => c.toString
     }
 
-  private def schemaGivenName(typeName: String): String = {
-    val pascal = typeName
-      .split("\\.")
-      .filter(_.nonEmpty)
-      .map(_.capitalize)
-      .mkString
-
-    val camel =
-      if pascal.isEmpty then "schema"
-      else s"${pascal.head.toLower}${pascal.tail}"
-
-    s"${camel}Schema"
-  }
+  // (schemaGivenName removed: we now use `derives Schema` for models)
 }

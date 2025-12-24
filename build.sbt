@@ -17,7 +17,7 @@ lazy val checkDocSnippets =
   taskKey[Unit]("Verify that documentation snippet blocks are up to date.")
 
 lazy val V = new {
-  val scala3     = "3.7.3"
+  val scala3     = "3.7.4"
   val zio        = "2.1.9"
   val zioSchema  = "1.5.0"
   val zioPrelude = "1.0.0-RC23"
@@ -207,6 +207,7 @@ lazy val core = (project in file("modules/graviton-core"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-schema"  % V.zioSchema,
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
+      "com.kubuszok" %% "hearth" % "0.2.0",
       "io.getkyo" %% "kyo-data" % V.kyo,
       "io.getkyo" %% "kyo-core" % V.kyo,
       "io.getkyo" %% "kyo-prelude" % V.kyo,
@@ -219,7 +220,10 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
-    )
+    ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((3, _)) => Seq(compilerPlugin("com.kubuszok" % "hearth-cross-quotes_3" % "0.2.0"))
+      case _            => Seq.empty
+    })
   )
 
 lazy val streams = (project in file("modules/graviton-streams"))
