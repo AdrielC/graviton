@@ -177,22 +177,15 @@ object types:
   // - Sizes/counts/bytes are 1-based (min = 1)
   // ---------------------------
 
-  type Size1 = Size1.T
-  trait Size1 extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
-  object Size1 extends Size1
+  type Size = Size.T
+  type Size1 = Size
+  object Size extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
 
-  type SizeLong1 = SizeLong1.T
-  trait SizeLong1 extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
-  object SizeLong1 extends SizeLong1
+  type SizeLong = SizeLong.T
+  type SizeLong1 = SizeLong
+  object SizeLong extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
 
   trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
-
-  // Legacy convenience names (now size-min-1, not index-min-0)
-  type SizeLong = SizeLong.T
-  object SizeLong extends SizeLong1
-
-  type Size = Size.T
-  object Size extends Size1
 
   object SizeSubtype     extends IntSizeTrait[Int]
   object SizeLongSubtype extends LongSizeTrait[Long]
