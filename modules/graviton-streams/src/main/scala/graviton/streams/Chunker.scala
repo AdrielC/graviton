@@ -1,7 +1,7 @@
 package graviton.streams
 
-import graviton.core.model.{Block, ByteConstraints}
-import graviton.core.scan.FS
+import graviton.core.model.Block
+import graviton.core.scan.{FS, FreeScan, Prim}
 import graviton.core.scan.FS.*
 import graviton.core.types.*
 import zio.{Chunk, FiberRef, Unsafe, ZIO}
@@ -14,14 +14,7 @@ trait Chunker:
   def pipeline: ZPipeline[Any, Throwable, Byte, Block]
 
 object Chunker:
-  private val DefaultChunkBytes = 1024 * 1024
-
-  private val defaultChunkSize: ChunkSize =
-    ByteConstraints
-      .refineUploadChunkSize(DefaultChunkBytes)
-      .fold(err => throw new IllegalStateException(s"Invalid default chunk size ($DefaultChunkBytes): $err"), identity)
-
-  val default: Chunker = fixed(defaultChunkSize)
+  val default: Chunker = fastCdc()
 
   val current: FiberRef[Chunker] =
     Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(default))
@@ -31,17 +24,32 @@ object Chunker:
 
   def fixed(size: ChunkSize, label: Option[String] = None): Chunker =
     val sizeBytes = size
-    val scan      = FS.fixedChunker(sizeBytes).optimize.toPipeline
-    val pipeline  =
-      (ZPipeline.identity[Byte].chunks >>> scan)
-        .mapChunksZIO { chunkOfBlocks =>
-          ZIO
-            .foreach(chunkOfBlocks) { bytes =>
-              ZIO.fromEither(Block.fromChunk(bytes)).mapError(msg => new IllegalArgumentException(msg))
-            }
-            .map(blocks => Chunk.fromIterable(blocks))
-        }
+    val pipeline  = pipelineFromScan(FS.fixedChunker(sizeBytes))
     SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), pipeline)
+
+  def fastCdc(config: FastCDC.Config = FastCDC.Config.Default, label: Option[String] = None): Chunker =
+    val normalized = FastCDC.Config.sanitize(config)
+    val pipeline   = FastCDC.chunker(normalized)
+    SimpleChunker(label.getOrElse(s"fastcdc-${normalized.avgBytes}"), pipeline)
+
+  def anchored(config: AnchoredCDC.Config, label: Option[String] = None): Chunker =
+    val normalized = AnchoredCDC.Config.sanitize(config)
+    val pipeline   = AnchoredCDC.chunker(normalized)
+    SimpleChunker(label.getOrElse(s"anchored-${normalized.avgBytes}"), pipeline)
+
+  def anchoredPdf(label: Option[String] = None): Chunker =
+    anchored(AnchoredCDC.Pdf.semanticConfig, label.orElse(Some("anchored-pdf")))
+
+  private[streams] def pipelineFromScan(scan: FreeScan[Prim, Chunk[Byte], Chunk[Byte]]): ZPipeline[Any, Throwable, Byte, Block] =
+    val optimized = scan.optimize.toPipeline
+    (ZPipeline.identity[Byte].chunks >>> optimized)
+      .mapChunksZIO { chunkOfBlocks =>
+        ZIO
+          .foreach(chunkOfBlocks) { bytes =>
+            ZIO.fromEither(Block.fromChunk(bytes)).mapError(msg => new IllegalArgumentException(msg))
+          }
+          .map(blocks => Chunk.fromIterable(blocks))
+      }
 
   given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Throwable, Byte, Block]] with
     def apply(chunker: Chunker): ZPipeline[Any, Throwable, Byte, Block] =

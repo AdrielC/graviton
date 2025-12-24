@@ -10,7 +10,7 @@ This checklist captures the remaining work required before publishing Graviton f
 - Keep schema changes in lockstep with regenerated bindings in `modules/pg/src/main/resources/generated/` when the DDL evolves.
 
 ## Documentation and Guides
-- Replace remaining Torrent references with Graviton-centric language and port the binary streaming and chunking documentation from the prior project.
+- Ensure all docs use Graviton-centric language and port the binary streaming and chunking documentation from the legacy project.
 - Write the binary-streaming guide (blocks, blobs, manifests, attributes) and link it from the Getting Started section.
 - Flesh out CLI usage pages that cover installation, command options, sample inputs/outputs, and end-to-end flows.
 - Add the Apache Tika module page and port the performance, API reference, and replication model notes from the legacy docs.

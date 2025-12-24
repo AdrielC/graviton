@@ -1,11 +1,12 @@
 package graviton.frontend
 
 import graviton.shared.HttpClient
-import zio.*
 import org.scalajs.dom
-import scala.scalajs.js
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
+import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
+import zio.*
 
 /** Browser-based HTTP client using Fetch API */
 final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
@@ -32,9 +33,9 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
         .fetch(url, init)
         .toFuture
         .flatMap { response =>
-          response.text().toFuture.map { text =>
-            if (response.ok) text
-            else throw new Exception(s"HTTP ${response.status}: $text")
+          response.text().toFuture.flatMap { text =>
+            if (response.ok) Future.successful(text)
+            else Future.failed(BrowserHttpClient.HttpError(response.status, text))
           }
         }
         .toJSPromise
@@ -51,6 +52,9 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
 }
 
 object BrowserHttpClient {
+
+  final case class HttpError(status: Int, body: String) extends Exception(s"HTTP $status: $body")
+
   def layer(baseUrl: String): ULayer[HttpClient] =
     ZLayer.succeed(new BrowserHttpClient(baseUrl))
 }

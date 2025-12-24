@@ -156,52 +156,73 @@ val maxDedup = FastCDCConfig(
 
 ### Algorithm
 
-Uses content-defined anchors with rechunking:
+Anchored CDC scans for semantic markers (anchors) inside a bounded sliding
+window and cuts chunks at those boundaries. Each anchor can define:
+
+- **`includePattern`** – whether the emitted chunk should include the anchor bytes.
+- **`scanBudgetBytes`** – a budget that limits how far back the detector looks for
+  that pattern, keeping the search cost bounded.
 
 ```scala
-final case class AnchoredCDCConfig(
-  anchorPattern: ByteString,     // Pattern to search for
-  minSize: Int = 256 * 1024,
-  avgSize: Int = 1024 * 1024,
-  maxSize: Int = 4 * 1024 * 1024,
-  rechunkThreshold: Double = 0.8  // Rechunk if chunk > threshold * maxSize
+import graviton.streams.AnchoredCDC
+import java.nio.charset.StandardCharsets
+
+val anchors = Chunk(
+  AnchoredCDC.Anchor(
+    label = "pdf.endstream",
+    bytes = Chunk.fromArray("endstream".getBytes(StandardCharsets.US_ASCII)),
+    includePattern = true,
+    scanBudgetBytes = Some(64 * 1024),
+  ),
+  AnchoredCDC.Anchor(
+    label = "pdf.endobj",
+    bytes = Chunk.fromArray("endobj".getBytes(StandardCharsets.US_ASCII)),
+  ),
 )
 
-object AnchoredCDC:
-  def chunker(config: AnchoredCDCConfig): ZPipeline[Any, Nothing, Byte, Block] =
-    ZPipeline.fromSink(
-      ZSink.foldWeightedDecompose(Chunk.empty[Byte])(_.size.toLong)(config.maxSize.toLong) {
-        case (acc, chunk) =>
-          val combined = acc ++ chunk
-          val anchors = findAnchors(combined, config.anchorPattern)
-          
-          if anchors.nonEmpty then
-            // Split at anchor points
-            val (blocks, remaining) = splitAt Anchors(combined, anchors)
-            (blocks, remaining)
-          else if combined.size >= config.maxSize then
-            // Force split at max size
-            (Chunk.single(combined), Chunk.empty)
-          else
-            // Keep accumulating
-            (Chunk.empty, combined)
-      }
-    )
+val config = AnchoredCDC.Config(
+  minBytes = 256 * 1024,
+  avgBytes = 1024 * 1024,
+  maxBytes = 4 * 1024 * 1024,
+  anchors = anchors,
+  scanWindowBytes = 512 * 1024,
+  rechunkThreshold = 0.85,
+)
+
+val pipeline: ZPipeline[Any, Throwable, Byte, Block] =
+  AnchoredCDC.chunker(config)
 ```
 
 ### Use Cases
 
-**Document formats:**
+**Semantic-aware PDFs:**
 ```scala
-// PDF: Split at object boundaries
-val pdfAnchors = AnchoredCDCConfig(
-  anchorPattern = ByteString("endobj\n")
+val pdfChunker =
+  AnchoredCDC.chunker(AnchoredCDC.Pdf.semanticConfig)
+```
+The bundled PDF config ships anchors for `stream`, `endstream`, `endobj`,
+`xref`, `trailer`, and `startxref`, enabling the runtime to isolate uncompressed
+streams inside documents before recompressing/deduping them.
+
+**ZIP / container formats:**
+```scala
+val zipAnchors = Chunk(
+  AnchoredCDC.Anchor(
+    label = "zip.file",
+    bytes = Chunk(0x50.toByte, 0x4B.toByte, 0x03.toByte, 0x04.toByte),
+    scanBudgetBytes = Some(128 * 1024),
+  )
 )
 
-// ZIP: Split at file entries
-val zipAnchors = AnchoredCDCConfig(
-  anchorPattern = ByteString(0x50, 0x4B, 0x03, 0x04)  // PK.. signature
-)
+val zipChunker =
+  AnchoredCDC.chunker(
+    AnchoredCDC.Config(
+      minBytes = 128 * 1024,
+      avgBytes = 512 * 1024,
+      maxBytes = 2 * 1024 * 1024,
+      anchors = zipAnchors,
+    )
+  )
 ```
 
 ## BuzHash CDC
