@@ -9,6 +9,5 @@ object HearthDebugSpec extends ZIOSpecDefault:
       test("typeName emits compile-time type rendering") {
         val name = HearthDebug.typeName[Option[Int]]
         assertTrue(name.contains("Option")) && assertTrue(name.contains("Int"))
-      },
+      }
     )
-
