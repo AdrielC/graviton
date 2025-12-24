@@ -1,10 +1,11 @@
 package graviton.server
 
-import graviton.backend.s3.S3BlobStore as MinioBlobStore
+import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
+import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{HttpApi, MetricsHttpApi}
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
-import graviton.runtime.stores.{BlobStore, InMemoryBlobStore}
+import graviton.runtime.stores.{BlobStore, CasBlobStore, InMemoryBlobStore}
 import graviton.shared.ApiModels.*
 import zio.*
 import zio.http.*
@@ -67,7 +68,13 @@ object Main extends ZIOAppDefault:
       blobBackend = envOr("GRAVITON_BLOB_BACKEND", "memory").toLowerCase
       blobLayer   =
         blobBackend match
-          case "s3" | "minio" => MinioBlobStore.layerFromEnv
+          case "s3" | "minio" =>
+            ZLayer.make[BlobStore](
+              PgDataSource.layerFromEnv,
+              PgBlobManifestRepo.layer,
+              S3BlockStore.layerFromEnv,
+              CasBlobStore.layer,
+            )
           case _              => InMemoryBlobStore.layer
 
       _ <- program.provide(

@@ -82,6 +82,13 @@ services:
       QUASAR_MINIO_URL: ${QUASAR_MINIO_URL:-http://minio:9000}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Postgres (schema + manifest rows)
+      PG_JDBC_URL: ${PG_JDBC_URL:-jdbc:postgresql://postgres:5432/quasar}
+      PG_USERNAME: ${PG_USERNAME:-quasar_app}
+      PG_PASSWORD: ${PG_PASSWORD:-quasar_app}
+      # MinIO block CAS namespace
+      GRAVITON_S3_BLOCK_BUCKET: ${GRAVITON_S3_BLOCK_BUCKET:-graviton-blocks}
+      GRAVITON_S3_BLOCK_PREFIX: ${GRAVITON_S3_BLOCK_PREFIX:-cas/blocks}
       GRAVITON_S3_BUCKET: ${GRAVITON_S3_BUCKET:-graviton-blobs}
       GRAVITON_S3_TMP_BUCKET: ${GRAVITON_S3_TMP_BUCKET:-graviton-tmp}
     ports:
