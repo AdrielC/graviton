@@ -114,6 +114,37 @@ BEGIN
 END;
 $$;
 
+-- Generic change notification trigger (for cache invalidation / subscriptions).
+-- Emits json payload to:
+--   - channel 'graviton_inval' for graviton.*
+--   - channel 'quasar_inval'   for quasar.*
+CREATE OR REPLACE FUNCTION core.notify_change()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  payload jsonb;
+  chan text;
+BEGIN
+  chan := CASE TG_TABLE_SCHEMA
+    WHEN 'graviton' THEN 'graviton_inval'
+    WHEN 'quasar' THEN 'quasar_inval'
+    ELSE 'core_inval'
+  END;
+
+  payload := jsonb_build_object(
+    'schema', TG_TABLE_SCHEMA,
+    'table',  TG_TABLE_NAME,
+    'op',     TG_OP,
+    'ts',     clock_timestamp(),
+    'row',    CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN to_jsonb(NEW) ELSE to_jsonb(OLD) END
+  );
+
+  PERFORM pg_notify(chan, payload::text);
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
 -- ---------------- Graviton (CAS substrate) ----------------------
 
 CREATE OR REPLACE FUNCTION graviton.is_valid_cas_key(
@@ -213,6 +244,15 @@ CREATE TABLE graviton.block_location (
   CONSTRAINT encryption_is_object CHECK (jsonb_typeof(encryption) = 'object'),
   CONSTRAINT locator_has_scheme CHECK (locator ? 'scheme'),
   CONSTRAINT locator_has_keyish CHECK ((locator ? 'key') OR (locator ? 'path')),
+  CONSTRAINT locator_scheme_format CHECK ((locator->>'scheme') ~ '^[a-z][a-z0-9+.-]*$'),
+  CONSTRAINT locator_scheme_contract CHECK (
+    CASE locator->>'scheme'
+      WHEN 's3' THEN (locator ? 'bucket') AND (locator ? 'key')
+      WHEN 'fs' THEN (locator ? 'path')
+      WHEN 'ceph' THEN (locator ? 'pool') AND (locator ? 'key')
+      ELSE true
+    END
+  ),
   CONSTRAINT stored_length_nonneg CHECK (stored_length >= 0)
 );
 CREATE INDEX block_location_lookup_idx
@@ -386,6 +426,7 @@ CREATE TABLE graviton.view_materialization (
 
 -- ---------------- Quasar (application substrate) ----------------
 
+-- Tenancy roots (not partitioned)
 CREATE TABLE quasar.tenant (
   tenant_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name      core.nonempty_text NOT NULL UNIQUE,
@@ -402,6 +443,7 @@ CREATE TABLE quasar.org (
   UNIQUE (tenant_id, name)
 );
 
+-- Principals (partitioned by org_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -415,26 +457,53 @@ BEGIN
 END $$;
 
 CREATE TABLE quasar.principal (
-  principal_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id       uuid NOT NULL REFERENCES quasar.org(org_id),
+  principal_id uuid NOT NULL DEFAULT gen_random_uuid(),
   kind         quasar.principal_kind NOT NULL,
   display_name text NOT NULL,
   status       core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at   timestamptz NOT NULL DEFAULT core.now_utc()
-);
+  created_at   timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, principal_id)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.principal_p%1$s PARTITION OF quasar.principal FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX principal_org_kind_idx ON quasar.principal (org_id, kind, status);
 
 CREATE TABLE quasar.principal_external_identity (
-  principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id) ON DELETE CASCADE,
+  org_id       uuid NOT NULL,
+  principal_id uuid NOT NULL,
   issuer       core.nonempty_text NOT NULL,
   subject      core.nonempty_text NOT NULL,
   claims       jsonb NOT NULL DEFAULT '{}'::jsonb,
   last_seen_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (principal_id, issuer, subject),
-  UNIQUE (issuer, subject),
+  PRIMARY KEY (org_id, principal_id, issuer, subject),
+  UNIQUE (org_id, issuer, subject),
+  FOREIGN KEY (org_id, principal_id)
+    REFERENCES quasar.principal(org_id, principal_id)
+    ON DELETE CASCADE,
   CONSTRAINT claims_is_object CHECK (jsonb_typeof(claims) = 'object')
-);
+) PARTITION BY HASH (org_id);
 
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.principal_external_identity_p%1$s PARTITION OF quasar.principal_external_identity FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+-- Upload staging (partitioned by org_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -457,43 +526,89 @@ BEGIN
 END $$;
 
 CREATE TABLE quasar.upload_session (
-  upload_session_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  upload_session_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_by_principal_id uuid NOT NULL,
   status quasar.upload_status NOT NULL DEFAULT 'open',
   expires_at timestamptz NOT NULL,
   constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
   client_context jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, upload_session_id),
+  FOREIGN KEY (org_id, created_by_principal_id)
+    REFERENCES quasar.principal(org_id, principal_id),
   CONSTRAINT constraints_is_object CHECK (jsonb_typeof(constraints) = 'object'),
   CONSTRAINT client_context_is_object CHECK (jsonb_typeof(client_context) = 'object')
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.upload_session_p%1$s PARTITION OF quasar.upload_session FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
 
 CREATE TABLE quasar.upload_file (
-  upload_file_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  upload_session_id uuid NOT NULL REFERENCES quasar.upload_session(upload_session_id) ON DELETE CASCADE,
+  org_id uuid NOT NULL,
+  upload_file_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  upload_session_id uuid NOT NULL,
   client_file_name text NOT NULL,
   declared_size core.byte_size NULL,
   declared_hash jsonb NULL,
   status quasar.upload_file_status NOT NULL DEFAULT 'uploading',
   result_blob_ref jsonb NULL,
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, upload_file_id),
+  FOREIGN KEY (org_id, upload_session_id)
+    REFERENCES quasar.upload_session(org_id, upload_session_id)
+    ON DELETE CASCADE,
   CONSTRAINT declared_hash_is_object CHECK (declared_hash IS NULL OR jsonb_typeof(declared_hash) = 'object'),
   CONSTRAINT result_blob_ref_is_object CHECK (result_blob_ref IS NULL OR jsonb_typeof(result_blob_ref) = 'object')
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.upload_file_p%1$s PARTITION OF quasar.upload_file FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX upload_file_session_idx ON quasar.upload_file (org_id, upload_session_id);
 
 CREATE TABLE quasar.upload_part (
-  upload_file_id uuid NOT NULL REFERENCES quasar.upload_file(upload_file_id) ON DELETE CASCADE,
+  org_id uuid NOT NULL,
+  upload_file_id uuid NOT NULL,
   part_no int NOT NULL,
   byte_range int8range NOT NULL,
   etag text NULL,
   status core.present_status NOT NULL DEFAULT 'present',
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (upload_file_id, part_no),
+  PRIMARY KEY (org_id, upload_file_id, part_no),
+  FOREIGN KEY (org_id, upload_file_id)
+    REFERENCES quasar.upload_file(org_id, upload_file_id)
+    ON DELETE CASCADE,
   CONSTRAINT nonempty_range CHECK (lower(byte_range) < upper(byte_range))
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.upload_part_p%1$s PARTITION OF quasar.upload_part FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX upload_part_range_gist ON quasar.upload_part USING gist (upload_file_id, byte_range);
 
+-- Documents + read model (partitioned by org_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -516,57 +631,132 @@ BEGIN
 END $$;
 
 CREATE TABLE quasar.document (
-  doc_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  doc_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  created_by_principal_id uuid NOT NULL,
   title text NOT NULL,
   status quasar.doc_status NOT NULL DEFAULT 'draft',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc()
-);
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, doc_id),
+  FOREIGN KEY (org_id, created_by_principal_id)
+    REFERENCES quasar.principal(org_id, principal_id)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.document_p%1$s PARTITION OF quasar.document FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
 
 CREATE TABLE quasar.document_version (
-  doc_version_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  doc_id uuid NOT NULL REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+  org_id uuid NOT NULL,
+  doc_version_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  doc_id uuid NOT NULL,
   version int NOT NULL,
-  created_by_principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  created_by_principal_id uuid NOT NULL,
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
   content_kind quasar.content_kind NOT NULL,
   content_ref jsonb NOT NULL,
-  UNIQUE (doc_id, version),
+  PRIMARY KEY (org_id, doc_version_id),
+  UNIQUE (org_id, doc_id, version),
+  FOREIGN KEY (org_id, doc_id)
+    REFERENCES quasar.document(org_id, doc_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (org_id, created_by_principal_id)
+    REFERENCES quasar.principal(org_id, principal_id),
   CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
-);
-CREATE INDEX document_version_doc_idx ON quasar.document_version (doc_id, version DESC);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.document_version_p%1$s PARTITION OF quasar.document_version FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX document_version_doc_idx ON quasar.document_version (org_id, doc_id, version DESC);
 
 CREATE TABLE quasar.document_current (
-  doc_id uuid PRIMARY KEY REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  current_version_id uuid NOT NULL REFERENCES quasar.document_version(doc_version_id),
+  org_id uuid NOT NULL,
+  doc_id uuid NOT NULL,
+  current_version_id uuid NOT NULL,
   content_kind quasar.content_kind NOT NULL,
   content_ref jsonb NOT NULL,
   status quasar.doc_status NOT NULL,
   title text NOT NULL,
   last_modified_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, doc_id),
+  FOREIGN KEY (org_id, doc_id)
+    REFERENCES quasar.document(org_id, doc_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (org_id, current_version_id)
+    REFERENCES quasar.document_version(org_id, doc_version_id),
   CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.document_current_p%1$s PARTITION OF quasar.document_current FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX document_current_org_status_idx ON quasar.document_current (org_id, status, last_modified_at DESC);
 
 CREATE TABLE quasar.document_alias (
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
   system core.nonempty_text NOT NULL,
   external_id text NOT NULL,
-  doc_id uuid NOT NULL REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
+  doc_id uuid NOT NULL,
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, system, external_id)
-);
-CREATE INDEX document_alias_doc_idx ON quasar.document_alias (doc_id);
+  PRIMARY KEY (org_id, system, external_id),
+  FOREIGN KEY (org_id, doc_id)
+    REFERENCES quasar.document(org_id, doc_id)
+    ON DELETE CASCADE
+) PARTITION BY HASH (org_id);
 
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.document_alias_p%1$s PARTITION OF quasar.document_alias FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX document_alias_doc_idx ON quasar.document_alias (org_id, doc_id);
+
+-- Namespaces + schema registry
 CREATE TABLE quasar.namespace (
-  namespace_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  urn core.nonempty_text NOT NULL UNIQUE,
+  namespace_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  urn core.nonempty_text NOT NULL,
   status core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc()
-);
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, namespace_id),
+  UNIQUE (org_id, urn)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.namespace_p%1$s PARTITION OF quasar.namespace FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
 
 DO $$
 BEGIN
@@ -580,9 +770,10 @@ BEGIN
   END IF;
 END $$;
 
+-- Not partitioned: org_id may be NULL (global schemas), and we want global uniqueness for canonical_hash.
 CREATE TABLE quasar.schema_registry (
   schema_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id uuid NULL REFERENCES quasar.org(org_id),
+  org_id uuid NULL REFERENCES quasar.org(org_id),  -- NULL = global schema
   schema_urn core.nonempty_text NOT NULL,
   schema_json jsonb NOT NULL,
   canonical_hash bytea NOT NULL UNIQUE,
@@ -594,18 +785,47 @@ CREATE TABLE quasar.schema_registry (
 CREATE INDEX schema_registry_lookup_idx ON quasar.schema_registry (schema_urn, status, created_at DESC);
 
 CREATE TABLE quasar.document_namespace (
-  doc_version_id uuid NOT NULL REFERENCES quasar.document_version(doc_version_id) ON DELETE CASCADE,
-  namespace_id uuid NOT NULL REFERENCES quasar.namespace(namespace_id),
+  org_id uuid NOT NULL,
+  doc_version_id uuid NOT NULL,
+  namespace_id uuid NOT NULL,
   schema_id uuid NULL REFERENCES quasar.schema_registry(schema_id),
   data jsonb NOT NULL,
   is_valid boolean NOT NULL DEFAULT true,
   validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
-  PRIMARY KEY (doc_version_id, namespace_id),
+  PRIMARY KEY (org_id, doc_version_id, namespace_id),
+  FOREIGN KEY (org_id, doc_version_id)
+    REFERENCES quasar.document_version(org_id, doc_version_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (org_id, namespace_id)
+    REFERENCES quasar.namespace(org_id, namespace_id),
   CONSTRAINT data_is_object_or_array CHECK (jsonb_typeof(data) IN ('object','array')),
   CONSTRAINT validation_errors_is_array CHECK (jsonb_typeof(validation_errors) = 'array')
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.document_namespace_p%1$s PARTITION OF quasar.document_namespace FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX doc_namespace_data_gin ON quasar.document_namespace USING gin (data jsonb_path_ops);
 
+-- JSON extraction view (PG16-safe; JSON_TABLE is PG17+).
+CREATE OR REPLACE VIEW quasar.v_doc_upload_claims AS
+SELECT
+  dn.org_id,
+  dn.doc_version_id,
+  dn.namespace_id,
+  (dn.data #>> '{claimedLength}')::bigint AS claimed_size,
+  dn.data #>> '{mediaType}'              AS media_type,
+  dn.data #>> '{fileName}'               AS file_name
+FROM quasar.document_namespace dn;
+
+-- Permissions
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -628,31 +848,57 @@ BEGIN
 END $$;
 
 CREATE TABLE quasar.acl_entry (
-  acl_entry_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  acl_entry_id uuid NOT NULL DEFAULT gen_random_uuid(),
   resource_kind quasar.resource_kind NOT NULL,
   resource_id uuid NOT NULL,
-  principal_id uuid NOT NULL REFERENCES quasar.principal(principal_id),
+  principal_id uuid NOT NULL,
   effect quasar.effect NOT NULL,
   capabilities bigint NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc()
-);
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, acl_entry_id),
+  FOREIGN KEY (org_id, principal_id)
+    REFERENCES quasar.principal(org_id, principal_id)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.acl_entry_p%1$s PARTITION OF quasar.acl_entry FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX acl_resource_idx ON quasar.acl_entry (org_id, resource_kind, resource_id);
 CREATE INDEX acl_principal_idx ON quasar.acl_entry (org_id, principal_id);
 
 CREATE TABLE quasar.policy (
-  policy_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  policy_id uuid NOT NULL DEFAULT gen_random_uuid(),
   name core.nonempty_text NOT NULL,
   ast jsonb NOT NULL,
   status core.lifecycle_status NOT NULL DEFAULT 'active',
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, policy_id),
   CONSTRAINT ast_is_object CHECK (jsonb_typeof(ast) = 'object'),
   UNIQUE (org_id, name)
-);
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.policy_p%1$s PARTITION OF quasar.policy FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
 CREATE INDEX policy_org_status_idx ON quasar.policy (org_id, status);
 
--- Optional: doc-level embeddings (requires pgvector extension to be installed)
+-- Semantic search (optional pgvector)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -670,26 +916,30 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
     EXECUTE $sql$
       CREATE TABLE IF NOT EXISTS quasar.document_embedding (
-        doc_id uuid PRIMARY KEY REFERENCES quasar.document(doc_id) ON DELETE CASCADE,
         org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+        doc_id uuid NOT NULL,
         current_version_id uuid NOT NULL,
         model core.nonempty_text NOT NULL,
         dims int NOT NULL,
         embedding vector NOT NULL,
         status quasar.embedding_status NOT NULL DEFAULT 'pending',
         updated_at timestamptz NOT NULL DEFAULT core.now_utc(),
+        PRIMARY KEY (org_id, doc_id),
+        FOREIGN KEY (org_id, doc_id)
+          REFERENCES quasar.document(org_id, doc_id)
+          ON DELETE CASCADE,
         CONSTRAINT dims_positive CHECK (dims > 0)
       );
     $sql$;
   END IF;
 END $$;
 
--- 2.8 Jobs / outbox
+-- Jobs / outbox (partitioned by org_id; dedupe_key is tenant-scoped)
 CREATE TABLE quasar.outbox_job (
-  job_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
+  job_id uuid NOT NULL DEFAULT gen_random_uuid(),
   kind core.nonempty_text NOT NULL,
-  dedupe_key core.nonempty_text NOT NULL UNIQUE,
+  dedupe_key core.nonempty_text NOT NULL,
   payload jsonb NOT NULL,
   status core.job_status NOT NULL DEFAULT 'queued',
   lease_owner text NULL,
@@ -697,11 +947,24 @@ CREATE TABLE quasar.outbox_job (
   attempts int NOT NULL DEFAULT 0,
   next_run_at timestamptz NOT NULL DEFAULT core.now_utc(),
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, job_id),
+  UNIQUE (org_id, dedupe_key),
   CONSTRAINT payload_is_object CHECK (jsonb_typeof(payload) = 'object')
-);
-CREATE INDEX outbox_runnable_idx ON quasar.outbox_job (status, next_run_at)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.outbox_job_p%1$s PARTITION OF quasar.outbox_job FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX outbox_runnable_idx ON quasar.outbox_job (org_id, status, next_run_at)
   WHERE status IN ('queued','leased');
-CREATE INDEX outbox_lease_idx ON quasar.outbox_job (lease_owner, lease_expires_at);
+CREATE INDEX outbox_lease_idx ON quasar.outbox_job (org_id, lease_owner, lease_expires_at);
 
 -- ----------------------- RLS scaffolding ------------------------
 CREATE OR REPLACE FUNCTION quasar.current_org_id()
@@ -711,6 +974,137 @@ STABLE
 AS $$
   SELECT nullif(current_setting('app.org_id', true), '')::uuid;
 $$;
+
+-- ---------------------------- RLS --------------------------------
+-- App is expected to set:
+--   SET LOCAL app.org_id = '<uuid>';
+--
+-- "Full sicko": let Postgres enforce org isolation.
+
+ALTER TABLE quasar.principal ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_principal_org_isolation
+  ON quasar.principal
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.principal_external_identity ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_principal_ext_org_isolation
+  ON quasar.principal_external_identity
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.upload_session ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_upload_session_org_isolation
+  ON quasar.upload_session
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.upload_file ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_upload_file_org_isolation
+  ON quasar.upload_file
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.upload_part ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_upload_part_org_isolation
+  ON quasar.upload_part
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.document ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_document_org_isolation
+  ON quasar.document
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.document_version ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_document_version_org_isolation
+  ON quasar.document_version
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.document_current ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_document_current_org_isolation
+  ON quasar.document_current
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.document_alias ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_document_alias_org_isolation
+  ON quasar.document_alias
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.namespace ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_namespace_org_isolation
+  ON quasar.namespace
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.document_namespace ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_document_namespace_org_isolation
+  ON quasar.document_namespace
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.acl_entry ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_acl_entry_org_isolation
+  ON quasar.acl_entry
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.policy ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_policy_org_isolation
+  ON quasar.policy
+  USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.outbox_job ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_outbox_job_org_isolation
+  ON quasar.outbox_job
+  USING (org_id = quasar.current_org_id());
+
+-- Schema registry is special: org_id NULL means "global schema"
+ALTER TABLE quasar.schema_registry ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_schema_registry_visible
+  ON quasar.schema_registry
+  USING (org_id IS NULL OR org_id = quasar.current_org_id());
+
+-- Optional: if vector table exists, protect it too.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'quasar' AND c.relname = 'document_embedding'
+  ) THEN
+    EXECUTE 'ALTER TABLE quasar.document_embedding ENABLE ROW LEVEL SECURITY';
+    EXECUTE $pol$
+      CREATE POLICY quasar_document_embedding_org_isolation
+        ON quasar.document_embedding
+        USING (org_id = quasar.current_org_id())
+    $pol$;
+  END IF;
+END $$;
+
+-- ----------------------- Change notifications -------------------
+-- Keep triggers small: focus on metadata + hot-path tables.
+
+CREATE TRIGGER graviton_blob_store_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_store
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER graviton_sector_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON graviton.sector
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER graviton_block_location_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON graviton.block_location
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER graviton_blob_manifest_page_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_manifest_page
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER graviton_blob_block_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_block
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER quasar_document_current_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON quasar.document_current
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
+
+CREATE TRIGGER quasar_outbox_job_inval_trg
+AFTER INSERT OR UPDATE OR DELETE ON quasar.outbox_job
+FOR EACH ROW EXECUTE FUNCTION core.notify_change();
 
 -- ----------------------------------------------------------------
 -- Hot path helpers (resolution primitives)
