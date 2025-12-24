@@ -34,16 +34,13 @@ object S3Config:
       sys.env.get(name).toRight(s"Missing env var '$name'")
 
     for
-      bucket <- get(bucketEnv)
-      url    <- get(urlEnv)
-      ak     <- get(accessKeyEnv)
-      sk     <- get(secretKeyEnv)
-      region  = sys.env.get(regionEnv).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
-      prefix  = sys.env.get(prefixEnv).getOrElse("")
-      endpoint <- Either
-                    .catchOnly[IllegalArgumentException](URI.create(url))
-                    .left
-                    .map(err => s"Invalid URI in '$urlEnv': ${err.getMessage}")
+      bucket   <- get(bucketEnv)
+      url      <- get(urlEnv)
+      ak       <- get(accessKeyEnv)
+      sk       <- get(secretKeyEnv)
+      region    = sys.env.get(regionEnv).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
+      prefix    = sys.env.get(prefixEnv).getOrElse("")
+      endpoint <- scala.util.Try(URI.create(url)).toEither.left.map(err => s"Invalid URI in '$urlEnv': ${err.getMessage}")
     yield S3Config(
       bucket = bucket,
       region = region,
@@ -53,4 +50,3 @@ object S3Config:
       forcePathStyle = true,
       prefix = prefix,
     )
-

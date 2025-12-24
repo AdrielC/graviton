@@ -13,8 +13,8 @@ object FramedManifest:
   private val Version: Byte = 1
 
   // Hard bounds (P0): enforced in code to avoid OOM-by-valid-input.
-  private val MaxManifestEntries: Int     = 16384
-  private val MaxAnnotationsPerEntry: Int = 256
+  val MaxManifestEntries: Int     = 16384
+  val MaxAnnotationsPerEntry: Int = 256
 
   private def combine[A, B](first: Codec[A], second: Codec[B]): Codec[(A, B)] =
     new Codec[(A, B)]:
