@@ -2,7 +2,7 @@ package graviton.protocol.http
 
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.legacy.*
-import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult}
+import graviton.runtime.model.{BlobStat, BlobWritePlan}
 import graviton.runtime.stores.BlobStore
 import graviton.shared.dashboard.DashboardSamples
 import graviton.shared.schema.SchemaExplorer

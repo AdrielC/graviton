@@ -5,6 +5,7 @@ import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
+import graviton.core.model.Block.*
 import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
@@ -26,13 +27,20 @@ final class CasBlobStore(
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
       for
+        chunker    <- graviton.streams.Chunker.current.get
         blobHasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
         totalBytes <- Ref.make(0L)
 
-        // Feed canonical blocks to the block store incrementally.
-        blocksQ   <- Queue.bounded[Take[Throwable, CanonicalBlock]](math.max(1, streamerConfig.windowRefs))
+        // Stage 1: enqueue incoming bytes (bounded).
+        inputQ <- Queue.bounded[Take[Throwable, Byte]](math.max(1, streamerConfig.windowRefs))
+
+        // Stage 2: canonical blocks to be persisted (bounded).
+        blocksQ <- Queue.bounded[Take[Throwable, CanonicalBlock]](math.max(1, streamerConfig.windowRefs))
+
+        // Stage 3: block store batch result (manifest, stored statuses, etc).
         batchDone <- Promise.make[Throwable, graviton.runtime.model.BlockBatchResult]
 
+        // Persist blocks as they're produced.
         _ <-
           (ZStream
             .fromQueue(blocksQ)
@@ -40,76 +48,47 @@ final class CasBlobStore(
             .run(blockStore.putBlocks())
             .intoPromise(batchDone))
             .forkScoped
-      yield ZSink
-        .foldLeftChunksZIO[Any, Throwable, Byte, Chunk[Byte]](Chunk.empty) { (carry, in) =>
-          // Maintain a bounded carry buffer so we never need to buffer the whole blob.
-          val combined = if carry.isEmpty then in else carry ++ in
-          val max      = graviton.core.types.MaxBlockBytes
 
+        // Run chunker on the incoming byte stream and emit canonical blocks.
+        _ <-
+          (ZStream
+            .fromQueue(inputQ)
+            .flattenTake
+            .via(chunker.pipeline)
+            .mapZIO { block =>
+              val payload = block.bytes
+              for
+                hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+                _       = hasher.update(payload.toArray)
+                digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+                bits   <- ZIO
+                            .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
+                            .mapError(msg => new IllegalArgumentException(msg))
+                key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+                canon  <- ZIO
+                            .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
+                            .mapError(msg => new IllegalArgumentException(msg))
+              yield canon
+            }
+            .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
+            .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
+            .ensuring(blocksQ.offer(Take.end).ignore))
+            .forkScoped
+      yield ZSink
+        .foldLeftChunksZIO[Any, Throwable, Byte, Unit](()) { (_, in) =>
           ZIO.attempt {
-            // Update blob hasher on raw bytes.
-            val arr = in.toArray
-            blobHasher.update(arr)
+            blobHasher.update(in.toArray)
           } *>
             totalBytes.update(_ + in.length.toLong) *>
-            ZIO
-              .succeed {
-                val fullBlocks                      = combined.length / max
-                val emitBytes                       = combined.take(fullBlocks * max)
-                val nextCarry                       = combined.drop(fullBlocks * max)
-                val blocksChunk: Chunk[Chunk[Byte]] =
-                  if emitBytes.isEmpty then Chunk.empty
-                  else Chunk.fromIterable(emitBytes.grouped(max).toList)
-                (blocksChunk, nextCarry)
-              }
-              .flatMap { case (blocks, nextCarry) =>
-                ZIO
-                  .foreach(blocks) { bytes =>
-                    // Apply the selected chunker program to the already-bounded bytes if caller asked for it.
-                    // For v1, we use fixed chunking from the bounded buffer.
-                    val payload = bytes
-                    for
-                      blockHasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-                      _            = blockHasher.update(payload.toArray)
-                      digest      <- ZIO.fromEither(blockHasher.digest).mapError(msg => new IllegalArgumentException(msg))
-                      bits        <- ZIO
-                                       .fromEither(KeyBits.create(blockHasher.algo, digest, payload.length.toLong))
-                                       .mapError(msg => new IllegalArgumentException(msg))
-                      key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-                      canonical   <- ZIO
-                                       .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
-                                       .mapError(msg => new IllegalArgumentException(msg))
-                      _           <- blocksQ.offer(Take.single(canonical))
-                    yield ()
-                  }
-                  .as(nextCarry)
-              }
+            inputQ.offer(Take.chunk(in)).unit
         }
-        .mapZIO { finalCarry =>
-          // Flush remainder as final block (must be non-empty).
-          (for
+        .mapZIO { _ =>
+          for
             _ <- ZIO
                    .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
                    .whenZIO(totalBytes.get.map(_ <= 0L))
+            _ <- inputQ.offer(Take.end).ignore
 
-            _ <-
-              ZIO.when(finalCarry.nonEmpty) {
-                for
-                  blockHasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-                  _            = blockHasher.update(finalCarry.toArray)
-                  digest      <- ZIO.fromEither(blockHasher.digest).mapError(msg => new IllegalArgumentException(msg))
-                  bits        <- ZIO
-                                   .fromEither(KeyBits.create(blockHasher.algo, digest, finalCarry.length.toLong))
-                                   .mapError(msg => new IllegalArgumentException(msg))
-                  key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-                  canonical   <- ZIO
-                                   .fromEither(CanonicalBlock.make(key, finalCarry, BinaryAttributes.empty))
-                                   .mapError(msg => new IllegalArgumentException(msg))
-                  _           <- blocksQ.offer(Take.single(canonical))
-                yield ()
-              }
-
-            _     <- blocksQ.offer(Take.end).ignore
             batch <- batchDone.await
 
             digest <- ZIO.fromEither(blobHasher.digest).mapError(msg => new IllegalArgumentException(msg))
@@ -122,7 +101,6 @@ final class CasBlobStore(
             // Convert the runtime block manifest into the generic manifest format.
             entries  <- ZIO
                           .foreach(batch.manifest.entries) { e =>
-                            // spans are inclusive in Span, and block manifest offset is start position
                             val start = e.offset.value
                             val end   = start + e.size.value.toLong - 1L
                             ZIO
@@ -136,8 +114,8 @@ final class CasBlobStore(
             _ <- manifests.put(blob, manifest)
 
             locator = plan.locatorHint.getOrElse(graviton.core.locator.BlobLocator("cas", "manifest", blob.bits.digest.hex.value))
-            attrs   = plan.attributes // TODO: confirm size + chunk count here, consistent with the rest of the system
-          yield BlobWriteResult(blob, locator, attrs))
+            attrs   = plan.attributes
+          yield BlobWriteResult(blob, locator, attrs)
         }
         .ignoreLeftover
     }
