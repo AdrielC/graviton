@@ -170,6 +170,9 @@ export default withMermaid(defineConfig({
           { text: 'API Overview', link: '/api' },
           { text: 'gRPC', link: '/api/grpc' },
           { text: 'HTTP', link: '/api/http' },
+          { text: 'Quasar HTTP API v1 (Draft)', link: '/api/quasar-http-v1' },
+          { text: 'Quasar metadata governance (Draft)', link: '/api/quasar-metadata' },
+          { text: 'Legacy Cedar integration', link: '/api/legacy-cedar' },
           { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
         ]
       },
