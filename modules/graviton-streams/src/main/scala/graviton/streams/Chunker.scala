@@ -1,6 +1,6 @@
 package graviton.streams
 
-import graviton.core.model.{Block, ByteConstraints, UploadChunkSize}
+import graviton.core.model.Block
 import graviton.core.scan.FS
 import graviton.core.scan.FS.*
 import graviton.core.scan.IngestScan
@@ -18,9 +18,7 @@ object Chunker:
   private val DefaultChunkBytes = 1024 * 1024
 
   private val defaultChunkSize: UploadChunkSize =
-    ByteConstraints
-      .refineUploadChunkSize(DefaultChunkBytes)
-      .fold(_ => DefaultChunkBytes.asInstanceOf[UploadChunkSize], identity)
+    UploadChunkSize.either(DefaultChunkBytes).fold(_ => UploadChunkSize.unsafe(DefaultChunkBytes), identity)
 
   val default: Chunker = fixed(defaultChunkSize)
 
@@ -31,9 +29,9 @@ object Chunker:
     current.locally(chunker)(effect)
 
   def fixed(size: UploadChunkSize, label: Option[String] = None): Chunker =
-    val sizeBytes = size
-    val scan      = FS.fixedChunker(sizeBytes).optimize.toPipeline
-    val pipeline  =
+    val sizeBytes: Int = size.value
+    val scan           = FS.fixedChunker(sizeBytes).optimize.toPipeline
+    val pipeline       =
       (ZPipeline.identity[Byte].chunks >>> scan)
         .mapChunksZIO { chunkOfBlocks =>
           ZIO
