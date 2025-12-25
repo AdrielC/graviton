@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.sql.Connection
 import scala.collection.mutable.ArrayBuffer
+import java.io.FileNotFoundException
 
 /**
  * Integration test (no Docker):
@@ -28,17 +29,17 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
 
   private val embeddedPgLayer: ZLayer[Any, Throwable, javax.sql.DataSource] =
     ZLayer.scoped {
-      ZIO
-        .acquireRelease(ZIO.attemptBlocking(EmbeddedPostgres.builder().setPort(0).start()))(pg => ZIO.attemptBlocking(pg.close()).orDie)
-        .flatMap { pg =>
-          ZIO.attemptBlocking {
-            val ds   = pg.getPostgresDatabase
-            val conn = ds.getConnection
-            try executeSqlFile(conn, resolveDdlPath())
-            finally conn.close()
-            ds
-          }
-        }
+      ZIO.acquireRelease(ZIO.attemptBlocking(EmbeddedPostgres.builder().setPort(0).start()))(pg =>
+        ZIO.attemptBlocking(pg.close()).ignore
+      ) flatMap { pg =>
+        for
+          ddl <- resolveDdlPath
+          ds  <- ZIO.attemptBlocking(pg.getPostgresDatabase)
+          _   <- ZIO.acquireReleaseWith(ZIO.attemptBlocking(ds.getConnection))(c => ZIO.attemptBlocking(c.close()).ignore) { conn =>
+                   ZIO.attemptBlocking(executeSqlFile(conn, ddl))
+                 }
+        yield ds
+      }
     }
 
   private val blobStoreLayer: ZLayer[Any, Throwable, BlobStore] =
@@ -77,21 +78,29 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
         }
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
-  private def resolveDdlPath(): Path =
-    val rel = Path.of("modules/pg/ddl.sql")
-    val cwd = Path.of(sys.props.getOrElse("user.dir", ".")).toAbsolutePath.normalize()
+  private val ddlRelPath: Path =
+    Path.of("modules/pg/ddl.sql")
 
-    val candidates =
-      Iterator
-        .iterate(cwd)(p => Option(p.getParent).getOrElse(p))
-        .take(6)
-        .map(_.resolve(rel))
-        .toList
+  private def resolveDdlPath: IO[Throwable, Path] =
+    val roots: List[Path] =
+      List(
+        sys.env.get("GITHUB_WORKSPACE").map(Path.of(_)),
+        sys.props.get("user.dir").map(Path.of(_)),
+        Some(Path.of(".")),
+      ).flatten.map(_.toAbsolutePath.normalize()).distinct
 
-    candidates.find(p => Files.exists(p)) match
-      case Some(p) => p
-      case None    =>
-        throw new IllegalStateException(s"Could not locate DDL at 'modules/pg/ddl.sql' (tried: ${candidates.mkString(", ")})")
+    val candidates: List[Path] =
+      roots.flatMap { root =>
+        Iterator
+          .iterate(root)(p => Option(p.getParent).getOrElse(p))
+          .take(10)
+          .map(_.resolve(ddlRelPath))
+          .toList
+      }.distinct
+
+    ZIO
+      .fromOption(candidates.find(Files.exists(_)))
+      .orElseFail(new FileNotFoundException(s"Could not locate DDL at '${ddlRelPath.toString}' (tried: ${candidates.mkString(", ")})"))
 
   private def executeSqlFile(connection: Connection, file: Path): Unit =
     val sql = Files.readString(file)
