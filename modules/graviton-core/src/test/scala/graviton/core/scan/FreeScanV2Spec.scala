@@ -104,8 +104,10 @@ object FreeScanV2Spec extends ZIOSpecDefault:
             digest   <- Digest.make(runtimeHashAlgo)(digest)
             keyBits1 <- KeyBits.create(runtimeHashAlgo, digest, 10L)
             keyBits2 <- KeyBits.create(runtimeHashAlgo, digest, 5L)
-            entry1    = ManifestEntry(BinaryKey.Blob(keyBits1), Span.unsafe(0L, 9L), Map("name" -> "a"))
-            entry2    = ManifestEntry(BinaryKey.Blob(keyBits2), Span.unsafe(10L, 14L), Map("name" -> "b"))
+            blobKey1 <- BinaryKey.blob(keyBits1)
+            blobKey2 <- BinaryKey.blob(keyBits2)
+            entry1    = ManifestEntry(blobKey1, Span.unsafe(0L, 9L), Map("name" -> "a"))
+            entry2    = ManifestEntry(blobKey2, Span.unsafe(10L, 14L), Map("name" -> "b"))
             outputs   = buildManifest.runChunk(List(entry1, entry2))
             manifest <- outputs.lastOption.toRight("No manifest found")
           yield assertTrue(

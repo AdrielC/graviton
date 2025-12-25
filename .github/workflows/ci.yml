@@ -23,6 +23,49 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TESTCONTAINERS: '1'
+      # Enable opt-in integration specs in CI
+      GRAVITON_IT: '1'
+      GRAVITON_MINIO_IT: '1'
+      # Postgres (service below)
+      PG_JDBC_URL: 'jdbc:postgresql://127.0.0.1:5432/postgres'
+      PG_USERNAME: 'postgres'
+      PG_PASSWORD: 'postgres'
+      # MinIO (service below)
+      QUASAR_MINIO_URL: 'http://127.0.0.1:9000'
+      MINIO_ROOT_USER: 'minio'
+      MINIO_ROOT_PASSWORD: 'minioadmin'
+      # Graviton S3 block store config
+      GRAVITON_S3_BLOCK_BUCKET: 'graviton-blocks'
+      GRAVITON_S3_BLOCK_PREFIX: 'cas/blocks'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/ready || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+        # Expose API on :9000, console on :9001
+        command: server /data --console-address ":9001"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v3
@@ -30,6 +73,32 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
+      - name: Wait for Postgres + apply schema
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client curl
+          for i in {1..60}; do
+            if command -v psql >/dev/null 2>&1; then
+              PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -c "select 1" >/dev/null 2>&1 && break
+            fi
+            sleep 1
+          done
+          PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
+      - name: Wait for MinIO + create bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.MINIO_ROOT_USER }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y awscli
+          for i in {1..60}; do
+            curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
+            sleep 1
+          done
+          aws --endpoint-url "${QUASAR_MINIO_URL}" s3api create-bucket --bucket "${GRAVITON_S3_BLOCK_BUCKET}" || true
       - name: Test
         run: ./sbt test
 

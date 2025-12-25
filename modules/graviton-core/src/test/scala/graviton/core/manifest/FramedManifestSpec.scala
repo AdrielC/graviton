@@ -28,12 +28,13 @@ object FramedManifestSpec extends ZIOSpecDefault:
           for
             bits1    <- makeBits(12L)
             bits2    <- makeBits(5L)
+            blobKey  <- ZIO.fromEither(BinaryKey.blob(bits1)).mapError(_.toString)
             viewKey  <- ZIO.fromEither(BinaryKey.View(bits2, view)).mapError(_.toString)
             manifest <- ZIO
                           .fromEither(
                             Manifest.fromEntries(
                               List(
-                                ManifestEntry(BinaryKey.Blob(bits1), Span.unsafe(0L, 11L), attrs),
+                                ManifestEntry(blobKey, Span.unsafe(0L, 11L), attrs),
                                 ManifestEntry(viewKey, Span.unsafe(12L, 16L), Map.empty),
                               )
                             )
@@ -51,8 +52,9 @@ object FramedManifestSpec extends ZIOSpecDefault:
         val program =
           for
             bits    <- makeBits(8L)
-            entry1   = ManifestEntry(BinaryKey.Blob(bits), Span.unsafe(0L, 9L), attrs)
-            entry2   = ManifestEntry(BinaryKey.Blob(bits), Span.unsafe(8L, 12L), Map.empty)
+            blobKey <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(_.toString)
+            entry1   = ManifestEntry(blobKey, Span.unsafe(0L, 9L), attrs)
+            entry2   = ManifestEntry(blobKey, Span.unsafe(8L, 12L), Map.empty)
             manifest = Manifest(List(entry1, entry2), size = 13L)
             result  <- ZIO.fromEither(FramedManifest.encode(manifest)).either
           yield assert(result)(isLeft(containsString("non-overlapping")))
@@ -63,9 +65,10 @@ object FramedManifestSpec extends ZIOSpecDefault:
         val program =
           for
             bits     <- makeBits(4L)
+            blockKey <- ZIO.fromEither(BinaryKey.block(bits)).mapError(_.toString)
             manifest <- ZIO
                           .fromEither(
-                            Manifest.fromEntries(List(ManifestEntry(BinaryKey.Block(bits), Span.unsafe(0L, 3L), Map("p" -> "q"))))
+                            Manifest.fromEntries(List(ManifestEntry(blockKey, Span.unsafe(0L, 3L), Map("p" -> "q"))))
                           )
                           .mapError(_.toString)
             encoded  <- ZIO.fromEither(FramedManifest.encode(manifest)).mapError(_.toString)

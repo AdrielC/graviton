@@ -27,7 +27,7 @@ object BinaryKey:
       yield view
 
   def blob(bits: KeyBits): Either[String, Blob] =
-    if bits.size < 0 then Left("Blob size cannot be negative") else Right(Blob(bits))
+    if bits.size <= 0 then Left("Blob size must be positive") else Right(Blob(bits))
 
   def block(bits: KeyBits): Either[String, Block] =
     if bits.size <= 0 then Left("Block size must be positive") else Right(Block(bits))

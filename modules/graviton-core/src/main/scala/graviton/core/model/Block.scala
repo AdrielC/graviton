@@ -1,5 +1,6 @@
 package graviton.core.model
 
+import graviton.core.types.{BlockSize, FileSize}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import zio.{Chunk, NonEmptyChunk}
@@ -38,8 +39,8 @@ object Block:
     def bytes: Chunk[Byte]                 = block
     def nonEmptyBytes: NonEmptyChunk[Byte] = NonEmptyChunk.fromChunk(block).get
     def length: Int                        = block.length
-    def blockSize: BlockSize               = ByteConstraints.unsafeBlockSize(block.length)
-    def fileSize: FileSize                 = ByteConstraints.unsafeFileSize(block.length.toLong)
+    def blockSize: BlockSize               = BlockSize.unsafe(block.length)
+    def fileSize: FileSize                 = FileSize.unsafe(block.length.toLong)
 
 object BlockBuilder:
   def chunkify(bytes: Chunk[Byte], maxBytes: Int = ByteConstraints.MaxBlockBytes): Chunk[Block] =
