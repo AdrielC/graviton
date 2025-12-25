@@ -15,6 +15,33 @@ The governing question is:
 > “What did the system see, what did it do, and why did it do it — at that time?”
  
 This document locks in the primitives and determinism rules needed to answer that question without “hindsight recomputation”.
+
+::: danger Prophecy Detector (court-grade systems only)
+If your “derivation” depends on anything that can drift, you didn’t compute a result — you wrote a prophecy.
+
+- **Prophecy inputs**: “latest”, “current”, “all filings so far”, “whatever the DB returns today”, “ORDER BY (missing)”
+- **Result inputs**: explicit `ContentRef`s, plus frozen `SelectionSnapshot` blobs when selection is involved
+
+If you didn’t freeze the inputs, you can’t defend the output.
+:::
+
+```mermaid
+flowchart LR
+  U[SelectorURN] --> S[SelectorSpec<br/>(params + cutoff + ordering)]
+  S --> X[Execute selector once]
+  X --> J[SelectionSnapshot<br/>(canonical JSON → content-addressed blob)]
+  J --> V[View transform<br/>(deterministic)]
+  V --> O[Output Blob]
+  O --> H[Human review]
+  O --> A[Agent pause/resume]
+```
+
+::: details “Prophecy lint” checklist (open when debugging a workflow)
+- **Does the transform read the database directly?** If yes, it needs a snapshot input.
+- **Does the transform depend on “now”, randomness, machine identity, or network timing?** If yes, it’s nondeterministic.
+- **Is the input set implicitly defined (“everything matching …”) without an ordered list frozen at a cutoff?** If yes, you need a `SelectionSnapshot`.
+- **Could two replays observe a different ordering?** If yes, encode ordering explicitly and freeze it.
+:::
  
 ## The core problem
  
