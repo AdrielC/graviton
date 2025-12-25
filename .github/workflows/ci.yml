@@ -51,20 +51,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/ready || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-        # MinIO image provides a default server command; console is optional for tests.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v3
@@ -84,7 +70,7 @@ jobs:
             sleep 1
           done
           PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
-      - name: Wait for MinIO + create bucket
+      - name: Start MinIO + create bucket
         env:
           AWS_ACCESS_KEY_ID: ${{ env.MINIO_ROOT_USER }}
           AWS_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
@@ -93,11 +79,21 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y awscli
+          docker pull minio/minio:latest
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER="${MINIO_ROOT_USER}" \
+            -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}" \
+            minio/minio:latest server /data --console-address ":9001"
           for i in {1..60}; do
             curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
             sleep 1
           done
           aws --endpoint-url "${QUASAR_MINIO_URL}" s3api create-bucket --bucket "${GRAVITON_S3_BLOCK_BUCKET}" || true
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio || true
       - name: Test
         run: ./sbt test
 
