@@ -26,13 +26,6 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
   private val enabled: Boolean =
     sys.env.get("GRAVITON_IT").exists(v => v.trim == "1" || v.trim.equalsIgnoreCase("true"))
 
-  private val ddlPath: Path =
-    val fromCwd = Path.of(sys.props.getOrElse("user.dir", ".")).resolve("modules/pg/ddl.sql").normalize()
-    if Files.exists(fromCwd) then fromCwd
-    else
-      // Fallback for some CI/workspace setups
-      Path.of("/workspace/modules/pg/ddl.sql")
-
   private val embeddedPgLayer: ZLayer[Any, Throwable, javax.sql.DataSource] =
     ZLayer.scoped {
       ZIO
@@ -41,7 +34,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
           ZIO.attemptBlocking {
             val ds   = pg.getPostgresDatabase
             val conn = ds.getConnection
-            try executeSqlFile(conn, ddlPath)
+            try executeSqlFile(conn, resolveDdlPath())
             finally conn.close()
             ds
           }
@@ -60,10 +53,15 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
     }
 
   override def spec: Spec[TestEnvironment, Any] =
-    suite("Embedded PG + FS CAS round-trip")(
-      test("upload then download matches bytes (Chunker.fixed)") {
-        if !enabled then ZIO.succeed(assertTrue(true))
-        else
+    if !enabled then
+      suite("Embedded PG + FS CAS round-trip")(
+        test("skipped (set GRAVITON_IT=1 to enable)") {
+          ZIO.succeed(assertTrue(true))
+        }
+      )
+    else
+      suite("Embedded PG + FS CAS round-trip")(
+        test("upload then download matches bytes (Chunker.fixed)") {
           val data =
             Chunk.fromArray(("hello-embeddedpg-fs-" * 2000).getBytes(StandardCharsets.UTF_8))
 
@@ -76,8 +74,24 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
                          }
             readBack  <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
-      }
-    ).provideShared(blobStoreLayer) @@ TestAspect.sequential
+        }
+      ).provideShared(blobStoreLayer) @@ TestAspect.sequential
+
+  private def resolveDdlPath(): Path =
+    val rel = Path.of("modules/pg/ddl.sql")
+    val cwd = Path.of(sys.props.getOrElse("user.dir", ".")).toAbsolutePath.normalize()
+
+    val candidates =
+      Iterator
+        .iterate(cwd)(p => Option(p.getParent).getOrElse(p))
+        .take(6)
+        .map(_.resolve(rel))
+        .toList
+
+    candidates.find(p => Files.exists(p)) match
+      case Some(p) => p
+      case None    =>
+        throw new IllegalStateException(s"Could not locate DDL at 'modules/pg/ddl.sql' (tried: ${candidates.mkString(", ")})")
 
   private def executeSqlFile(connection: Connection, file: Path): Unit =
     val sql = Files.readString(file)
