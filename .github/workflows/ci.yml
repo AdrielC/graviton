@@ -51,21 +51,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/ready || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-        # Expose API on :9000, console on :9001
-        command: server /data --console-address ":9001"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v3
@@ -85,22 +70,30 @@ jobs:
             sleep 1
           done
           PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
-      - name: Wait for MinIO + create bucket
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.MINIO_ROOT_USER }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
-          AWS_DEFAULT_REGION: us-east-1
+      - name: Start MinIO + create bucket
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y awscli
+          docker pull minio/minio:latest
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER="${MINIO_ROOT_USER}" \
+            -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}" \
+            minio/minio:latest server /data --console-address ":9001"
           for i in {1..60}; do
             curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
             sleep 1
           done
-          aws --endpoint-url "${QUASAR_MINIO_URL}" s3api create-bucket --bucket "${GRAVITON_S3_BLOCK_BUCKET}" || true
+          MC=/tmp/mc
+          curl -fsSL -o "$MC" https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x "$MC"
+          "$MC" alias set local "${QUASAR_MINIO_URL}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+          "$MC" mb --ignore-existing "local/${GRAVITON_S3_BLOCK_BUCKET}"
       - name: Test
         run: ./sbt test
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio || true
 
   docs-check:
     runs-on: ubuntu-latest
