@@ -69,6 +69,8 @@ Immutable snapshot:
   - `blob` key = CAS identity of raw bytes
   - `view` key = deterministic identity derived from `(base, ops, versions)`
 
+For the determinism/audit rules behind views (including selector-driven views and frozen input snapshots), see **[ContentRef, Views, Selectors, and Frozen Snapshots](./quasar-contentref-views-selectors.md)**.
+
 ## Metadata model (namespaces + schema URNs)
 
 Metadata is a map keyed by namespace URN. Each namespace entry includes a schema URN, a stable entry id, and an object-shaped payload:
