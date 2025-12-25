@@ -84,14 +84,16 @@ jobs:
             curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
             sleep 1
           done
-          docker pull minio/mc:latest
-          docker run --rm --network host minio/mc:latest sh -lc \
-            "mc alias set local \"${QUASAR_MINIO_URL}\" \"${MINIO_ROOT_USER}\" \"${MINIO_ROOT_PASSWORD}\" && mc mb --ignore-existing local/\"${GRAVITON_S3_BLOCK_BUCKET}\""
+          MC=/tmp/mc
+          curl -fsSL -o "$MC" https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x "$MC"
+          "$MC" alias set local "${QUASAR_MINIO_URL}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+          "$MC" mb --ignore-existing "local/${GRAVITON_S3_BLOCK_BUCKET}"
+      - name: Test
+        run: ./sbt test
       - name: Stop MinIO
         if: always()
         run: docker rm -f minio || true
-      - name: Test
-        run: ./sbt test
 
   docs-check:
     runs-on: ubuntu-latest
