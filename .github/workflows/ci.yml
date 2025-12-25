@@ -64,8 +64,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-        # Expose API on :9000, console on :9001
-        command: server /data --console-address ":9001"
+        # MinIO image provides a default server command; console is optional for tests.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v3
