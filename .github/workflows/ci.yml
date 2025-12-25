@@ -71,14 +71,8 @@ jobs:
           done
           PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
       - name: Start MinIO + create bucket
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.MINIO_ROOT_USER }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
-          AWS_DEFAULT_REGION: us-east-1
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y awscli
           docker pull minio/minio:latest
           docker run -d --name minio \
             -p 9000:9000 \
@@ -90,7 +84,9 @@ jobs:
             curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
             sleep 1
           done
-          aws --endpoint-url "${QUASAR_MINIO_URL}" s3api create-bucket --bucket "${GRAVITON_S3_BLOCK_BUCKET}" || true
+          docker pull minio/mc:latest
+          docker run --rm --network host minio/mc:latest sh -lc \
+            "mc alias set local \"${QUASAR_MINIO_URL}\" \"${MINIO_ROOT_USER}\" \"${MINIO_ROOT_PASSWORD}\" && mc mb --ignore-existing local/\"${GRAVITON_S3_BLOCK_BUCKET}\""
       - name: Stop MinIO
         if: always()
         run: docker rm -f minio || true
