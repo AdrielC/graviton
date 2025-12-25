@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets
  * and MinIO (buckets created) matching the on-prem compose.
  *
  * Enable with:
- * - GRAVITON_IT=1
+ * - GRAVITON_MINIO_IT=1
  * - PG_JDBC_URL / PG_USERNAME / PG_PASSWORD
  * - QUASAR_MINIO_URL / MINIO_ROOT_USER / MINIO_ROOT_PASSWORD
  */
