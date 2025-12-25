@@ -29,7 +29,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         |  block_hash_bytes,
         |  block_byte_length
         |FROM graviton.blob_block
-        |WHERE alg = ?
+        |WHERE alg = ?::core.hash_alg
         |  AND hash_bytes = ?
         |  AND byte_length = ?
         |ORDER BY ordinal ASC
@@ -100,7 +100,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
     val sql =
       """
         |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, chunker, attrs)
-        |VALUES (?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
+        |VALUES (?::core.hash_alg, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
         |ON CONFLICT (alg, hash_bytes, byte_length) DO NOTHING
         |""".stripMargin
 
@@ -125,7 +125,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
     val sql =
       """
         |INSERT INTO graviton.block (alg, hash_bytes, byte_length, attrs)
-        |VALUES (?, ?, ?, '{}'::jsonb)
+        |VALUES (?::core.hash_alg, ?, ?, '{}'::jsonb)
         |ON CONFLICT (alg, hash_bytes, byte_length) DO NOTHING
         |""".stripMargin
 
@@ -159,7 +159,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
     val deleteSql =
       """
         |DELETE FROM graviton.blob_block
-        |WHERE alg = ?
+        |WHERE alg = ?::core.hash_alg
         |  AND hash_bytes = ?
         |  AND byte_length = ?
         |""".stripMargin
@@ -189,7 +189,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         |  block_alg, block_hash_bytes, block_byte_length,
         |  block_offset, block_length
         |)
-        |VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        |VALUES (?::core.hash_alg, ?, ?, ?, ?::core.hash_alg, ?, ?, ?, ?)
         |""".stripMargin
 
     for
