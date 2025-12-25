@@ -432,7 +432,7 @@ import io.gatling.http.Predef.*
 
 class GravitonLoadTest extends Simulation {
   val httpProtocol = http
-    .baseUrl("http://localhost:8080")
+    .baseUrl("http://localhost:8081")
     .acceptHeader("application/json")
   
   val upload = scenario("Upload")

@@ -39,11 +39,11 @@ onMounted(() => {
 
 ## Quasar Demo
 
-<meta name="quasar-api-url" content="http://localhost:8080" />
+<meta name="quasar-api-url" content="http://localhost:8081" />
 
 <div id="quasar-app"></div>
 
 ::: info Backend URL
-By default, the demo targets `http://localhost:8080`. Update the `<meta name="quasar-api-url" />` tag if your server runs elsewhere.
+By default, the demo targets `http://localhost:8081`. Update the `<meta name="quasar-api-url" />` tag if your server runs elsewhere.
 :::
 
