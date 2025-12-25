@@ -15,6 +15,7 @@ This section contains detailed design documents for major Graviton features and 
 
 - **Quasar ↔ Cedar compatibility façade** — verbs, version/label/repo semantics, and “views not copies” transforms (see [Quasar ↔ Cedar Compatibility Facade](./quasar-cedar-compat.md))
 - **Quasar HTTP API v1** — tenant-implicit, streaming-first, versioned docs/metadata/workflows (see [Quasar HTTP API v1](./quasar-http-api-v1.md))
+- **ContentRef + Views + Selectors** — frozen inputs for deterministic workflows and audit replay (see [ContentRef, Views, Selectors, and Frozen Snapshots](./quasar-contentref-views-selectors.md))
 - **Patch-based metadata** — namespace-scoped RFC 6902 patches with governance guardrails (see [Patch-based Metadata](./quasar-metadata-patching.md))
 
 ### Schema & Types

@@ -95,6 +95,8 @@ Quasar-aligned approach:
 - Treat `toDrop` / `removeSignatures` as *download options* that run a transient pipeline and optionally cache:
   - view key = deterministic function of `(base content hash, ops, versions)`
 
+For the canonical determinism rules (including selector-driven transforms and frozen snapshots), see **[ContentRef, Views, Selectors, and Frozen Snapshots](./quasar-contentref-views-selectors.md)**.
+
 ## Migration strategy (no flag day)
 
 Build a compatibility façade that preserves the legacy URL and semantics while internally routing to Quasar + Graviton:
