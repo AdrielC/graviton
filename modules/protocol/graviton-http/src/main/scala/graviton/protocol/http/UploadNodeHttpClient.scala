@@ -182,7 +182,7 @@ object UploadNodeHttpClient:
     size: Long,
     hash: String,
     attributes: Map[String, String],
-  ) derives JsonDecoder
+  ) derives JsonCodec
 
   private val instantFormatter = DateTimeFormatter.ISO_INSTANT
 
