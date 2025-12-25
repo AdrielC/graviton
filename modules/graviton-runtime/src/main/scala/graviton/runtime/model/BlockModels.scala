@@ -2,7 +2,7 @@ package graviton.runtime.model
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
-import graviton.core.types.{BlockIndex, BlockSize, CompressionLevel, KekId, MaxBlockBytes, NonceLength, SizeLong}
+import graviton.core.types.{BlockIndex, BlockSize, CompressionLevel, FileSize, KekId, MaxBlockBytes, NonceLength, Offset}
 import graviton.core.types.given
 import zio.Chunk
 import zio.schema.{DeriveSchema, Schema}
@@ -52,7 +52,7 @@ object StoredBlock:
 
 final case class BlockManifestEntry(
   index: BlockIndex,
-  offset: SizeLong,
+  offset: Offset,
   key: BinaryKey.Block,
   size: BlockSize,
 )
@@ -66,7 +66,7 @@ object BlockManifestEntry:
   ): Either[String, BlockManifestEntry] =
     for
       refinedIndex  <- refineBlockIndex(index)
-      refinedOffset <- refineNonNegativeSize(offset, field = "offset")
+      refinedOffset <- refineOffset(offset)
       refinedSize   <- CanonicalBlock.refineBlockSize(size)
     yield BlockManifestEntry(refinedIndex, refinedOffset, key, refinedSize)
 
@@ -74,30 +74,32 @@ object BlockManifestEntry:
     if value < 0 then Left(s"Block index cannot be negative: $value")
     else Right(value.asInstanceOf[BlockIndex])
 
-  private def refineNonNegativeSize(value: Long, field: String): Either[String, SizeLong] =
-    if value < 0 then Left(s"$field cannot be negative: $value")
-    else Right(value.asInstanceOf[SizeLong])
+  private def refineOffset(value: Long): Either[String, Offset] =
+    Offset.either(value)
 
 final case class BlockManifest private (
   entries: Chunk[BlockManifestEntry],
-  totalUncompressedBytes: Long,
+  totalUncompressedBytes: FileSize,
 ):
-  def totalUncompressed: Either[String, SizeLong] =
-    BlockManifest.refineTotal(totalUncompressedBytes)
+  def totalUncompressed: FileSize =
+    totalUncompressedBytes
 
 object BlockManifest:
-  val empty: BlockManifest = BlockManifest(Chunk.empty, 0L)
-
   def build(entries: Chunk[BlockManifestEntry]): Either[String, BlockManifest] =
-    val total =
-      entries.foldLeft(0L) { (acc, entry) =>
-        acc + entry.size.value.toLong
-      }
-    refineTotal(total).map(validTotal => BlockManifest(entries, validTotal.value))
+    if entries.isEmpty then Left("BlockManifest must contain at least one entry (empty blobs are not supported)")
+    else
+      val computedEither =
+        try
+          val total =
+            entries.foldLeft(0L) { (acc, entry) =>
+              java.lang.Math.addExact(acc, entry.size.value.toLong)
+            }
+          Right(total)
+        catch
+          case _: ArithmeticException =>
+            Left("Total uncompressed size overflow")
 
-  private def refineTotal(value: Long): Either[String, SizeLong] =
-    if value < 0 then Left(s"Total uncompressed size cannot be negative: $value")
-    else Right(value.asInstanceOf[SizeLong])
+      computedEither.flatMap(total => FileSize.either(total).map(valid => BlockManifest(entries, valid)))
 
 final case class FrameAadPlan(
   includeOrgId: Boolean = true,

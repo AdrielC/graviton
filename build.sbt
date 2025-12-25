@@ -257,6 +257,7 @@ lazy val core = (project in file("modules/graviton-core"))
       "dev.zio" %% "zio-prelude" % V.zioPrelude,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
+      "pt.kcry" %% "blake3" % V.blake3,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -386,6 +387,7 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
+      "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
     ),
   )
 

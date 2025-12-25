@@ -2,11 +2,13 @@ package graviton.protocol.http
 
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.legacy.*
-import graviton.runtime.stores.InMemoryBlobStore
+import graviton.runtime.model.{BlobStat, BlobWritePlan}
+import graviton.runtime.stores.BlobStore
 import graviton.shared.dashboard.DashboardSamples
 import graviton.shared.schema.SchemaExplorer
 import zio.*
 import zio.http.*
+import zio.stream.ZSink
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
@@ -51,7 +53,15 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
                           def updates                                                      = zio.stream.ZStream.empty
                           def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
                         })
-          blobStore  <- InMemoryBlobStore.make()
+          blobStore   = new BlobStore {
+                          override def put(plan: BlobWritePlan)                                                       = ZSink.fail(new UnsupportedOperationException("not used in this test"))
+                          override def get(key: graviton.core.keys.BinaryKey)                                         =
+                            zio.stream.ZStream.fail(new UnsupportedOperationException("not used in this test"))
+                          override def stat(key: graviton.core.keys.BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
+                            ZIO.succeed(None)
+                          override def delete(key: graviton.core.keys.BinaryKey): ZIO[Any, Throwable, Unit]           =
+                            ZIO.unit
+                        }
           httpApi     = HttpApi(blobStore, dashboard)
           internalApp = internal.routes.toHandler
           req        <- ZIO
@@ -76,7 +86,15 @@ object LegacyRepoHttpApiSpec extends ZIOSpecDefault:
                           def updates                                                      = zio.stream.ZStream.empty
                           def publish(update: graviton.shared.ApiModels.DatalakeDashboard) = ZIO.unit
                         })
-          blobStore  <- InMemoryBlobStore.make()
+          blobStore   = new BlobStore {
+                          override def put(plan: BlobWritePlan)                                                       = ZSink.fail(new UnsupportedOperationException("not used in this test"))
+                          override def get(key: graviton.core.keys.BinaryKey)                                         =
+                            zio.stream.ZStream.fail(new UnsupportedOperationException("not used in this test"))
+                          override def stat(key: graviton.core.keys.BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
+                            ZIO.succeed(None)
+                          override def delete(key: graviton.core.keys.BinaryKey): ZIO[Any, Throwable, Unit]           =
+                            ZIO.unit
+                        }
           internalApp = internal.routes.toHandler
           req        <- ZIO
                           .fromEither(URL.decode("http://localhost/internal/legacy/shortterm/missing-doc"))
