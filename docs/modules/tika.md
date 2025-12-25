@@ -1,6 +1,6 @@
-# Apache Tika Module
+# Apache Tika Integration (Planned)
 
-The Apache Tika integration enriches every ingest with MIME detection, structured metadata, and (optionally) extracted text that can be indexed alongside manifests. The module lives under `modules/backend/graviton-tika` and exposes ZIO layers that plug into the ingest pipeline without changing the core storage APIs.
+Graviton does not currently ship a Tika module in this repository. This page is a **design note** for a future integration that enriches ingest with MIME detection, structured metadata, and (optionally) extracted text for indexing.
 
 ## What it provides
 
@@ -52,28 +52,18 @@ Key considerations:
 
 ## Wiring example
 
+Until the module exists, think of it as an optional “enricher” that runs during ingest:
+
 ```scala
-import ai.hylo.graviton.backend.tika.{TikaConfig, TikaLayers}
-import ai.hylo.graviton.runtime.ingest.IngestPipeline
-import ai.hylo.graviton.runtime.metrics.MetricsRegistry
-import zio.*
+// pseudo-code (API will change once the module lands)
+trait BinaryAttributeEnricher {
+  def enrich(input: zio.stream.ZStream[Any, Throwable, Byte]): zio.IO[Throwable, graviton.core.attributes.BinaryAttributes]
+}
 
-val tikaLayer: ZLayer[Any, Throwable, TikaLayers.Env] =
-  TikaLayers.live(
-    TikaConfig(
-      parserPoolSize = 4,
-      maxBytesPerDoc = 8 * 1024 * 1024,
-      maxBytesPerField = 512 * 1024,
-      timeout = 15.seconds,
-      allowMediaTypes = Set("application/pdf"),
-      denyMediaTypes = Set("application/octet-stream"),
-      emitTextChannel = true
-    )
-  )
-
-val appLayer =
-  (PgLayers.live ++ S3Layers.live ++ MetricsRegistry.live ++ tikaLayer) >>>
-    IngestPipeline.live
+// runtime ingest would:
+// 1) sniff/parse bytes (bounded)
+// 2) convert metadata -> BinaryAttributes (advertised vs confirmed)
+// 3) write attributes alongside the manifest
 ```
 
 This example assumes the ingest service consumes a `BinaryAttributeEnricher` to append metadata before persisting manifests. The Tika layer can either become that enricher or feed a `FiberRef` that the ingest fiber reads while building the manifest.
@@ -87,10 +77,9 @@ This example assumes the ingest service consumes a `BinaryAttributeEnricher` to 
 
 ## Operational checklist
 
-1. Install the optional `tika-parsers-standard-package` dependency if you need advanced document types.
-2. Keep parsers on the classpath but trim unused ones to reduce CVE surface area.
-3. Run `TESTCONTAINERS=0 ./sbt scalafmtAll test` plus `./sbt docs/mdoc` to ensure docs and code stay in sync.
-4. Add integration tests that feed representative files through the ingest pipeline with the Tika layer enabled; assert metadata was persisted inside `BinaryAttributes`.
+1. Keep parsers on the classpath but trim unused ones to reduce CVE surface area.
+2. Bound parsing (bytes + time) so ingest remains streaming and resilient.
+3. Add integration tests that feed representative files through ingest with the Tika layer enabled; assert metadata was persisted inside `BinaryAttributes`.
 
 ## Roadmap
 
