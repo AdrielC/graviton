@@ -25,7 +25,7 @@ features:
   - title: Stream-First Runtime
     details: ZIO Streams power ingestion, hashing, and replication so large payloads flow without buffering.
   - title: Modular Backends
-    details: Swap persistence layers with S3, PostgreSQL, RocksDB, or new implementations without touching the core types.
+    details: Start with in-memory stores, then move to filesystem or S3/MinIO block storage plus PostgreSQL metadata as your deployment matures.
   - title: Strong Typing
     details: Scala 3, refined types, and schema derivation guard invariants across transports and storage boundaries.
   - title: Built-In Observability

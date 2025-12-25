@@ -13,10 +13,9 @@ This guide covers installing and configuring Graviton for development and produc
 
 ### Optional Components
 
-- **PostgreSQL 18+**: For metadata and object storage backend
-- **RocksDB**: Embedded key-value storage (automatically included)
-- **S3-Compatible Storage**: AWS S3, MinIO, or compatible services
-- **Docker**: For running PostgreSQL via TestContainers
+- **PostgreSQL 18+**: Required by the current server for manifest storage and metadata.
+- **S3-compatible storage (MinIO/AWS)**: Optional; used for block storage when `GRAVITON_BLOB_BACKEND=s3|minio`.
+- **Docker**: Optional; useful for running PostgreSQL/MinIO locally.
 
 ## Installation Methods
 
@@ -59,6 +58,8 @@ Graviton is currently in development. Releases will be published to Maven Centra
 
 ### PostgreSQL Backend
 
+Graviton currently expects a PostgreSQL database for manifest storage (even when blocks live on S3/MinIO or the filesystem).
+
 1. **Install PostgreSQL**:
 
 ```bash
@@ -80,11 +81,11 @@ docker run -d \
 2. **Apply DDL Schema**:
 
 ```bash
-# Find the DDL file in the backend module
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+# Canonical, deployable schema (also used by dbcodegen)
+psql -U postgres -d graviton -f modules/pg/ddl.sql
 ```
 
-3. **Configure Connection**:
+3. **Configure connection (env vars used by the server)**:
 
 ```bash
 export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
@@ -92,51 +93,60 @@ export PG_USERNAME="postgres"
 export PG_PASSWORD="postgres"
 ```
 
-4. **Regenerate Bindings** (if you modify the schema):
+4. **Regenerate bindings** (only if you modify the schema):
 
 ```bash
+PG_JDBC_URL=jdbc:postgresql://127.0.0.1:5432/graviton \
+PG_USERNAME=postgres \
+PG_PASSWORD=postgres \
 ./sbt "dbcodegen/run"
 ```
 
-### S3 Backend
+### S3/MinIO backend (block storage)
 
-Configure AWS credentials:
+The current server’s `s3|minio` backend uses the MinIO-compatible env contract (see `S3BlockStore.layerFromEnv`).
+Set:
+
+- `QUASAR_MINIO_URL` (for example `http://localhost:9000`)
+- `MINIO_ROOT_USER`
+- `MINIO_ROOT_PASSWORD`
+- Optional: `GRAVITON_S3_BLOCK_BUCKET` (default: `graviton-blocks`)
+- Optional: `GRAVITON_S3_BLOCK_PREFIX` (default: `cas/blocks`)
 
 ```bash
-export AWS_ACCESS_KEY_ID="your-access-key"
-export AWS_SECRET_ACCESS_KEY="your-secret-key"
-export AWS_REGION="us-east-1"
-export GRAVITON_S3_BUCKET="graviton-blobs"
+export QUASAR_MINIO_URL="http://localhost:9000"
+export MINIO_ROOT_USER="minioadmin"
+export MINIO_ROOT_PASSWORD="minioadmin"
+export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
+export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
 ```
 
-For MinIO or S3-compatible storage:
+### Filesystem backend (block storage)
+
+If you want blocks on local disk instead of S3/MinIO, set:
 
 ```bash
-export S3_ENDPOINT="http://localhost:9000"
-export S3_PATH_STYLE_ACCESS="true"
+export GRAVITON_BLOB_BACKEND="fs"
+export GRAVITON_FS_ROOT="./.graviton"
+export GRAVITON_FS_BLOCK_PREFIX="cas/blocks"
 ```
 
 ### RocksDB Backend
 
-RocksDB is embedded and requires no external setup. Configuration:
-
-```bash
-export ROCKSDB_PATH="/var/lib/graviton/rocksdb"
-export ROCKSDB_CACHE_SIZE="256MB"
-```
+The repository contains a RocksDB adapter module, but the current server wiring does not use it yet. Treat it as experimental.
 
 ## Running the Server
 
 ### Development Mode
 
 ```bash
-sbt "graviton-server/run"
+./sbt "server/run"
 ```
 
 The server will start with:
-- gRPC on port `50051`
-- HTTP on port `8080`
-- Metrics on `http://localhost:8080/metrics`
+- HTTP on port `8081` by default (override with `GRAVITON_HTTP_PORT`)
+- Health at `GET /api/health`
+- Metrics at `GET /metrics`
 
 ### Production Build
 
@@ -211,10 +221,10 @@ Test your installation:
 
 ```bash
 # Check if the server is running
-curl http://localhost:8080/health
+curl http://localhost:8081/api/health
 
 # View metrics
-curl http://localhost:8080/metrics
+curl http://localhost:8081/metrics
 
 # Run integration tests
 sbt "graviton-runtime/test"
@@ -234,12 +244,11 @@ psql -U postgres -d graviton -c "SELECT 1"
 
 ### Port Conflicts
 
-If ports 8080 or 50051 are in use:
+If port 8081 is in use:
 
 ```bash
 # Find processes using the ports
-lsof -i :8080
-lsof -i :50051
+lsof -i :8081
 
 # Kill or reconfigure
 ```
@@ -259,5 +268,5 @@ export JAVA_OPTS="-Xmx4g -Xms2g"
 - **[First Upload](./getting-started.md#your-first-upload)** — Try uploading data
 
 ::: tip
-For development, use `TESTCONTAINERS=1` to automatically spin up PostgreSQL in Docker.
+If you don’t have PostgreSQL installed locally, run it via Docker and keep `PG_JDBC_URL/PG_USERNAME/PG_PASSWORD` pointing at the container.
 :::

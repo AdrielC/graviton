@@ -83,6 +83,7 @@ object Demo extends ZIOAppDefault:
 ## What's Next?
 
 - **[Installation Guide](./installation.md)** — Set up Graviton in your environment
+- **[CLI & Server Usage](./cli.md)** — Run the server and interact via curl
 - **[Binary Streaming Guide](./binary-streaming.md)** — Learn how blocks, manifests, and chunkers fit together
 - **[Architecture Overview](../architecture.md)** — Understand the module structure
 - **[Core Concepts](../core/schema.md)** — Deep dive into schemas, ranges, and scans

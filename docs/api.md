@@ -12,6 +12,6 @@ Graviton exposes both gRPC and HTTP endpoints for ingesting and retrieving blobs
 
 ## HTTP
 
-`graviton-http` is intended to mirror the gRPC capabilities with JSON/HTTP endpoints using zio-http. The public REST surface is still evolving; the current server `HttpApi` is a stub while routing/decoding is being built out.
+`graviton-http` exposes a small, demo-focused HTTP surface using zio-http. It currently supports streaming blob upload/download plus dashboard snapshot/stream endpoints; see [`api/http`](./api/http.md).
 
 Authentication is pluggable through `AuthMiddleware`, which can integrate with JWT/OIDC providers.
