@@ -98,7 +98,7 @@ object QuasarMain extends ZIOAppDefault:
                        db0 <- Jdbc.ping(env.jdbc).either
                        r0  <- pingRedis(env.redisHost, env.redisPort).either
                        m0  <- httpReady(s"${env.minioUrl.stripSuffix("/")}/minio/health/ready").either
-                       g0  <- httpReady(s"${env.gravitonBaseUrl.stripSuffix("/")}/api/health").either
+                       g0  <- httpReady(s"${env.gravitonBaseUrl.stripSuffix("/")}/api/v1/health").either
                        db   = db0.fold(th => DependencyStatus(ok = false, detail = Some(th.getMessage)), _ => DependencyStatus(ok = true))
                        rds  = r0.fold(th => DependencyStatus(ok = false, detail = Some(th.getMessage)), _ => DependencyStatus(ok = true))
                        min  = m0.fold(th => DependencyStatus(ok = false, detail = Some(th.getMessage)), _ => DependencyStatus(ok = true))

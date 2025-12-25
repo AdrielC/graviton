@@ -38,25 +38,40 @@ object Main extends ZIOAppDefault:
                             metrics = Some(MetricsHttpApi(metrics)),
                           )
 
+                          val healthHandler =
+                            Handler.fromZIO {
+                              for
+                                now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                up   = (now - started).max(0L)
+                              yield Response.json(HealthResponse(status = "ok", version = "dev", uptime = up).toJson)
+                            }
+
+                          val statsHandler =
+                            Handler.succeed(
+                              Response.json(
+                                SystemStats(
+                                  totalBlobs = 0L,
+                                  totalBytes = 0L,
+                                  uniqueChunks = 0L,
+                                  deduplicationRatio = 1.0,
+                                ).toJson
+                              )
+                            )
+
+                          val schemaHandler =
+                            Handler.succeed(Response.json(List.empty[ObjectSchema].toJson))
+
                           val routes: Routes[Any, Nothing] =
                             Routes(
-                              Method.GET / "api" / "health" -> Handler.fromZIO {
-                                for
-                                  now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                  up   = (now - started).max(0L)
-                                yield Response.json(HealthResponse(status = "ok", version = "dev", uptime = up).toJson)
-                              },
-                              Method.GET / "api" / "stats"  -> Handler.succeed(
-                                Response.json(
-                                  SystemStats(
-                                    totalBlobs = 0L,
-                                    totalBytes = 0L,
-                                    uniqueChunks = 0L,
-                                    deduplicationRatio = 1.0,
-                                  ).toJson
-                                )
-                              ),
-                              Method.GET / "api" / "schema" -> Handler.succeed(Response.json(List.empty[ObjectSchema].toJson)),
+                              // v0 (legacy/demo)
+                              Method.GET / "api" / "health" -> healthHandler,
+                              Method.GET / "api" / "stats"  -> statsHandler,
+                              Method.GET / "api" / "schema" -> schemaHandler,
+
+                              // v1 (stable surface for Graviton HTTP clients)
+                              Method.GET / "api" / "v1" / "health" -> healthHandler,
+                              Method.GET / "api" / "v1" / "stats"  -> statsHandler,
+                              Method.GET / "api" / "v1" / "schema" -> schemaHandler,
                             ) ++ api.routes
 
                           ZIO.succeed(routes)
