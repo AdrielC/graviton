@@ -112,7 +112,7 @@ Keep a single page view of what changed across the ingest pipeline, runtime, and
 - When the dashboard loads data (or receives SSE updates) the editor state synchronizes automatically; you can tweak values locally and click **Apply edits** to mutate the in-browser snapshot. It’s a proof-of-concept for moving “functions to the data” where the schema itself drives the editing experience.
 - For richer tooling, the frontend also exposes a `graviton-schema` custom element (and an inline Laminar `SchemaExplorerView`) so other docs/pages can embed live schema explorers backed by the same accessor metadata. A live instance is embedded below.
 
-<meta name="graviton-api-url" content="http://localhost:8080" />
+<meta name="graviton-api-url" content="http://localhost:8081" />
 
 :::tip Configure API for docs
 Update the `<meta name="graviton-api-url" />` tag above so the embedded explorer knows where to fetch `/api/datalake/dashboard`.

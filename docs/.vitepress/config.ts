@@ -116,7 +116,8 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Introduction', link: '/' },
           { text: 'Quick Start', link: '/guide/getting-started' },
-          { text: 'Installation', link: '/guide/installation' }
+          { text: 'Installation', link: '/guide/installation' },
+          { text: 'CLI & Server Usage', link: '/guide/cli' }
         ]
       },
       {

@@ -126,13 +126,14 @@ services:
     image: graviton:latest
     ports:
       - "8080:8080"
-      - "50051:50051"
     environment:
+      - GRAVITON_HTTP_PORT=8080
+      - GRAVITON_BLOB_BACKEND=fs
+      - GRAVITON_FS_ROOT=/var/lib/graviton
+      - GRAVITON_FS_BLOCK_PREFIX=cas/blocks
       - PG_JDBC_URL=jdbc:postgresql://postgres:5432/graviton
       - PG_USERNAME=graviton
       - PG_PASSWORD=${PG_PASSWORD}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     volumes:
       - graviton-data:/var/lib/graviton
     depends_on:
@@ -191,9 +192,13 @@ spec:
         ports:
         - containerPort: 8080
           name: http
-        - containerPort: 50051
-          name: grpc
         env:
+        - name: GRAVITON_BLOB_BACKEND
+          value: "fs"
+        - name: GRAVITON_FS_ROOT
+          value: "/var/lib/graviton"
+        - name: GRAVITON_FS_BLOCK_PREFIX
+          value: "cas/blocks"
         - name: PG_JDBC_URL
           valueFrom:
             secretKeyRef:
@@ -209,16 +214,6 @@ spec:
             secretKeyRef:
               name: graviton-secrets
               key: pg-password
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: aws-credentials
-              key: access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: aws-credentials
-              key: secret-access-key
         resources:
           requests:
             memory: "2Gi"
@@ -228,13 +223,13 @@ spec:
             cpu: "2000m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
+            path: /api/health
             port: 8080
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -257,9 +252,6 @@ spec:
   - name: http
     port: 80
     targetPort: 8080
-  - name: grpc
-    port: 50051
-    targetPort: 50051
   type: LoadBalancer
 ---
 apiVersion: v1
@@ -276,71 +268,38 @@ spec:
 
 ## Configuration
 
-### Production Config
+### Production configuration (current server)
 
-```hocon
-graviton {
-  server {
-    http {
-      host = "0.0.0.0"
-      port = 8080
-      request-timeout = 30s
-      max-request-size = 100MB
-    }
-    
-    grpc {
-      host = "0.0.0.0"
-      port = 50051
-      max-message-size = 100MB
-      keepalive-time = 30s
-    }
-  }
-  
-  storage {
-    backend = "s3"
-    
-    s3 {
-      bucket = ${GRAVITON_S3_BUCKET}
-      region = ${AWS_REGION}
-      multipart {
-        part-size = 5MB
-        max-parts = 10000
-      }
-    }
-  }
-  
-  replication {
-    factor = 3
-    strategy = "zone-aware"
-    min-zones = 2
-    
-    repair {
-      enabled = true
-      interval = 5m
-      parallel-jobs = 4
-    }
-  }
-  
-  constraints {
-    max-blob-size = 100GB
-    max-concurrent-uploads = 100
-    rate-limit {
-      bytes-per-second = 100MB
-      burst-size = 500MB
-    }
-  }
-  
-  metrics {
-    enabled = true
-    prometheus-port = 9090
-  }
-  
-  logging {
-    level = "INFO"
-    format = "json"
-    correlation-id-header = "X-Request-ID"
-  }
-}
+The current `graviton-server` reads configuration from environment variables (see `graviton.server.Main`).
+
+Filesystem-backed blocks (simplest):
+
+```bash
+export GRAVITON_HTTP_PORT=8080
+export GRAVITON_BLOB_BACKEND=fs
+export GRAVITON_FS_ROOT=/var/lib/graviton
+export GRAVITON_FS_BLOCK_PREFIX=cas/blocks
+
+export PG_JDBC_URL=jdbc:postgresql://postgres:5432/graviton
+export PG_USERNAME=graviton
+export PG_PASSWORD=...
+```
+
+S3/MinIO-backed blocks:
+
+```bash
+export GRAVITON_HTTP_PORT=8080
+export GRAVITON_BLOB_BACKEND=s3  # or minio
+
+export QUASAR_MINIO_URL=http://minio:9000
+export MINIO_ROOT_USER=...
+export MINIO_ROOT_PASSWORD=...
+export GRAVITON_S3_BLOCK_BUCKET=graviton-blocks
+export GRAVITON_S3_BLOCK_PREFIX=cas/blocks
+
+export PG_JDBC_URL=jdbc:postgresql://postgres:5432/graviton
+export PG_USERNAME=graviton
+export PG_PASSWORD=...
 ```
 
 ### Environment Variables
@@ -351,18 +310,22 @@ export PG_JDBC_URL="jdbc:postgresql://postgres.example.com:5432/graviton"
 export PG_USERNAME="graviton"
 export PG_PASSWORD="secure-password"
 
-# S3
-export AWS_ACCESS_KEY_ID="AKIA..."
-export AWS_SECRET_ACCESS_KEY="..."
-export GRAVITON_S3_BUCKET="graviton-prod"
-export AWS_REGION="us-east-1"
+# Block storage selection (pick one)
+export GRAVITON_BLOB_BACKEND="fs"   # or "s3" / "minio"
+
+# Filesystem blocks
+export GRAVITON_FS_ROOT="/var/lib/graviton"
+export GRAVITON_FS_BLOCK_PREFIX="cas/blocks"
+
+# MinIO/S3-compatible blocks
+export QUASAR_MINIO_URL="http://minio:9000"
+export MINIO_ROOT_USER="minioadmin"
+export MINIO_ROOT_PASSWORD="minioadmin"
+export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
+export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
 
 # JVM
 export JAVA_OPTS="-Xmx4g -Xms2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
-
-# Application
-export GRAVITON_ENV="production"
-export GRAVITON_LOG_LEVEL="INFO"
 ```
 
 ## Monitoring
@@ -526,8 +489,6 @@ spec:
     ports:
     - protocol: TCP
       port: 8080
-    - protocol: TCP
-      port: 50051
   egress:
   - to:
     - podSelector:

@@ -4,9 +4,9 @@ The backend modules provide concrete implementations for the storage ports that 
 
 | Module | Purpose | Key interfaces | Status |
 | --- | --- | --- | --- |
-| `backend/graviton-pg` | Relational storage for blobs, ranges, and metadata | `ImmutableObjectStore`, `MutableObjectStore`, `KeyValueStore`, `RangeTracker`, `ReplicaIndex` | Scaffolding in place; methods currently stubbed with TODOs |
-| `backend/graviton-s3` | Object storage against S3-compatible APIs | `BlobStore`, `ImmutableObjectStore`, `MutableObjectStore` | API skeletons implemented; upload/download logic still unimplemented |
-| `backend/graviton-rocks` | Embedded RocksDB key-value store for local/dev workloads | `KeyValueStore` | Traits wired but persistence calls are placeholders |
+| `modules/backend/graviton-pg` | PostgreSQL adapter: manifest repo + wiring points for object-store ports | `PgBlobManifestRepo`, `ImmutableObjectStore`, `MutableObjectStore`, `KeyValueStore`, `RangeTracker`, `ReplicaIndex` | `PgBlobManifestRepo` is used by the server; other ports are still scaffolding |
+| `modules/backend/graviton-s3` | S3/MinIO block storage + evolving object-store ports | `BlockStore`, `ImmutableObjectStore`, `MutableObjectStore` | `S3BlockStore` is functional; other ports are still evolving |
+| `modules/backend/graviton-rocks` | Embedded RocksDB key-value store for local/dev workloads | `KeyValueStore` | Traits wired but persistence calls are placeholders |
 
 ## PostgreSQL adapter (`graviton-pg`)
 
