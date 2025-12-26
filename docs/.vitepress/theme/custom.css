@@ -74,6 +74,57 @@
   box-shadow: 0 0 8px var(--vp-c-brand-1);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Sleeker interactions: reduce hover-driven motion/glow                        */
+/* Keep the matrix rain, drop distracting hover theatrics.                      */
+/* -------------------------------------------------------------------------- */
+@media (hover: hover) {
+  /* Disable custom cursor + link glow/underline animation */
+  .vp-doc a {
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  .vp-doc a::after {
+    display: none !important;
+  }
+
+  .vp-doc a:hover {
+    color: var(--vp-c-brand-1);
+    text-shadow: none !important;
+  }
+
+  /* Remove hover transforms / heavy glows across common interactive elements */
+  .VPButton.brand:hover,
+  .VPButton.alt:hover,
+  .VPNavBarTitle .title:hover,
+  .VPNavBarSearch:hover,
+  .VPNavBarTitle:hover .logo,
+  .VPFeature:hover,
+  .VPFeature:hover .icon,
+  .quantum-console__toggle:hover,
+  .schema-reload:hover:not(:disabled),
+  .schema-card:hover,
+  .nav-link:hover,
+  .feature-card:hover,
+  .btn-primary:hover:not(:disabled),
+  .btn-secondary:hover:not(:disabled),
+  .chunker-btn:hover,
+  .upload-area:hover,
+  .scenario-card:hover {
+    transform: none !important;
+    box-shadow: none !important;
+    filter: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Headings: remove glitch-on-hover */
+  .vp-doc h1:hover,
+  .vp-doc h2:hover {
+    animation: none !important;
+  }
+}
+
 /* Page background with subtle grid */
 .VPDoc {
   background: 
