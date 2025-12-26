@@ -29,10 +29,7 @@ const theme: Theme = {
     onMounted(() => {
       createMatrixRain()
       initAuroraBackground()
-      initParticleTrail()
       initScrollAnimations()
-      enhanceCodeBlocks()
-      attachNavigationGlow()
     })
 
     onBeforeUnmount(() => {
