@@ -47,6 +47,29 @@ object DynamicJsonCodec:
                    case other       => Left(s"Expected record, obtained: $other")
     yield record
 
+  /**
+   * Convert a dynamic record into a JSON object.
+   *
+   * This is schema-agnostic and intended for envelope-style “portable JSON” storage where the dynamic record is the
+   * canonical in-memory representation.
+   */
+  def recordToJson(record: Record): Either[String, Json.Obj] =
+    dynamicToJson(record).flatMap {
+      case obj: Json.Obj => Right(obj)
+      case other         => Left(s"Expected JSON object from dynamic record, obtained: $other")
+    }
+
+  /**
+   * Convert JSON into a dynamic record.
+   *
+   * Note: callers should ensure the JSON root is an object when using this for namespace `data`.
+   */
+  def jsonToRecord(json: Json): Either[String, Record] =
+    jsonToDynamic(json).flatMap {
+      case rec: Record => Right(rec)
+      case other       => Left(s"Expected JSON object (record), obtained: $other")
+    }
+
   private def dynamicToJson(value: DynamicValue): Either[String, Json] =
     value match
       case Record(_, values) =>
