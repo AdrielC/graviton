@@ -27,10 +27,10 @@ trait Scan[-I, +O, S]:
 ```
 
 **Key properties:**
-- **Empty state is `Any`**: stateless scans use `S = Any`.
+- **Empty state is `Nothing`**: stateless scans use `S = Nothing`.
 - **State representation is user-defined**: `S` can be a case class, a `kyo.Record[...]`, a future `TypeMap`, etc.
 - **Composition wraps state internally**: composing scans uses a carrier `ComposeState[SA, SB]`:
-  - `Any` is an identity (`ComposeState[Any, SB] = SB`, `ComposeState[SA, Any] = SA`)
+  - `Nothing` is an identity (`ComposeState[Nothing, SB] = SB`, `ComposeState[SA, Nothing] = SA`)
   - if both states are already `kyo.Record[...]`, composition uses record **intersection** (`Record[fa & fb]`)
   - otherwise it packs the two states into a record with internal labels `"_0"` and `"_1"` (implementation detail)
 
@@ -57,7 +57,7 @@ val counting: Scan[Long, Long, CountState] =
 ```scala
 import graviton.core.scan.Scan
 
-val doubled: Scan[Int, Int, Any] =
+val doubled: Scan[Int, Int, Nothing] =
   Scan.pure(_ * 2)
 ```
 
