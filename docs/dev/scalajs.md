@@ -3,7 +3,7 @@
 Graviton's interactive surfaces ride on the cross-compiled Scala.js frontend that powers the documentation demo. This guide walks through the daily workflow, hot-reload tricks, linting, and production bundling so you can ship new client features with confidence.
 
 :::tip TL;DR
-1. `sbt ~frontend/fastLinkJS` for instant Laminar rebuilds.
+1. `./sbt ~frontend/fastLinkJS` for instant Laminar rebuilds.
 2. In another terminal: `cd docs && npm run docs:dev` to mount the demo inside VitePress.
 3. Point the app at a backend with `<meta name="graviton-api-url" content="http://localhost:8081" />` or let demo data take over offline.
 :::
@@ -26,7 +26,7 @@ tree modules/frontend/src/main/scala/graviton/frontend -L 1
 ### 1. Start an incremental Scala.js build
 
 ```bash
-sbt ~frontend/fastLinkJS
+./sbt ~frontend/fastLinkJS
 ```
 
 - Recompiles the Laminar app on every file save.
@@ -45,7 +45,7 @@ npm run docs:dev
 
 The Quasar demo route (`/quasar-demo`) dynamically imports `/quasar/js/main.js`. Use `./sbt buildQuasarFrontend` (or `./sbt buildDocsAssets`) to refresh it.
 
-> For one-off previews, run `sbt buildFrontend` instead; it writes the release bundle for you.
+> For one-off previews, run `./sbt buildFrontend` instead; it writes the release bundle for you.
 
 ### 3. (Optional) Point at a local backend
 
@@ -64,7 +64,7 @@ When the API cannot be reached the UI falls back to simulated demo data, so you 
 
 ## Shipping a New Build
 
-1. `sbt buildFrontend` (produces an optimized `docs/public/js/main.js`).
+1. `./sbt buildFrontend` (produces an optimized `docs/public/js/main.js`).
 2. `cd docs && npm run docs:build` (bundles static assets for deployment).
 3. Commit both the docs markdown changes and the generated bundle.
 
@@ -72,10 +72,10 @@ When the API cannot be reached the UI falls back to simulated demo data, so you 
 
 | Symptom | Fix |
 | --- | --- |
-| `Interactive demo not available` banner | Run `sbt buildFrontend` or refresh the symlink to the `fastopt` bundle. |
+| `Interactive demo not available` banner | Run `./sbt buildFrontend` or refresh the symlink to the `fastopt` bundle. |
 | API calls fail with CORS | Launch the server locally (`./sbt "server/run"`) or set up a proxy in `docs/vite.config.ts`. |
 | Hot reload lags | Switch to `~frontend/fastLinkJS` instead of `fullLinkJS`. The latter performs full DCE and is slower. |
-| Type errors in shared models | Run `sbt clean frontend/compile` to force recompilation of shared sources. |
+| Type errors in shared models | Run `./sbt clean frontend/compile` to force recompilation of shared sources. |
 
 ## Next Steps
 

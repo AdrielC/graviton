@@ -3,12 +3,12 @@
 ## Documentation
 
 **Core for v0.1.0**
-- [ ] Replace lingering *Torrent* references with Graviton-centric language.
-- [ ] Write a **binary-streaming guide** (Blocks, Blobs, Manifests, Attributes) and link it from *Getting Started*.
+- [x] Replace lingering *Torrent* references with Graviton-centric language. (done 2025-12-27)
+- [x] Write a **binary-streaming guide** (Blocks, Blobs, Manifests, Attributes) and link it from *Getting Started*. (done 2025-12-27)
 - [x] Add **filesystem + S3 backend configuration guides** (credentials, paths, env vars, buckets). (done in 8d3e829 2025-10-01)
 - [x] Expand Prometheus metrics docs with a worked example (`MetricsBlobStore`, publisher/updater, scrape config). (done in 8d3e829 2025-10-01)
 - [x] Document logging: correlation-ID propagation, SLF4J backend setup. (done in 8d3e829 2025-10-01)
-- [ ] Flesh out CLI usage pages: install, options, sample commands and responses.
+- [x] Flesh out CLI usage pages: install, options, sample commands and responses. (done 2025-12-27)
 - [x] Introduce a CONTRIBUTING guide (coding style, test commands, doc build). (done in 65b8e02 2025-11-24)
 
 **Follow-ups**

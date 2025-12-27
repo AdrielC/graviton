@@ -117,7 +117,11 @@ export default withMermaid(defineConfig({
           { text: 'Introduction', link: '/' },
           { text: 'Quick Start', link: '/guide/getting-started' },
           { text: 'Installation', link: '/guide/installation' },
-          { text: 'CLI & Server Usage', link: '/guide/cli' }
+          { text: 'Configuration Reference', link: '/guide/configuration-reference' },
+          { text: 'Run Locally (Full Stack)', link: '/guide/run-locally' },
+          { text: 'Storage Backends', link: '/guide/storage-backends' },
+          { text: 'CLI & Server Usage', link: '/guide/cli' },
+          { text: 'Troubleshooting', link: '/guide/troubleshooting' }
         ]
       },
       {

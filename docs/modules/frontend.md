@@ -10,10 +10,10 @@ See the new [Scala.js Playbook](../dev/scalajs.md) for incremental builds, hot r
 
 ```bash
 # One-off build
-sbt buildFrontend
+./sbt buildFrontend
 
 # Continuous development loop
-sbt ~frontend/fastLinkJS
+./sbt ~frontend/fastLinkJS
 
 # Serve docs with the embedded demo
 cd docs && npm run docs:dev
@@ -80,7 +80,7 @@ flowchart LR
 2. Register a new `Route` in `GravitonApp` and add it to the navigation model.
 3. Provide supporting API calls through `GravitonApi` (ideally typed with shared protocol models).
 4. Update `docs/demo.md` copy if the UX needs new descriptions or build steps.
-5. Run `sbt ~frontend/fastLinkJS` while hacking; finish with `sbt buildFrontend` before committing.
+5. Run `./sbt ~frontend/fastLinkJS` while hacking; finish with `./sbt buildFrontend` before committing.
 
 ## Interop with the Docs Site
 

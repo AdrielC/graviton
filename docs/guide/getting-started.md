@@ -32,7 +32,7 @@ git clone https://github.com/AdrielC/graviton.git
 cd graviton
 
 # Compile all modules
-sbt compile
+./sbt compile
 
 # Run formatting + the full JVM/JVM JS test matrix (without TestContainers)
 TESTCONTAINERS=0 ./sbt scalafmtAll test
@@ -83,6 +83,7 @@ object Demo extends ZIOAppDefault:
 ## What's Next?
 
 - **[Installation Guide](./installation.md)** — Set up Graviton in your environment
+- **[Configuration Reference](./configuration-reference.md)** — Every env var the current server reads (with defaults)
 - **[CLI & Server Usage](./cli.md)** — Run the server and interact via curl
 - **[Binary Streaming Guide](./binary-streaming.md)** — Learn how blocks, manifests, and chunkers fit together
 - **[Architecture Overview](../architecture.md)** — Understand the module structure

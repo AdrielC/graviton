@@ -1,6 +1,11 @@
 # CLI & Server Usage
 
-Graviton does not ship a standalone CLI binary yet. Today, the easiest way to interact with a running node is via the demo HTTP endpoints (or by using the `BlobStore` / `BlockStore` APIs directly in Scala).
+Graviton does **not** ship a standalone CLI binary yet (there is no `cli` SBT project in this repo today). For now, “CLI usage” means:
+
+- Use the **server** (`./sbt "server/run"`) and interact via **curl**
+- Or call the **runtime APIs** (`BlobStore`, `BlockStore`) directly from Scala
+
+You may see internal references to `cli/run ...` in the Scala.js demo UI; those are placeholders for a future CLI module and are not runnable today.
 
 ## Run the server
 
@@ -14,9 +19,23 @@ Defaults:
 - Health: `GET /api/health`
 - Metrics: `GET /metrics`
 
+### Quick preflight (fail fast)
+
+Before starting the server, verify your required env vars are present:
+
+```bash
+env | grep -E '^(PG_JDBC_URL|PG_USERNAME|PG_PASSWORD|GRAVITON_BLOB_BACKEND)='
+```
+
+If you use `GRAVITON_BLOB_BACKEND=s3|minio`, also verify:
+
+```bash
+env | grep -E '^(QUASAR_MINIO_URL|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD)='
+```
+
 ## Configure backends (current server)
 
-The server always expects Postgres credentials:
+The server expects Postgres credentials for manifest metadata:
 
 ```bash
 export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
@@ -43,23 +62,93 @@ export MINIO_ROOT_USER="minioadmin"
 export MINIO_ROOT_PASSWORD="minioadmin"
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
+export GRAVITON_S3_REGION="us-east-1"   # optional (default: us-east-1)
 ```
 
 ## Upload and download with curl
 
-Upload a file:
+### Health check
 
 ```bash
-curl -X POST --data-binary @/path/to/file "http://localhost:8081/api/blobs"
+curl -fsS "http://localhost:8081/api/health" > /dev/null
 ```
 
-The response is a JSON string `BlobId` in the format `<algo>:<digestHex>:<byteLength>`.
+Expected response shape:
 
-Download it back:
+```json
+{"status":"ok","version":"dev","uptime":12345}
+```
+
+### Upload a file
+
+The upload endpoint accepts an octet stream and returns a JSON string `BlobId` in the format `<algo>:<digestHex>:<byteLength>`.
 
 ```bash
-curl -L "http://localhost:8081/api/blobs/<algo>:<digestHex>:<byteLength>" --output downloaded.bin
+# Upload
+BLOB_ID="$(
+  curl -fsS \
+    -H "Content-Type: application/octet-stream" \
+    -X POST --data-binary @/path/to/file \
+    "http://localhost:8081/api/blobs" \
+  | jq -r .
+)"
+
+echo "Uploaded: $BLOB_ID"
 ```
+
+If you don’t have `jq`, you can capture the raw JSON string and strip quotes manually:
+
+```bash
+BLOB_ID_RAW="$(curl -fsS -X POST --data-binary @/path/to/file "http://localhost:8081/api/blobs")"
+BLOB_ID="${BLOB_ID_RAW%\"}"
+BLOB_ID="${BLOB_ID#\"}"
+echo "Uploaded: $BLOB_ID"
+```
+
+### Download it back
+
+```bash
+curl -fsS -L "http://localhost:8081/api/blobs/$BLOB_ID" --output downloaded.bin
+```
+
+Optional sanity check:
+
+```bash
+sha256sum /path/to/file downloaded.bin
+```
+
+### Convenience endpoints
+
+```bash
+curl -fsS "http://localhost:8081/api/stats"  | jq .
+curl -fsS "http://localhost:8081/api/schema" | jq .
+```
+
+### Dashboard stream (SSE)
+
+The server exposes an event stream intended for the docs/demo dashboard:
+
+```bash
+curl -N "http://localhost:8081/api/datalake/dashboard/stream"
+```
+
+If you see no events, keep the connection open for a bit; SSE streams can be quiet until a change occurs.
+
+## Troubleshooting
+
+### Server fails on startup with missing env var
+
+- If it mentions `PG_*`: set Postgres env vars (and ensure the DB is reachable).
+- If it mentions `MINIO_*` / `QUASAR_MINIO_URL`: either set them or switch to filesystem blocks (`GRAVITON_BLOB_BACKEND=fs`).
+
+### Upload returns 500
+
+Most common causes:
+
+- Postgres is reachable but the schema was not applied (`modules/pg/ddl.sql`).
+- MinIO/S3 bucket does not exist (create `GRAVITON_S3_BLOCK_BUCKET`).
+
+See **[Configuration Reference](./configuration-reference.md)** for a checklist and fixes.
 
 ## See also
 

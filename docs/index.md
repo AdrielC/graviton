@@ -44,7 +44,7 @@ Track ingest throughput, deduplication ratios, replica health, and runtime event
 
 ```bash
 # Build all modules
-sbt compile
+./sbt compile
 
 # Build the Scala.js dashboard for the /demo page
 ./sbt buildFrontend
