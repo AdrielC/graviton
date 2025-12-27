@@ -2,8 +2,10 @@ package graviton.arrow
 
 import scala.collection.mutable
 import scala.quoted.*
+import kyo.Record
+import kyo.Record.`~`
 
-type Field[Label <: String & Singleton, A] = NamedTuple.NamedTuple[(Label *: EmptyTuple), (A *: EmptyTuple)]
+type Field[Label <: String & Singleton, A] = Record[Label ~ A]
 
 private[arrow] object StateNaming:
 
