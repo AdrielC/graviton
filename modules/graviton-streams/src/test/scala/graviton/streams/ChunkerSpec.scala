@@ -77,6 +77,15 @@ object ChunkerSpec extends ZIOSpecDefault:
           a.forall(b => b.length >= 1 && b.length <= 2048),
         )
       },
+      test("core state machine can run on a single Chunk[Byte]") {
+        val input = ascii("a\nbb\nccc")
+        val st0   = ChunkerCore.init(ChunkerCore.Mode.Delimiter(ascii("\n"), includeDelimiter = true, minBytes = 1, maxBytes = 16)).toOption.get
+
+        val (st1, out1) = st0.step(input).toOption.get
+        val (_, out2)   = st1.finish.toOption.get
+
+        assertTrue((out1 ++ out2).map(_.bytes) == Chunk(ascii("a\n"), ascii("bb\n"), ascii("ccc")))
+      },
       test("chunker output type enforces non-empty blocks") {
         val empty: Chunk[Byte] = Chunk.empty
         val res                = Block.fromChunk(empty)
