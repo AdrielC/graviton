@@ -11,6 +11,16 @@ Metadata in Quasar is **namespaced**, **schema-bound**, and **auditable**. This 
   - canonical: synchronous validation; invalid → `422`
   - derived: provenance required; can be async validated; invalid may be quarantined
 
+## Envelope v1.1 (portable + schema-pinned)
+
+This page describes the existing “namespaces bundle” model used throughout the Quasar docs. The **authoritative direction** going forward is the **Quasar Metadata Envelope v1.1**, which adds:
+
+- a required `system` receipt block (timestamps, principal, request correlation)
+- explicit schema pinning via `schema: { "$id": "<schema-iri>" }`
+- an explicit `status` (`valid | quarantined | unverified`) with a hard typed-decoding rule
+
+See `design/quasar-metadata-envelope-v1.1` for the full spec and JSON Schemas.
+
 ## Storage shape
 
 The metadata snapshot on a `DocumentVersion` is a single JSON object:
