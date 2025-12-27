@@ -270,7 +270,7 @@ object FileUpload {
     }
 
     /**
-     * FastCDC implementation using the same algorithm as graviton-core.
+     * FastCDC implementation using the same algorithm as `graviton.streams.Chunker.fastCdc`.
      *
      * This implements content-defined chunking with a rolling hash,
      * identical to the server-side implementation in graviton-streams.
@@ -278,28 +278,29 @@ object FileUpload {
      * maintaining content-defined splitting for deduplication.
      */
     def chunkFastCDC(bytes: js.Array[Byte], config: FastCDCConfig): List[ChunkDisplay] = {
-      val chunks     = mutable.ListBuffer[ChunkDisplay]()
-      val normalized = FastCDCConfig.normalize(config)
-      val minSize    = normalized.min
-      val avgSize    = normalized.avg
-      val maxSize    = normalized.max
-      val avgPower   = math.max(1, log2(avgSize))
-      val mask       = (1 << (math.max(1, avgPower) - 1)) - 1
+      val chunks                   = mutable.ListBuffer[ChunkDisplay]()
+      val normalized               = FastCDCConfig.normalize(config)
+      val minSize                  = normalized.min
+      val avgSize                  = normalized.avg
+      val maxSize                  = normalized.max
+      val (strongMask, normalMask) = fastCdcMasks(avgSize)
 
       var offset     = 0L
       var i          = 0
       var chunkStart = 0
-      var roll       = 0L
+      var h          = 0
 
       while (i < bytes.length) {
-        val b = bytes(i) & 0xff
-        roll = ((roll << 1) ^ b) & 0xffffff
-
+        val b           = bytes(i) & 0xff
         val currentSize = i - chunkStart + 1
-        val isBoundary  =
-          (currentSize >= minSize && (mask == 0 || (roll & mask) == 0)) || // Rolling hash match
-            currentSize >= maxSize ||                                      // Max size reached
-            i == bytes.length - 1                                          // End of file
+        h = (h << 1) + gear(b)
+
+        val wantsBoundary =
+          if (currentSize < minSize) false
+          else if (currentSize < avgSize) (h & strongMask) == 0
+          else (h & normalMask) == 0
+
+        val isBoundary = wantsBoundary || currentSize >= maxSize || i == bytes.length - 1
 
         if (isBoundary) {
           val chunkBytes = bytes.slice(chunkStart, i + 1)
@@ -313,7 +314,7 @@ object FileUpload {
 
           offset += chunkBytes.length
           chunkStart = i + 1
-          roll = 0L
+          h = 0
         }
 
         i += 1
@@ -325,6 +326,28 @@ object FileUpload {
     def log2(n: Int): Int =
       if (n <= 0) 0
       else 32 - Integer.numberOfLeadingZeros(n - 1)
+
+    lazy val gear: Array[Int] = {
+      val g = Array.ofDim[Int](256)
+      var i = 0
+      var x = 0x9e3779b9
+      while (i < 256) {
+        x = Integer.rotateLeft(x ^ (i * 0x85ebca6b), 13) * 0xc2b2ae35
+        g(i) = x
+        i += 1
+      }
+      g
+    }
+
+    def fastCdcMasks(avgBytes: Int): (Int, Int) = {
+      val avg        = math.max(avgBytes, 1)
+      val bits       = 31 - Integer.numberOfLeadingZeros(avg)
+      val normalBits = math.max(8, math.min(20, bits))
+      val strongBits = math.max(6, math.min(18, bits - 1))
+      val normalMask = (1 << normalBits) - 1
+      val strongMask = (1 << strongBits) - 1
+      (strongMask, normalMask)
+    }
 
     def processFile(file: dom.File, chunker: ChunkerType): Unit = {
       val reader = new FileReader()
