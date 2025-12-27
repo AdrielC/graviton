@@ -74,6 +74,34 @@
   box-shadow: 0 0 8px var(--vp-c-brand-1);
 }
 
+/* Scroll progress: subtle, not hover-driven */
+.graviton-scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 10001;
+  pointer-events: none;
+  opacity: 0.75;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 255, 65, 0.0) 0%,
+    rgba(0, 255, 65, 0.75) 50%,
+    rgba(0, 200, 255, 0.55) 100%
+  );
+  transform-origin: 0 50%;
+  transform: scaleX(var(--progress, 0));
+  filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.35));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graviton-scroll-progress {
+    filter: none;
+    opacity: 0.6;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sleeker interactions: reduce hover-driven motion/glow                        */
 /* Keep the matrix rain, drop distracting hover theatrics.                      */
