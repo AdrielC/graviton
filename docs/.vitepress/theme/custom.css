@@ -95,6 +95,23 @@
   filter: drop-shadow(0 0 10px rgba(0, 255, 65, 0.35));
 }
 
+/* Per-route accent (unique per page). Falls back to existing palette. */
+:root {
+  --graviton-accent-hue: 155;
+  --graviton-accent: hsl(var(--graviton-accent-hue) 100% 62%);
+  --graviton-accent-soft: hsl(var(--graviton-accent-hue) 100% 62% / 0.25);
+}
+
+.graviton-scroll-progress {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 255, 65, 0.0) 0%,
+    var(--graviton-accent) 45%,
+    rgba(0, 200, 255, 0.55) 100%
+  );
+  box-shadow: 0 0 18px var(--graviton-accent-soft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .graviton-scroll-progress {
     filter: none;
