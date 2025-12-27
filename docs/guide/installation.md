@@ -29,7 +29,7 @@ git clone https://github.com/AdrielC/graviton.git
 cd graviton
 
 # Compile everything
-sbt compile
+./sbt compile
 
 # Run formatter and tests
 TESTCONTAINERS=0 ./sbt scalafmtAll test
@@ -112,6 +112,7 @@ Set:
 - `MINIO_ROOT_PASSWORD`
 - Optional: `GRAVITON_S3_BLOCK_BUCKET` (default: `graviton-blocks`)
 - Optional: `GRAVITON_S3_BLOCK_PREFIX` (default: `cas/blocks`)
+- Optional: `GRAVITON_S3_REGION` (default: `us-east-1`)
 
 ```bash
 export QUASAR_MINIO_URL="http://localhost:9000"
@@ -119,6 +120,7 @@ export MINIO_ROOT_USER="minioadmin"
 export MINIO_ROOT_PASSWORD="minioadmin"
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
+export GRAVITON_S3_REGION="us-east-1"
 ```
 
 ### Filesystem backend (block storage)
@@ -150,14 +152,7 @@ The server will start with:
 
 ### Production Build
 
-Create an optimized assembly:
-
-```bash
-sbt "graviton-server/assembly"
-
-# Run the fat JAR
-java -jar modules/server/graviton-server/target/scala-3.*/graviton-server-assembly-*.jar
-```
+The repository currently focuses on **developer-first** execution via SBT (`./sbt "server/run"`). If you need a production-style artifact today, prefer the provided container wiring under `deploy/` (and treat it as the reference for how env vars are expected to be supplied).
 
 ### Docker Deployment
 
@@ -171,49 +166,9 @@ EXPOSE 8080 50051
 CMD ["java", "-jar", "/app/graviton.jar"]
 ```
 
-## Configuration Files
+## Configuration model (current server)
 
-### application.conf
-
-Create `application.conf` in your classpath:
-
-```hocon
-graviton {
-  server {
-    http {
-      host = "0.0.0.0"
-      port = 8080
-    }
-    
-    grpc {
-      host = "0.0.0.0"
-      port = 50051
-    }
-  }
-  
-  storage {
-    backend = "postgres" # or "s3", "rocksdb"
-    
-    postgres {
-      url = ${PG_JDBC_URL}
-      username = ${PG_USERNAME}
-      password = ${PG_PASSWORD}
-    }
-    
-    s3 {
-      bucket = ${GRAVITON_S3_BUCKET}
-      region = ${AWS_REGION}
-    }
-  }
-  
-  chunking {
-    algorithm = "fastcdc"
-    min-size = 256KB
-    avg-size = 1MB
-    max-size = 4MB
-  }
-}
-```
+The current `graviton-server` reads configuration from **environment variables** (see `graviton.server.Main`). A HOCON `application.conf` layout is **not** wired up yet, so treat any HOCON examples you find as forward-looking design notes rather than runnable configuration.
 
 ## Verification
 
@@ -226,8 +181,8 @@ curl http://localhost:8081/api/health
 # View metrics
 curl http://localhost:8081/metrics
 
-# Run integration tests
-sbt "graviton-runtime/test"
+# Run tests (without TestContainers)
+TESTCONTAINERS=0 ./sbt test
 ```
 
 ## Troubleshooting

@@ -90,9 +90,16 @@ object S3BlobStore:
 
   /**
    * Minimal env contract for the on-prem v1 compose bundle:
-   * - QUASAR_MINIO_URL, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+   *
+   * Required:
+   * - QUASAR_MINIO_URL
+   * - MINIO_ROOT_USER
+   * - MINIO_ROOT_PASSWORD
+   *
+   * Optional:
    * - GRAVITON_S3_BUCKET (defaults to graviton-blobs)
    * - GRAVITON_S3_TMP_BUCKET (defaults to graviton-tmp)
+   * - GRAVITON_S3_REGION (defaults to us-east-1)
    */
   val layerFromEnv: ZLayer[Any, Throwable, BlobStore] =
     ZLayer.fromZIO {
@@ -101,12 +108,10 @@ object S3BlobStore:
 
       for
         base   <- ZIO
-                    .fromEither(S3Config.fromMinioEnv(bucketEnv = "GRAVITON_S3_BUCKET"))
-                    .map(_.copy(bucket = blobBucket))
+                    .fromEither(S3Config.fromEndpointEnv(bucket = blobBucket))
                     .mapError(msg => new IllegalArgumentException(msg))
         tmp    <- ZIO
-                    .fromEither(S3Config.fromMinioEnv(bucketEnv = "GRAVITON_S3_TMP_BUCKET"))
-                    .map(_.copy(bucket = tmpBucket))
+                    .fromEither(S3Config.fromEndpointEnv(bucket = tmpBucket))
                     .mapError(msg => new IllegalArgumentException(msg))
         client <- S3ClientLayer.make(base)
       yield new S3BlobStore(client, S3BlobStoreConfig(blobs = base, tmp = tmp))

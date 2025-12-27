@@ -32,7 +32,7 @@ git clone https://github.com/AdrielC/graviton.git
 cd graviton
 
 # Compile all modules
-sbt compile
+./sbt compile
 
 # Run formatting + the full JVM/JVM JS test matrix (without TestContainers)
 TESTCONTAINERS=0 ./sbt scalafmtAll test

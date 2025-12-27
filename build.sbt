@@ -182,6 +182,20 @@ lazy val docs = (project in file("docs-mdoc"))
     name := "graviton-docs",
     mdocIn := (ThisBuild / baseDirectory).value / "docs",
     mdocOut := target.value / "mdoc-out",
+    // Keep mdoc fast + deterministic: ignore generated assets and npm installs under docs/.
+    // (These folders can appear in CI or local builds and create thousands of irrelevant pages/warnings.)
+    mdocExtraArguments ++= Seq(
+      "--exclude",
+      "node_modules",
+      "--exclude",
+      ".vitepress/dist",
+      "--exclude",
+      ".vitepress/cache",
+      "--exclude",
+      ".vitepress/.temp",
+      "--exclude",
+      "public"
+    ),
     mdocVariables += "version" -> version.value,
     Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "docs/snippets/src/main/scala"
   )

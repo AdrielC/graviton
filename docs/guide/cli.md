@@ -5,6 +5,8 @@ Graviton does **not** ship a standalone CLI binary yet (there is no `cli` SBT pr
 - Use the **server** (`./sbt "server/run"`) and interact via **curl**
 - Or call the **runtime APIs** (`BlobStore`, `BlockStore`) directly from Scala
 
+You may see internal references to `cli/run ...` in the Scala.js demo UI; those are placeholders for a future CLI module and are not runnable today.
+
 ## Run the server
 
 ```bash
@@ -46,6 +48,7 @@ export MINIO_ROOT_USER="minioadmin"
 export MINIO_ROOT_PASSWORD="minioadmin"
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
+export GRAVITON_S3_REGION="us-east-1"   # optional (default: us-east-1)
 ```
 
 ## Upload and download with curl
