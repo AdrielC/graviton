@@ -14,10 +14,10 @@ object ChunkerCore:
 
   sealed trait Err extends Product with Serializable
   object Err:
-    case object EmptyDelimiter                               extends Err
-    final case class InvalidBounds(message: String)          extends Err
-    final case class InvalidBlock(message: String)           extends Err
-    final case class InvalidDelimiter(message: String)       extends Err
+    case object EmptyDelimiter                         extends Err
+    final case class InvalidBounds(message: String)    extends Err
+    final case class InvalidBlock(message: String)     extends Err
+    final case class InvalidDelimiter(message: String) extends Err
 
   enum Mode:
     case Fixed(chunkBytes: Int)
@@ -106,7 +106,7 @@ object ChunkerCore:
   def init(mode: Mode): Either[Err, State] =
     mode match
       case Mode.Fixed(chunkBytes) =>
-        val size = math.max(1, math.min(chunkBytes, Block.maxBytes))
+        val size   = math.max(1, math.min(chunkBytes, Block.maxBytes))
         val bounds = Bounds(minBytes = size, avgBytes = size, maxBytes = size)
         Right(
           State(
@@ -123,9 +123,9 @@ object ChunkerCore:
         if delim.isEmpty then Left(Err.EmptyDelimiter)
         else
           val delimArr = delim.toArray
-          val safeMin = math.max(1, minBytes)
-          val safeMax = math.max(safeMin, math.min(maxBytes, Block.maxBytes))
-          val bounds  = Bounds(minBytes = safeMin, avgBytes = safeMin, maxBytes = safeMax)
+          val safeMin  = math.max(1, minBytes)
+          val safeMax  = math.max(safeMin, math.min(maxBytes, Block.maxBytes))
+          val bounds   = Bounds(minBytes = safeMin, avgBytes = safeMin, maxBytes = safeMax)
           Right(
             State(
               bounds = bounds,
@@ -138,11 +138,11 @@ object ChunkerCore:
           )
 
       case Mode.FastCdc(minBytes, avgBytes, maxBytes) =>
-        val safeMin = math.max(1, minBytes)
-        val safeMax = math.max(safeMin, math.min(maxBytes, Block.maxBytes))
-        val safeAvg = math.max(safeMin, math.min(avgBytes, safeMax))
+        val safeMin                  = math.max(1, minBytes)
+        val safeMax                  = math.max(safeMin, math.min(maxBytes, Block.maxBytes))
+        val safeAvg                  = math.max(safeMin, math.min(avgBytes, safeMax))
         val (strongMask, normalMask) = fastCdcMasks(safeAvg)
-        val bounds = Bounds(minBytes = safeMin, avgBytes = safeAvg, maxBytes = safeMax)
+        val bounds                   = Bounds(minBytes = safeMin, avgBytes = safeAvg, maxBytes = safeMax)
         Right(
           State(
             bounds = bounds,
@@ -224,4 +224,3 @@ object ChunkerCore:
       g(i) = x
       i += 1
     g
-

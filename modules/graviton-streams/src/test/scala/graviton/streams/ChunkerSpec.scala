@@ -79,7 +79,8 @@ object ChunkerSpec extends ZIOSpecDefault:
       },
       test("core state machine can run on a single Chunk[Byte]") {
         val input = ascii("a\nbb\nccc")
-        val st0   = ChunkerCore.init(ChunkerCore.Mode.Delimiter(ascii("\n"), includeDelimiter = true, minBytes = 1, maxBytes = 16)).toOption.get
+        val st0   =
+          ChunkerCore.init(ChunkerCore.Mode.Delimiter(ascii("\n"), includeDelimiter = true, minBytes = 1, maxBytes = 16)).toOption.get
 
         val (st1, out1) = st0.step(input).toOption.get
         val (_, out2)   = st1.finish.toOption.get
