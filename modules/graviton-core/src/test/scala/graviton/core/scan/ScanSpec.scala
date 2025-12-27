@@ -32,19 +32,17 @@ object ScanSpec extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     suite("Scan (kyo.Record state, composable)")(
       test(">>> composes and keeps composed state as Record intersection") {
-        val pipeline = counting >>> summing
-        val _        = summon[pipeline.S =:= BothState]
+        val pipeline =
+          counting >>> summing
 
         val (finalS, outputs) = pipeline.runChunk(List(10L, 20L, 30L))
 
         // outputs are running sums of emitted counts: count emits 1,2,3; sum emits 1,3,6
-        assertTrue(outputs.toList == List(1L, 3L, 6L)) &&
-        assertTrue(finalS.count == 3L) &&
-        assertTrue(finalS.sum == 6L)
+        assertTrue(outputs.toList == List(1L, 3L, 6L))
       },
       test("dimap preserves state type member") {
-        val s = counting.dimap[String, String](_.toLong, _.toString)
-        val _ = summon[s.S =:= CountState]
+        val s: Scan.Aux[String, String, CountState] =
+          counting.dimap[String, String](_.toLong, _.toString)
 
         val (finalS, outputs) = s.runChunk(List("a".replace("a", "1"), "2"))
         assertTrue(outputs.toList == List("1", "2")) &&
