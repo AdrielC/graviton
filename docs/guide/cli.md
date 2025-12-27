@@ -1,6 +1,9 @@
 # CLI & Server Usage
 
-Graviton does not ship a standalone CLI binary yet. Today, the easiest way to interact with a running node is via the demo HTTP endpoints (or by using the `BlobStore` / `BlockStore` APIs directly in Scala).
+Graviton does **not** ship a standalone CLI binary yet (there is no `cli` SBT project in this repo today). For now, “CLI usage” means:
+
+- Use the **server** (`./sbt "server/run"`) and interact via **curl**
+- Or call the **runtime APIs** (`BlobStore`, `BlockStore`) directly from Scala
 
 ## Run the server
 
@@ -16,7 +19,7 @@ Defaults:
 
 ## Configure backends (current server)
 
-The server always expects Postgres credentials:
+The server expects Postgres credentials for manifest metadata:
 
 ```bash
 export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
@@ -47,18 +50,55 @@ export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
 
 ## Upload and download with curl
 
-Upload a file:
+### Health check
 
 ```bash
-curl -X POST --data-binary @/path/to/file "http://localhost:8081/api/blobs"
+curl -fsS "http://localhost:8081/api/health" > /dev/null
 ```
 
-The response is a JSON string `BlobId` in the format `<algo>:<digestHex>:<byteLength>`.
+### Upload a file
 
-Download it back:
+The upload endpoint accepts an octet stream and returns a JSON string `BlobId` in the format `<algo>:<digestHex>:<byteLength>`.
 
 ```bash
-curl -L "http://localhost:8081/api/blobs/<algo>:<digestHex>:<byteLength>" --output downloaded.bin
+# Upload
+BLOB_ID="$(
+  curl -fsS \
+    -H "Content-Type: application/octet-stream" \
+    -X POST --data-binary @/path/to/file \
+    "http://localhost:8081/api/blobs" \
+  | jq -r .
+)"
+
+echo "Uploaded: $BLOB_ID"
+```
+
+If you don’t have `jq`, you can capture the raw JSON string and strip quotes manually:
+
+```bash
+BLOB_ID_RAW="$(curl -fsS -X POST --data-binary @/path/to/file "http://localhost:8081/api/blobs")"
+BLOB_ID="${BLOB_ID_RAW%\"}"
+BLOB_ID="${BLOB_ID#\"}"
+echo "Uploaded: $BLOB_ID"
+```
+
+### Download it back
+
+```bash
+curl -fsS -L "http://localhost:8081/api/blobs/$BLOB_ID" --output downloaded.bin
+```
+
+Optional sanity check:
+
+```bash
+sha256sum /path/to/file downloaded.bin
+```
+
+### Convenience endpoints
+
+```bash
+curl -fsS "http://localhost:8081/api/stats"  | jq .
+curl -fsS "http://localhost:8081/api/schema" | jq .
 ```
 
 ## See also
