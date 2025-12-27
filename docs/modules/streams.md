@@ -4,7 +4,8 @@
 
 ## Chunking & hashing
 
-- `Chunker`: factory for chunking pipelines. The current implementation is a placeholder (`ZPipeline.identity`) and will be replaced with FastCDC-based splitters that honour min/avg/max window sizes.
+- `Chunker`: factory for chunking pipelines (`ZPipeline[Any, Throwable, Byte, Block]`). Implemented as a single-pass incremental cutter with bounded memory (one in-flight `Array[Byte](maxBytes)` per stream).
+- `ChunkerCore`: the same chunking logic as a plain state machine (`Either[Err, (State, Chunk[Block])]`), useful for tests/benchmarks or lifting into non-ZIO stream runtimes.
 - `HashingZ`: exposes `sink` and `pipeline` helpers for `Hasher`/`MultiHasher` instances from `graviton-core`. These run incremental updates across byte streams and surface either a final hash or the original hasher for chained computations.
 
 ## Stream combinators
@@ -32,6 +33,6 @@ The implementation keeps an internal `BitVector` buffer, tracks `Err.Insufficien
 
 ## Roadmap
 
-1. Implement FastCDC chunker boundaries and expose configuration knobs (min/avg/max, fingerprint polynomial).
+1. Add anchored/multi-delimiter chunking strategies on top of the incremental core.
 2. Add `ZPipeline` stages for compression and encryption so block storage can pipe bytes through a single reusable composition.
 3. Export additional metrics (histograms, gauges) derived from the `timeseries` helpers.
