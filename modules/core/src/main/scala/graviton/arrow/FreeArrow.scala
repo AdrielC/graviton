@@ -13,10 +13,7 @@ import scala.quoted.*
  * (\`Prim\`), the product type constructor \`Prod\`, and the sum type constructor
  * \`Sum\`.
  */
-sealed trait FreeArrow[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], -I, +O]:
-  self =>
-
-  type Caps <: Record[?]
+sealed trait FreeArrow[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], -I, +O, +C]:
 
   def compile[=>:[-_, +_]](using interpreter: FreeArrow.Interpreter[Prim, Prod, Sum, =>:]): I =>: O =
     this match
@@ -57,133 +54,132 @@ sealed trait FreeArrow[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], 
 
 object FreeArrow:
 
-  type Aux[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], -I, +O, C <: Record[?]] =
-    FreeArrow[Prim, Prod, Sum, I, O] { type Caps = C }
+  type Aux[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], -I, +O, C] =
+    FreeArrow[Prim, Prod, Sum, I, O, C]
 
-  type FieldsOf[R <: Record[?]] = R match
+  type FieldsOf[R] = R match
     case Record[fields] => fields
 
-  type CapUnion[A <: Record[?], B <: Record[?]] = Record[FieldsOf[A] & FieldsOf[B]]
+  type CapUnion[A, B] = (A, B) match
+    case (Any, b)                 => b
+    case (a, Any)                 => a
+    case (Record[fa], Record[fb]) => Record[fa & fb]
+    case _                        => A & B
 
-  final case class Id[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A]() extends FreeArrow[Prim, Prod, Sum, A, A]:
-    type Caps = Record[Any]
+  final case class Id[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A]() extends FreeArrow[Prim, Prod, Sum, A, A, Any]
 
-  final case class Pure[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O](f: I => O) extends FreeArrow[Prim, Prod, Sum, I, O]:
-    type Caps = Record[Any]
+  final case class Pure[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O](f: I => O) extends FreeArrow[Prim, Prod, Sum, I, O, Any]
 
-  final case class Zero[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O](bottom: BottomOf[O])
-      extends FreeArrow[Prim, Prod, Sum, I, O]:
-    type Caps = Record[Any]
+  final case class Zero[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O](bottom: BottomOf[O])
+      extends FreeArrow[
+        Prim,
+        Prod,
+        Sum,
+        I,
+        O,
+        Any,
+      ]
 
-  final case class Embed[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O, C <: Record[?]](
+  final case class Embed[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O, C](
     prim: Prim[I, O, C]
-  ) extends FreeArrow[Prim, Prod, Sum, I, O]:
-    type Caps = C
+  ) extends FreeArrow[Prim, Prod, Sum, I, O, C]
 
   final case class Iso[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I,
     O,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     forward: FreeArrow.Aux[Prim, Prod, Sum, I, O, C1],
     backward: FreeArrow.Aux[Prim, Prod, Sum, O, I, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, I, O]:
-    type Caps = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, I, O, CapUnion[C1, C2]]
 
   final case class Compose[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I,
     M,
     O,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     left: FreeArrow.Aux[Prim, Prod, Sum, I, M, C1],
     right: FreeArrow.Aux[Prim, Prod, Sum, M, O, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, I, O]:
-    type Caps = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, I, O, CapUnion[C1, C2]]
 
   final case class Split[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I,
     O1,
     O2,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     left: FreeArrow.Aux[Prim, Prod, Sum, I, O1, C1],
     right: FreeArrow.Aux[Prim, Prod, Sum, I, O2, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, I, Prod[O1, O2]]:
-    type Caps = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, I, Prod[O1, O2], CapUnion[C1, C2]]
 
   final case class Parallel[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I1,
     I2,
     O1,
     O2,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     left: FreeArrow.Aux[Prim, Prod, Sum, I1, O1, C1],
     right: FreeArrow.Aux[Prim, Prod, Sum, I2, O2, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, Prod[I1, I2], Prod[O1, O2]]:
-    type Caps = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, Prod[I1, I2], Prod[O1, O2], CapUnion[C1, C2]]
 
   final case class Plus[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I1,
     I2,
     O1,
     O2,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     left: FreeArrow.Aux[Prim, Prod, Sum, I1, O1, C1],
     right: FreeArrow.Aux[Prim, Prod, Sum, I2, O2, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, Sum[I1, I2], Sum[O1, O2]]:
-    type Caps     = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, Sum[I1, I2], Sum[O1, O2], CapUnion[C1, C2]]:
     type LeftOut  = O1
     type RightOut = O2
 
   final case class FanIn[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I1,
     I2,
     O,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     left: FreeArrow.Aux[Prim, Prod, Sum, I1, O, C1],
     right: FreeArrow.Aux[Prim, Prod, Sum, I2, O, C2],
-  ) extends FreeArrow[Prim, Prod, Sum, Sum[I1, I2], O]:
-    type Caps = CapUnion[C1, C2]
+  ) extends FreeArrow[Prim, Prod, Sum, Sum[I1, I2], O, CapUnion[C1, C2]]
 
-  final case class Inl[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A, B]() extends FreeArrow[Prim, Prod, Sum, A, Sum[A, B]]:
-    type Caps  = Record[Any]
+  final case class Inl[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A, B]() extends FreeArrow[Prim, Prod, Sum, A, Sum[A, B], Any]:
     type Left  = A
     type Right = B
 
-  final case class Inr[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A, B]() extends FreeArrow[Prim, Prod, Sum, B, Sum[A, B]]:
-    type Caps  = Record[Any]
+  final case class Inr[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A, B]() extends FreeArrow[Prim, Prod, Sum, B, Sum[A, B], Any]:
     type Left  = A
     type Right = B
 
-  trait Interpreter[Prim[-_, +_, _ <: Record[?]], P[+_, +_], S[+_, +_], =>:[-_, +_]](
+  trait Interpreter[Prim[-_, +_, _], P[+_, +_], S[+_, +_], =>:[-_, +_]](
     using val bundle: ArrowBundle[=>:] { type :*:[+l, +r] = P[l, r]; type :+:[+l, +r] = S[l, r] }
   ):
 
@@ -193,95 +189,89 @@ object FreeArrow:
 
     def inR[A, B]: B =>: (S[A, B]) = bundle.toRight[B]
 
-    def interpret[I, O, C <: Record[?]](prim: Prim[I, O, C]): I =>: O
+    def interpret[I, O, C](prim: Prim[I, O, C]): I =>: O
 
     inline def zero[A, B](using BottomOf[B]): A =>: B = bundle.zero
 
     def lift[A, B](f: A => B): A =>: B = bundle.liftArrow(f)
 
-  inline def id[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A]: FreeArrow.Aux[
+  inline def id[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A]: FreeArrow.Aux[
     Prim,
     Prod,
     Sum,
     A,
     A,
-    Record[Any],
+    Any,
   ] =
     Id()
 
-  inline def pure[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O](
-    f: I => O
-  ): FreeArrow.Aux[Prim, Prod, Sum, I, O, Record[Any]] =
+  inline def pure[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O](f: I => O): FreeArrow.Aux[Prim, Prod, Sum, I, O, Any] =
     Pure(f)
 
-  inline def zero[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O](
+  inline def zero[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O](
     using bottom: BottomOf[O]
-  ): FreeArrow.Aux[Prim, Prod, Sum, I, O, Record[Any]] =
+  ): FreeArrow.Aux[Prim, Prod, Sum, I, O, Any] =
     Zero(bottom)
 
-  inline def embed[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O, C <: Record[?]](
-    prim: Prim[I, O, C]
-  ): FreeArrow.Aux[Prim, Prod, Sum, I, O, C] =
+  inline def embed[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O, C](prim: Prim[I, O, C]): FreeArrow.Aux[Prim, Prod, Sum, I, O, C] =
     Embed(prim)
 
   inline def iso[
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
     Prod[+_, +_],
     Sum[+_, +_],
     I,
     O,
-    C1 <: Record[?],
-    C2 <: Record[?],
+    C1,
+    C2,
   ](
     forward: FreeArrow.Aux[Prim, Prod, Sum, I, O, C1],
     backward: FreeArrow.Aux[Prim, Prod, Sum, O, I, C2],
   ): FreeArrow.Aux[Prim, Prod, Sum, I, O, CapUnion[C1, C2]] =
     Iso(forward, backward)
 
-  inline def inl[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A, B]: FreeArrow.Aux[
+  inline def inl[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A, B]: FreeArrow.Aux[
     Prim,
     Prod,
     Sum,
     A,
     Sum[A, B],
-    Record[Any],
+    Any,
   ] =
     Inl()
 
-  inline def inr[Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], A, B]: FreeArrow.Aux[
+  inline def inr[Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], A, B]: FreeArrow.Aux[
     Prim,
     Prod,
     Sum,
     B,
     Sum[A, B],
-    Record[Any],
+    Any,
   ] =
     Inr()
 
-  extension [Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O, C <: Record[?]](
-    self: FreeArrow.Aux[Prim, Prod, Sum, I, O, C]
-  )
-    transparent inline def >>>[O2, C2 <: Record[?]](
+  extension [Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O, C](self: FreeArrow.Aux[Prim, Prod, Sum, I, O, C])
+    transparent inline def >>>[O2, C2](
       inline that: FreeArrow.Aux[Prim, Prod, Sum, O, O2, C2]
     ): FreeArrow.Aux[Prim, Prod, Sum, I, O2, CapUnion[C, C2]] =
       Compose(self, that)
 
-    transparent inline def &&&[O2, C2 <: Record[?]](
+    transparent inline def &&&[O2, C2](
       inline that: FreeArrow.Aux[Prim, Prod, Sum, I, O2, C2]
     ): FreeArrow.Aux[Prim, Prod, Sum, I, Prod[O, O2], CapUnion[C, C2]] =
       Split(self, that)
 
-    transparent inline def ***[I2, O2, C2 <: Record[?]](
+    transparent inline def ***[I2, O2, C2](
       inline that: FreeArrow.Aux[Prim, Prod, Sum, I2, O2, C2]
     ): FreeArrow.Aux[Prim, Prod, Sum, Prod[I, I2], Prod[O, O2], CapUnion[C, C2]] =
       Parallel(self, that)
 
-    transparent inline def +++[I2, O2, C2 <: Record[?]](
+    transparent inline def +++[I2, O2, C2](
       inline that: FreeArrow.Aux[Prim, Prod, Sum, I2, O2, C2]
     ): FreeArrow.Aux[Prim, Prod, Sum, Sum[I, I2], Sum[O, O2], CapUnion[C, C2]] =
       Plus(self, that)
 
-    transparent inline def |||[I2, C2 <: Record[?]](
+    transparent inline def |||[I2, C2](
       inline that: FreeArrow.Aux[Prim, Prod, Sum, I2, O, C2]
     ): FreeArrow.Aux[Prim, Prod, Sum, Sum[I, I2], O, CapUnion[C, C2]] =
       FanIn(self, that)
@@ -307,8 +297,8 @@ object FreeArrow:
     transparent inline def right[C2]: FreeArrow.Aux[Prim, Prod, Sum, Sum[C2, I], Sum[C2, O], C] =
       (FreeArrow.id[Prim, Prod, Sum, C2] +++ self).asInstanceOf[FreeArrow.Aux[Prim, Prod, Sum, Sum[C2, I], Sum[C2, O], C]]
 
-  extension [Prim[-_, +_, _ <: Record[?]], Prod[+_, +_], Sum[+_, +_], I, O](
-    self: FreeArrow.Aux[Prim, Prod, Sum, Sum[I, O], Sum[I, O], Record[Any]]
+  extension [Prim[-_, +_, _], Prod[+_, +_], Sum[+_, +_], I, O](
+    self: FreeArrow.Aux[Prim, Prod, Sum, Sum[I, O], Sum[I, O], Any]
   ) inline def widen: self.type = self
 
 end FreeArrow
@@ -338,14 +328,14 @@ object ChunkAccumulator:
 
 end ChunkAccumulator
 
-final case class ChunkerHandle[Label <: String & Singleton, Prim[-_, +_, _ <: Record[?]]](
+final case class ChunkerHandle[Label <: String & Singleton, Prim[-_, +_, _]](
   slot: StateSlot[Label, ChunkAccumulator],
   arrow: FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Byte], Chunk[Chunk[Byte]], Field[Label, ChunkAccumulator]],
 )
 
 object ChunkerHandle:
 
-  inline def make[l <: String & Singleton, Prim[-_, +_, _ <: Record[?]]](
+  inline def make[l <: String & Singleton, Prim[-_, +_, _]](
     inline frameBytes: Int,
     inline prim: (StateSlot[l | "chunker", ChunkAccumulator], Int) => Prim[
       Chunk[Byte],
@@ -359,7 +349,7 @@ object ChunkerHandle:
 
   private def chunkerImpl[
     l <: String & Singleton,
-    Prim[-_, +_, _ <: Record[?]],
+    Prim[-_, +_, _],
   ](
     frameBytesExpr: Expr[Int],
     primExpr: Expr[
@@ -387,7 +377,7 @@ object ChunkerHandle:
           )
         }
 
-sealed trait ChunkerPrim[-I, +O, C <: Record[?]]
+sealed trait ChunkerPrim[-I, +O, C]
 object ChunkerPrim:
   final case class FixedChunker[Label <: String & Singleton](
     slot: StateSlot[Label, ChunkAccumulator],
@@ -421,9 +411,9 @@ transparent inline given functionBundle: ArrowBundle.Aux[Function, Tuple2, Eithe
   override def liftArrow[A, B](f: A => B): A => B = f
 }
 
-given [Prim[-i, +o, _ <: Record[?]] <: (i => o)] => FreeArrow.Interpreter[Prim, Tuple2, Either, Function] =
+given [Prim[-i, +o, _] <: (i => o)] => FreeArrow.Interpreter[Prim, Tuple2, Either, Function] =
   new FreeArrow.Interpreter[Prim, Tuple2, Either, Function]:
     final type :*:[+l, +r] = Tuple2[l, r]
     final type :+:[+l, +r] = Either[l, r]
-    def interpret[I, O, C <: Record[?]](prim: Prim[I, O, C]): I => O =
+    def interpret[I, O, C](prim: Prim[I, O, C]): I => O =
       prim
