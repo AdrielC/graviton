@@ -1,12 +1,9 @@
 package graviton.streams
 
 import graviton.core.model.Block
-import graviton.core.scan.FS
-import graviton.core.scan.FS.*
-import graviton.core.scan.IngestScan
 import graviton.core.types.*
-import zio.{Chunk, FiberRef, Unsafe, ZIO, ChunkBuilder}
-import zio.stream.ZPipeline
+import zio.*
+import zio.stream.*
 
 import scala.Conversion
 
@@ -29,17 +26,8 @@ object Chunker:
     current.locally(chunker)(effect)
 
   def fixed(size: UploadChunkSize, label: Option[String] = None): Chunker =
-    val sizeBytes: Int = size.value
-    val scan           = FS.fixedChunker(sizeBytes).optimize.toPipeline
-    val pipeline       =
-      (ZPipeline.identity[Byte].chunks >>> scan)
-        .mapChunksZIO { chunkOfBlocks =>
-          ZIO
-            .foreach(chunkOfBlocks) { bytes =>
-              ZIO.fromEither(Block.fromChunk(bytes)).mapError(msg => new IllegalArgumentException(msg))
-            }
-            .map(blocks => Chunk.fromIterable(blocks))
-        }
+    val sizeBytes = size.value
+    val pipeline  = Incremental.pipeline(ChunkerCore.Mode.Fixed(chunkBytes = sizeBytes))
     SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), pipeline)
 
   def fastCdc(
@@ -48,44 +36,27 @@ object Chunker:
     max: Int,
     label: Option[String] = None,
   ): Chunker =
-    val scan = IngestScan.fastCdc(minSize = min, avgSize = avg, maxSize = max).optimize.toPipeline
-
-    val pipeline =
-      (ZPipeline.identity[Byte].chunks >>> scan)
-        .mapChunksZIO { events =>
-          def field[A](e: IngestScan.Event, name: String): Either[Throwable, A] =
-            e.toMap
-              .collectFirst { case (f, v) if f.name == name => v.asInstanceOf[A] }
-              .toRight(new NoSuchElementException(s"Missing field '$name' in IngestScan.Event"))
-
-          val builder = ChunkBuilder.make[Block]()
-          var idx     = 0
-          var failure = Option.empty[Throwable]
-          while idx < events.length do
-            val e    = events(idx)
-            val kind =
-              field[String](e, "kind") match
-                case Right(value) => value
-                case Left(err)    =>
-                  failure = Some(err)
-                  ""
-            if kind == "block" && failure.isEmpty then
-              field[Option[Chunk[Byte]]](e, "blockBytes") match
-                case Right(Some(bytes)) =>
-                  Block.fromChunk(bytes) match
-                    case Right(block) => builder += block
-                    case Left(err)    => failure = Some(new IllegalArgumentException(err))
-                case Right(None)        =>
-                  failure = Some(new IllegalStateException("FastCDC emitted a block event without bytes"))
-                case Left(err)          =>
-                  failure = Some(err)
-            idx += 1
-          failure match
-            case Some(err) => ZIO.fail(err)
-            case None      => ZIO.succeed(builder.result())
-        }
-
+    val pipeline = Incremental.pipeline(ChunkerCore.Mode.FastCdc(minBytes = min, avgBytes = avg, maxBytes = max))
     SimpleChunker(label.getOrElse(s"fastcdc-$min-$avg-$max"), pipeline)
+
+  def delimiter(
+    delim: Chunk[Byte],
+    includeDelimiter: Boolean = true,
+    minBytes: Int = 1,
+    maxBytes: Int = Block.maxBytes,
+    label: Option[String] = None,
+  ): Chunker =
+    val pipeline =
+      Incremental.pipeline(
+        ChunkerCore.Mode.Delimiter(
+          delim = delim,
+          includeDelimiter = includeDelimiter,
+          minBytes = minBytes,
+          maxBytes = maxBytes,
+        )
+      )
+    val dLen     = delim.length
+    SimpleChunker(label.getOrElse(s"delimiter-$dLen-${if includeDelimiter then "incl" else "excl"}"), pipeline)
 
   given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Throwable, Byte, Block]] with
     def apply(chunker: Chunker): ZPipeline[Any, Throwable, Byte, Block] =
@@ -95,3 +66,44 @@ private final case class SimpleChunker(
   name: String,
   pipeline: ZPipeline[Any, Throwable, Byte, Block],
 ) extends Chunker
+
+private object Incremental:
+
+  def pipeline(
+    mode: ChunkerCore.Mode
+  ): ZPipeline[Any, Throwable, Byte, Block] =
+    ZPipeline.fromChannel {
+      def init: IO[Throwable, ChunkerCore.State] =
+        ZIO.fromEither(ChunkerCore.init(mode).left.map(toThrowable))
+
+      def loop(st0: ChunkerCore.State): ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Block], Any] =
+        ZChannel.readWith(
+          (in: Chunk[Byte]) =>
+            ZChannel
+              .fromZIO {
+                ZIO
+                  .fromEither(st0.step(in))
+                  .mapError(toThrowable)
+              }
+              .flatMap { case (st2, out) =>
+                ZChannel.write(out) *> loop(st2)
+              },
+          err => ZChannel.fail(err),
+          _ =>
+            // end-of-stream: flush remaining bytes as a final block (if non-empty)
+            ZChannel
+              .fromZIO {
+                ZIO.fromEither(st0.finish).mapError(toThrowable).map(_._2)
+              }
+              .flatMap(out => ZChannel.write(out) *> ZChannel.unit),
+        )
+
+      ZChannel.fromZIO(init).flatMap(loop)
+    }
+
+  private def toThrowable(err: ChunkerCore.Err): Throwable =
+    err match
+      case ChunkerCore.Err.EmptyDelimiter        => new IllegalArgumentException("Delimiter cannot be empty")
+      case ChunkerCore.Err.InvalidBounds(msg)    => new IllegalArgumentException(msg)
+      case ChunkerCore.Err.InvalidDelimiter(msg) => new IllegalArgumentException(msg)
+      case ChunkerCore.Err.InvalidBlock(msg)     => new IllegalArgumentException(msg)
