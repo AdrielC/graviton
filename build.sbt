@@ -399,6 +399,9 @@ lazy val quasarCore = (project in file("modules/quasar-core"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "dev.zio" %% "zio-json" % "0.8.0",
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
     ),
   )
 
