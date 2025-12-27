@@ -1,12 +1,19 @@
 import DefaultTheme from 'vitepress/theme'
 import type { Theme } from 'vitepress'
+import { useRoute } from 'vitepress'
 import './custom.css'
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 import NeonHud from './components/NeonHud.vue'
 import QuantumConsole from './components/QuantumConsole.vue'
 
 const cleanupCallbacks: Array<() => void> = []
 const processedCodeBlocks = new WeakSet<Element>()
+
+type MatrixController = {
+  burst: (text: string) => void
+}
+
+let matrixController: MatrixController | null = null
 
 const registerCleanup = (callback: () => void) => {
   cleanupCallbacks.push(callback)
@@ -27,14 +34,16 @@ const theme: Theme = {
   ...DefaultTheme,
   setup() {
     onMounted(() => {
-      createMatrixRain()
+      matrixController = createMatrixRain()
       initAuroraBackground()
       initScrollProgress()
       initScrollAnimations()
+      initRouteAccent()
     })
 
     onBeforeUnmount(() => {
       runCleanup()
+      matrixController = null
     })
   },
   enhanceApp({ app }) {
@@ -47,9 +56,9 @@ const theme: Theme = {
 export default theme
 
 // Matrix rain animation in background
-function createMatrixRain() {
+function createMatrixRain(): MatrixController | null {
   if (document.getElementById('matrix-canvas')) {
-    return
+    return null
   }
 
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
@@ -70,7 +79,7 @@ function createMatrixRain() {
   document.body.appendChild(canvas)
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) return
+  if (!ctx) return null
 
   let animationFrame = 0
 
@@ -93,6 +102,35 @@ function createMatrixRain() {
   let scrollPulse = 0
   let lastScrollY = window.scrollY
   let lastScrollT = performance.now()
+
+  // Section-reactive "encode burst": temporarily injects page text into the stream.
+  let burstTTL = 0
+  let burstChars = ''
+
+  const burst = (text: string) => {
+    if (reduceMotion) {
+      return
+    }
+
+    const cleaned = text
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 24)
+
+    if (cleaned.length === 0) {
+      return
+    }
+
+    burstChars = cleaned
+    burstTTL = 90
+
+    // Kick a few columns back to the top to create a visible "re-encode" moment.
+    const kicks = Math.min(10, drops.length)
+    for (let i = 0; i < kicks; i++) {
+      const col = Math.floor(Math.random() * drops.length)
+      drops[col] = Math.min(drops[col], 1 + Math.random() * 6)
+    }
+  }
 
   const onScroll = () => {
     if (reduceMotion) {
@@ -127,14 +165,30 @@ function createMatrixRain() {
     canvas.style.opacity = `${intensity}`
 
     for (let i = 0; i < drops.length; i++) {
-      const text = chars[Math.floor(Math.random() * chars.length)]
-      ctx.fillText(text, i * fontSize, drops[i] * fontSize)
+      const useBurst = burstTTL > 0 && Math.random() < 0.35
+      const alphabet = useBurst ? burstChars : chars
+      const glyph = alphabet[Math.floor(Math.random() * alphabet.length)]
+
+      if (useBurst) {
+        ctx.save()
+        ctx.shadowColor = '#00ffff'
+        ctx.shadowBlur = 10
+        ctx.fillStyle = '#a6fff3'
+        ctx.fillText(glyph, i * fontSize, drops[i] * fontSize)
+        ctx.restore()
+      } else {
+        ctx.fillText(glyph, i * fontSize, drops[i] * fontSize)
+      }
 
       if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
         drops[i] = 0
       }
 
       drops[i] += speed
+    }
+
+    if (burstTTL > 0) {
+      burstTTL -= 1
     }
 
     scrollPulse *= 0.9
@@ -152,6 +206,8 @@ function createMatrixRain() {
     window.removeEventListener('scroll', onScroll)
     canvas.remove()
   })
+
+  return { burst }
 }
 
 function initScrollProgress() {
@@ -316,10 +372,19 @@ function initAuroraBackground() {
 
 // Scroll reveal animations
 function initScrollAnimations() {
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         entry.target.classList.add('revealed')
+
+        if (!reduceMotion && matrixController) {
+          const isHeading = entry.target.matches('h2, h3')
+          if (isHeading) {
+            const text = (entry.target as HTMLElement).innerText ?? ''
+            matrixController.burst(text)
+          }
+        }
       }
     })
   }, { threshold: 0.1 })
@@ -328,6 +393,28 @@ function initScrollAnimations() {
     el.classList.add('reveal-element')
     observer.observe(el)
   })
+}
+
+function initRouteAccent() {
+  const root = document.documentElement
+  const route = useRoute()
+
+  const setAccent = (path: string) => {
+    // Deterministic per-route hue in a "matrix-friendly" band.
+    let hash = 0
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
+    }
+    const hue = 120 + (Math.abs(hash) % 80) // 120..199
+    root.style.setProperty('--graviton-accent-hue', `${hue}`)
+  }
+
+  setAccent(route.path)
+  watch(
+    () => route.path,
+    (p) => setAccent(p),
+    { immediate: false }
+  )
 }
 
 // Enhanced code block interactions
