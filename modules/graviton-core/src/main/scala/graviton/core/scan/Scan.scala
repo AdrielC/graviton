@@ -12,7 +12,7 @@ import scala.compiletime.summonFrom
 /**
  * A "sicko" (minimal, direct) Scan: stateful stream transducer with lawful composition.
  *
- * - State is tracked at the type level and defaults to `Nothing` (empty).
+ * - State is tracked at the type level and defaults to `NoState` (empty).
  * - When composed, state is internally wrapped into `kyo.Record` fields (`"_0"`, `"_1"`).
  * - Each input element emits exactly one output (docs-style step semantics).
  * - `flush` can emit trailing outputs (typically 0 or 1).
@@ -30,6 +30,11 @@ trait Scan[-I, +O, S]:
 object Scan:
   type Aux[-I, +O, S] = Scan[I, O, S]
 
+  /** Empty state for "stateless" scans. */
+  sealed trait NoState
+  private[scan] val noState: NoState = null.asInstanceOf[NoState]
+  given Tag[NoState]                 = Tag.derive
+
   type LeftLabel  = "_0"
   type RightLabel = "_1"
 
@@ -39,10 +44,10 @@ object Scan:
   private object IsRec:
     given [Fields]: IsRec[Record[Fields]] with {}
 
-  /** Composition state: empty is `Any`, otherwise a record product. */
+  /** Composition state: empty is `NoState`, otherwise a record product. */
   type ComposeState[SA, SB] = (SA, SB) match
-    case (Nothing, b)             => b
-    case (a, Nothing)             => a
+    case (NoState, b)             => b
+    case (a, NoState)             => a
     case (Record[fa], Record[fb]) =>
       // When both component states are already records, we merge them by intersection.
       Record[fa & fb]
@@ -60,10 +65,10 @@ object Scan:
 
   inline private def composeState[SA, SB](sa: SA, sb: SB)(using ValueOf[LeftLabel], ValueOf[RightLabel]): ComposeState[SA, SB] =
     summonFrom {
-      case _: (SA =:= Nothing) => sb.asInstanceOf[ComposeState[SA, SB]]
+      case _: (SA =:= NoState) => sb.asInstanceOf[ComposeState[SA, SB]]
       case _                   =>
         summonFrom {
-          case _: (SB =:= Nothing) => sa.asInstanceOf[ComposeState[SA, SB]]
+          case _: (SB =:= NoState) => sa.asInstanceOf[ComposeState[SA, SB]]
           case _                   =>
             summonFrom {
               case _: IsRec[SA] =>
@@ -94,10 +99,10 @@ object Scan:
 
   inline private def leftState[SA, SB](s: ComposeState[SA, SB])(using ValueOf[LeftLabel]): SA =
     summonFrom {
-      case _: (SA =:= Nothing) => s.asInstanceOf[SA]
+      case _: (SA =:= NoState) => noState.asInstanceOf[SA]
       case _                   =>
         summonFrom {
-          case _: (SB =:= Nothing) => s.asInstanceOf[SA]
+          case _: (SB =:= NoState) => s.asInstanceOf[SA]
           case _                   =>
             summonFrom {
               case _: IsRec[SA] =>
@@ -118,10 +123,10 @@ object Scan:
 
   inline private def rightState[SA, SB](s: ComposeState[SA, SB])(using ValueOf[RightLabel]): SB =
     summonFrom {
-      case _: (SA =:= Nothing) => s.asInstanceOf[SB]
+      case _: (SA =:= NoState) => s.asInstanceOf[SB]
       case _                   =>
         summonFrom {
-          case _: (SB =:= Nothing) => s.asInstanceOf[SB]
+          case _: (SB =:= NoState) => noState.asInstanceOf[SB]
           case _                   =>
             summonFrom {
               case _: IsRec[SA] =>
@@ -140,17 +145,17 @@ object Scan:
         }
     }
 
-  def id[A]: Aux[A, A, Nothing] =
-    new Scan[A, A, Nothing]:
-      def init(): Nothing                              = null.asInstanceOf[Nothing]
-      def step(state: Nothing, input: A): (Nothing, A) = (state, input)
-      def flush(state: Nothing): (Nothing, Chunk[A])   = (state, Chunk.empty)
+  def id[A]: Aux[A, A, NoState] =
+    new Scan[A, A, NoState]:
+      def init(): NoState                              = noState
+      def step(state: NoState, input: A): (NoState, A) = (state, input)
+      def flush(state: NoState): (NoState, Chunk[A])   = (state, Chunk.empty)
 
-  def pure[I, O](f: I => O): Aux[I, O, Nothing] =
-    new Scan[I, O, Nothing]:
-      def init(): Nothing                              = null.asInstanceOf[Nothing]
-      def step(state: Nothing, input: I): (Nothing, O) = (state, f(input))
-      def flush(state: Nothing): (Nothing, Chunk[O])   = (state, Chunk.empty)
+  def pure[I, O](f: I => O): Aux[I, O, NoState] =
+    new Scan[I, O, NoState]:
+      def init(): NoState                              = noState
+      def step(state: NoState, input: I): (NoState, O) = (state, f(input))
+      def flush(state: NoState): (NoState, Chunk[O])   = (state, Chunk.empty)
 
   def fold[I, O, S0](
     initial: => S0

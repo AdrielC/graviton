@@ -10,7 +10,7 @@ Graviton's scan system provides composable, type-safe stream processing. Today t
 A `Scan` is a stateful transducer from inputs `I` to outputs `O`, paired with typed state `S` and supporting:
 
 - **Composable state**: state is threaded automatically through `>>>`, `&&&`, `+++`, `|||`, `first`, `second`, `dimap`
-- **Ergonomic structured state**: you can model state as `kyo.Record[...]` (or use `Any` for “no state”)
+- **Ergonomic structured state**: you can model state as `kyo.Record[...]` (or use `Scan.NoState` for “no state”)
 - **Runnable**: interpret to `ZPipeline` with `scan.toPipeline`
 
 ## Core API (`graviton.core.scan.Scan`)
@@ -27,10 +27,10 @@ trait Scan[-I, +O, S]:
 ```
 
 **Key properties:**
-- **Empty state is `Nothing`**: stateless scans use `S = Nothing`.
+- **Empty state is `Scan.NoState`**: stateless scans use `S = Scan.NoState`.
 - **State representation is user-defined**: `S` can be a case class, a `kyo.Record[...]`, a future `TypeMap`, etc.
 - **Composition wraps state internally**: composing scans uses a carrier `ComposeState[SA, SB]`:
-  - `Nothing` is an identity (`ComposeState[Nothing, SB] = SB`, `ComposeState[SA, Nothing] = SA`)
+  - `Scan.NoState` is an identity (`ComposeState[Scan.NoState, SB] = SB`, `ComposeState[SA, Scan.NoState] = SA`)
   - if both states are already `kyo.Record[...]`, composition uses record **intersection** (`Record[fa & fb]`)
   - otherwise it packs the two states into a record with internal labels `"_0"` and `"_1"` (implementation detail)
 
@@ -57,7 +57,7 @@ val counting: Scan[Long, Long, CountState] =
 ```scala
 import graviton.core.scan.Scan
 
-val doubled: Scan[Int, Int, Nothing] =
+val doubled: Scan[Int, Int, Scan.NoState] =
   Scan.pure(_ * 2)
 ```
 
