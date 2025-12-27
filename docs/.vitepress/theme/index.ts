@@ -1,12 +1,19 @@
 import DefaultTheme from 'vitepress/theme'
 import type { Theme } from 'vitepress'
+import { useRoute } from 'vitepress'
 import './custom.css'
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, watch } from 'vue'
 import NeonHud from './components/NeonHud.vue'
 import QuantumConsole from './components/QuantumConsole.vue'
 
 const cleanupCallbacks: Array<() => void> = []
 const processedCodeBlocks = new WeakSet<Element>()
+
+type MatrixController = {
+  burst: (text: string) => void
+}
+
+let matrixController: MatrixController | null = null
 
 const registerCleanup = (callback: () => void) => {
   cleanupCallbacks.push(callback)
@@ -27,16 +34,17 @@ const theme: Theme = {
   ...DefaultTheme,
   setup() {
     onMounted(() => {
-      createMatrixRain()
+      matrixController = createMatrixRain()
       initAuroraBackground()
-      initParticleTrail()
+      initScrollProgress()
       initScrollAnimations()
-      enhanceCodeBlocks()
-      attachNavigationGlow()
+      initRouteAccent()
+      initRouteSigil()
     })
 
     onBeforeUnmount(() => {
       runCleanup()
+      matrixController = null
     })
   },
   enhanceApp({ app }) {
@@ -49,10 +57,12 @@ const theme: Theme = {
 export default theme
 
 // Matrix rain animation in background
-function createMatrixRain() {
+function createMatrixRain(): MatrixController | null {
   if (document.getElementById('matrix-canvas')) {
-    return
+    return null
   }
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
 
   const canvas = document.createElement('canvas')
   canvas.id = 'matrix-canvas'
@@ -70,50 +80,173 @@ function createMatrixRain() {
   document.body.appendChild(canvas)
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) return
+  if (!ctx) return null
 
   let animationFrame = 0
+
+  const chars = '01アイウエオカキクケコサシスセソタチツテト'
+  const fontSize = 14
+
+  let columns = 0
+  let drops: number[] = []
 
   const resize = () => {
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
+    columns = Math.max(1, Math.floor(canvas.width / fontSize))
+    drops = Array(columns).fill(1)
   }
 
   resize()
 
-  const chars = '01アイウエオカキクケコサシスセソタチツテト'
-  const fontSize = 14
-  const columns = Math.floor(canvas.width / fontSize)
-  const drops: number[] = Array(columns).fill(1)
+  // Scroll-reactive "warp" (no mouse hover): scroll speed briefly increases density & intensity.
+  let scrollPulse = 0
+  let lastScrollY = window.scrollY
+  let lastScrollT = performance.now()
+
+  // Section-reactive "encode burst": temporarily injects page text into the stream.
+  let burstTTL = 0
+  let burstChars = ''
+
+  const burst = (text: string) => {
+    if (reduceMotion) {
+      return
+    }
+
+    const cleaned = text
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 24)
+
+    if (cleaned.length === 0) {
+      return
+    }
+
+    burstChars = cleaned
+    burstTTL = 90
+
+    // Kick a few columns back to the top to create a visible "re-encode" moment.
+    const kicks = Math.min(10, drops.length)
+    for (let i = 0; i < kicks; i++) {
+      const col = Math.floor(Math.random() * drops.length)
+      drops[col] = Math.min(drops[col], 1 + Math.random() * 6)
+    }
+  }
+
+  const onScroll = () => {
+    if (reduceMotion) {
+      return
+    }
+
+    const now = performance.now()
+    const y = window.scrollY
+    const dy = Math.abs(y - lastScrollY)
+    const dt = Math.max(16, now - lastScrollT)
+
+    // Rough velocity in px/ms, mapped to [0..1].
+    const velocity = dy / dt
+    const boost = Math.min(1, velocity * 0.45)
+
+    scrollPulse = Math.min(1, Math.max(scrollPulse, boost))
+    lastScrollY = y
+    lastScrollT = now
+  }
 
   const draw = () => {
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.05)'
+    // Slightly longer trails during scroll pulses.
+    const fade = reduceMotion ? 0.06 : 0.06 - scrollPulse * 0.03
+    ctx.fillStyle = `rgba(10, 14, 20, ${fade})`
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     ctx.fillStyle = '#00ff41'
     ctx.font = `${fontSize}px "JetBrains Mono", monospace`
 
+    const speed = reduceMotion ? 1 : 1 + scrollPulse * 1.25
+    const intensity = reduceMotion ? 0.08 : 0.08 + scrollPulse * 0.05
+    canvas.style.opacity = `${intensity}`
+
     for (let i = 0; i < drops.length; i++) {
-      const text = chars[Math.floor(Math.random() * chars.length)]
-      ctx.fillText(text, i * fontSize, drops[i] * fontSize)
+      const useBurst = burstTTL > 0 && Math.random() < 0.35
+      const alphabet = useBurst ? burstChars : chars
+      const glyph = alphabet[Math.floor(Math.random() * alphabet.length)]
+
+      if (useBurst) {
+        ctx.save()
+        ctx.shadowColor = '#00ffff'
+        ctx.shadowBlur = 10
+        ctx.fillStyle = '#a6fff3'
+        ctx.fillText(glyph, i * fontSize, drops[i] * fontSize)
+        ctx.restore()
+      } else {
+        ctx.fillText(glyph, i * fontSize, drops[i] * fontSize)
+      }
 
       if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
         drops[i] = 0
       }
-      drops[i]++
+
+      drops[i] += speed
     }
 
+    if (burstTTL > 0) {
+      burstTTL -= 1
+    }
+
+    scrollPulse *= 0.9
     animationFrame = window.requestAnimationFrame(draw)
   }
 
   animationFrame = window.requestAnimationFrame(draw)
 
   window.addEventListener('resize', resize)
+  window.addEventListener('scroll', onScroll, { passive: true })
 
   registerCleanup(() => {
     window.cancelAnimationFrame(animationFrame)
     window.removeEventListener('resize', resize)
+    window.removeEventListener('scroll', onScroll)
     canvas.remove()
+  })
+
+  return { burst }
+}
+
+function initScrollProgress() {
+  if (document.querySelector('.graviton-scroll-progress')) {
+    return
+  }
+
+  const bar = document.createElement('div')
+  bar.className = 'graviton-scroll-progress'
+  document.body.appendChild(bar)
+
+  let raf = 0
+  const update = () => {
+    raf = 0
+    const doc = document.documentElement
+    const max = Math.max(1, doc.scrollHeight - doc.clientHeight)
+    const progress = Math.min(1, Math.max(0, window.scrollY / max))
+    bar.style.setProperty('--progress', `${progress}`)
+  }
+
+  const schedule = () => {
+    if (raf !== 0) {
+      return
+    }
+    raf = window.requestAnimationFrame(update)
+  }
+
+  update()
+  window.addEventListener('scroll', schedule, { passive: true })
+  window.addEventListener('resize', schedule)
+
+  registerCleanup(() => {
+    if (raf !== 0) {
+      window.cancelAnimationFrame(raf)
+    }
+    window.removeEventListener('scroll', schedule)
+    window.removeEventListener('resize', schedule)
+    bar.remove()
   })
 }
 
@@ -240,10 +373,19 @@ function initAuroraBackground() {
 
 // Scroll reveal animations
 function initScrollAnimations() {
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
         entry.target.classList.add('revealed')
+
+        if (!reduceMotion && matrixController) {
+          const isHeading = entry.target.matches('h2, h3')
+          if (isHeading) {
+            const text = (entry.target as HTMLElement).innerText ?? ''
+            matrixController.burst(text)
+          }
+        }
       }
     })
   }, { threshold: 0.1 })
@@ -252,6 +394,93 @@ function initScrollAnimations() {
     el.classList.add('reveal-element')
     observer.observe(el)
   })
+}
+
+function initRouteAccent() {
+  const root = document.documentElement
+  const route = useRoute()
+
+  const setAccent = (path: string) => {
+    // Deterministic per-route hue in a "matrix-friendly" band.
+    let hash = 0
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
+    }
+    const hue = 120 + (Math.abs(hash) % 80) // 120..199
+    root.style.setProperty('--graviton-accent-hue', `${hue}`)
+  }
+
+  setAccent(route.path)
+  watch(
+    () => route.path,
+    (p) => setAccent(p),
+    { immediate: false }
+  )
+}
+
+function initRouteSigil() {
+  if (document.querySelector('.graviton-route-sigil')) {
+    return
+  }
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+  const route = useRoute()
+
+  const el = document.createElement('div')
+  el.className = 'graviton-route-sigil'
+  el.setAttribute('aria-hidden', 'true')
+  document.body.appendChild(el)
+
+  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, '0').slice(0, 8)
+  const hashPath = (path: string) => {
+    let hash = 0
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
+    }
+    return hash
+  }
+
+  const render = (path: string) => {
+    const h = hashPath(path)
+    const short = toHex(h)
+    const safePath = path.length > 36 ? `${path.slice(0, 33)}…` : path
+    el.innerHTML = `
+      <div class="graviton-route-sigil__row">
+        <span class="graviton-route-sigil__label">SIG</span>
+        <span class="graviton-route-sigil__hash">${short}</span>
+      </div>
+      <div class="graviton-route-sigil__path">${escapeHtml(safePath)}</div>
+    `
+
+    if (!reduceMotion) {
+      // Small "pulse" on route change (not hover-driven).
+      el.classList.remove('is-pulsing')
+      // Force reflow so the animation restarts.
+      void el.offsetWidth
+      el.classList.add('is-pulsing')
+    }
+  }
+
+  render(route.path)
+
+  const stop = watch(
+    () => route.path,
+    (p) => render(p)
+  )
+
+  registerCleanup(() => {
+    stop()
+    el.remove()
+  })
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 // Enhanced code block interactions
