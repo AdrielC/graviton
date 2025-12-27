@@ -78,6 +78,14 @@ docker run -d \
   postgres:18
 ```
 
+2. **Wait for Postgres to accept connections** (Docker case):
+
+```bash
+until psql -h localhost -U postgres -d graviton -c "select 1" >/dev/null 2>&1; do
+  sleep 1
+done
+```
+
 2. **Apply DDL Schema**:
 
 ```bash
@@ -123,6 +131,13 @@ export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
 export GRAVITON_S3_REGION="us-east-1"
 ```
 
+You must also ensure the bucket exists before your first upload (MinIO example):
+
+```bash
+mc alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc mb local/"$GRAVITON_S3_BLOCK_BUCKET"
+```
+
 ### Filesystem backend (block storage)
 
 If you want blocks on local disk instead of S3/MinIO, set:
@@ -149,6 +164,22 @@ The server will start with:
 - HTTP on port `8081` by default (override with `GRAVITON_HTTP_PORT`)
 - Health at `GET /api/health`
 - Metrics at `GET /metrics`
+
+### Verify the server is alive
+
+```bash
+curl -fsS "http://localhost:8081/api/health" | jq .
+```
+
+### First upload via HTTP
+
+```bash
+curl -fsS \
+  -H "Content-Type: application/octet-stream" \
+  -X POST --data-binary @/path/to/file \
+  "http://localhost:8081/api/blobs" \
+  | jq -r .
+```
 
 ### Production Build
 
@@ -195,6 +226,24 @@ sudo systemctl status postgresql
 
 # Test connection
 psql -U postgres -d graviton -c "SELECT 1"
+```
+
+### “relation … does not exist” / missing tables
+
+Apply the schema:
+
+```bash
+psql -U postgres -d graviton -f modules/pg/ddl.sql
+```
+
+### MinIO bucket errors
+
+If you use `GRAVITON_BLOB_BACKEND=s3|minio`, ensure the bucket exists:
+
+```bash
+mc alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc ls local
+mc mb local/"$GRAVITON_S3_BLOCK_BUCKET"
 ```
 
 ### Port Conflicts

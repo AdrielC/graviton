@@ -19,6 +19,20 @@ Defaults:
 - Health: `GET /api/health`
 - Metrics: `GET /metrics`
 
+### Quick preflight (fail fast)
+
+Before starting the server, verify your required env vars are present:
+
+```bash
+env | grep -E '^(PG_JDBC_URL|PG_USERNAME|PG_PASSWORD|GRAVITON_BLOB_BACKEND)='
+```
+
+If you use `GRAVITON_BLOB_BACKEND=s3|minio`, also verify:
+
+```bash
+env | grep -E '^(QUASAR_MINIO_URL|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD)='
+```
+
 ## Configure backends (current server)
 
 The server expects Postgres credentials for manifest metadata:
@@ -57,6 +71,12 @@ export GRAVITON_S3_REGION="us-east-1"   # optional (default: us-east-1)
 
 ```bash
 curl -fsS "http://localhost:8081/api/health" > /dev/null
+```
+
+Expected response shape:
+
+```json
+{"status":"ok","version":"dev","uptime":12345}
 ```
 
 ### Upload a file
@@ -103,6 +123,32 @@ sha256sum /path/to/file downloaded.bin
 curl -fsS "http://localhost:8081/api/stats"  | jq .
 curl -fsS "http://localhost:8081/api/schema" | jq .
 ```
+
+### Dashboard stream (SSE)
+
+The server exposes an event stream intended for the docs/demo dashboard:
+
+```bash
+curl -N "http://localhost:8081/api/datalake/dashboard/stream"
+```
+
+If you see no events, keep the connection open for a bit; SSE streams can be quiet until a change occurs.
+
+## Troubleshooting
+
+### Server fails on startup with missing env var
+
+- If it mentions `PG_*`: set Postgres env vars (and ensure the DB is reachable).
+- If it mentions `MINIO_*` / `QUASAR_MINIO_URL`: either set them or switch to filesystem blocks (`GRAVITON_BLOB_BACKEND=fs`).
+
+### Upload returns 500
+
+Most common causes:
+
+- Postgres is reachable but the schema was not applied (`modules/pg/ddl.sql`).
+- MinIO/S3 bucket does not exist (create `GRAVITON_S3_BLOCK_BUCKET`).
+
+See **[Configuration Reference](./configuration-reference.md)** for a checklist and fixes.
 
 ## See also
 
