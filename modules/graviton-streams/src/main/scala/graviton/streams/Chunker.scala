@@ -70,7 +70,7 @@ private final case class SimpleChunker(
 private object Incremental:
 
   def pipeline(
-    mode: ChunkerCore.Mode,
+    mode: ChunkerCore.Mode
   ): ZPipeline[Any, Throwable, Byte, Block] =
     ZPipeline.fromChannel {
       def init: IO[Throwable, ChunkerCore.State] =
@@ -79,19 +79,23 @@ private object Incremental:
       def loop(st0: ChunkerCore.State): ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Block], Any] =
         ZChannel.readWith(
           (in: Chunk[Byte]) =>
-            ZChannel.fromZIO {
-              ZIO
-                .fromEither(st0.step(in))
-                .mapError(toThrowable)
-            }.flatMap { case (st2, out) =>
-              ZChannel.write(out) *> loop(st2)
-            },
+            ZChannel
+              .fromZIO {
+                ZIO
+                  .fromEither(st0.step(in))
+                  .mapError(toThrowable)
+              }
+              .flatMap { case (st2, out) =>
+                ZChannel.write(out) *> loop(st2)
+              },
           err => ZChannel.fail(err),
           _ =>
             // end-of-stream: flush remaining bytes as a final block (if non-empty)
-            ZChannel.fromZIO {
-              ZIO.fromEither(st0.finish).mapError(toThrowable).map(_._2)
-            }.flatMap(out => ZChannel.write(out) *> ZChannel.unit),
+            ZChannel
+              .fromZIO {
+                ZIO.fromEither(st0.finish).mapError(toThrowable).map(_._2)
+              }
+              .flatMap(out => ZChannel.write(out) *> ZChannel.unit),
         )
 
       ZChannel.fromZIO(init).flatMap(loop)
