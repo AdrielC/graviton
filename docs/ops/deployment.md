@@ -2,6 +2,20 @@
 
 Production deployment strategies for Graviton.
 
+:::: warning Current status (read this first)
+The **current** `graviton-server` is an environment-variable configured, demo-first HTTP server (see `graviton.server.Main`). It does **not** yet implement:
+
+- TLS termination inside the server
+- Authentication/authorization
+- Versioned/stable HTTP APIs
+- A production-hardened metrics surface (beyond basic `/metrics` wiring)
+
+This page therefore contains two kinds of content:
+
+- **Runnable now**: env var configuration + basic Docker/K8s scaffolding for the current server
+- **Forward-looking templates**: production patterns (TLS/JWT/replication/etc.) that are *not* fully implemented yet
+::::
+
 ## Deployment Topologies
 
 ### Single Node
@@ -18,7 +32,7 @@ flowchart LR
     balancer["Local/HAProxy"]:::compute
     server["Graviton Server"]:::compute
     pg["PostgreSQL"]:::storage
-    rocks["RocksDB (Local Disk)"]:::storage
+    rocks["RocksDB (Local Disk)\n(module exists; server wiring TBD)"]:::storage
 
     client --> balancer --> server
     server --> pg
@@ -323,6 +337,7 @@ export MINIO_ROOT_USER="minioadmin"
 export MINIO_ROOT_PASSWORD="minioadmin"
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
+export GRAVITON_S3_REGION="us-east-1"
 
 # JVM
 export JAVA_OPTS="-Xmx4g -Xms2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
@@ -347,6 +362,8 @@ scrape_configs:
 ### Grafana Dashboard
 
 Key metrics to monitor:
+
+> Note: the metric names below are **illustrative**. The current server wiring is still evolving, so treat this list as a starting point for what we intend to expose rather than a guaranteed contract.
 
 - **Upload rate** (`graviton_uploads_total`)
 - **Download rate** (`graviton_downloads_total`)

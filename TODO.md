@@ -1,20 +1,24 @@
 # TODO
 
-- Translate binary streaming and chunking docs from Torrent into Graviton's documentation.
-- Create a getting-started guide that introduces core concepts and basic usage.
-- Update navigation links in `docs/src/main/mdoc/index.md` to reference new pages.
-- Replace any remaining references to the Torrent library in existing docs.
-- Document Prometheus metrics and structured logging in greater detail.
-- Ensure `./sbt docs/mdoc test` passes after each documentation change.
-- Translate Torrent API reference pages (binary store, chunking, content detection).
-- Port performance and optimization guides from Torrent.
-- Bring over core concept docs like content-addressable storage and binary streaming.
-- Add a contributing guide tailored for Graviton.
+- Keep docs builds green:
+  - `./sbt docs/mdoc checkDocSnippets`
+  - `cd docs && npm run docs:build`
 
-- Outline a v0.1.0 roadmap covering APIs, packaging, and release targets.
-- Add usage docs for the CLI and HTTP gateway.
-- Provide configuration examples for filesystem and S3 backends.
-- Flesh out metrics and logging examples with code snippets.
-- Expand test coverage, including integration tests via TestContainers.
-- Set up CI workflows and publishing to Maven Central.
+- Flesh out end-user usage guides:
+  - CLI + server workflows (curl examples, troubleshooting)
+  - Backend configuration deep dives (filesystem + S3/MinIO + Postgres)
+  - Replication model (Stores, Sectors, Replicas) + diagrams
+
+- Harden API reference:
+  - Explicit stability levels (demo-only vs stable)
+  - Error model and status codes for HTTP routes
+  - End-to-end examples that round-trip bytes + metadata
+
+- Performance + ops:
+  - JVM tuning notes + backpressure guidance for large streams
+  - Load testing recipes and metrics interpretation
+
+- Release readiness:
+  - v0.1.0 roadmap (APIs, packaging, versioning guarantees)
+  - CI workflows and publishing (Maven Central)
 
