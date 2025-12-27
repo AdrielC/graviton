@@ -1,23 +1,19 @@
 package graviton.core.scan
 
-import kyo.Record.`~`
-import kyo.Tag
-import kyo.Tag.given
-import kyo.Record
 import zio.{Chunk, ChunkBuilder}
 import zio.stream.{ZChannel, ZPipeline}
-import scala.compiletime.summonInline
-import scala.compiletime.summonFrom
+import kyo.Record
+import scala.util.NotGiven
 
 /**
  * A "sicko" (minimal, direct) Scan: stateful stream transducer with lawful composition.
  *
  * - State is tracked at the type level and defaults to `NoState` (empty).
- * - When composed, state is internally wrapped into `kyo.Record` fields (`"_0"`, `"_1"`).
+ * - Capabilities are tracked at the type level via the `C` parameter (like `FreeArrow`).
  * - Each input element emits exactly one output (docs-style step semantics).
  * - `flush` can emit trailing outputs (typically 0 or 1).
  */
-trait Scan[-I, +O, S]:
+trait Scan[-I, +O, S, +C]:
   /** Fresh initial state for a new run. */
   def init(): S
 
@@ -28,132 +24,58 @@ trait Scan[-I, +O, S]:
   def flush(state: S): (S, Chunk[O])
 
 object Scan:
-  type Aux[-I, +O, S] = Scan[I, O, S]
+  type Aux[-I, +O, S, C] = Scan[I, O, S, C]
 
   /** Empty state for "stateless" scans. */
-  sealed trait NoState
-  private[scan] val noState: NoState = null.asInstanceOf[NoState]
-  given Tag[NoState]                 = Tag.derive
+  type NoState = Unit
 
-  type LeftLabel  = "_0"
-  type RightLabel = "_1"
+  trait StateCompose[SA, SB, Out]:
+    def make(sa: SA, sb: SB): Out
+    def left(out: Out): SA
+    def right(out: Out): SB
 
-  type Pair[L <: String & Singleton, R <: String & Singleton, A, B] = Record[(L ~ A) & (R ~ B)]
+  object StateCompose extends StateComposeLowPriority:
 
-  private sealed trait IsRec[A]
-  private object IsRec:
-    given [Fields]: IsRec[Record[Fields]] with {}
+    given bothNoState: StateCompose[NoState, NoState, NoState] with
+      def make(sa: NoState, sb: NoState): NoState = ()
+      def left(out: NoState): NoState             = ()
+      def right(out: NoState): NoState            = ()
 
-  /** Composition state: empty is `NoState`, otherwise a record product. */
-  type ComposeState[SA, SB] = (SA, SB) match
-    case (NoState, b)             => b
-    case (a, NoState)             => a
-    case (Record[fa], Record[fb]) =>
-      // When both component states are already records, we merge them by intersection.
-      Record[fa & fb]
-    case _                        =>
-      // Otherwise, we store each state as a named cell inside a composite record.
-      Pair[LeftLabel, RightLabel, SA, SB]
+    given leftId[SB](using NotGiven[SB =:= NoState]): StateCompose[NoState, SB, SB] with
+      def make(sa: NoState, sb: SB): SB = sb
+      def left(out: SB): NoState        = ()
+      def right(out: SB): SB            = out
 
-  inline private def pack[L <: String & Singleton, R <: String & Singleton, A, B](a: A, b: B)(
-    using ValueOf[L],
-    ValueOf[R],
-    Tag[A],
-    Tag[B],
-  ): Pair[L, R, A, B] =
-    (Record.empty & (summon[ValueOf[L]].value ~ a) & (summon[ValueOf[R]].value ~ b)).asInstanceOf[Pair[L, R, A, B]]
+    given rightId[SA](using NotGiven[SA =:= NoState]): StateCompose[SA, NoState, SA] with
+      def make(sa: SA, sb: NoState): SA = sa
+      def left(out: SA): SA             = out
+      def right(out: SA): NoState       = ()
 
-  inline private def composeState[SA, SB](sa: SA, sb: SB)(using ValueOf[LeftLabel], ValueOf[RightLabel]): ComposeState[SA, SB] =
-    summonFrom {
-      case _: (SA =:= NoState) => sb.asInstanceOf[ComposeState[SA, SB]]
-      case _                   =>
-        summonFrom {
-          case _: (SB =:= NoState) => sa.asInstanceOf[ComposeState[SA, SB]]
-          case _                   =>
-            summonFrom {
-              case _: IsRec[SA] =>
-                summonFrom {
-                  case _: IsRec[SB] =>
-                    // Record/Record case: merge by record intersection.
-                    (sa.asInstanceOf[Record[Any]] & sb.asInstanceOf[Record[Any]]).asInstanceOf[ComposeState[SA, SB]]
-                  case _            =>
-                    // Pair-case: we need tags to store values inside `kyo.Record`.
-                    pack[LeftLabel, RightLabel, SA, SB](sa, sb)(
-                      using summonInline[ValueOf[LeftLabel]],
-                      summonInline[ValueOf[RightLabel]],
-                      summonInline[Tag[SA]],
-                      summonInline[Tag[SB]],
-                    ).asInstanceOf[ComposeState[SA, SB]]
-                }
-              case _            =>
-                // Pair-case: we need tags to store values inside `kyo.Record`.
-                pack[LeftLabel, RightLabel, SA, SB](sa, sb)(
-                  using summonInline[ValueOf[LeftLabel]],
-                  summonInline[ValueOf[RightLabel]],
-                  summonInline[Tag[SA]],
-                  summonInline[Tag[SB]],
-                ).asInstanceOf[ComposeState[SA, SB]]
-            }
-        }
-    }
+  trait StateComposeLowPriority:
+    given pair[SA, SB]: StateCompose[SA, SB, (SA, SB)] with
+      def make(sa: SA, sb: SB): (SA, SB) = (sa, sb)
+      def left(out: (SA, SB)): SA        = out._1
+      def right(out: (SA, SB)): SB       = out._2
 
-  inline private def leftState[SA, SB](s: ComposeState[SA, SB])(using ValueOf[LeftLabel]): SA =
-    summonFrom {
-      case _: (SA =:= NoState) => noState.asInstanceOf[SA]
-      case _                   =>
-        summonFrom {
-          case _: (SB =:= NoState) => s.asInstanceOf[SA]
-          case _                   =>
-            summonFrom {
-              case _: IsRec[SA] =>
-                summonFrom {
-                  case _: IsRec[SB] =>
-                    // Record/Record merged state: just view it as the left record.
-                    s.asInstanceOf[SA]
-                  case _            =>
-                    given Tag[SA] = summonInline[Tag[SA]]
-                    s.asInstanceOf[Pair[LeftLabel, RightLabel, SA, SB]].selectDynamic[LeftLabel, SA](summon[ValueOf[LeftLabel]].value)
-                }
-              case _            =>
-                given Tag[SA] = summonInline[Tag[SA]]
-                s.asInstanceOf[Pair[LeftLabel, RightLabel, SA, SB]].selectDynamic[LeftLabel, SA](summon[ValueOf[LeftLabel]].value)
-            }
-        }
-    }
+  /** Capability union: identity is `Any`; record/record merges by intersection (like `FreeArrow`). */
+  type CapUnion[A, B] = (A, B) match
+    case (Any, b)                 => b
+    case (a, Any)                 => a
+    case (Record[fa], Record[fb]) => Record[fa & fb]
+    case _                        => A & B
 
-  inline private def rightState[SA, SB](s: ComposeState[SA, SB])(using ValueOf[RightLabel]): SB =
-    summonFrom {
-      case _: (SA =:= NoState) => s.asInstanceOf[SB]
-      case _                   =>
-        summonFrom {
-          case _: (SB =:= NoState) => noState.asInstanceOf[SB]
-          case _                   =>
-            summonFrom {
-              case _: IsRec[SA] =>
-                summonFrom {
-                  case _: IsRec[SB] =>
-                    // Record/Record merged state: just view it as the right record.
-                    s.asInstanceOf[SB]
-                  case _            =>
-                    given Tag[SB] = summonInline[Tag[SB]]
-                    s.asInstanceOf[Pair[LeftLabel, RightLabel, SA, SB]].selectDynamic[RightLabel, SB](summon[ValueOf[RightLabel]].value)
-                }
-              case _            =>
-                given Tag[SB] = summonInline[Tag[SB]]
-                s.asInstanceOf[Pair[LeftLabel, RightLabel, SA, SB]].selectDynamic[RightLabel, SB](summon[ValueOf[RightLabel]].value)
-            }
-        }
-    }
+  inline private def composeState[SA, SB, Out](sa: SA, sb: SB)(using sc: StateCompose[SA, SB, Out]): Out =
+    sc.make(sa, sb)
 
-  def id[A]: Aux[A, A, NoState] =
-    new Scan[A, A, NoState]:
-      def init(): NoState                              = noState
+  def id[A]: Aux[A, A, NoState, Any] =
+    new Scan[A, A, NoState, Any]:
+      def init(): NoState                              = ()
       def step(state: NoState, input: A): (NoState, A) = (state, input)
       def flush(state: NoState): (NoState, Chunk[A])   = (state, Chunk.empty)
 
-  def pure[I, O](f: I => O): Aux[I, O, NoState] =
-    new Scan[I, O, NoState]:
-      def init(): NoState                              = noState
+  def pure[I, O](f: I => O): Aux[I, O, NoState, Any] =
+    new Scan[I, O, NoState, Any]:
+      def init(): NoState                              = ()
       def step(state: NoState, input: I): (NoState, O) = (state, f(input))
       def flush(state: NoState): (NoState, Chunk[O])   = (state, Chunk.empty)
 
@@ -163,35 +85,58 @@ object Scan:
     step0: (S0, I) => (S0, O)
   )(
     flush0: S0 => (S0, Chunk[O])
-  ): Aux[I, O, S0] =
-    new Scan[I, O, S0]:
-      type S = S0
-      def init(): S                = initial
-      def step(state: S, input: I) = step0(state, input)
-      def flush(state: S)          = flush0(state)
+  ): Aux[I, O, S0, Any] =
+    new Scan[I, O, S0, Any]:
+      def init(): S0                = initial
+      def step(state: S0, input: I) = step0(state, input)
+      def flush(state: S0)          = flush0(state)
 
-  extension [I, O, SA](left: Aux[I, O, SA])
-    transparent inline infix def >>>[O2, SB](right: Aux[O, O2, SB]): Aux[I, O2, ComposeState[SA, SB]] =
-      new Scan[I, O2, ComposeState[SA, SB]]:
-        type S = ComposeState[SA, SB]
-        private given ValueOf[LeftLabel]  = ValueOf("_0")
-        private given ValueOf[RightLabel] = ValueOf("_1")
+  final case class Field[Label <: String & Singleton, A](label: Label, value: A) derives CanEqual
+  object Field:
+    inline def apply[Label <: String & Singleton, A](value: A)(using v: ValueOf[Label]): Field[Label, A] =
+      Field(v.value, value)
 
-        def init(): S =
-          composeState(left.init(), right.init())
+  final case class Fields2[L <: String & Singleton, R <: String & Singleton, A, B](left: Field[L, A], right: Field[R, B]) derives CanEqual
 
-        def step(state: S, input: I): (S, O2) =
-          val sa0      = leftState[SA, SB](state)
-          val sb0      = rightState[SA, SB](state)
-          val (sa1, m) = left.step(sa0, input)
+  final case class ScanBranch[I, O, Label <: String & Singleton, S, C](scan: Aux[I, O, S, C])
+
+  object ScanBranch:
+    type AutoLeft  = "_0"
+    type AutoRight = "_1"
+
+    inline def autoLeft[I, O, S, C](scan: Aux[I, O, S, C]): ScanBranch[I, O, AutoLeft, S, C] =
+      ScanBranch(scan)
+
+    inline def autoRight[I, O, S, C](scan: Aux[I, O, S, C]): ScanBranch[I, O, AutoRight, S, C] =
+      ScanBranch(scan)
+
+  extension [I, O, S, C](self: Aux[I, O, S, C])
+    /** Change the capability type parameter without changing runtime behavior. */
+    def withCaps[C2]: Aux[I, O, S, C2] =
+      new Scan[I, O, S, C2]:
+        def init(): S                        = self.init()
+        def step(state: S, input: I): (S, O) = self.step(state, input)
+        def flush(state: S): (S, Chunk[O])   = self.flush(state)
+
+    transparent inline infix def >>>[O2, S2, C2, SOut](
+      right: Aux[O, O2, S2, C2]
+    )(using sc: StateCompose[S, S2, SOut]): Aux[I, O2, SOut, CapUnion[C, C2]] =
+      new Scan[I, O2, SOut, CapUnion[C, C2]]:
+        def init(): SOut =
+          sc.make(self.init(), right.init())
+
+        def step(state: SOut, input: I): (SOut, O2) =
+          val sa0      = sc.left(state)
+          val sb0      = sc.right(state)
+          val (sa1, m) = self.step(sa0, input)
           val (sb1, o) = right.step(sb0, m)
-          (composeState(sa1, sb1), o)
+          (sc.make(sa1, sb1), o)
 
-        def flush(state: S): (S, Chunk[O2]) =
-          val sa0 = leftState[SA, SB](state)
-          val sb0 = rightState[SA, SB](state)
+        def flush(state: SOut): (SOut, Chunk[O2]) =
+          val sa0 = sc.left(state)
+          val sb0 = sc.right(state)
 
-          val (sa1, mids) = left.flush(sa0)
+          val (sa1, mids) = self.flush(sa0)
           var sb          = sb0
           val out         = ChunkBuilder.make[O2]()
 
@@ -205,59 +150,46 @@ object Scan:
           val (sb2, tail) = right.flush(sb)
           out ++= tail
 
-          (composeState(sa1, sb2), out.result())
+          (sc.make(sa1, sb2), out.result())
 
-    def map[O2](f: O => O2): Aux[I, O2, SA] =
-      new Scan[I, O2, SA]:
-        type S = SA
-        def init(): SA = left.init()
-
+    def map[O2](f: O => O2): Aux[I, O2, S, C] =
+      new Scan[I, O2, S, C]:
+        def init(): S                         = self.init()
         def step(state: S, input: I): (S, O2) =
-          val (s2, out) = left.step(state, input)
+          val (s2, out) = self.step(state, input)
           (s2, f(out))
-
-        def flush(state: S): (S, Chunk[O2]) =
-          val (s2, out) = left.flush(state)
+        def flush(state: S): (S, Chunk[O2])   =
+          val (s2, out) = self.flush(state)
           (s2, out.map(f))
 
-    def contramap[I2](g: I2 => I): Aux[I2, O, SA] =
-      new Scan[I2, O, SA]:
-        type S = SA
-        def init(): SA = left.init()
+    def contramap[I2](g: I2 => I): Aux[I2, O, S, C] =
+      new Scan[I2, O, S, C]:
+        def init(): S                         = self.init()
+        def step(state: S, input: I2): (S, O) = self.step(state, g(input))
+        def flush(state: S): (S, Chunk[O])    = self.flush(state)
 
-        def step(state: S, input: I2): (S, O) =
-          left.step(state, g(input))
+    def dimap[I2, O2](pre: I2 => I, post: O => O2): Aux[I2, O2, S, C] =
+      self.contramap(pre).map(post)
 
-        def flush(state: S): (S, Chunk[O]) =
-          left.flush(state)
+    inline def labelled[Label <: String & Singleton]: ScanBranch[I, O, Label, S, C] =
+      ScanBranch(self)
 
-    def dimap[I2, O2](pre: I2 => I, post: O => O2): Aux[I2, O2, SA] =
-      left.contramap(pre).map(post)
-
-    inline def asField[Label <: String & Singleton](using ValueOf[Label], Tag[O]): Aux[I, Record[Label ~ O], SA] =
-      left.map { o =>
-        (Record.empty & (summon[ValueOf[Label]].value ~ o)).asInstanceOf[Record[Label ~ O]]
-      }
-
-    inline def labelled[Label <: String & Singleton]: ScanBranch[I, O, Label, SA] =
-      ScanBranch(left)
-
-    def runChunk(inputs: Iterable[I]): (SA, Chunk[O]) =
-      var s: SA      = left.init()
+    def runChunk(inputs: Iterable[I]): (S, Chunk[O]) =
+      var s: S       = self.init()
       val out        = ChunkBuilder.make[O]()
       inputs.foreach { in =>
-        val (s2, emitted) = left.step(s, in)
+        val (s2, emitted) = self.step(s, in)
         s = s2
         out += emitted
       }
-      val (sf, tail) = left.flush(s)
+      val (sf, tail) = self.flush(s)
       out ++= tail
       (sf, out.result())
 
     def toChannel: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
       ZChannel.unwrap {
         zio.ZIO.succeed {
-          var s: SA = left.init()
+          var s: S = self.init()
 
           def loop: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
             ZChannel.readWith(
@@ -265,7 +197,7 @@ object Scan:
                 val builder  = ChunkBuilder.make[O]()
                 var idx      = 0
                 while idx < chunk.length do
-                  val (s2, o) = left.step(s, chunk(idx))
+                  val (s2, o) = self.step(s, chunk(idx))
                   s = s2
                   builder += o
                   idx += 1
@@ -275,7 +207,7 @@ object Scan:
               ,
               (_: Any) => ZChannel.unit,
               (_: Any) =>
-                val (sf, tail) = left.flush(s)
+                val (sf, tail) = self.flush(s)
                 s = sf
                 if tail.isEmpty then ZChannel.unit else ZChannel.writeChunk(Chunk(tail)),
             )
@@ -287,87 +219,24 @@ object Scan:
     def toPipeline: ZPipeline[Any, Nothing, I, O] =
       ZPipeline.fromChannel(toChannel)
 
-  final case class ScanBranch[I, O, Label <: String & Singleton, S0](scan: Aux[I, O, S0])
+  extension [I, O, S, C](left: Aux[I, O, S, C])
+    transparent inline infix def &&&[O2, S2, C2, SOut](
+      right: Aux[I, O2, S2, C2]
+    )(using sc: StateCompose[S, S2, SOut]): Aux[I, (O, O2), SOut, CapUnion[C, C2]] =
+      new Scan[I, (O, O2), SOut, CapUnion[C, C2]]:
+        def init(): SOut =
+          sc.make(left.init(), right.init())
 
-  object ScanBranch:
-    type AutoLeft  = "_0"
-    type AutoRight = "_1"
+        def step(state: SOut, input: I): (SOut, (O, O2)) =
+          val sa0      = sc.left(state)
+          val sb0      = sc.right(state)
+          val (sa1, a) = left.step(sa0, input)
+          val (sb1, b) = right.step(sb0, input)
+          (sc.make(sa1, sb1), (a, b))
 
-    def autoLeft[I, O, S0](scan: Aux[I, O, S0]): ScanBranch[I, O, AutoLeft, S0] =
-      ScanBranch(scan)
-
-    def autoRight[I, O, S0](scan: Aux[I, O, S0]): ScanBranch[I, O, AutoRight, S0] =
-      ScanBranch(scan)
-
-  extension [I, O, L <: String & Singleton, SA](left: ScanBranch[I, O, L, SA])
-    /** Fanout (broadcast) with a labelled left branch, auto-labelled right branch. */
-    transparent inline infix def &&&[O2, SB](
-      right: Aux[I, O2, SB]
-    )(using ValueOf[L], Tag[O], Tag[O2]): Aux[I, Pair[L, ScanBranch.AutoRight, O, O2], ComposeState[SA, SB]] =
-      left &&& ScanBranch.autoRight(right)
-
-    /** Fanout (broadcast) with labelled left/right branches. */
-    transparent inline infix def &&&[O2, R <: String & Singleton, SB](
-      right: ScanBranch[I, O2, R, SB]
-    )(using ValueOf[L], ValueOf[R], Tag[O], Tag[O2]): Aux[I, Pair[L, R, O, O2], ComposeState[SA, SB]] =
-      new Scan[I, Pair[L, R, O, O2], ComposeState[SA, SB]]:
-        type S = ComposeState[SA, SB]
-        private given ValueOf[LeftLabel]  = ValueOf("_0")
-        private given ValueOf[RightLabel] = ValueOf("_1")
-
-        def init(): S =
-          composeState(left.scan.init(), right.scan.init())
-
-        def step(state: S, input: I): (S, Pair[L, R, O, O2]) =
-          val sa0      = leftState[SA, SB](state)
-          val sb0      = rightState[SA, SB](state)
-          val (sa1, a) = left.scan.step(sa0, input)
-          val (sb1, b) = right.scan.step(sb0, input)
-          (composeState(sa1, sb1), pack[L, R, O, O2](a, b))
-
-        def flush(state: S): (S, Chunk[Pair[L, R, O, O2]]) =
-          val sa0           = leftState[SA, SB](state)
-          val sb0           = rightState[SA, SB](state)
-          val (sa1, leftT)  = left.scan.flush(sa0)
-          val (sb1, rightT) = right.scan.flush(sb0)
-          val n             = math.min(leftT.length, rightT.length)
-          val out           = ChunkBuilder.make[Pair[L, R, O, O2]]()
-          var idx           = 0
-          while idx < n do
-            out += pack[L, R, O, O2](leftT(idx), rightT(idx))
-            idx += 1
-          (composeState(sa1, sb1), out.result())
-
-  extension [I, O, SA](left: Aux[I, O, SA])
-    /** Fanout (broadcast) with auto labels `_0` / `_1`. */
-    transparent inline infix def &&&[O2, SB](
-      right: Aux[I, O2, SB]
-    )(using Tag[O], Tag[O2]): Aux[I, Pair[ScanBranch.AutoLeft, ScanBranch.AutoRight, O, O2], ComposeState[SA, SB]] =
-      ScanBranch.autoLeft(left) &&& ScanBranch.autoRight(right)
-
-    /** Parallel on tuples (docs-style `+++`): (A, C) => (B, D). */
-    transparent inline infix def +++[I2, O2, SB](
-      right: Aux[I2, O2, SB]
-    )(using Tag[SA], Tag[SB]): Aux[(I, I2), (O, O2), ComposeState[SA, SB]] =
-      new Scan[(I, I2), (O, O2), ComposeState[SA, SB]]:
-        type S = ComposeState[SA, SB]
-        private given ValueOf[LeftLabel]  = ValueOf("_0")
-        private given ValueOf[RightLabel] = ValueOf("_1")
-
-        def init(): S =
-          composeState(left.init(), right.init())
-
-        def step(state: S, input: (I, I2)): (S, (O, O2)) =
-          val sa0      = leftState[SA, SB](state)
-          val sb0      = rightState[SA, SB](state)
-          val (a, i2)  = input
-          val (sa1, o) = left.step(sa0, a)
-          val (sb1, p) = right.step(sb0, i2)
-          (composeState(sa1, sb1), (o, p))
-
-        def flush(state: S): (S, Chunk[(O, O2)]) =
-          val sa0           = leftState[SA, SB](state)
-          val sb0           = rightState[SA, SB](state)
+        def flush(state: SOut): (SOut, Chunk[(O, O2)]) =
+          val sa0           = sc.left(state)
+          val sb0           = sc.right(state)
           val (sa1, leftT)  = left.flush(sa0)
           val (sb1, rightT) = right.flush(sb0)
           val n             = math.min(leftT.length, rightT.length)
@@ -376,64 +245,114 @@ object Scan:
           while idx < n do
             out += ((leftT(idx), rightT(idx)))
             idx += 1
-          (composeState(sa1, sb1), out.result())
+          (sc.make(sa1, sb1), out.result())
 
-    /** Choice (docs-style `|||`): Either[A,C] => Either[B,D]. */
-    transparent inline infix def |||[I2, O2, SB](
-      right: Aux[I2, O2, SB]
-    )(using Tag[SA], Tag[SB]): Aux[Either[I, I2], Either[O, O2], ComposeState[SA, SB]] =
-      new Scan[Either[I, I2], Either[O, O2], ComposeState[SA, SB]]:
-        type S = ComposeState[SA, SB]
-        private given ValueOf[LeftLabel]  = ValueOf("_0")
-        private given ValueOf[RightLabel] = ValueOf("_1")
+    transparent inline infix def +++[I2, O2, S2, C2, SOut](
+      right: Aux[I2, O2, S2, C2]
+    )(using sc: StateCompose[S, S2, SOut]): Aux[(I, I2), (O, O2), SOut, CapUnion[C, C2]] =
+      new Scan[(I, I2), (O, O2), SOut, CapUnion[C, C2]]:
+        def init(): SOut =
+          sc.make(left.init(), right.init())
 
-        def init(): S =
-          composeState(left.init(), right.init())
+        def step(state: SOut, input: (I, I2)): (SOut, (O, O2)) =
+          val sa0      = sc.left(state)
+          val sb0      = sc.right(state)
+          val (a, i2)  = input
+          val (sa1, o) = left.step(sa0, a)
+          val (sb1, p) = right.step(sb0, i2)
+          (sc.make(sa1, sb1), (o, p))
 
-        def step(state: S, input: Either[I, I2]): (S, Either[O, O2]) =
-          val sa0 = leftState[SA, SB](state)
-          val sb0 = rightState[SA, SB](state)
+        def flush(state: SOut): (SOut, Chunk[(O, O2)]) =
+          val sa0           = sc.left(state)
+          val sb0           = sc.right(state)
+          val (sa1, leftT)  = left.flush(sa0)
+          val (sb1, rightT) = right.flush(sb0)
+          val n             = math.min(leftT.length, rightT.length)
+          val out           = ChunkBuilder.make[(O, O2)]()
+          var idx           = 0
+          while idx < n do
+            out += ((leftT(idx), rightT(idx)))
+            idx += 1
+          (sc.make(sa1, sb1), out.result())
+
+    transparent inline infix def |||[I2, O2, S2, C2, SOut](
+      right: Aux[I2, O2, S2, C2]
+    )(using sc: StateCompose[S, S2, SOut]): Aux[Either[I, I2], Either[O, O2], SOut, CapUnion[C, C2]] =
+      new Scan[Either[I, I2], Either[O, O2], SOut, CapUnion[C, C2]]:
+        def init(): SOut =
+          sc.make(left.init(), right.init())
+
+        def step(state: SOut, input: Either[I, I2]): (SOut, Either[O, O2]) =
+          val sa0 = sc.left(state)
+          val sb0 = sc.right(state)
           input match
             case Left(a)  =>
               val (sa1, o) = left.step(sa0, a)
-              (composeState(sa1, sb0), Left(o))
+              (sc.make(sa1, sb0), Left(o))
             case Right(b) =>
               val (sb1, o) = right.step(sb0, b)
-              (composeState(sa0, sb1), Right(o))
+              (sc.make(sa0, sb1), Right(o))
 
-        def flush(state: S): (S, Chunk[Either[O, O2]]) =
-          val sa0          = leftState[SA, SB](state)
-          val sb0          = rightState[SA, SB](state)
+        def flush(state: SOut): (SOut, Chunk[Either[O, O2]]) =
+          val sa0          = sc.left(state)
+          val sb0          = sc.right(state)
           val (sa1, leftT) = left.flush(sa0)
           val (sb1, rT)    = right.flush(sb0)
-          val out          =
-            leftT.map(Left(_)) ++ rT.map(Right(_))
-          (composeState(sa1, sb1), out)
+          val out          = leftT.map(Left(_)) ++ rT.map(Right(_))
+          (sc.make(sa1, sb1), out)
 
-    def first[X]: Aux[(I, X), (O, X), SA] =
-      new Scan[(I, X), (O, X), SA]:
-        type S = SA
-        def init(): SA = left.init()
-
+    def first[X]: Aux[(I, X), (O, X), S, C] =
+      new Scan[(I, X), (O, X), S, C]:
+        def init(): S                                  = left.init()
         def step(state: S, input: (I, X)): (S, (O, X)) =
           val (s2, o) = left.step(state, input._1)
           (s2, (o, input._2))
-
-        def flush(state: S): (S, Chunk[(O, X)]) =
-          val (s2, tail) = left.flush(state)
-          // No access to `X` at stream end: drop tail outputs.
+        def flush(state: S): (S, Chunk[(O, X)])        =
+          val (s2, _) = left.flush(state)
           (s2, Chunk.empty)
 
-    def second[X]: Aux[(X, I), (X, O), SA] =
-      new Scan[(X, I), (X, O), SA]:
-        type S = SA
-        def init(): SA = left.init()
-
+    def second[X]: Aux[(X, I), (X, O), S, C] =
+      new Scan[(X, I), (X, O), S, C]:
+        def init(): S                                  = left.init()
         def step(state: S, input: (X, I)): (S, (X, O)) =
           val (s2, o) = left.step(state, input._2)
           (s2, (input._1, o))
-
-        def flush(state: S): (S, Chunk[(X, O)]) =
-          val (s2, tail) = left.flush(state)
-          // No access to `X` at stream end: drop tail outputs.
+        def flush(state: S): (S, Chunk[(X, O)])        =
+          val (s2, _) = left.flush(state)
           (s2, Chunk.empty)
+
+  extension [I, O, L <: String & Singleton, S, C](left: ScanBranch[I, O, L, S, C])
+    transparent inline infix def &&&[O2, R <: String & Singleton, S2, C2, SOut](
+      right: ScanBranch[I, O2, R, S2, C2]
+    )(using vl: ValueOf[L], vr: ValueOf[R], sc: StateCompose[S, S2, SOut]): Aux[I, Fields2[L, R, O, O2], SOut, CapUnion[C, C2]] =
+      new Scan[I, Fields2[L, R, O, O2], SOut, CapUnion[C, C2]]:
+        def init(): SOut =
+          sc.make(left.scan.init(), right.scan.init())
+
+        def step(state: SOut, input: I): (SOut, Fields2[L, R, O, O2]) =
+          val sa0      = sc.left(state)
+          val sb0      = sc.right(state)
+          val (sa1, a) = left.scan.step(sa0, input)
+          val (sb1, b) = right.scan.step(sb0, input)
+          (
+            sc.make(sa1, sb1),
+            Fields2(Field[L, O](a)(using vl), Field[R, O2](b)(using vr)),
+          )
+
+        def flush(state: SOut): (SOut, Chunk[Fields2[L, R, O, O2]]) =
+          val sa0           = sc.left(state)
+          val sb0           = sc.right(state)
+          val (sa1, leftT)  = left.scan.flush(sa0)
+          val (sb1, rightT) = right.scan.flush(sb0)
+          val n             = math.min(leftT.length, rightT.length)
+          val out           = ChunkBuilder.make[Fields2[L, R, O, O2]]()
+          var idx           = 0
+          while idx < n do
+            out += Fields2(Field[L, O](leftT(idx))(using vl), Field[R, O2](rightT(idx))(using vr))
+            idx += 1
+          (sc.make(sa1, sb1), out.result())
+
+    transparent inline infix def &&&[O2, S2, C2, SOut](
+      right: Aux[I, O2, S2, C2]
+    )(using vl: ValueOf[L], sc: StateCompose[S, S2, SOut]): Aux[I, Fields2[L, ScanBranch.AutoRight, O, O2], SOut, CapUnion[C, C2]] =
+      left.&&&[O2, ScanBranch.AutoRight, S2, C2, SOut](ScanBranch.autoRight(right))(using vl, summon[ValueOf[ScanBranch.AutoRight]], sc)

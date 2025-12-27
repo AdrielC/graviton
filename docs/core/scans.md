@@ -10,7 +10,7 @@ Graviton's scan system provides composable, type-safe stream processing. Today t
 A `Scan` is a stateful transducer from inputs `I` to outputs `O`, paired with typed state `S` and supporting:
 
 - **Composable state**: state is threaded automatically through `>>>`, `&&&`, `+++`, `|||`, `first`, `second`, `dimap`
-- **Ergonomic structured state**: you can model state as `kyo.Record[...]` (or use `Scan.NoState` for “no state”)
+- **Ergonomic state**: model state as a domain case class (or use `Scan.NoState` for “no state”)
 - **Runnable**: interpret to `ZPipeline` with `scan.toPipeline`
 
 ## Core API (`graviton.core.scan.Scan`)
@@ -20,7 +20,7 @@ A `Scan` is a stateful transducer from inputs `I` to outputs `O`, paired with ty
 ```scala
 import zio.Chunk
 
-trait Scan[-I, +O, S]:
+trait Scan[-I, +O, S, +C]:
   def init(): S
   def step(state: S, input: I): (S, O)
   def flush(state: S): (S, Chunk[O])
@@ -28,27 +28,24 @@ trait Scan[-I, +O, S]:
 
 **Key properties:**
 - **Empty state is `Scan.NoState`**: stateless scans use `S = Scan.NoState`.
-- **State representation is user-defined**: `S` can be a case class, a `kyo.Record[...]`, a future `TypeMap`, etc.
-- **Composition wraps state internally**: composing scans uses a carrier `ComposeState[SA, SB]`:
+- **Capabilities are tracked at the type level**: `C` composes via `Scan.CapUnion` (identity is `Any`, like `FreeArrow`).
+- **State representation is user-defined**: `S` can be a case class, etc.
+- **Composition carries state**: composing scans uses a carrier `ComposeState[SA, SB]`:
   - `Scan.NoState` is an identity (`ComposeState[Scan.NoState, SB] = SB`, `ComposeState[SA, Scan.NoState] = SA`)
-  - if both states are already `kyo.Record[...]`, composition uses record **intersection** (`Record[fa & fb]`)
-  - otherwise it packs the two states into a record with internal labels `"_0"` and `"_1"` (implementation detail)
+  - otherwise it becomes a tuple `(SA, SB)`
 
 ### Stateful Record Example
 
 ```scala
 import graviton.core.scan.Scan
-import kyo.Record
-import kyo.Record.`~`
 import zio.Chunk
 
-type CountState = Record["count" ~ Long]
+final case class CountState(count: Long)
 
-val counting: Scan[Long, Long, CountState] =
-  Scan.fold[Long, Long, CountState]((Record.empty & ("count" ~ 0L)).asInstanceOf[CountState]) { (s, _) =>
-    val next = s.count + 1
-    val ns   = (Record.empty & ("count" ~ next)).asInstanceOf[CountState]
-    (ns, next)
+val counting: Scan[Long, Long, CountState, Any] =
+  Scan.fold[Long, Long, CountState](CountState(0L)) { (s, _) =>
+    val next = s.count + 1L
+    (CountState(next), next)
   }(s => (s, Chunk.empty))
 ```
 
@@ -57,7 +54,7 @@ val counting: Scan[Long, Long, CountState] =
 ```scala
 import graviton.core.scan.Scan
 
-val doubled: Scan[Int, Int, Scan.NoState] =
+val doubled: Scan[Int, Int, Scan.NoState, Any] =
   Scan.pure(_ * 2)
 ```
 
@@ -116,7 +113,7 @@ val routed = ints ||| chars
 
 ### Fanout / broadcast (`&&&`)
 
-`&&&` runs both scans on the same input and returns a `kyo.Record` output (labelled `"_0"`/`"_1"` by default, or use `.labelled[...]`).
+`&&&` runs both scans on the same input and returns a product output (tuples by default, or use `.labelled[...]` for labelled outputs).
 
 ```scala
 import graviton.core.scan.Scan
@@ -176,17 +173,14 @@ val program =
 
 ```scala
 import graviton.core.scan.Scan
-import kyo.Record
-import kyo.Record.`~`
 import zio.Chunk
 
-type CountState = Record["count" ~ Long]
+final case class CountState(count: Long)
 
-val counting: Scan[Long, Long, CountState] =
-  Scan.fold[Long, Long, CountState]((Record.empty & ("count" ~ 0L)).asInstanceOf[CountState]) { (s, _) =>
-    val next = s.count + 1
-    val ns   = (Record.empty & ("count" ~ next)).asInstanceOf[CountState]
-    (ns, next)
+val counting: Scan[Long, Long, CountState, Any] =
+  Scan.fold[Long, Long, CountState](CountState(0L)) { (s, _) =>
+    val next = s.count + 1L
+    (CountState(next), next)
   }(s => (s, Chunk.empty))
 
 val program = Scan.pure[Long, Long](_ * 10) >>> counting
@@ -256,7 +250,7 @@ first(f) >>> arr(swap) ≡ arr(swap) >>> second(f)
 ### State Laws
 
 State is threaded linearly and must be treated as **local to a scan instance**: don’t share it between instances.
-When state is modeled as `kyo.Record[...]`, composing record-states merges by **intersection**.
+When you need inspectable, explicit capability/state tracking for optimization, use `FreeScanV2` / `FreeArrow`-style APIs; `Scan` stays runtime-direct.
 
 ## Performance
 
@@ -289,7 +283,7 @@ val unfused =
 
 ## Advanced Patterns
 
-- **Stateful windows**: use `Scan.fold` with a `kyo.Record[...]` (or a domain case class) as the scan state.
+- **Stateful windows**: use `Scan.fold` with a domain case class as the scan state.
 - **Routing**: use `|||` (choice) for `Either`-based routing, or model richer routing with `FreeArrow` / `FreeScanV2`.
 - **Metrics**: wrap a scan with `map/dimap` and record counters externally; internal “metered scan” helpers are still evolving.
 
