@@ -27,7 +27,7 @@ cd graviton
 git submodule update --init --recursive
 
 # Compile everything
-sbt compile
+./sbt compile
 
 # Format & run the default JVM + JS test matrix (keeping TestContainers off by default)
 TESTCONTAINERS=0 ./sbt scalafmtAll test
@@ -203,7 +203,7 @@ git checkout -b docs/improve-api-examples
 - Write code following the style guide
 - Add tests for new functionality
 - Update documentation
-- Run formatter: `sbt scalafmtAll`
+- Run formatter: `./sbt scalafmtAll`
 
 ### 3. Commit
 

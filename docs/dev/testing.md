@@ -22,7 +22,7 @@ TESTCONTAINERS=0 ./sbt test
 TESTCONTAINERS=1 ./sbt test
 
 # Specific module
-./sbt "graviton-core/test"
+./sbt "core/test"
 
 # Specific test suite
 ./sbt "testOnly graviton.core.BinaryKeySpec"
@@ -38,7 +38,7 @@ TESTCONTAINERS=1 ./sbt test
 ./sbt ~test
 
 # Specific module
-./sbt "~graviton-core/test"
+./sbt "~core/test"
 ```
 
 ## Unit Tests
@@ -452,10 +452,10 @@ object InMemoryBlobStoreContractSpec extends BlobStoreContract:
 
 ```bash
 # Run tests with coverage
-sbt clean coverage test
+./sbt clean coverage test
 
 # Generate report
-sbt coverageReport
+./sbt coverageReport
 
 # View report
 open target/scala-3.3.3/scoverage-report/index.html
@@ -532,7 +532,7 @@ test("debug test") {
 
 ```bash
 # Run specific test with debugger
-sbt -jvm-debug 5005
+./sbt -jvm-debug 5005
 > testOnly graviton.core.BinaryKeySpec
 ```
 
