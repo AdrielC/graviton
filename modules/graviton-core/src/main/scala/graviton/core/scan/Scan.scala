@@ -38,7 +38,7 @@ object Scan:
 
   type Pair[L <: String & Singleton, R <: String & Singleton, A, B] = Record[(L ~ A) & (R ~ B)]
 
-  private inline def pack[L <: String & Singleton, R <: String & Singleton, A, B](a: A, b: B)(
+  inline private def pack[L <: String & Singleton, R <: String & Singleton, A, B](a: A, b: B)(
     using ValueOf[L],
     ValueOf[R],
     Tag[A],
@@ -51,16 +51,16 @@ object Scan:
   def id[A]: Aux[A, A, Record[Any]] =
     new Scan[A, A]:
       type S = Record[Any]
-      def init(): S                               = Record.empty
-      def step(state: S, input: A): (S, A)        = (state, input)
-      def flush(state: S): (S, Chunk[A])          = (state, Chunk.empty)
+      def init(): S                        = Record.empty
+      def step(state: S, input: A): (S, A) = (state, input)
+      def flush(state: S): (S, Chunk[A])   = (state, Chunk.empty)
 
   def pure[I, O](f: I => O): Aux[I, O, Record[Any]] =
     new Scan[I, O]:
       type S = Record[Any]
-      def init(): S                               = Record.empty
-      def step(state: S, input: I): (S, O)        = (state, f(input))
-      def flush(state: S): (S, Chunk[O])          = (state, Chunk.empty)
+      def init(): S                        = Record.empty
+      def step(state: S, input: I): (S, O) = (state, f(input))
+      def flush(state: S): (S, Chunk[O])   = (state, Chunk.empty)
 
   def fold[I, O, S0 <: Record[?]](
     initial: => S0
@@ -165,8 +165,8 @@ object Scan:
           def loop: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
             ZChannel.readWith(
               (chunk: Chunk[I]) =>
-                val builder = ChunkBuilder.make[O]()
-                var idx     = 0
+                val builder  = ChunkBuilder.make[O]()
+                var idx      = 0
                 while idx < chunk.length do
                   val (s2, o) = left.step(s, chunk(idx))
                   s = s2
@@ -327,4 +327,3 @@ object Scan:
           val (s2, tail) = left.flush(state)
           // No access to `X` at stream end: drop tail outputs.
           (s2, Chunk.empty)
-
