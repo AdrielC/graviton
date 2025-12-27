@@ -1,9 +1,6 @@
 package graviton.core.scan
 
 import graviton.core.bytes.{Digest, HashAlgo, Hasher}
-import kyo.Record
-import kyo.Record.`~`
-import kyo.Tag.given
 import zio.Chunk
 
 /**
@@ -15,7 +12,6 @@ import zio.Chunk
  *
  * Notes:
  * - This scan is intentionally **non-throwing**: hash initialization/digest failures are surfaced as `Left(String, ...)`.
- * - State is a `kyo.Record[...]` so composed state merges by record intersection.
  */
 object IngestTelemetryScan:
 
@@ -39,15 +35,15 @@ object IngestTelemetryScan:
       sha256: Either[String, Digest],
     ) extends IngestTelemetryEvent
 
-  /** Internal state (record) – composes cleanly via intersection. */
-  type State = Record[
-    ("bytes" ~ Long) &
-      ("chunks" ~ Long) &
-      ("ordinal" ~ Long) &
-      ("sniff" ~ Chunk[Byte]) &
-      ("halt" ~ Boolean) &
-      ("hasher" ~ Either[String, Hasher])
-  ]
+  /** Internal state (no casts). */
+  final case class State(
+    bytes: Long,
+    chunks: Long,
+    ordinal: Long,
+    sniff: Chunk[Byte],
+    halt: Boolean,
+    hasher: Either[String, Hasher],
+  )
 
   private def sniffMime(prefix: Chunk[Byte]): Option[String] =
     if prefix.startsWith(Chunk[Byte](0x25, 0x50, 0x44, 0x46)) then Some("application/pdf") // %PDF
@@ -85,44 +81,45 @@ object IngestTelemetryScan:
     sniffBytes: Int = 16,
     largeCutoff: Int = 1024 * 1024,
     algo: HashAlgo = HashAlgo.runtimeDefault,
-  ): Scan[Chunk[Byte], IngestTelemetryEvent, State] =
+  ): Scan[Chunk[Byte], IngestTelemetryEvent, State, Any] =
 
     // --- routing using ||| -------------------------------------------------
-    val classify: Scan[Chunk[Byte], Either[Chunk[Byte], Chunk[Byte]], Scan.NoState] =
+    val classify: Scan[Chunk[Byte], Either[Chunk[Byte], Chunk[Byte]], Scan.NoState, Any] =
       Scan.pure { chunk =>
         if chunk.length >= math.max(1, largeCutoff) then Right(chunk) else Left(chunk)
       }
 
-    val small: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState] =
+    val small: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState, Any] =
       Scan.pure(chunk => (chunk, "small"))
 
-    val large: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState] =
+    val large: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState, Any] =
       Scan.pure(chunk => (chunk, "large"))
 
-    val tagRoute: Scan[Either[Chunk[Byte], Chunk[Byte]], (Chunk[Byte], String), Scan.NoState] =
+    val tagRoute: Scan[Either[Chunk[Byte], Chunk[Byte]], (Chunk[Byte], String), Scan.NoState, Any] =
       (small ||| large).map(_.fold(identity, identity))
 
-    val tagged: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState] =
+    val tagged: Scan[Chunk[Byte], (Chunk[Byte], String), Scan.NoState, Any] =
       classify >>> tagRoute
 
     // Use second (route normalization) + first (no-op identity on bytes) just to exercise tuple lifting.
-    val normalizeRoute: Scan[(Chunk[Byte], String), (Chunk[Byte], String), Scan.NoState] =
+    val normalizeRoute: Scan[(Chunk[Byte], String), (Chunk[Byte], String), Scan.NoState, Any] =
       Scan.pure[String, String](_.toLowerCase).second[Chunk[Byte]]
 
-    val idBytesOnFirst: Scan[(Chunk[Byte], String), (Chunk[Byte], String), Scan.NoState] =
+    val idBytesOnFirst: Scan[(Chunk[Byte], String), (Chunk[Byte], String), Scan.NoState, Any] =
       Scan.id[Chunk[Byte]].first[String]
 
     // --- core stateful fold ------------------------------------------------
     val init: State =
-      (Record.empty
-        & ("bytes" ~ 0L)
-        & ("chunks" ~ 0L)
-        & ("ordinal" ~ 0L)
-        & ("sniff" ~ Chunk.empty[Byte])
-        & ("halt" ~ false)
-        & ("hasher" ~ Hasher.hasher(algo, None))).asInstanceOf[State]
+      State(
+        bytes = 0L,
+        chunks = 0L,
+        ordinal = 0L,
+        sniff = Chunk.empty,
+        halt = false,
+        hasher = Hasher.hasher(algo, None),
+      )
 
-    val core: Scan[(Chunk[Byte], String), CoreOut, State] =
+    val core: Scan[(Chunk[Byte], String), CoreOut, State, Any] =
       Scan.fold[(Chunk[Byte], String), CoreOut, State](init) { (s, in) =>
         val (chunk, route) = in
 
@@ -147,13 +144,14 @@ object IngestTelemetryScan:
         val halted = s.halt || (maxBytes > 0 && nextBytes > maxBytes)
 
         val nextState =
-          (Record.empty
-            & ("bytes" ~ nextBytes)
-            & ("chunks" ~ nextChunks)
-            & ("ordinal" ~ nextOrdinal)
-            & ("sniff" ~ nextSniff)
-            & ("halt" ~ halted)
-            & ("hasher" ~ nextHasher)).asInstanceOf[State]
+          s.copy(
+            bytes = nextBytes,
+            chunks = nextChunks,
+            ordinal = nextOrdinal,
+            sniff = nextSniff,
+            halt = halted,
+            hasher = nextHasher,
+          )
 
         val out =
           CoreOut.Step0(
@@ -179,11 +177,11 @@ object IngestTelemetryScan:
       }
 
     // --- compose lens computation using +++ --------------------------------
-    val lens0: Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState] =
+    val lens0: Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState, Any] =
       Scan.pure[Chunk[Byte], Int](_.length) +++ Scan.pure[String, Int](_.length)
 
-    val lens: Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState] =
-      new Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState]:
+    val lens: Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState, Any] =
+      new Scan[(Chunk[Byte], String), (Int, Int), Scan.NoState, Any]:
         def init(): Scan.NoState =
           lens0.init()
 
@@ -195,13 +193,13 @@ object IngestTelemetryScan:
           (state, Chunk.single((0, 0)))
 
     // --- combine using &&& (record output) ---------------------------------
-    val combined: Scan[(Chunk[Byte], String), Record[("event" ~ CoreOut) & ("lens" ~ (Int, Int))], State] =
+    val combined =
       core.labelled["event"] &&& lens.labelled["lens"]
 
     // Finally: full pipeline from raw bytes to events
     (tagged >>> normalizeRoute >>> idBytesOnFirst >>> combined).map { r =>
-      val (chunkLen, routeLen) = r.lens
-      r.event match
+      val (chunkLen, routeLen) = r.right.value
+      r.left.value match
         case CoreOut.Step0(route, ordinal, bytes, chunks, mimeHint, halted) =>
           IngestTelemetryEvent.Step(
             route = route,

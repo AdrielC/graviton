@@ -2,7 +2,6 @@ package graviton.core.scan
 
 import graviton.core.bytes.HashAlgo
 import graviton.core.scan.IngestTelemetryScan.IngestTelemetryEvent
-import kyo.Tag.given
 import zio.Chunk
 import zio.test.*
 
