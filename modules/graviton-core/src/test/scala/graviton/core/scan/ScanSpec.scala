@@ -15,7 +15,7 @@ object ScanSpec extends ZIOSpecDefault:
     Scan.fold[Long, Long, CountState]((Record.empty & ("count" ~ 0L)).asInstanceOf[CountState]) { (s, _) =>
       val next = s.count + 1
       val ns   = (Record.empty & ("count" ~ next)).asInstanceOf[CountState]
-      (ns, Chunk.single(next))
+      (ns, next)
     } { s =>
       (s, Chunk.empty)
     }
@@ -24,7 +24,7 @@ object ScanSpec extends ZIOSpecDefault:
     Scan.fold[Long, Long, SumState]((Record.empty & ("sum" ~ 0L)).asInstanceOf[SumState]) { (s, in) =>
       val next = s.sum + in
       val ns   = (Record.empty & ("sum" ~ next)).asInstanceOf[SumState]
-      (ns, Chunk.single(next))
+      (ns, next)
     } { s =>
       (s, Chunk.empty)
     }
