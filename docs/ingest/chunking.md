@@ -6,10 +6,47 @@ Graviton supports multiple chunking algorithms for content-defined deduplication
 
 Chunking divides byte streams into addressable blocks. Graviton supports:
 
-- **Fixed-size chunking** — Simple, predictable boundaries
-- **FastCDC** — Fast content-defined chunking
-- **BuzHash CDC** — Classic rolling hash approach
-- **Rabin fingerprinting** — High-quality boundaries
+- **Fixed-size chunking** — Simple, predictable boundaries (`Chunker.fixed`)
+- **FastCDC** — Fast content-defined chunking (`Chunker.fastCdc`)
+- **Delimiter chunking** — Split on a byte delimiter using a streaming KMP matcher (`Chunker.delimiter`)
+
+::: tip
+This page also mentions a few *planned* chunkers (Anchored CDC, BuzHash, Rabin). The runtime APIs you can use today are `Chunker.fixed`, `Chunker.fastCdc`, and `Chunker.delimiter`.
+:::
+
+## Streaming API (what you actually use)
+
+### ZIO streams
+
+`graviton.streams.Chunker` exposes chunkers as `ZPipeline[Any, Throwable, Byte, Block]`:
+
+```scala
+import graviton.core.types.UploadChunkSize
+import graviton.streams.Chunker
+import zio._
+import zio.stream._
+
+val chunkSize = UploadChunkSize.unsafe(1024 * 1024)
+
+val blocks: ZStream[Any, Throwable, graviton.core.model.Block] =
+  ZStream.fromFileName("data.bin")
+    .via(Chunker.fixed(chunkSize).pipeline)
+```
+
+### “Pure” state machine (no ZIO)
+
+If you want to run the chunker logic without streams (e.g. tests, benchmarks, non-ZIO integrations), use `ChunkerCore`:
+
+```scala
+import graviton.streams.ChunkerCore
+import zio.Chunk
+
+val st0 = ChunkerCore.init(ChunkerCore.Mode.FastCdc(minBytes = 256, avgBytes = 1024, maxBytes = 4096)).toOption.get
+val (st1, blocks1) = st0.step(Chunk.fromArray(Array[Byte](1,2,3,4))).toOption.get
+val (_, blocks2)   = st1.finish.toOption.get
+```
+
+`step` returns an updated state and **0..N** emitted `Block`s, exactly like a “parse state machine” that you can lift into a stream.
 
 ### Typed Blocks & Upload Chunks
 
@@ -41,14 +78,14 @@ The same module exposes `ByteConstraints.refine*` helpers for validating raw siz
 Split every N bytes:
 
 ```scala
-object FixedChunker:
-  def apply(chunkSize: Int): ZPipeline[Any, Nothing, Byte, Chunk[Byte]] =
-    ZPipeline.groupedWithin(chunkSize, Duration.Infinity)
+import graviton.core.types.UploadChunkSize
+import graviton.streams.Chunker
+import zio.stream.ZStream
 
-// Usage
-ZStream.fromFile(path)
-  .via(FixedChunker(1024 * 1024))  // 1MB chunks
-  .foreach(chunk => storeBlock(chunk))
+val chunkSize = UploadChunkSize.unsafe(1024 * 1024)
+
+ZStream.fromFileName("data.bin")
+  .via(Chunker.fixed(chunkSize).pipeline)
 ```
 
 ### Characteristics
@@ -76,44 +113,25 @@ ZStream.fromFile(path)
 
 ### Algorithm
 
-FastCDC uses a gear hash with jump tables for high performance:
+FastCDC is content-defined chunking using a rolling hash updated **byte-by-byte**. The implementation in `graviton-streams` is single-pass and bounded by `maxBytes`.
 
 ```scala
-final case class FastCDCConfig(
-  minSize: Int = 256 * 1024,      // 256 KB
-  avgSize: Int = 1024 * 1024,     // 1 MB
-  maxSize: Int = 4 * 1024 * 1024, // 4 MB
-  normalization: Int = 2
-)
+import graviton.streams.Chunker
+import zio.stream.ZStream
 
-object FastCDC:
-  def chunker(config: FastCDCConfig): ZPipeline[Any, Nothing, Byte, Block] =
-    ZPipeline.suspend {
-      ZPipeline.mapAccumChunks(State.initial(config)) { (state, chunk) =>
-        val (newState, blocks) = state.feed(chunk)
-        (newState, Chunk.fromIterable(blocks))
-      }
-    }
+val min = 256 * 1024
+val avg = 1024 * 1024
+val max = 4 * 1024 * 1024
+
+ZStream.fromFileName("data.bin")
+  .via(Chunker.fastCdc(min = min, avg = avg, max = max).pipeline)
 ```
 
-### Normalization Levels
+### Bounds
 
-FastCDC supports multiple normalization levels:
-
-```scala
-enum NormalizationLevel:
-  case Level0  // No normalization (fastest)
-  case Level1  // One level (balanced)
-  case Level2  // Two levels (better dedup)
-  case Level3  // Three levels (maximum dedup, slower)
-
-def computeMask(level: NormalizationLevel, avgSize: Int): Long =
-  level match
-    case Level0 => maskFromSize(avgSize)
-    case Level1 => maskFromSize(avgSize) | maskFromSize(avgSize / 2)
-    case Level2 => maskFromSize(avgSize) | maskFromSize(avgSize / 2) | maskFromSize(avgSize / 4)
-    case Level3 => // Complex multi-level mask
-```
+- `min`: don’t cut before this many bytes (avoids tiny blocks)
+- `avg`: controls the expected boundary rate
+- `max`: hard cap; forces a cut even if the content-defined boundary hasn’t triggered
 
 ### Characteristics
 
@@ -153,6 +171,10 @@ val maxDedup = FastCDCConfig(
 ```
 
 ## Anchored CDC
+
+::: warning
+Anchored CDC is a roadmap item. It is documented here as a design pattern, but is not currently exposed as a runtime `Chunker`.
+:::
 
 ### Algorithm
 
@@ -205,6 +227,10 @@ val zipAnchors = AnchoredCDCConfig(
 ```
 
 ## BuzHash CDC
+
+::: warning
+BuzHash CDC is a roadmap item. It is documented here as a design pattern, but is not currently exposed as a runtime `Chunker`.
+:::
 
 ### Algorithm
 
