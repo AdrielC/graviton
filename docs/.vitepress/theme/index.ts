@@ -39,6 +39,7 @@ const theme: Theme = {
       initScrollProgress()
       initScrollAnimations()
       initRouteAccent()
+      initRouteSigil()
     })
 
     onBeforeUnmount(() => {
@@ -415,6 +416,71 @@ function initRouteAccent() {
     (p) => setAccent(p),
     { immediate: false }
   )
+}
+
+function initRouteSigil() {
+  if (document.querySelector('.graviton-route-sigil')) {
+    return
+  }
+
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+  const route = useRoute()
+
+  const el = document.createElement('div')
+  el.className = 'graviton-route-sigil'
+  el.setAttribute('aria-hidden', 'true')
+  document.body.appendChild(el)
+
+  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, '0').slice(0, 8)
+  const hashPath = (path: string) => {
+    let hash = 0
+    for (let i = 0; i < path.length; i++) {
+      hash = ((hash << 5) - hash + path.charCodeAt(i)) | 0
+    }
+    return hash
+  }
+
+  const render = (path: string) => {
+    const h = hashPath(path)
+    const short = toHex(h)
+    const safePath = path.length > 36 ? `${path.slice(0, 33)}…` : path
+    el.innerHTML = `
+      <div class="graviton-route-sigil__row">
+        <span class="graviton-route-sigil__label">SIG</span>
+        <span class="graviton-route-sigil__hash">${short}</span>
+      </div>
+      <div class="graviton-route-sigil__path">${escapeHtml(safePath)}</div>
+    `
+
+    if (!reduceMotion) {
+      // Small "pulse" on route change (not hover-driven).
+      el.classList.remove('is-pulsing')
+      // Force reflow so the animation restarts.
+      void el.offsetWidth
+      el.classList.add('is-pulsing')
+    }
+  }
+
+  render(route.path)
+
+  const stop = watch(
+    () => route.path,
+    (p) => render(p)
+  )
+
+  registerCleanup(() => {
+    stop()
+    el.remove()
+  })
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 // Enhanced code block interactions

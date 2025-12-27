@@ -119,6 +119,87 @@
   }
 }
 
+/* Route sigil: tiny per-page watermark (no hover) */
+.graviton-route-sigil {
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 10000;
+  pointer-events: none;
+  user-select: none;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.35)),
+    repeating-linear-gradient(
+      180deg,
+      rgba(0, 255, 65, 0.06) 0px,
+      rgba(0, 255, 65, 0.06) 1px,
+      rgba(0, 0, 0, 0) 3px,
+      rgba(0, 0, 0, 0) 6px
+    );
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  opacity: 0.52;
+  backdrop-filter: blur(10px);
+}
+
+.graviton-route-sigil__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  line-height: 1.1;
+}
+
+.graviton-route-sigil__label {
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  color: var(--vp-c-text-3);
+}
+
+.graviton-route-sigil__hash {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--graviton-accent);
+  text-shadow: 0 0 14px var(--graviton-accent-soft);
+}
+
+.graviton-route-sigil__path {
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--vp-c-text-2);
+  opacity: 0.9;
+  max-width: 42ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes sigilPulse {
+  0% { opacity: 0.45; transform: translateY(0); }
+  20% { opacity: 0.72; transform: translateY(-1px); }
+  100% { opacity: 0.52; transform: translateY(0); }
+}
+
+.graviton-route-sigil.is-pulsing {
+  animation: sigilPulse 650ms ease-out 1;
+}
+
+@media (max-width: 640px) {
+  .graviton-route-sigil {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graviton-route-sigil,
+  .graviton-route-sigil.is-pulsing {
+    animation: none !important;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sleeker interactions: reduce hover-driven motion/glow                        */
 /* Keep the matrix rain, drop distracting hover theatrics.                      */
