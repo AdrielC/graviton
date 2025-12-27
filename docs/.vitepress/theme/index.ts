@@ -29,6 +29,7 @@ const theme: Theme = {
     onMounted(() => {
       createMatrixRain()
       initAuroraBackground()
+      initScrollProgress()
       initScrollAnimations()
     })
 
@@ -51,6 +52,8 @@ function createMatrixRain() {
     return
   }
 
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+
   const canvas = document.createElement('canvas')
   canvas.id = 'matrix-canvas'
   canvas.style.cssText = `
@@ -71,24 +74,57 @@ function createMatrixRain() {
 
   let animationFrame = 0
 
+  const chars = '01アイウエオカキクケコサシスセソタチツテト'
+  const fontSize = 14
+
+  let columns = 0
+  let drops: number[] = []
+
   const resize = () => {
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
+    columns = Math.max(1, Math.floor(canvas.width / fontSize))
+    drops = Array(columns).fill(1)
   }
 
   resize()
 
-  const chars = '01アイウエオカキクケコサシスセソタチツテト'
-  const fontSize = 14
-  const columns = Math.floor(canvas.width / fontSize)
-  const drops: number[] = Array(columns).fill(1)
+  // Scroll-reactive "warp" (no mouse hover): scroll speed briefly increases density & intensity.
+  let scrollPulse = 0
+  let lastScrollY = window.scrollY
+  let lastScrollT = performance.now()
+
+  const onScroll = () => {
+    if (reduceMotion) {
+      return
+    }
+
+    const now = performance.now()
+    const y = window.scrollY
+    const dy = Math.abs(y - lastScrollY)
+    const dt = Math.max(16, now - lastScrollT)
+
+    // Rough velocity in px/ms, mapped to [0..1].
+    const velocity = dy / dt
+    const boost = Math.min(1, velocity * 0.45)
+
+    scrollPulse = Math.min(1, Math.max(scrollPulse, boost))
+    lastScrollY = y
+    lastScrollT = now
+  }
 
   const draw = () => {
-    ctx.fillStyle = 'rgba(10, 14, 20, 0.05)'
+    // Slightly longer trails during scroll pulses.
+    const fade = reduceMotion ? 0.06 : 0.06 - scrollPulse * 0.03
+    ctx.fillStyle = `rgba(10, 14, 20, ${fade})`
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     ctx.fillStyle = '#00ff41'
     ctx.font = `${fontSize}px "JetBrains Mono", monospace`
+
+    const speed = reduceMotion ? 1 : 1 + scrollPulse * 1.25
+    const intensity = reduceMotion ? 0.08 : 0.08 + scrollPulse * 0.05
+    canvas.style.opacity = `${intensity}`
 
     for (let i = 0; i < drops.length; i++) {
       const text = chars[Math.floor(Math.random() * chars.length)]
@@ -97,20 +133,63 @@ function createMatrixRain() {
       if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
         drops[i] = 0
       }
-      drops[i]++
+
+      drops[i] += speed
     }
 
+    scrollPulse *= 0.9
     animationFrame = window.requestAnimationFrame(draw)
   }
 
   animationFrame = window.requestAnimationFrame(draw)
 
   window.addEventListener('resize', resize)
+  window.addEventListener('scroll', onScroll, { passive: true })
 
   registerCleanup(() => {
     window.cancelAnimationFrame(animationFrame)
     window.removeEventListener('resize', resize)
+    window.removeEventListener('scroll', onScroll)
     canvas.remove()
+  })
+}
+
+function initScrollProgress() {
+  if (document.querySelector('.graviton-scroll-progress')) {
+    return
+  }
+
+  const bar = document.createElement('div')
+  bar.className = 'graviton-scroll-progress'
+  document.body.appendChild(bar)
+
+  let raf = 0
+  const update = () => {
+    raf = 0
+    const doc = document.documentElement
+    const max = Math.max(1, doc.scrollHeight - doc.clientHeight)
+    const progress = Math.min(1, Math.max(0, window.scrollY / max))
+    bar.style.setProperty('--progress', `${progress}`)
+  }
+
+  const schedule = () => {
+    if (raf !== 0) {
+      return
+    }
+    raf = window.requestAnimationFrame(update)
+  }
+
+  update()
+  window.addEventListener('scroll', schedule, { passive: true })
+  window.addEventListener('resize', schedule)
+
+  registerCleanup(() => {
+    if (raf !== 0) {
+      window.cancelAnimationFrame(raf)
+    }
+    window.removeEventListener('scroll', schedule)
+    window.removeEventListener('resize', schedule)
+    bar.remove()
   })
 }
 
