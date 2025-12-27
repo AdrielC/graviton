@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quasar:schema:meta-envelope:v1.1:ingest",
+  "title": "Quasar Metadata Envelope v1.1 (ingest form)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["system", "namespaces"],
+  "properties": {
+    "system": { "$ref": "#/$defs/system" },
+    "namespaces": { "$ref": "#/$defs/namespacesIngest" }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "system": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["envelope", "createdAt", "createdBy", "updatedAt", "source"],
+      "properties": {
+        "envelope": {
+          "type": "string",
+          "format": "iri",
+          "const": "urn:quasar:meta-envelope:v1.1"
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdBy": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["principal"],
+          "properties": {
+            "principal": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["requestId"],
+          "properties": {
+            "ingest": { "$ref": "#/$defs/nonEmptyString" },
+            "requestId": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      }
+    },
+    "schemaRefOptional": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$id"],
+      "properties": {
+        "$id": { "type": "string", "format": "iri" }
+      }
+    },
+    "errorDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "code", "message"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "namespaceEntryIngest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "data"],
+      "properties": {
+        "schema": {
+          "$comment": "On ingest, schema may be omitted (server resolves + pins).",
+          "anyOf": [{ "$ref": "#/$defs/schemaRefOptional" }, { "type": "null" }]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["valid", "quarantined", "unverified"]
+        },
+        "data": { "type": "object" },
+        "errors": {
+          "$comment": "Diagnostics only; boundedness is an implementation concern.",
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/errorDiagnostic" }
+        }
+      }
+    },
+    "namespacesIngest": {
+      "type": "object",
+      "propertyNames": { "type": "string", "format": "iri" },
+      "additionalProperties": { "$ref": "#/$defs/namespaceEntryIngest" }
+    }
+  }
+}

@@ -190,6 +190,7 @@ export default withMermaid(defineConfig({
           { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
           { text: 'Quasar ↔ Cedar Compat (Draft)', link: '/design/quasar-cedar-compat' },
           { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
+          { text: 'Quasar metadata envelope v1.1 (Draft)', link: '/design/quasar-metadata-envelope-v1.1' },
         ]
       },
       {
