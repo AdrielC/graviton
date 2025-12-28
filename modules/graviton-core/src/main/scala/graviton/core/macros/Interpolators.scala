@@ -6,6 +6,7 @@ import graviton.core.ranges.Span
 import graviton.core.ranges.given
 import graviton.core.types.HexLower
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
+import graviton.core.types.BlobOffset
 import graviton.core.types.Offset
 import graviton.core.bytes.Digest
 import graviton.core.model.Block
@@ -30,7 +31,7 @@ object Interpolators:
     inline def locator(inline args: Any*): BlobLocator =
       ${ locatorImpl('sc, 'args) }
 
-    inline def span(inline args: Any*): Span[Offset] =
+    inline def span(inline args: Any*): Span[BlobOffset] =
       ${ spanImpl('sc, 'args) }
 
   private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit                         =
@@ -155,7 +156,7 @@ object Interpolators:
         report.error(s"locator literal must match '<scheme>://<bucket>/<path>', received '$literal'")
         '{ compiletime.error("locator literal must match '<scheme>://<bucket>/<path>'") }
 
-  private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Offset]] =
+  private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[BlobOffset]] =
     argsExpr match
       case Varargs(Seq()) =>
         scExpr.value match
@@ -163,31 +164,31 @@ object Interpolators:
             SpanHelper.parseEither(ctx.parts.mkString) match
               case Right(span) =>
                 '{
-                  Span.unsafe[Offset](
+                  Span.unsafe[BlobOffset](
                     Offset.unsafe(${ Expr(span.startInclusive.value) }),
                     Offset.unsafe(${ Expr(span.endInclusive.value) }),
                   )
                 }
               case Left(err)   =>
                 quotes.reflect.report.error(err)
-                '{ Span.unsafe[Offset](Offset.unsafe(0L), Offset.unsafe(0L)) }
+                '{ Span.unsafe[BlobOffset](Offset.unsafe(0L), Offset.unsafe(0L)) }
           case None      =>
             runtimeSpan(scExpr, argsExpr)
       case _              =>
         runtimeSpan(scExpr, argsExpr)
 
-  private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Offset]] =
+  private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[BlobOffset]] =
     '{ Interpolators.SpanHelper.parse(${ scExpr }.s(${ argsExpr }*)) }
 
   private val locatorPattern = """([a-zA-Z0-9+.-]+)://([^/]+)/(.+)""".r
 
   private[macros] object SpanHelper:
-    def parse(input: String): Span[Offset] =
+    def parse(input: String): Span[BlobOffset] =
       parseEither(input) match
         case Right(span) => span
         case Left(err)   => throw IllegalArgumentException(err)
 
-    def parseEither(input: String): Either[String, Span[Offset]] =
+    def parseEither(input: String): Either[String, Span[BlobOffset]] =
       val trimmed = input.trim
       if trimmed.isEmpty then Left("Span literal cannot be empty")
       else
