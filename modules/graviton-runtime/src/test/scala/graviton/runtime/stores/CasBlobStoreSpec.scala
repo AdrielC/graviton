@@ -4,7 +4,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.Manifest
 import graviton.core.types.UploadChunkSize
-import graviton.runtime.model.BlobWritePlan
+import graviton.runtime.model.{BlobWritePlan, IngestProgram}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
@@ -70,5 +70,55 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           spans(2).startInclusive == 2048L,
           spans(2).endInclusive == 2499L,
         )
-      }
+      },
+      test("applies BlobWritePlan.program pipeline before chunking + hashing") {
+        val input = "a-b-c-d"
+        val data  = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+
+        val program =
+          IngestProgram.UsePipeline(
+            zio.stream.ZPipeline.filter[Byte](_ != '-'.toByte)
+          )
+
+        for
+          chunkSize <- ZIO.fromEither(UploadChunkSize.either(2)).mapError(msg => new IllegalArgumentException(msg))
+          chunker    = Chunker.fixed(chunkSize)
+
+          blockStore <- InMemoryBlockStore.make
+          manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
+          repo        = InMemoryManifestRepo(manifestsR)
+          blobStore   = new CasBlobStore(blockStore, repo)
+
+          result <- Chunker.locally(chunker) {
+                      ZStream
+                        .fromChunk(data)
+                        .run(
+                          blobStore.put(
+                            BlobWritePlan(
+                              attributes = BinaryAttributes.empty,
+                              program = program,
+                            )
+                          )
+                        )
+                    }
+
+          blobKey  <- ZIO
+                        .fromEither(
+                          result.key match
+                            case b: BinaryKey.Blob => Right(b)
+                            case other             => Left(s"Expected blob key, got $other")
+                        )
+                        .mapError(msg => new IllegalStateException(msg))
+          manifest <- manifestsR.get
+                        .map(_.get(blobKey))
+                        .someOrFail(new NoSuchElementException("Manifest missing"))
+
+          bytes <- blobStore.get(blobKey).runCollect
+        yield assertTrue(
+          bytes == Chunk.fromArray("abcd".getBytes(StandardCharsets.UTF_8)),
+          manifest.entries.length == 2,
+          manifest.entries.map(_.span.startInclusive) == List(0L, 2L),
+          manifest.entries.map(_.span.endInclusive) == List(1L, 3L),
+        )
+      },
     )
