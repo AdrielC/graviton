@@ -199,7 +199,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
                      case block: BinaryKey.Block =>
                        val span = e.span
                        val off  = span.startInclusive
-                       val len  = span.endInclusive - span.startInclusive + 1L
+                       val len  = span.endInclusive.value - span.startInclusive.value + 1L
                        ZIO
                          .fromEither(toDbAlg(block.bits.algo))
                          .mapError(msg => new IllegalArgumentException(msg))
@@ -219,7 +219,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
                        ps.setString(5, blockAlg)
                        ps.setBytes(6, blockHashBytes)
                        ps.setLong(7, blockByteLength)
-                       ps.setLong(8, off)
+                       ps.setLong(8, off.value)
                        ps.setLong(9, len)
                        ps.addBatch()
                      }

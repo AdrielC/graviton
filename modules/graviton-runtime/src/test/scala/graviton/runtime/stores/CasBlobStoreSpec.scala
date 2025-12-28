@@ -64,12 +64,12 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           spans = manifest.entries.map(_.span)
         yield assertTrue(
           manifest.entries.length == 3,
-          spans.head.startInclusive == 0L,
-          spans.head.endInclusive == 1023L,
-          spans(1).startInclusive == 1024L,
-          spans(1).endInclusive == 2047L,
-          spans(2).startInclusive == 2048L,
-          spans(2).endInclusive == 2499L,
+          spans.head.startInclusive.value == 0L,
+          spans.head.endInclusive.value == 1023L,
+          spans(1).startInclusive.value == 1024L,
+          spans(1).endInclusive.value == 2047L,
+          spans(2).startInclusive.value == 2048L,
+          spans(2).endInclusive.value == 2499L,
         )
       },
       test("applies BlobWritePlan.program pipeline before chunking + hashing") {

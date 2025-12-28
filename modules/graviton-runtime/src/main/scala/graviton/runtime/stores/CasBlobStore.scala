@@ -7,6 +7,7 @@ import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.model.Block.*
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.Offset
 import graviton.core.scan.FS.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
@@ -159,7 +160,13 @@ final class CasBlobStore(
                             val start = e.offset.value
                             val end   = start + e.size.value.toLong - 1L
                             ZIO
-                              .fromEither(Span.make(start, end))
+                              .fromEither(
+                                for
+                                  s    <- Offset.either(start)
+                                  t    <- Offset.either(end)
+                                  span <- Span.make(s, t)
+                                yield span
+                              )
                               .mapError(msg => new IllegalArgumentException(msg))
                               .map(span => ManifestEntry(e.key, span, Map.empty[ManifestAnnotationKey, ManifestAnnotationValue]))
                           }

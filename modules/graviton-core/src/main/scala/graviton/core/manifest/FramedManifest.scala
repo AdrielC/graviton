@@ -3,6 +3,7 @@ package graviton.core.manifest
 import graviton.core.codec.BinaryKeyCodec
 import graviton.core.ranges.Span
 import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.Offset
 
 import scodec.*
 import scodec.bits.BitVector
@@ -94,9 +95,21 @@ object FramedManifest:
   private val manifestEntryCodec: Codec[ManifestEntry] =
     combine(combine(combine(BinaryKeyCodec.codec, int64), int64), annotationsCodec).exmap(
       { case (((key, start), end), annotations) =>
-        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, annotations)).left.map(Err(_)))
+        Attempt.fromEither(
+          (for
+            s    <- Offset.either(start).left.map(err => s"Invalid manifest start offset $start: $err")
+            e    <- Offset.either(end).left.map(err => s"Invalid manifest end offset $end: $err")
+            span <- Span.make(s, e)
+          yield ManifestEntry(key, span, annotations)).left.map(Err(_))
+        )
       },
-      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.annotations)),
+      entry =>
+        Attempt.successful(
+          (
+            ((entry.key, entry.span.startInclusive.value), entry.span.endInclusive.value),
+            entry.annotations,
+          )
+        ),
     )
 
   private val entriesWithSizeCodec: Codec[(List[ManifestEntry], Long)] =

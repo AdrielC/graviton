@@ -41,16 +41,16 @@ object InterpolatorSpec extends ZIOSpecDefault:
       },
       test("span interpolator emits inclusive spans by default") {
         val window = span"0..42"
-        assertTrue(window == Span.unsafe(0L, 42L))
+        assertTrue(window == Span.unsafe(graviton.core.types.Offset.unsafe(0L), graviton.core.types.Offset.unsafe(42L)))
       },
       test("span interpolator honors exclusivity markers") {
         val halfOpen = span"[0..42)"
-        assertTrue(halfOpen == Span.unsafe(0L, 41L))
+        assertTrue(halfOpen == Span.unsafe(graviton.core.types.Offset.unsafe(0L), graviton.core.types.Offset.unsafe(41L)))
       },
       test("span interpolator supports runtime arguments") {
         val start = 10L
         val size  = 5L
         val block = span"$start..${start + size - 1}"
-        assertTrue(block == Span.unsafe(10L, 14L))
+        assertTrue(block == Span.unsafe(graviton.core.types.Offset.unsafe(10L), graviton.core.types.Offset.unsafe(14L)))
       },
     )

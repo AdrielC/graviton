@@ -1,19 +1,20 @@
 package graviton.core.ranges
 
+import graviton.core.types.Offset
 import zio.test.*
 
 object RangeSetSpec extends ZIOSpecDefault:
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("RangeSet")(
-      test("span interpolator constructs Span[Long]") {
+      test("span interpolator constructs Span[Offset]") {
         val s = span"0..10"
-        assertTrue(s.startInclusive == 0L) &&
-        assertTrue(s.endInclusive == 10L) &&
-        assertTrue(s == Span.make(0L, 10L).toOption.get)
+        assertTrue(s.startInclusive.value == 0L) &&
+        assertTrue(s.endInclusive.value == 10L) &&
+        assertTrue(s == Span.make(Offset.unsafe(0L), Offset.unsafe(10L)).toOption.get)
       },
       test("Span.make rejects inverted bounds") {
-        assertTrue(Span.make(10L, 5L).isLeft)
+        assertTrue(Span.make(Offset.unsafe(10L), Offset.unsafe(5L)).isLeft)
       },
       test("add merges overlapping spans") {
         val base   = RangeSet.single(span"0..5")
@@ -64,9 +65,9 @@ object RangeSetSpec extends ZIOSpecDefault:
       },
       test("contains respects coverage and gaps") {
         val set = RangeSet.fromSpans(Vector(span"0..4", span"10..12"))
-        assertTrue(set.contains(2)) &&
-        assertTrue(!set.contains(5)) &&
-        assertTrue(set.contains(11))
+        assertTrue(set.contains(Offset.unsafe(2L))) &&
+        assertTrue(!set.contains(Offset.unsafe(5L))) &&
+        assertTrue(set.contains(Offset.unsafe(11L)))
       },
       test("replication gap example matches documentation scenario") {
         val expected = RangeSet.single(span"0..10000")
