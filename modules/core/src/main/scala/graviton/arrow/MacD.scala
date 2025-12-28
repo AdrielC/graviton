@@ -4,9 +4,9 @@ package arrow
 import zio.Chunk
 import zio.ChunkBuilder
 
-import scala.NamedTuple
 import scala.language.implicitConversions
 import scala.quoted.*
+import kyo.Record
 
 object MacD:
 
@@ -43,7 +43,7 @@ object MacD:
   private object State:
     val empty: State = State(Map.empty)
 
-  sealed trait Prim[-I, +O, C <: NamedTuple.AnyNamedTuple]
+  sealed trait Prim[-I, +O, C]
 
   object Prim:
     final case class FixedChunker[Label <: String & Singleton](
@@ -51,20 +51,20 @@ object MacD:
       frameBytes: Int,
     ) extends Prim[Chunk[Byte], Chunk[Chunk[Byte]], Field[Label, ChunkAccumulator]]
 
-    final case class WindowAnnotate(window: Int) extends Prim[Chunk[Chunk[Byte]], Chunk[Frame], NamedTuple.Empty]
+    final case class WindowAnnotate(window: Int) extends Prim[Chunk[Chunk[Byte]], Chunk[Frame], Any]
 
     final case class ShortCircuit[Label <: String & Singleton](
       slot: StateSlot[Label, ChunkAccumulator],
       reason: String,
       predicate: Chunk[Frame] => Boolean,
-    ) extends Prim[Chunk[Frame], Either[StopSignal, Chunk[Frame]], NamedTuple.Empty]
+    ) extends Prim[Chunk[Frame], Either[StopSignal, Chunk[Frame]], Any]
 
     final case class ContinueReport[Label <: String & Singleton](
       slot: StateSlot[Label, ChunkAccumulator],
       id: String,
-    ) extends Prim[Chunk[Frame], Report, NamedTuple.Empty]
+    ) extends Prim[Chunk[Frame], Report, Any]
 
-    final case class StopReport[Label <: String & Singleton](id: String) extends Prim[StopSignal, Report, NamedTuple.Empty]
+    final case class StopReport[Label <: String & Singleton](id: String) extends Prim[StopSignal, Report, Any]
 
   opaque type Stage[-I, +O] <: (State, I) => (State, O) = (State, I) => (State, O)
 
@@ -126,7 +126,7 @@ object MacD:
     using Stage.bundle
   ):
 
-    def interpret[I, O, C <: NamedTuple.AnyNamedTuple](prim: Prim[I, O, C]): Stage[I, O] =
+    def interpret[I, O, C](prim: Prim[I, O, C]): Stage[I, O] =
       prim match
         case p: Prim.FixedChunker[l]     =>
           Stage[Chunk[Byte], Chunk[Chunk[Byte]]] { (state, chunk) =>
@@ -165,23 +165,23 @@ object MacD:
             (state, report)
           }.asInstanceOf[Stage[I, O]]
 
-  def windowed(window: Int): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Chunk[Byte]], Chunk[Frame], NamedTuple.Empty] =
+  def windowed(window: Int): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Chunk[Byte]], Chunk[Frame], Any] =
     FreeArrow.embed(Prim.WindowAnnotate(window))
 
   def shortCircuit[Label <: String & Singleton](
     chunker: ChunkerHandle[Label, Prim],
     reason: String,
     predicate: Chunk[Frame] => Boolean,
-  ): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Frame], Either[StopSignal, Chunk[Frame]], NamedTuple.Empty] =
+  ): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Frame], Either[StopSignal, Chunk[Frame]], Any] =
     FreeArrow.embed(Prim.ShortCircuit(chunker.slot, reason, predicate))
 
   def continueReport[Label <: String & Singleton](
     chunker: ChunkerHandle[Label, Prim],
     id: String,
-  ): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Frame], Report, NamedTuple.Empty] =
+  ): FreeArrow.Aux[Prim, Tuple2, Either, Chunk[Frame], Report, Any] =
     FreeArrow.embed(Prim.ContinueReport(chunker.slot, id))
 
-  def stopReport[Label <: String & Singleton](id: String): FreeArrow.Aux[Prim, Tuple2, Either, StopSignal, Report, NamedTuple.Empty] =
+  def stopReport[Label <: String & Singleton](id: String): FreeArrow.Aux[Prim, Tuple2, Either, StopSignal, Report, Any] =
     FreeArrow.embed(Prim.StopReport[Label](id))
 
   transparent inline def macdFlow(
@@ -199,7 +199,7 @@ object MacD:
     val out         = chunkerScan.arrow >>> annotate >>> hotFrames >>> (halted ||| continue)
     out
 
-  inline def drive[I, O, C <: NamedTuple.AnyNamedTuple](
+  inline def drive[I, O, C](
     program: FreeArrow.Aux[Prim, Tuple2, Either, I, O, C],
     inputs: Iterable[I],
   ): (Chunk[O], ChunkAccumulator) =
