@@ -163,8 +163,8 @@ final class CasBlobStore(
                             ZIO
                               .fromEither(
                                 for
-                                  s    <- Offset.either(start)
-                                  t    <- Offset.either(end)
+                                  s    <- BlobOffset.either(start)
+                                  t    <- BlobOffset.either(end)
                                   span <- Span.make(s, t)
                                 yield span
                               )

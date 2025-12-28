@@ -65,8 +65,8 @@ object FramedManifestRoot:
           case manifestKey: BinaryKey.Manifest =>
             Attempt.fromEither(
               (for
-                s    <- Offset.either(start).left.map(err => s"Invalid manifest page start offset $start: $err")
-                e    <- Offset.either(end).left.map(err => s"Invalid manifest page end offset $end: $err")
+                s    <- BlobOffset.either(start).left.map(err => s"Invalid manifest page start offset $start: $err")
+                e    <- BlobOffset.either(end).left.map(err => s"Invalid manifest page end offset $end: $err")
                 span <- Span.make(s, e)
               yield ManifestPageRef(manifestKey, span, entryCount.toInt)).left.map(Err(_))
             )

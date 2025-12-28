@@ -98,8 +98,8 @@ object FramedManifest:
       { case (((key, start), end), annotations) =>
         Attempt.fromEither(
           (for
-            s    <- Offset.either(start).left.map(err => s"Invalid manifest start offset $start: $err")
-            e    <- Offset.either(end).left.map(err => s"Invalid manifest end offset $end: $err")
+            s    <- BlobOffset.either(start).left.map(err => s"Invalid manifest start offset $start: $err")
+            e    <- BlobOffset.either(end).left.map(err => s"Invalid manifest end offset $end: $err")
             span <- Span.make(s, e)
           yield ManifestEntry(key, span, annotations)).left.map(Err(_))
         )
