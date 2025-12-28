@@ -5,6 +5,7 @@ import graviton.core.ranges.Span
 import graviton.core.macros.Interpolators.*
 import zio.test.*
 import graviton.core.types.HexLower
+import graviton.core.types.given
 
 object InterpolatorSpec extends ZIOSpecDefault:
 
@@ -29,8 +30,9 @@ object InterpolatorSpec extends ZIOSpecDefault:
         assertTrue(errors.head.message.contains("hex literal"))
       },
       test("locator interpolator constructs BlobLocator") {
-        val locator = locator"s3://my-bucket/path/to/object"
-        assertTrue(locator == BlobLocator("s3", "my-bucket", "path/to/object"))
+        val locator  = locator"s3://my-bucket/path/to/object"
+        val expected = BlobLocator.from("s3", "my-bucket", "path/to/object").toOption.get
+        assertTrue(locator == expected)
       },
       test("locator interpolator rejects malformed uri") {
         val errors =

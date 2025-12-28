@@ -5,6 +5,7 @@ import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
 import graviton.core.ranges.given
 import graviton.core.types.HexLower
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
 import graviton.core.bytes.Digest
 import graviton.core.model.Block
 import java.lang.StringBuilder as JLSBuilder
@@ -126,7 +127,29 @@ object Interpolators:
 
     locatorPattern.findFirstMatchIn(literal) match
       case Some(m) =>
-        '{ BlobLocator(${ Expr(m.group(1)) }, ${ Expr(m.group(2)) }, ${ Expr(m.group(3)) }) }
+        val scheme0 = m.group(1).trim.toLowerCase
+        val bucket0 = m.group(2).trim
+        val path0   = m.group(3).trim
+
+        val validated =
+          for
+            _ <- LocatorScheme.either(scheme0)
+            _ <- LocatorBucket.either(bucket0)
+            _ <- LocatorPath.either(path0)
+          yield ()
+
+        validated match
+          case Left(err) =>
+            report.error(s"Invalid locator literal: $err")
+            '{ compiletime.error("Invalid locator literal") }
+          case Right(_)  =>
+            '{
+              BlobLocator(
+                graviton.core.types.LocatorScheme.applyUnsafe(${ Expr(scheme0) }),
+                graviton.core.types.LocatorBucket.applyUnsafe(${ Expr(bucket0) }),
+                graviton.core.types.LocatorPath.applyUnsafe(${ Expr(path0) }),
+              )
+            }
       case None    =>
         report.error(s"locator literal must match '<scheme>://<bucket>/<path>', received '$literal'")
         '{ compiletime.error("locator literal must match '<scheme>://<bucket>/<path>'") }
