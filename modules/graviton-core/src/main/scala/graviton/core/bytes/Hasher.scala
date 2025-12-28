@@ -158,14 +158,8 @@ object Hasher:
       case None =>
         ZPipeline.unwrap:
           ZIO
-            .attempt(MultiHasher.Hashers.default)
-            .mapError(err =>
-              IllegalArgumentException(
-                Option(err)
-                  .flatMap(err => Option(err.getMessage))
-                  .getOrElse("Unknown error")
-              )
-            )
+            .fromEither(MultiHasher.Hashers.default)
+            .mapError(msg => IllegalArgumentException(Option(msg).getOrElse("Unknown error")))
             .map { value =>
               ZPipeline.mapChunksZIO { (chunk: Chunk[Byte]) =>
                 ZIO

@@ -211,7 +211,7 @@ final case class BinaryAttributes(
   def get[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
     confirmed.get(key).orElse(advertised.get(key))
   
-  def validate: Either[ValidationError, BinaryAttributes]
+  def validate: Either[Nothing, BinaryAttributes]
 ```
 
 ### Confirmed vs Advertised
@@ -225,7 +225,7 @@ import graviton.core.bytes.HashAlgo
 
 val advertised = BinaryAttributes.empty
   .advertise(BinaryAttributeKey.Mime, Tracked.now("application/pdf", Source.ProvidedUser))
-  .advertise(BinaryAttributeKey.Custom("original-name"), Tracked.now("document.pdf", Source.ProvidedUser))
+  .advertise(BinaryAttributeKey.Custom(graviton.core.types.CustomAttributeName.applyUnsafe("original-name")), Tracked.now("document.pdf", Source.ProvidedUser))
 
 val confirmed = advertised
   .confirmSize(Tracked.now(fileSize, Source.Derived))

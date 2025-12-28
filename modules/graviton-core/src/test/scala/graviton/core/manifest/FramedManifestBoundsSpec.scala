@@ -3,6 +3,8 @@ package graviton.core.manifest
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.ranges.Span
+import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*
@@ -24,7 +26,8 @@ object FramedManifestBoundsSpec extends ZIOSpecDefault:
         val blobKey  = BinaryKey.blob(bits).toOption.get
         val entries  =
           (0 until 20000).toList.map { i =>
-            ManifestEntry(blobKey, Span.unsafe(i.toLong, i.toLong), Map.empty)
+            val o = BlobOffset.unsafe(i.toLong)
+            ManifestEntry(blobKey, Span.unsafe(o, o), Map.empty[ManifestAnnotationKey, ManifestAnnotationValue])
           }
         val manifest = Manifest(entries, size = entries.length.toLong)
         val res      = FramedManifest.encode(manifest)

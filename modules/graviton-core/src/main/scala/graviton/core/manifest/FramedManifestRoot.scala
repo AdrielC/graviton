@@ -3,6 +3,8 @@ package graviton.core.manifest
 import graviton.core.codec.BinaryKeyCodec
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
+import graviton.core.types.BlobOffset
+import graviton.core.types.Offset
 
 import scodec.*
 import scodec.bits.BitVector
@@ -62,16 +64,19 @@ object FramedManifestRoot:
         key match
           case manifestKey: BinaryKey.Manifest =>
             Attempt.fromEither(
-              Span
-                .make(start, end)
-                .left
-                .map(Err(_))
-                .flatMap(span => Right(ManifestPageRef(manifestKey, span, entryCount.toInt)))
+              (for
+                s    <- BlobOffset.either(start).left.map(err => s"Invalid manifest page start offset $start: $err")
+                e    <- BlobOffset.either(end).left.map(err => s"Invalid manifest page end offset $end: $err")
+                span <- Span.make(s, e)
+              yield ManifestPageRef(manifestKey, span, entryCount.toInt)).left.map(Err(_))
             )
           case other                           =>
             Attempt.failure(Err(s"Manifest root page refs must contain manifest keys, got $other"))
       },
-      ref => Attempt.successful((((ref.key: BinaryKey, ref.span.startInclusive), ref.span.endInclusive), ref.entryCount)),
+      ref =>
+        Attempt.successful(
+          (((ref.key: BinaryKey, ref.span.startInclusive.value), ref.span.endInclusive.value), ref.entryCount)
+        ),
     )
 
   private val pagesCodec: Codec[List[ManifestPageRef]] =

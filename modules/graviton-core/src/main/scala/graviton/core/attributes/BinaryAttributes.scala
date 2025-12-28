@@ -3,6 +3,7 @@ package graviton.core.attributes
 import BinaryAttr.Access.*
 import BinaryAttr.PartialOps.*
 import BinaryAttrDiff.Record as DiffRecord
+import graviton.core.types.{CustomAttributeName, CustomAttributeValue, Identifier}
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.types.*
@@ -11,23 +12,23 @@ import java.time.Instant
 import scala.collection.immutable.ListMap
 
 sealed trait BinaryAttributeKey[A] extends Product with Serializable:
-  def identifier: String
+  def identifier: Identifier
 
 object BinaryAttributeKey:
   case object Size extends BinaryAttributeKey[FileSize]:
-    val identifier = "graviton.size"
+    val identifier = Identifier.applyUnsafe("graviton.size")
 
   case object ChunkCount extends BinaryAttributeKey[ChunkCount]:
-    val identifier = "graviton.chunk-count"
+    val identifier = Identifier.applyUnsafe("graviton.chunk-count")
 
   case object Mime extends BinaryAttributeKey[Mime]:
-    val identifier = "graviton.mime"
+    val identifier = Identifier.applyUnsafe("graviton.mime")
 
   final case class Digest(algo: Algo) extends BinaryAttributeKey[HexLower]:
-    val identifier: String = s"graviton.digest.$algo"
+    val identifier: Identifier = Identifier.applyUnsafe(s"graviton.digest.${algo.value}")
 
-  final case class Custom(name: String) extends BinaryAttributeKey[String]:
-    val identifier: String = s"user.$name"
+  final case class Custom(name: CustomAttributeName) extends BinaryAttributeKey[CustomAttributeValue]:
+    val identifier: Identifier = Identifier.applyUnsafe(s"user.${name.value}")
 
 object BinaryAttributes:
 
@@ -37,18 +38,6 @@ object BinaryAttributes:
       confirmed = BinaryAttr.partial(),
       history = Vector.empty,
     )
-
-  enum ValidationError derives CanEqual:
-    case InvalidCustomKey(name: String)
-
-    def message: String = this match
-      case InvalidCustomKey(name) =>
-        s"Custom attribute name '$name' must match ${BinaryAttributes.customKeyPattern}"
-
-  private val customKeyPattern = "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
-
-  private[attributes] def isValidCustomKey(name: String): Boolean =
-    name.nonEmpty && name.length <= 64 && name.matches(customKeyPattern)
 
   private def entriesOf(record: BinaryAttr.Partial): ListMap[BinaryAttributeKey[?], Any] =
     val builder = ListMap.newBuilder[BinaryAttributeKey[?], Any]
@@ -62,12 +51,6 @@ object BinaryAttributes:
       builder += (BinaryAttributeKey.Custom(name) -> value)
     })
     builder.result()
-
-  private def firstInvalidCustom(record: BinaryAttr.Partial): Option[String] =
-    record.customValue
-      .getOrElse(Map.empty)
-      .keysIterator
-      .find(name => !isValidCustomKey(name))
 end BinaryAttributes
 
 final case class BinaryAttributes private (
@@ -110,13 +93,13 @@ final case class BinaryAttributes private (
       record.copyValues(digests = Some(next))
     }
 
-  def advertiseCustom(name: String, value: String): BinaryAttributes =
+  def advertiseCustom(name: CustomAttributeName, value: CustomAttributeValue): BinaryAttributes =
     modifyAdvertised { record =>
       val next = record.customOrEmpty + (name -> value)
       record.copyValues(custom = Some(next))
     }
 
-  def confirmCustom(name: String, value: String): BinaryAttributes =
+  def confirmCustom(name: CustomAttributeName, value: CustomAttributeValue): BinaryAttributes =
     modifyConfirmed { record =>
       val next = record.customOrEmpty + (name -> value)
       record.copyValues(custom = Some(next))
@@ -140,22 +123,19 @@ final case class BinaryAttributes private (
   def confirmedEntries: ListMap[BinaryAttributeKey[?], Any] =
     entriesOf(confirmed)
 
-  def validate: Either[ValidationError, BinaryAttributes] =
-    advertisedInvalid
-      .orElse(confirmedInvalid)
-      .map(ValidationError.InvalidCustomKey.apply)
-      .map(Left(_))
-      .getOrElse(Right(this))
+  /**
+   * Validate internal invariants.
+   *
+   * Custom attribute keys/values are already refined at the type level, so this is currently total.
+   */
+  def validate: Either[Nothing, BinaryAttributes] =
+    Right(this)
 
   def diff: DiffRecord =
     BinaryAttrDiff.compute(advertised, confirmed)
 
   def advertisedRecord: BinaryAttr.Partial = advertised
   def confirmedRecord: BinaryAttr.Partial  = confirmed
-
-  private def advertisedInvalid: Option[String] = firstInvalidCustom(advertised)
-
-  private def confirmedInvalid: Option[String] = firstInvalidCustom(confirmed)
 
   private def modifyAdvertised(f: BinaryAttr.Partial => BinaryAttr.Partial): BinaryAttributes =
     copy(advertised = f(advertised))

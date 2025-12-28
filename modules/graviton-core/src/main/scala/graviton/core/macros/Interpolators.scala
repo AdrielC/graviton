@@ -5,6 +5,9 @@ import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
 import graviton.core.ranges.given
 import graviton.core.types.HexLower
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
+import graviton.core.types.BlobOffset
+import graviton.core.types.Offset
 import graviton.core.bytes.Digest
 import graviton.core.model.Block
 import java.lang.StringBuilder as JLSBuilder
@@ -28,7 +31,7 @@ object Interpolators:
     inline def locator(inline args: Any*): BlobLocator =
       ${ locatorImpl('sc, 'args) }
 
-    inline def span(inline args: Any*): Span[Long] =
+    inline def span(inline args: Any*): Span[BlobOffset] =
       ${ spanImpl('sc, 'args) }
 
   private def ensureNoArgs(name: String, argsExpr: Expr[Seq[Any]])(using Quotes): Unit                         =
@@ -126,39 +129,66 @@ object Interpolators:
 
     locatorPattern.findFirstMatchIn(literal) match
       case Some(m) =>
-        '{ BlobLocator(${ Expr(m.group(1)) }, ${ Expr(m.group(2)) }, ${ Expr(m.group(3)) }) }
+        val scheme0 = m.group(1).trim.toLowerCase
+        val bucket0 = m.group(2).trim
+        val path0   = m.group(3).trim
+
+        val validated =
+          for
+            _ <- LocatorScheme.either(scheme0)
+            _ <- LocatorBucket.either(bucket0)
+            _ <- LocatorPath.either(path0)
+          yield ()
+
+        validated match
+          case Left(err) =>
+            report.error(s"Invalid locator literal: $err")
+            '{ compiletime.error("Invalid locator literal") }
+          case Right(_)  =>
+            '{
+              BlobLocator(
+                graviton.core.types.LocatorScheme.applyUnsafe(${ Expr(scheme0) }),
+                graviton.core.types.LocatorBucket.applyUnsafe(${ Expr(bucket0) }),
+                graviton.core.types.LocatorPath.applyUnsafe(${ Expr(path0) }),
+              )
+            }
       case None    =>
         report.error(s"locator literal must match '<scheme>://<bucket>/<path>', received '$literal'")
         '{ compiletime.error("locator literal must match '<scheme>://<bucket>/<path>'") }
 
-  private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
+  private def spanImpl(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[BlobOffset]] =
     argsExpr match
       case Varargs(Seq()) =>
         scExpr.value match
           case Some(ctx) =>
             SpanHelper.parseEither(ctx.parts.mkString) match
               case Right(span) =>
-                '{ Span.unsafe[Long](${ Expr(span.startInclusive) }, ${ Expr(span.endInclusive) }) }
+                '{
+                  Span.unsafe[BlobOffset](
+                    BlobOffset.unsafe(${ Expr(span.startInclusive.value) }),
+                    BlobOffset.unsafe(${ Expr(span.endInclusive.value) }),
+                  )
+                }
               case Left(err)   =>
                 quotes.reflect.report.error(err)
-                '{ Span.unsafe[Long](0L, -1L) }
+                '{ Span.unsafe[BlobOffset](BlobOffset.unsafe(0L), BlobOffset.unsafe(0L)) }
           case None      =>
             runtimeSpan(scExpr, argsExpr)
       case _              =>
         runtimeSpan(scExpr, argsExpr)
 
-  private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[Long]] =
+  private def runtimeSpan(scExpr: Expr[StringContext], argsExpr: Expr[Seq[Any]])(using Quotes): Expr[Span[BlobOffset]] =
     '{ Interpolators.SpanHelper.parse(${ scExpr }.s(${ argsExpr }*)) }
 
   private val locatorPattern = """([a-zA-Z0-9+.-]+)://([^/]+)/(.+)""".r
 
   private[macros] object SpanHelper:
-    def parse(input: String): Span[Long] =
+    def parse(input: String): Span[BlobOffset] =
       parseEither(input) match
         case Right(span) => span
         case Left(err)   => throw IllegalArgumentException(err)
 
-    def parseEither(input: String): Either[String, Span[Long]] =
+    def parseEither(input: String): Either[String, Span[BlobOffset]] =
       val trimmed = input.trim
       if trimmed.isEmpty then Left("Span literal cannot be empty")
       else
@@ -181,9 +211,11 @@ object Interpolators:
           val endPart   = parts(1).trim
 
           for
-            start <- parseLong(startPart)
-            end   <- parseLong(endPart)
-            span  <- Span.fromBounds(start, end, startInclusive, endInclusive)
+            start0 <- parseLong(startPart)
+            end0   <- parseLong(endPart)
+            start  <- BlobOffset.either(start0)
+            end    <- BlobOffset.either(end0)
+            span   <- Span.fromBounds(start, end, startInclusive, endInclusive)
           yield span
 
     private def parseLong(value: String): Either[String, Long] =

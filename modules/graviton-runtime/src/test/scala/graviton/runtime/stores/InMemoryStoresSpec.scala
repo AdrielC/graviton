@@ -41,7 +41,7 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
           fetched == data,
           statBefore.exists(_.digest != Digest.empty),
           statAfter.isEmpty,
-          result.locator.bucket == "test-bucket",
+          result.locator.bucket.value == "test-bucket",
         )
       },
     )

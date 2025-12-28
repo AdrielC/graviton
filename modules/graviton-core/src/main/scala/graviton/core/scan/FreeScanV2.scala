@@ -146,7 +146,7 @@ object FS:
     val init = (Record.empty & ("entries" ~ List.empty[ManifestEntry]) & ("total" ~ 0L)).asInstanceOf[S]
     fold[ManifestEntry, Manifest, S](init) { (state, entry) =>
       val nextEntries = entry :: state.entries
-      val nextTotal   = state.total + entry.span.length
+      val nextTotal   = state.total + entry.span.length.value
       val nextS       = (Record.empty & ("entries" ~ nextEntries) & ("total" ~ nextTotal)).asInstanceOf[S]
       (nextS, Chunk.empty)
     }(state => Chunk(Manifest(state.entries.reverse, state.total)))

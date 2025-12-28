@@ -2,6 +2,9 @@ package graviton.core.manifest
 
 import graviton.core.codec.BinaryKeyCodec
 import graviton.core.ranges.Span
+import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
+import graviton.core.types.Offset
 
 import scodec.*
 import scodec.bits.BitVector
@@ -56,36 +59,58 @@ object FramedManifest:
       value => Attempt.successful(value),
     )
 
-  private val annotationsCodec: Codec[Map[String, String]] =
+  private val annotationsCodec: Codec[Map[ManifestAnnotationKey, ManifestAnnotationValue]] =
     listOfN(uint16, combine(variableSizeBytes(uint16, utf8), variableSizeBytes(uint16, utf8))).exmap(
       pairs =>
         if pairs.length > MaxAnnotationsPerEntry then
           Attempt.failure(Err(s"Too many annotations: ${pairs.length} (max $MaxAnnotationsPerEntry)"))
         else
-          val builder                   = Map.newBuilder[String, String]
+          val builder                   = Map.newBuilder[ManifestAnnotationKey, ManifestAnnotationValue]
           val seen                      = scala.collection.mutable.HashSet.empty[String]
           var duplicate: Option[String] = None
+          var invalid: Option[String]   = None
 
-          pairs.foreach { case (key, value) =>
-            if !seen.add(key) then duplicate = Some(key)
-            builder += key -> value
+          pairs.foreach { case (key0, value0) =>
+            val kTrim = Option(key0).getOrElse("").trim
+            if invalid.isEmpty then
+              (ManifestAnnotationKey.either(kTrim), ManifestAnnotationValue.either(Option(value0).getOrElse(""))) match
+                case (Right(k), Right(v)) =>
+                  if !seen.add(k.value) then duplicate = Some(k.value)
+                  builder += k -> v
+                case (Left(err), _)       => invalid = Some(s"Invalid annotation key '$kTrim': $err")
+                case (_, Left(err))       => invalid = Some(s"Invalid annotation value for key '$kTrim': $err")
           }
 
-          duplicate match
-            case Some(key) => Attempt.failure(Err(s"Duplicate key '$key' in attributes"))
-            case None      => Attempt.successful(builder.result())
+          invalid match
+            case Some(err) => Attempt.failure(Err(err))
+            case None      =>
+              duplicate match
+                case Some(key) => Attempt.failure(Err(s"Duplicate key '$key' in annotations"))
+                case None      => Attempt.successful(builder.result())
       ,
       map =>
         if map.size > MaxAnnotationsPerEntry then Attempt.failure(Err(s"Too many annotations: ${map.size} (max $MaxAnnotationsPerEntry)"))
-        else Attempt.successful(map.toList.sortBy(_._1)),
+        else Attempt.successful(map.toList.sortBy(_._1.value).map { case (k, v) => (k.value, v.value) }),
     )
 
   private val manifestEntryCodec: Codec[ManifestEntry] =
     combine(combine(combine(BinaryKeyCodec.codec, int64), int64), annotationsCodec).exmap(
       { case (((key, start), end), annotations) =>
-        Attempt.fromEither(Span.make(start, end).map(span => ManifestEntry(key, span, annotations)).left.map(Err(_)))
+        Attempt.fromEither(
+          (for
+            s    <- BlobOffset.either(start).left.map(err => s"Invalid manifest start offset $start: $err")
+            e    <- BlobOffset.either(end).left.map(err => s"Invalid manifest end offset $end: $err")
+            span <- Span.make(s, e)
+          yield ManifestEntry(key, span, annotations)).left.map(Err(_))
+        )
       },
-      entry => Attempt.successful((((entry.key, entry.span.startInclusive), entry.span.endInclusive), entry.annotations)),
+      entry =>
+        Attempt.successful(
+          (
+            ((entry.key, entry.span.startInclusive.value), entry.span.endInclusive.value),
+            entry.annotations,
+          )
+        ),
     )
 
   private val entriesWithSizeCodec: Codec[(List[ManifestEntry], Long)] =

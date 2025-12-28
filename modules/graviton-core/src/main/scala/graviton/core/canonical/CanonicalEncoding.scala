@@ -34,15 +34,15 @@ object CanonicalEncoding:
         bb.put(bytes)
         bb.array()
 
-      val nameBytes  = sized(utf8(transform.name))
+      val nameBytes  = sized(utf8(transform.name.value))
       val scopeBytes =
         transform.scope match
           case None        => Array(0.toByte)
-          case Some(value) => Array(1.toByte) ++ sized(utf8(value))
+          case Some(value) => Array(1.toByte) ++ sized(utf8(value.value))
 
       val args0     = transform.normalizedArgs
       val argsCount = ByteBuffer.allocate(4).putInt(args0.length).array()
-      val argsBytes = args0.flatMap { case (k, v) => sized(utf8(k)) ++ sized(utf8(v)) }.toArray
+      val argsBytes = args0.flatMap { case (k, v) => sized(utf8(k.value)) ++ sized(utf8(v.value)) }.toArray
 
       Array(Version) ++ nameBytes ++ scopeBytes ++ argsCount ++ argsBytes
 

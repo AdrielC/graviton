@@ -50,11 +50,13 @@ given [K: Schema, V: Schema]: Schema[ListMap[K, V]] =
 object types:
 
   // --- String constraints
-  type AlgoConstraint     = Match["(sha-256|sha-1|blake3|md5)"]
-  type HexLowerConstraint = Match["[0-9a-f]{1,64}"]
-  type HexUpperConstraint = Match["[0-9A-F]{1,64}"]
-  type HexConstraint      = HexLowerConstraint | HexUpperConstraint
-  type KekIdConstraint    = Match["[A-Za-z0-9:_-]{4,128}"]
+  type AlgoConstraint       = Match["(sha-256|sha-1|blake3|md5)"]
+  type HexLowerConstraint   = Match["[0-9a-f]{1,64}"]
+  type HexUpperConstraint   = Match["[0-9A-F]{1,64}"]
+  type HexConstraint        = HexLowerConstraint | HexUpperConstraint
+  type KekIdConstraint      = Match["[A-Za-z0-9:_-]{4,128}"]
+  type IdentifierConstraint =
+    Match["[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"]
 
   // --- total bounds (compile-time)
   final type TotalMaxT[T] <: T = T match
@@ -69,12 +71,15 @@ object types:
   // Size traits (clever, but safe)
   // ---------------------------
 
-  trait SizeTrait[Tpe <: Int | Long](using integral: Integral[Tpe], discrete: DiscreteDomain[Tpe]):
+  trait SizeTrait[Tpe <: Int | Long]:
     type TotalMax = TotalMaxT[Tpe]
     inline def TotalMax: TotalMax = compiletime.constValue[TotalMaxT[Tpe]]
 
     type TotalMin = TotalMinT[Tpe]
     inline def TotalMin: TotalMin = compiletime.constValue[TotalMinT[Tpe]]
+
+    protected given integral: Integral[Tpe]
+    protected given discrete: DiscreteDomain[Tpe]
 
     trait Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
       using mnV: ValueOf[Mn],
@@ -175,8 +180,13 @@ object types:
 
   end SizeTrait
 
-  trait IntSizeTrait[N <: Int: {Integral, DiscreteDomain}]   extends SizeTrait[N]
-  trait LongSizeTrait[N <: Long: {Integral, DiscreteDomain}] extends SizeTrait[N]
+  trait IntSizeTrait[N <: Int: {Integral, DiscreteDomain}] extends SizeTrait[N]:
+    protected given integral: Integral[N]       = summon[Integral[N]]
+    protected given discrete: DiscreteDomain[N] = summon[DiscreteDomain[N]]
+
+  trait LongSizeTrait[N <: Long: {Integral, DiscreteDomain}] extends SizeTrait[N]:
+    protected given integral: Integral[N]       = summon[Integral[N]]
+    protected given discrete: DiscreteDomain[N] = summon[DiscreteDomain[N]]
 
   object SizeTraitInt  extends IntSizeTrait[Int]
   object SizeTraitLong extends LongSizeTrait[Long]
@@ -238,6 +248,32 @@ object types:
   type Offset = Offset.T
   object Offset extends IndexLong0
 
+  /**
+   * Blob-wide byte offset (0-based).
+   *
+   * Prefer this name when the offset is explicitly “within a whole blob”.
+   */
+  opaque type BlobOffset <: Offset = Offset
+
+  object BlobOffset:
+    inline def unsafe(value: Long): BlobOffset =
+      Offset.unsafe(value).asInstanceOf[BlobOffset]
+
+    inline def either(value: Long): Either[String, BlobOffset] =
+      Offset.either(value).map(_.asInstanceOf[BlobOffset])
+
+    given Ordering[BlobOffset] =
+      summon[Ordering[Offset]].asInstanceOf[Ordering[BlobOffset]]
+
+    given Integral[BlobOffset] =
+      summon[Integral[Offset]].asInstanceOf[Integral[BlobOffset]]
+
+    given DiscreteDomain[BlobOffset] =
+      summon[DiscreteDomain[Offset]].asInstanceOf[DiscreteDomain[BlobOffset]]
+
+    given Schema[BlobOffset] =
+      summon[Schema[Offset]].asInstanceOf[Schema[BlobOffset]]
+
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]
 
@@ -248,7 +284,69 @@ object types:
   object NonceLength extends SizeTraitInt.Trait[1, 32, 0, 1]
 
   type LocatorScheme = LocatorScheme.T
-  object LocatorScheme extends RefinedTypeExt[String, Match["[a-z0-9+.-]+"]]
+  object LocatorScheme extends RefinedTypeExt[String, Match["[a-z0-9+.-]+"] & MinLength[1] & MaxLength[64]]
+
+  /**
+   * Locator bucket/container name.
+   *
+   * Intentionally light:
+   * - must be non-empty
+   * - must not contain `/` or whitespace
+   *
+   * Different backends can impose stricter naming rules; those should be validated at the backend edge.
+   */
+  type LocatorBucket = LocatorBucket.T
+  object LocatorBucket extends RefinedTypeExt[String, Match["[^/\\s]+"] & MinLength[1] & MaxLength[256]]
+
+  /**
+   * Locator path component (path under the bucket).
+   *
+   * Intentionally light:
+   * - must be non-empty
+   * - must not contain whitespace (so `scheme://bucket/path` remains unambiguous in logs and URIs)
+   */
+  type LocatorPath = LocatorPath.T
+  object LocatorPath extends RefinedTypeExt[String, Match["[^\\s]+"] & MinLength[1] & MaxLength[2048]]
+
+  /** A user-facing identifier (names, keys, labels) with a conservative ASCII-safe charset. */
+  type Identifier = Identifier.T
+  object Identifier extends RefinedTypeExt[String, IdentifierConstraint]
+
+  /**
+   * Custom binary attribute name.
+   *
+   * This is the validated form of the old `BinaryAttributes.customKeyPattern`.
+   */
+  type CustomAttributeName = CustomAttributeName.T
+  object CustomAttributeName extends RefinedTypeExt[String, IdentifierConstraint & MaxLength[64]]
+
+  /** Custom attribute value: bounded to keep manifests/metadata sane. */
+  type CustomAttributeValue = CustomAttributeValue.T
+  object CustomAttributeValue extends RefinedTypeExt[String, MaxLength[1024]]
+
+  /** Manifest annotation key: non-semantic metadata key, bounded and ASCII-safe. */
+  type ManifestAnnotationKey = ManifestAnnotationKey.T
+  object ManifestAnnotationKey extends RefinedTypeExt[String, IdentifierConstraint & MaxLength[64]]
+
+  /** Manifest annotation value: bounded to keep manifest frames and indexes small. */
+  type ManifestAnnotationValue = ManifestAnnotationValue.T
+  object ManifestAnnotationValue extends RefinedTypeExt[String, MaxLength[1024]]
+
+  /** View transform name: used in hashed identity, so it must be stable and deterministic. */
+  type ViewName = ViewName.T
+  object ViewName extends RefinedTypeExt[String, IdentifierConstraint & MaxLength[128]]
+
+  /** View transform argument key: part of hashed identity, so keep it stable and deterministic. */
+  type ViewArgKey = ViewArgKey.T
+  object ViewArgKey extends RefinedTypeExt[String, IdentifierConstraint & MaxLength[128]]
+
+  /** View transform argument value: part of hashed identity; bounded to avoid runaway keys. */
+  type ViewArgValue = ViewArgValue.T
+  object ViewArgValue extends RefinedTypeExt[String, MaxLength[1024]]
+
+  /** Optional view scope: a namespacing label for view identity derivation. */
+  type ViewScope = ViewScope.T
+  object ViewScope extends RefinedTypeExt[String, IdentifierConstraint & MaxLength[128]]
 
   type PathSegment = PathSegment.T
   object PathSegment extends RefinedTypeExt[String, Match["[^/]+"] & MinLength[1]]
