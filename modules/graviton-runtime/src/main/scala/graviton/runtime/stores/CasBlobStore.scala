@@ -7,6 +7,7 @@ import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.model.Block.*
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
 import graviton.core.types.Offset
 import graviton.core.scan.FS.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}

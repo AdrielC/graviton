@@ -3,6 +3,7 @@ package graviton.core.manifest
 import graviton.core.codec.BinaryKeyCodec
 import graviton.core.ranges.Span
 import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
 import graviton.core.types.Offset
 
 import scodec.*

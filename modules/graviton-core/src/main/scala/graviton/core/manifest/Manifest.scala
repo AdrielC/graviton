@@ -3,7 +3,7 @@ package graviton.core.manifest
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
 import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
-import graviton.core.types.Offset
+import graviton.core.types.BlobOffset
 
 /**
  * A single manifest span pointing at a content-addressed key.
@@ -17,7 +17,7 @@ import graviton.core.types.Offset
  */
 final case class ManifestEntry(
   key: BinaryKey,
-  span: Span[Offset],
+  span: Span[BlobOffset],
   annotations: Map[ManifestAnnotationKey, ManifestAnnotationValue],
 )
 
@@ -32,21 +32,22 @@ object Manifest:
     validate(manifest.entries, expectedSize = Some(manifest.size))
 
   private def validate(entries: List[ManifestEntry], expectedSize: Option[Long]): Either[String, Manifest] =
-    val ord       = summon[Ordering[Offset]]
+    val ord       = summon[Ordering[BlobOffset]]
     val validated =
-      entries.zipWithIndex.foldLeft[Either[String, (List[ManifestEntry], Option[Offset])]](Right((Nil, None))) { case (acc, (entry, idx)) =>
-        acc.flatMap { case (accumulated, previousEnd) =>
-          val start = entry.span.startInclusive
-          val end   = entry.span.endInclusive
+      entries.zipWithIndex.foldLeft[Either[String, (List[ManifestEntry], Option[BlobOffset])]](Right((Nil, None))) {
+        case (acc, (entry, idx)) =>
+          acc.flatMap { case (accumulated, previousEnd) =>
+            val start = entry.span.startInclusive
+            val end   = entry.span.endInclusive
 
-          if ord.lt(end, start) then Left(s"Entry $idx has negative length: start=$start end=$end")
-          else if previousEnd.exists(prior => ord.lteq(start, prior)) then
-            val prior = previousEnd.get
-            Left(s"Entries must be strictly increasing and non-overlapping; entry $idx starts at $start after $prior")
-          else
-            val computedEnd = end
-            Right((accumulated :+ entry, Some(computedEnd)))
-        }
+            if ord.lt(end, start) then Left(s"Entry $idx has negative length: start=$start end=$end")
+            else if previousEnd.exists(prior => ord.lteq(start, prior)) then
+              val prior = previousEnd.get
+              Left(s"Entries must be strictly increasing and non-overlapping; entry $idx starts at $start after $prior")
+            else
+              val computedEnd = end
+              Right((accumulated :+ entry, Some(computedEnd)))
+          }
       }
 
     validated.flatMap { case (ordered, lastEnd) =>

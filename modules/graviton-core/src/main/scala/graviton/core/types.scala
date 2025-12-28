@@ -240,6 +240,13 @@ object types:
   type Offset = Offset.T
   object Offset extends IndexLong0
 
+  /**
+   * Blob-wide byte offset (0-based).
+   *
+   * Prefer this name when the offset is explicitly “within a whole blob”.
+   */
+  type BlobOffset = Offset.T
+
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]
 
