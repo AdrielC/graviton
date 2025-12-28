@@ -71,12 +71,15 @@ object types:
   // Size traits (clever, but safe)
   // ---------------------------
 
-  trait SizeTrait[Tpe <: Int | Long](using integral: Integral[Tpe], discrete: DiscreteDomain[Tpe]):
+  trait SizeTrait[Tpe <: Int | Long]:
     type TotalMax = TotalMaxT[Tpe]
     inline def TotalMax: TotalMax = compiletime.constValue[TotalMaxT[Tpe]]
 
     type TotalMin = TotalMinT[Tpe]
     inline def TotalMin: TotalMin = compiletime.constValue[TotalMinT[Tpe]]
+
+    protected given integral: Integral[Tpe]
+    protected given discrete: DiscreteDomain[Tpe]
 
     trait Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
       using mnV: ValueOf[Mn],
@@ -177,8 +180,13 @@ object types:
 
   end SizeTrait
 
-  trait IntSizeTrait[N <: Int: {Integral, DiscreteDomain}]   extends SizeTrait[N]
-  trait LongSizeTrait[N <: Long: {Integral, DiscreteDomain}] extends SizeTrait[N]
+  trait IntSizeTrait[N <: Int: {Integral, DiscreteDomain}] extends SizeTrait[N]:
+    protected given integral: Integral[N]       = summon[Integral[N]]
+    protected given discrete: DiscreteDomain[N] = summon[DiscreteDomain[N]]
+
+  trait LongSizeTrait[N <: Long: {Integral, DiscreteDomain}] extends SizeTrait[N]:
+    protected given integral: Integral[N]       = summon[Integral[N]]
+    protected given discrete: DiscreteDomain[N] = summon[DiscreteDomain[N]]
 
   object SizeTraitInt  extends IntSizeTrait[Int]
   object SizeTraitLong extends LongSizeTrait[Long]
@@ -246,6 +254,13 @@ object types:
    * Prefer this name when the offset is explicitly “within a whole blob”.
    */
   type BlobOffset = Offset.T
+
+  object BlobOffset:
+    inline def unsafe(value: Long): BlobOffset =
+      Offset.unsafe(value)
+
+    inline def either(value: Long): Either[String, BlobOffset] =
+      Offset.either(value)
 
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]
