@@ -108,7 +108,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
             blobKey2 <- BinaryKey.blob(keyBits2)
             entry1    = ManifestEntry(
                           blobKey1,
-                          Span.unsafe(0L, 9L),
+                          Span.unsafe(graviton.core.types.Offset.unsafe(0L), graviton.core.types.Offset.unsafe(9L)),
                           Map(
                             graviton.core.types.ManifestAnnotationKey.applyUnsafe("name") ->
                               graviton.core.types.ManifestAnnotationValue.applyUnsafe("a")
@@ -116,7 +116,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
                         )
             entry2    = ManifestEntry(
                           blobKey2,
-                          Span.unsafe(10L, 14L),
+                          Span.unsafe(graviton.core.types.Offset.unsafe(10L), graviton.core.types.Offset.unsafe(14L)),
                           Map(
                             graviton.core.types.ManifestAnnotationKey.applyUnsafe("name") ->
                               graviton.core.types.ManifestAnnotationValue.applyUnsafe("b")
