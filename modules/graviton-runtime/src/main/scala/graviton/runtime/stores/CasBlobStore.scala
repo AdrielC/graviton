@@ -25,100 +25,119 @@ final class CasBlobStore(
 ) extends BlobStore:
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
-    ZSink.unwrapScoped {
-      for
-        chunker    <- graviton.streams.Chunker.current.get
-        blobHasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-        totalBytes <- Ref.make(0L)
-
-        // Stage 1: enqueue incoming bytes (bounded).
-        inputQ <- Queue.bounded[Take[Throwable, Byte]](math.max(1, streamerConfig.windowRefs))
-
-        // Stage 2: canonical blocks to be persisted (bounded).
-        blocksQ <- Queue.bounded[Take[Throwable, CanonicalBlock]](math.max(1, streamerConfig.windowRefs))
-
-        // Stage 3: block store batch result (manifest, stored statuses, etc).
-        batchDone <- Promise.make[Throwable, graviton.runtime.model.BlockBatchResult]
-
-        // Persist blocks as they're produced.
-        _ <-
-          (ZStream
-            .fromQueue(blocksQ)
-            .flattenTake
-            .run(blockStore.putBlocks())
-            .intoPromise(batchDone))
-            .forkScoped
-
-        // Run chunker on the incoming byte stream and emit canonical blocks.
-        _ <-
-          (ZStream
-            .fromQueue(inputQ)
-            .flattenTake
-            .via(chunker.pipeline)
-            .mapZIO { block =>
-              val payload = block.bytes
-              for
-                hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-                _       = hasher.update(payload.toArray)
-                digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-                bits   <- ZIO
-                            .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
-                            .mapError(msg => new IllegalArgumentException(msg))
-                key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-                canon  <- ZIO
-                            .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
-                            .mapError(msg => new IllegalArgumentException(msg))
-              yield canon
-            }
-            .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
-            .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
-            .ensuring(blocksQ.offer(Take.end).ignore))
-            .forkScoped
-      yield ZSink
-        .foldLeftChunksZIO[Any, Throwable, Byte, Unit](()) { (_, in) =>
-          ZIO.attempt {
-            blobHasher.update(in.toArray)
-          } *>
-            totalBytes.update(_ + in.length.toLong) *>
-            inputQ.offer(Take.chunk(in)).unit
-        }
-        .mapZIO { _ =>
+    plan.program match
+      case graviton.runtime.model.IngestProgram.UseScan(label, _) =>
+        ZSink.fail(
+          new UnsupportedOperationException(
+            s"CasBlobStore.put does not yet support IngestProgram.UseScan('$label') (only Default and UsePipeline are supported)"
+          )
+        )
+      case _                                                      =>
+        ZSink.unwrapScoped {
           for
-            _ <- ZIO
-                   .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
-                   .whenZIO(totalBytes.get.map(_ <= 0L))
-            _ <- inputQ.offer(Take.end).ignore
+            chunker       <- graviton.streams.Chunker.current.get
+            blobHasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+            totalBytes    <- Ref.make(0L)
+            ingestPipeline =
+              (plan.program match
+                case graviton.runtime.model.IngestProgram.Default               => ZPipeline.identity
+                case graviton.runtime.model.IngestProgram.UsePipeline(pipeline) => pipeline
+                case graviton.runtime.model.IngestProgram.UseScan(_, _)         =>
+                  // guarded above
+                  ZPipeline.identity
+              ): ZPipeline[Any, Throwable, Byte, Byte]
 
-            batch <- batchDone.await
+            // Stage 1: enqueue incoming bytes (bounded).
+            inputQ <- Queue.bounded[Take[Throwable, Byte]](math.max(1, streamerConfig.windowRefs))
 
-            digest <- ZIO.fromEither(blobHasher.digest).mapError(msg => new IllegalArgumentException(msg))
-            size   <- totalBytes.get
-            bits   <- ZIO
-                        .fromEither(KeyBits.create(blobHasher.algo, digest, size))
-                        .mapError(msg => new IllegalArgumentException(msg))
-            blob   <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
+            // Stage 2: canonical blocks to be persisted (bounded).
+            blocksQ <- Queue.bounded[Take[Throwable, CanonicalBlock]](math.max(1, streamerConfig.windowRefs))
 
-            // Convert the runtime block manifest into the generic manifest format.
-            entries  <- ZIO
-                          .foreach(batch.manifest.entries) { e =>
-                            val start = e.offset.value
-                            val end   = start + e.size.value.toLong - 1L
-                            ZIO
-                              .fromEither(Span.make(start, end))
-                              .mapError(msg => new IllegalArgumentException(msg))
-                              .map(span => ManifestEntry(e.key, span, Map.empty))
-                          }
-                          .map(_.toList)
-            manifest <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
+            // Stage 3: block store batch result (manifest, stored statuses, etc).
+            batchDone <- Promise.make[Throwable, graviton.runtime.model.BlockBatchResult]
 
-            _ <- manifests.put(blob, manifest)
+            // Persist blocks as they're produced.
+            _ <-
+              (ZStream
+                .fromQueue(blocksQ)
+                .flattenTake
+                .run(blockStore.putBlocks())
+                .intoPromise(batchDone))
+                .forkScoped
 
-            locator = plan.locatorHint.getOrElse(graviton.core.locator.BlobLocator("cas", "manifest", blob.bits.digest.hex.value))
-            attrs   = plan.attributes
-          yield BlobWriteResult(blob, locator, attrs)
+            // Run ingest program (optional pipeline) + chunker on the incoming byte stream and emit canonical blocks.
+            _ <-
+              (ZStream
+                .fromQueue(inputQ)
+                .flattenTake
+                .via(ingestPipeline)
+                .mapChunksZIO { (bytes: Chunk[Byte]) =>
+                  ZIO.attempt(blobHasher.update(bytes.toArray)) *>
+                    totalBytes.update(_ + bytes.length.toLong) *>
+                    ZIO.succeed(bytes)
+                }
+                .via(chunker.pipeline)
+                .mapZIO { block =>
+                  val payload = block.bytes
+                  for
+                    hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+                    _       = hasher.update(payload.toArray)
+                    digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+                    bits   <- ZIO
+                                .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
+                                .mapError(msg => new IllegalArgumentException(msg))
+                    key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+                    canon  <- ZIO
+                                .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
+                                .mapError(msg => new IllegalArgumentException(msg))
+                  yield canon
+                }
+                .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
+                .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
+                .ensuring(blocksQ.offer(Take.end).ignore))
+                .forkScoped
+          yield ZSink
+            .foldLeftChunksZIO[Any, Throwable, Byte, Unit](()) { (_, in) =>
+              inputQ.offer(Take.chunk(in)).unit
+            }
+            .mapZIO { _ =>
+              for
+                _ <- inputQ.offer(Take.end).ignore
+
+                batch <- batchDone.await
+
+                size <- totalBytes.get
+                _    <-
+                  ZIO
+                    .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
+                    .when(size <= 0L)
+
+                digest <- ZIO.fromEither(blobHasher.digest).mapError(msg => new IllegalArgumentException(msg))
+                bits   <- ZIO
+                            .fromEither(KeyBits.create(blobHasher.algo, digest, size))
+                            .mapError(msg => new IllegalArgumentException(msg))
+                blob   <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
+
+                // Convert the runtime block manifest into the generic manifest format.
+                entries  <- ZIO
+                              .foreach(batch.manifest.entries) { e =>
+                                val start = e.offset.value
+                                val end   = start + e.size.value.toLong - 1L
+                                ZIO
+                                  .fromEither(Span.make(start, end))
+                                  .mapError(msg => new IllegalArgumentException(msg))
+                                  .map(span => ManifestEntry(e.key, span, Map.empty))
+                              }
+                              .map(_.toList)
+                manifest <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
+
+                _ <- manifests.put(blob, manifest)
+
+                locator = plan.locatorHint.getOrElse(graviton.core.locator.BlobLocator("cas", "manifest", blob.bits.digest.hex.value))
+                attrs   = plan.attributes
+              yield BlobWriteResult(blob, locator, attrs)
+            }
         }
-        .ignoreLeftover
-    }
 
   override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
     key match

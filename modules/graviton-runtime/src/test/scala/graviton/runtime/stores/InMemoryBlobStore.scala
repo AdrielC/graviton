@@ -32,7 +32,6 @@ final class InMemoryBlobStore private (
         builder
       }
       .mapZIO(builder => persist(builder.result(), plan))
-      .ignoreLeftover
 
   override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
     ZStream
