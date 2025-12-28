@@ -1,283 +1,144 @@
 # Scans & Events
 
-Graviton's scan system provides composable, type-safe stream processing through a BiKleisli-based arrow architecture with free representation and named-tuple state management.
+Graviton's scan system provides composable, type-safe stream processing. Today there are **two** related (but distinct) APIs:
+
+- `graviton.core.scan.Scan` — a **direct, “sicko”** stateful transducer you can compose and run (including as a `ZPipeline`).
+- `graviton.core.scan.FreeScanV2` — an **inspectable free** scan program used by existing chunkers/hashes/etc (see “FreeScanV2” sections below).
 
 ## Overview
 
-A `Scan` is an arrow that transforms inputs wrapped in `F[_]` into outputs wrapped in `G[_]`, paired with named state, supporting:
+A `Scan` is a stateful transducer from inputs `I` to outputs `O`, paired with typed state `S` and supporting:
 
-- **BiKleisli core**: `F[I] :=>: G[(S, O)]` where state `S` is a typed named-tuple record
-- **Free representation**: Compose scans algebraically, compile to different targets (ZIO, pure loops, Spark)
-- **Arrow combinators**: `>>>`, `dimap`, `|||`, `+++`, `first`, `second`, `fanout`, `split`, `merge`
-- **Capability-based**: Pure → chunked → stateful → effectful upgrades via type classes
-- **Law-abiding**: Category, Arrow, Choice, and Parallel laws verified via property tests
+- **Composable state**: state is threaded automatically through `>>>`, `&&&`, `+++`, `|||`, `first`, `second`, `dimap`
+- **Ergonomic state**: model state as a domain case class (or use `Scan.NoState` for “no state”)
+- **Runnable**: interpret to `ZPipeline` with `scan.toPipeline`
 
-## Core Architecture
-
-### BiKleisli
-
-The fundamental building block:
-
-```scala
-final case class BiKleisli[F[_], G[_], I, O](run: F[I] => G[O])
-```
-
-Transforms `F[I]` into `G[O]`, where:
-- `F[_]` = input capability (e.g., `Id`, `Chunk`, `ZIO`)
-- `G[_]` = output capability (e.g., `Id`, `Chunk`, `ZIO`)
-- `I` = input type
-- `O` = output type (paired with state internally)
+## Core API (`graviton.core.scan.Scan`)
 
 ### Scan Interface
 
 ```scala
-trait Scan[F[_], G[_], I, O]:
-  type S <: Rec  // Named-tuple state (hidden by default)
-  
-  def init: InitF[S]  // Free-applicative initialization
-  def step: BiKleisli[F, G, I, (S, O)]  // Transform step
-  def flush(finalS: S): G[Option[O]]  // Finalization with explicit state
+import zio.Chunk
+
+trait Scan[-I, +O, S, +C]:
+  def init(): S
+  def step(state: S, input: I): (S, O)
+  def flush(state: S): (S, Chunk[O])
 ```
 
 **Key properties:**
-- State `S` is a **type member** (use `Scan.Aux[F,G,I,O,S]` to pin it)
-- `init` is wrapped in a free-applicative for composable initialization
-- `step` returns `(S, O)` — updated state paired with output
-- `flush` explicitly receives the final state
+- **Empty state is `Scan.NoState`**: stateless scans use `S = Scan.NoState`.
+- **Capabilities are tracked at the type level**: `C` composes via `Scan.CapUnion` (identity is `Any`, like `FreeArrow`).
+- **State representation is user-defined**: `S` can be a case class, etc.
+- **Composition carries state**: composing scans uses a carrier `ComposeState[SA, SB]`:
+  - `Scan.NoState` is an identity (`ComposeState[Scan.NoState, SB] = SB`, `ComposeState[SA, Scan.NoState] = SA`)
+  - otherwise it becomes a tuple `(SA, SB)`
 
-## Named-Tuple State
-
-State is represented as typed, labeled records with compile-time operations:
+### Stateful Record Example
 
 ```scala
-type Field[K <: String & Singleton, V] = (K, V)
-type Rec = Tuple  // Tuple of Field[K, V]
-type Ø = EmptyTuple  // Empty record
+import graviton.core.scan.Scan
+import zio.Chunk
 
-// Type-level operations
-type ++[A <: Tuple, B <: Tuple] = ...  // Append, dropping EmptyTuple
-type Get[A <: Rec, K] = ...  // Lookup by label
-type Put[A <: Rec, F <: Field[?, ?]] = ...  // Insert/replace field
-type Merge[A <: Rec, B <: Rec] = ...  // Merge records (right-biased)
+final case class CountState(count: Long)
+
+val counting: Scan[Long, Long, CountState, Any] =
+  Scan.fold[Long, Long, CountState](CountState(0L)) { (s, _) =>
+    val next = s.count + 1L
+    (CountState(next), next)
+  }(s => (s, Chunk.empty))
 ```
 
-**Example state:**
+## Stateless Scans
 
 ```scala
-// Single field
-type CountState = Field["count", Long] *: Ø
+import graviton.core.scan.Scan
 
-// Multiple fields
-type CDCState = Field["roll", Long] *: Field["mask", Int] *: Ø
-
-// Composed (no empty pollution)
-type Combined = CountState ++ CDCState
-// Result: Field["count", Long] *: Field["roll", Long] *: Field["mask", Int] *: Ø
+val doubled: Scan[Int, Int, Scan.NoState, Any] =
+  Scan.pure(_ * 2)
 ```
 
-### Accessing State
+## Running as a ZIO pipeline
 
 ```scala
-// Value-level operations
-import graviton.core.scan.rec
+import zio.stream.ZPipeline
+import graviton.core.scan.Scan
 
-val state = rec.field("count", 0L) *: EmptyTuple
-val updated = rec.put(state, "count", 42L)
-val value = get(updated, "count")  // 42L
-```
-
-## Pure Scans
-
-### Stateless Transformation
-
-```scala
-import graviton.core.scan.*
-
-// Pure function I => O
-val doubled: Scan.Aux[Id, Id, Int, Int, Ø] =
-  Scan.pure(i => i * 2)
-
-// Chunked I => O (operates on Chunk[I])
-val chunkedDoubled: Scan.Aux[Chunk, Chunk, Int, Int, Ø] =
-  Scan.chunked(i => i * 2)
-```
-
-## Stateful Scans
-
-### Adding State
-
-```scala
-object Stateful:
-  def initKey[F[_], G[_], I, O, K <: String & Singleton, V, S0 <: Rec](
-    base: Scan.Aux[F, G, I, O, S0],
-    key: K,
-    make: => V
-  ): Scan.Aux[F, G, I, O, Put[S0, (K, V)]]
-```
-
-### Example: Byte Counter
-
-```scala
-def counting: Scan.Aux[Chunk, Chunk, Byte, Long, Field["count", Long] *: Ø] =
-  new Scan[Chunk, Chunk, Byte, Long]:
-    type S = Field["count", Long] *: Ø
-    
-    val init = InitF.pure(rec.field("count", 0L) *: EmptyTuple)
-    
-    val step = BiKleisli[Chunk, Chunk, Byte, (S, Long)] { cb =>
-      var c = 0L
-      cb.map { _ =>
-        c += 1
-        val state = rec.field("count", c) *: EmptyTuple
-        (state, c)
-      }
-    }
-    
-    def flush(finalS: S) = 
-      Chunk.single(get(finalS, "count"))  // Emit final count
+val pipeline: ZPipeline[Any, Nothing, Int, Int] =
+  Scan.pure[Int, Int](_ * 2).toPipeline
 ```
 
 ## Arrow Combinators
 
-### Sequential Composition (>>>)
-
-Chain scans, concatenating state:
+### Sequential Composition (`>>>`)
 
 ```scala
-val pipeline: Scan.Aux[F, G, A, C, SA ++ SB] = 
-  scanAB >>> scanBC
+import graviton.core.scan.Scan
 
-// Example: hash then count
-val hashThenCount = HashScan.sha256 >>> counting
-// State: Ø ++ Field["count", Long] = Field["count", Long] *: Ø
+val pipeline =
+  Scan.pure[Int, Int](_ + 1) >>> Scan.pure[Int, Int](_ * 2)
 ```
 
-### Dimap (Pre/Post Mapping)
+### Dimap (`dimap`)
 
 ```scala
-extension [F[_], G[_], I, O, S <: Rec](scan: Scan.Aux[F,G,I,O,S])
-  def dimap[I2, O2](
-    pre: I2 => I,      // Pre-process input
-    post: O => O2      // Post-process output
-  ): Scan.Aux[F, G, I2, O2, S]
+import graviton.core.scan.Scan
 
-// Example: parse then format
-val stringProcessor = 
-  intScan.dimap[String, String](
-    _.toInt,        // String => Int
-    _.toString      // Int => String
-  )
+val program =
+  Scan.pure[Int, Int](_ * 2).dimap[String, String](_.toInt, _.toString)
 ```
 
-### Parallel Composition (+++)
-
-Process tuples in parallel, merge state:
+### Parallel on tuples (`+++`)
 
 ```scala
-extension [F[_], G[_], A, B, SA <: Rec](ab: Scan.Aux[F,G,A,B,SA])
-  def +++[C, D, SB <: Rec](cd: Scan.Aux[F,G,C,D,SB])
-  : Scan.Aux[F, G, (A,C), (B,D), Merge[SA,SB]]
+import graviton.core.scan.Scan
 
-// Example: hash and CDC in parallel
-val parallel: Scan.Aux[Chunk, Chunk, (Byte, Byte), (Digest, Boundary), Merged] =
-  HashScan.sha256 +++ CdcScan.fastCdc(4096, 8192, 16384)
+val left  = Scan.pure[Int, Int](_ + 1)
+val right = Scan.pure[String, Int](_.length)
+
+val both = left +++ right
+// (Int, String) => (Int, Int)
 ```
 
-### Choice (|||)
-
-Process `Either` inputs:
+### Choice on either (`|||`)
 
 ```scala
-extension [F[_], G[_], A, B, SA <: Rec](ab: Scan.Aux[F,G,A,B,SA])
-  def |||[C, D, SB <: Rec](cd: Scan.Aux[F,G,C,D,SB])
-  : Scan.Aux[F, G, Either[A,C], Either[B,D], Merge[SA,SB]]
+import graviton.core.scan.Scan
 
-// Example: route by type
-val router = 
-  textScan ||| binaryScan  // Either[Text, Binary] => Either[Parsed, Decoded]
+val ints   = Scan.pure[Int, Int](_ + 1)
+val chars  = Scan.pure[String, Int](_.length)
+val routed = ints ||| chars
+// Either[Int, String] => Either[Int, Int]
 ```
 
-### Fanout
+### Fanout / broadcast (`&&&`)
 
-Apply same input to both scans:
+`&&&` runs both scans on the same input and returns a product output (tuples by default, or use `.labelled[...]` for labelled outputs).
 
 ```scala
-extension [F[_], G[_], A, B, SA <: Rec](ab: Scan.Aux[F,G,A,B,SA])
-  def fanout[D, SB <: Rec](ad: Scan.Aux[F,G,A,D,SB])
-  : Scan.Aux[F, G, A, (B,D), Merge[SA,SB]]
+import graviton.core.scan.Scan
+import kyo.Tag.given
 
-// Example: hash and count same bytes
-val hashAndCount = HashScan.sha256.fanout(counting)
-// Byte => (Digest, Long)
+val a = Scan.pure[Int, Int](_ + 1)
+val b = Scan.pure[Int, String](_.toString)
+
+val out = a &&& b
 ```
 
 ### First / Second
 
-Transform one side of a tuple:
-
 ```scala
-// Process first element, pass second through
-scanAB.first[X]  // (A, X) => (B, X)
+import graviton.core.scan.Scan
 
-// Process second element, pass first through
-scanAB.second[X]  // (X, A) => (X, B)
+val scan = Scan.pure[Int, Int](_ + 1)
+
+val first  = scan.first[String]  // (Int, String) => (Int, String)
+val second = scan.second[String] // (String, Int) => (String, Int)
 ```
 
-### Split & Merge
+## Free Representation (FreeScanV2)
 
-Route by predicate, then unify:
-
-```scala
-// Split by predicate
-val split: Scan.Aux[F, G, A, Either[B,C], S] =
-  scan.split(
-    predicate = _ < threshold,
-    right = alternateScan
-  )
-
-// Merge Either back to single type
-val merged: Scan.Aux[F, G, Either[A,A], O, S] =
-  scan.merge((x: B | C) => unify(x))
-```
-
-## Free Representation
-
-Scans are compiled to a free algebra for optimization and interpretation:
-
-```scala
-enum FreeScan[F[_], G[_], I, O, S <: Rec]:
-  case Prim(
-    init: InitF[S],
-    step: BiKleisli[F,G,I,(S,O)],
-    flush: S => G[Option[O]]
-  )
-  
-  case Seq[I, X, O, SA <: Rec, SB <: Rec](
-    left:  FreeScan[F,G,I,X,SA],
-    right: FreeScan[F,G,X,O,SB]
-  ) extends FreeScan[F,G,I,O, SA ++ SB]
-  
-  case Dimap[I0, I1, O0, O1, S <: Rec](
-    base: FreeScan[F,G,I1,O0,S],
-    pre: I0 => I1,
-    post: O0 => O1
-  ) extends FreeScan[F,G,I0,O1,S]
-  
-  case Par[I1,I2,O1,O2,SA <: Rec, SB <: Rec](
-    a: FreeScan[F,G,I1,O1,SA],
-    b: FreeScan[F,G,I2,O2,SB]
-  ) extends FreeScan[F,G,(I1,I2),(O1,O2), Merge[SA,SB]]
-  
-  case Choice[IL,IR,OL,OR,SL <: Rec, SR <: Rec](
-    left: FreeScan[F,G,IL,OL,SL],
-    right: FreeScan[F,G,IR,OR,SR]
-  ) extends FreeScan[F,G,Either[IL,IR], Either[OL,OR], Merge[SL,SR]]
-  
-  case Fanout[I,O1,O2,SA <: Rec, SB <: Rec](
-    a: FreeScan[F,G,I,O1,SA],
-    b: FreeScan[F,G,I,O2,SB]
-  ) extends FreeScan[F,G,I,(O1,O2), Merge[SA,SB]]
-```
+If you need an inspectable program (for optimization/visualization), see `graviton.core.scan.FreeScanV2` (`FreeScan`, `FS`, and the `Compile` interpreter). This is the API used by existing batteries-included scans (hashing, chunking, manifests, etc.).
 
 **Benefits:**
 - **Lawful**: Verify category, arrow, choice, parallel laws
@@ -285,174 +146,68 @@ enum FreeScan[F[_], G[_], I, O, S <: Rec]:
 - **Inspectable**: Introspect scan structure for debugging/metrics
 - **Multi-target**: Interpret to ZIO, pure loops, Spark, etc.
 
-## Built-in Scans
+## Built-in FreeScanV2 primitives
 
-### Hash Scan
+`FreeScanV2` provides a small set of batteries-included primitives in `graviton.core.scan.FS` (see `FreeScanV2.scala`):
 
-```scala
-object HashScan:
-  def sha256: FreeScan[Chunk, Chunk, Byte, Digest, Ø]
-  def sha256Every(n: Int): FreeScan[Chunk, Chunk, Byte, Digest, Ø]
-  def blake3: FreeScan[Chunk, Chunk, Byte, Digest, Ø]
-  def multi(algos: Seq[HashAlgo]): FreeScan[Chunk, Chunk, Byte, Seq[Digest], Ø]
-```
+- `FS.counter` / `FS.byteCounter`
+- `FS.hashBytes`
+- `FS.fixedChunker`
+- `FS.buildManifest`
 
-**Example:**
+Example:
 
 ```scala
-val hashPipeline = HashScan.sha256Every(64)
-// Emits digest every 64 bytes, final digest on flush
+import graviton.core.scan.FS.*
+import kyo.Tag.given
+import zio.Chunk
+
+val program =
+  counter[Chunk[Byte]].labelled["count"] &&&
+    byteCounter.labelled["bytes"]
 ```
-
-### CDC Scan (Content-Defined Chunking)
-
-```scala
-object CdcScan:
-  type SCDC = Field["roll", Long] *: Field["mask", Int] *: Ø
-  
-  def fastCdc(
-    minSize: Int,
-    avgSize: Int,
-    maxSize: Int
-  ): FreeScan[Chunk, Chunk, Byte, Int, SCDC]  // Emits boundary lengths
-```
-
-**State:**
-- `"roll"`: Rolling hash accumulator
-- `"mask"`: Target mask for average chunk size
-
-**Example:**
-
-```scala
-val cdc = CdcScan.fastCdc(
-  minSize = 4096,
-  avgSize = 8192,
-  maxSize = 16384
-)
-```
-
-### Line Scan
-
-```scala
-object LineScan:
-  type SLine = Field["buffer", Chunk[Byte]] *: Field["offset", Long] *: Ø
-  
-  def utf8: FreeScan[Chunk, Chunk, Byte, String, SLine]
-```
-
-**State:**
-- `"buffer"`: Incomplete line bytes
-- `"offset"`: Current byte offset
 
 ## Composition Examples
 
-> **Note:** `FreeScanV2` represents tensor products with `kyo-data` records.
-> Use `.labelled["name"]` on each scan (or rely on the `_0`/`_1` auto labels)
-> so the record keys stay descriptive instead of anonymous tuples.
-
-### Hash + CDC Pipeline
+### Scan: sequential + state
 
 ```scala
-val pipeline =
-  HashScan.sha256.labelled["digest"]
-    .fanout(CdcScan.fastCdc(4096, 8192, 16384).labelled["chunk"])
+import graviton.core.scan.Scan
+import zio.Chunk
 
-// Same bytes flow through both scans
-// Record fields = { "digest": Digest, "chunk": Int }
+final case class CountState(count: Long)
+
+val counting: Scan[Long, Long, CountState, Any] =
+  Scan.fold[Long, Long, CountState](CountState(0L)) { (s, _) =>
+    val next = s.count + 1L
+    (CountState(next), next)
+  }(s => (s, Chunk.empty))
+
+val program = Scan.pure[Long, Long](_ * 10) >>> counting
 ```
 
-### Sequential: Parse then Validate
+### FreeScanV2: broadcast with labelled record output
 
 ```scala
-val parseThenValidate = 
-  JsonScan.parse >>> ValidationScan.schema(schema)
+import graviton.core.scan.FS.*
+import graviton.core.scan.Tensor
+import kyo.Tag.given
+import zio.Chunk
 
-// JSON bytes => Parsed => Validated
-// State = SJson ++ SValidation
-```
+val scan =
+  counter[Chunk[Byte]].labelled["count"] &&&
+    byteCounter.labelled["bytes"]
 
-### Classify by Size
-
-```scala
-val classify = 
-  Scan.chunked[Int, Int](identity)
-    .split(
-      _ < 8192,  // Small
-      Scan.chunked[Int, Int](identity)  // Large
-    )
-
-// Route small vs large to different paths
-```
-
-### Parallel Hash and Count
-
-```scala
-val hashAndCount = 
-  HashScan.sha256 +++ counting
-
-// Input: (Byte, Byte)
-// Output: (Digest, Long)
-// Each scan sees different input element
+val inputs = List(Chunk.fromArray("ab".getBytes()), Chunk.fromArray("c".getBytes()))
+val out    = scan.runChunk(inputs).map(Tensor.toTuple["count", "bytes", Long, Long]).toList
 ```
 
 ## ZIO Integration
+Both `Scan` and `FreeScanV2` have `toPipeline` / `toChannel` helpers for running on ZIO Streams.
 
-### Interpretation to ZPipeline
+## Capabilities (historical)
 
-```scala
-import zio.stream.*
-import graviton.streams.InterpretZIO
-
-// Compile FreeScan to ZIO
-val pipeline: ZPipeline[Any, Nothing, Byte, (Digest, Int)] =
-  InterpretZIO.toPipeline(
-    HashScan.sha256.fanout(CdcScan.fastCdc(4096, 8192, 16384))
-  )
-
-// Use in ZIO Stream
-ZStream.fromFile(path)
-  .via(pipeline)
-  .foreach { case (digest, boundaryLen) =>
-    Console.printLine(s"Digest: ${digest.hex}, Boundary: $boundaryLen")
-  }
-```
-
-### Interpretation to ZChannel
-
-For more control:
-
-```scala
-val channel: ZChannel[Any, Nothing, Chunk[Byte], Any, Nothing, Chunk[O]] =
-  InterpretZIO.toChannel(freeScan)
-```
-
-## Capabilities
-
-Scans are parametric in `F[_]` and `G[_]` via capability type classes:
-
-```scala
-trait Map1[F[_]]:
-  def map[A,B](fa: F[A])(f: A => B): F[B]
-
-trait Ap1[F[_]] extends Map1[F]:
-  def pure[A](a: A): F[A]
-  def ap[A,B](ff: F[A => B])(fa: F[A]): F[B]
-
-// Pure (Identity)
-type Id[A] = A
-given Map1[Id] = ...
-
-// Chunked
-given Map1[Chunk] = ...
-
-// Effectful (provided by interpreter)
-// ZIO capabilities supplied at interpretation time
-```
-
-**Upgrade path:**
-- `Scan[Id, Id, I, O]` — Pure, stateless
-- `Scan[Chunk, Chunk, I, O]` — Batched
-- `Scan[ZIO[R,E,*], ZIO[R,E,*], I, O]` — Effectful (via interpreter)
+Earlier designs modeled “capabilities” via `F[_]`/`G[_]`. The current implementations (`Scan` and `FreeScanV2`) are concrete and are interpreted directly to runners like `ZPipeline`.
 
 ## Laws & Properties
 
@@ -494,49 +249,8 @@ first(f) >>> arr(swap) ≡ arr(swap) >>> second(f)
 
 ### State Laws
 
-```scala
-// Append identity
-S ++ Ø ≡ S ≡ Ø ++ S
-
-// Merge commutativity (on disjoint keys)
-Merge[{a: A}, {b: B}] ≡ {a: A, b: B}
-```
-
-## Testing
-
-### Property-Based Testing
-
-```scala
-import zio.test.*
-
-test("scan obeys category laws") {
-  check(scanGen, scanGen, scanGen) { (f, g, h) =>
-    val lhs = (f >>> g) >>> h
-    val rhs = f >>> (g >>> h)
-    
-    assertTrue(runScan(lhs, inputs) == runScan(rhs, inputs))
-  }
-}
-
-test("dimap identity") {
-  check(scanGen) { scan =>
-    val identity = scan.dimap(x => x)(x => x)
-    assertTrue(runScan(identity, inputs) == runScan(scan, inputs))
-  }
-}
-```
-
-### State Consistency
-
-```scala
-test("state merges without empty pollution") {
-  val merged: Scan.Aux[Id, Id, Int, Int, Field["a", Int] *: Field["b", Int] *: Ø] =
-    scanA +++ scanB
-  
-  // No EmptyTuple in result type
-  assertTrue(true)
-}
-```
+State is threaded linearly and must be treated as **local to a scan instance**: don’t share it between instances.
+When you need inspectable, explicit capability/state tracking for optimization, use `FreeScanV2` / `FreeArrow`-style APIs; `Scan` stays runtime-direct.
 
 ## Performance
 
@@ -569,55 +283,13 @@ val unfused =
 
 ## Advanced Patterns
 
-### Stateful Window
-
-```scala
-def slidingWindow[A](size: Int): FreeScan[Chunk, Chunk, A, Chunk[A], SWindow] =
-  new Scan[Chunk, Chunk, A, Chunk[A]]:
-    type S = Field["buffer", Chunk[A]] *: Ø
-    val init = InitF.pure(rec.field("buffer", Chunk.empty[A]) *: EmptyTuple)
-    val step = BiKleisli[Chunk, Chunk, A, (S, Chunk[A])] { ca =>
-      var buf = Chunk.empty[A]
-      ca.map { a =>
-        buf = (buf :+ a).takeRight(size)
-        val state = rec.field("buffer", buf) *: EmptyTuple
-        (state, buf)
-      }
-    }
-    def flush(finalS: S) = Chunk.empty
-```
-
-### Conditional Routing
-
-```scala
-def route[A, B, C](
-  predicate: A => Boolean,
-  left: FreeScan[F, G, A, B, SL],
-  right: FreeScan[F, G, A, C, SR]
-): FreeScan[F, G, A, Either[B,C], Merge[SL,SR]] =
-  FreeScan.Choice(
-    left.contramap(identity),
-    right.contramap(identity)
-  ).contramap(a => if predicate(a) then Left(a) else Right(a))
-```
-
-### Metered Scan
-
-```scala
-def metered[F[_], G[_], I, O, S <: Rec](
-  base: Scan.Aux[F,G,I,O,S],
-  metrics: MetricsRegistry
-): Scan.Aux[F,G,I,O, Put[S, Field["count", Long]]] =
-  Stateful.initKey(base, "count", 0L)
-    .tapStep { (s, o) =>
-      metrics.counter("scan.events").increment
-      get(s, "count")
-    }
-```
+- **Stateful windows**: use `Scan.fold` with a domain case class as the scan state.
+- **Routing**: use `|||` (choice) for `Either`-based routing, or model richer routing with `FreeArrow` / `FreeScanV2`.
+- **Metrics**: wrap a scan with `map/dimap` and record counters externally; internal “metered scan” helpers are still evolving.
 
 ## See Also
 
-- **[Schema & Types](./schema.md)** — Type-level programming with named tuples
+- **[Schema & Types](./schema.md)** — type-level programming
 - **[Ranges & Boundaries](./ranges.md)** — Span operations
 - **[Chunking Strategies](../ingest/chunking.md)** — CDC algorithms
 
