@@ -253,14 +253,26 @@ object types:
    *
    * Prefer this name when the offset is explicitly “within a whole blob”.
    */
-  type BlobOffset = Offset.T
+  opaque type BlobOffset <: Offset = Offset
 
   object BlobOffset:
     inline def unsafe(value: Long): BlobOffset =
-      Offset.unsafe(value)
+      Offset.unsafe(value).asInstanceOf[BlobOffset]
 
     inline def either(value: Long): Either[String, BlobOffset] =
-      Offset.either(value)
+      Offset.either(value).map(_.asInstanceOf[BlobOffset])
+
+    given Ordering[BlobOffset] =
+      summon[Ordering[Offset]].asInstanceOf[Ordering[BlobOffset]]
+
+    given Integral[BlobOffset] =
+      summon[Integral[Offset]].asInstanceOf[Integral[BlobOffset]]
+
+    given DiscreteDomain[BlobOffset] =
+      summon[DiscreteDomain[Offset]].asInstanceOf[DiscreteDomain[BlobOffset]]
+
+    given Schema[BlobOffset] =
+      summon[Schema[Offset]].asInstanceOf[Schema[BlobOffset]]
 
   type CompressionLevel = CompressionLevel.T
   object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]

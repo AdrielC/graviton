@@ -4,7 +4,7 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.*
 import graviton.core.ranges.Span
 import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
-import graviton.core.types.Offset
+import graviton.core.types.BlobOffset
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*
@@ -44,8 +44,8 @@ object FramedManifestSpec extends ZIOSpecDefault:
                           .fromEither(
                             Manifest.fromEntries(
                               List(
-                                ManifestEntry(blobKey, Span.unsafe(Offset.unsafe(0L), Offset.unsafe(11L)), attrs),
-                                ManifestEntry(viewKey, Span.unsafe(Offset.unsafe(12L), Offset.unsafe(16L)), Map.empty),
+                                ManifestEntry(blobKey, Span.unsafe(BlobOffset.unsafe(0L), BlobOffset.unsafe(11L)), attrs),
+                                ManifestEntry(viewKey, Span.unsafe(BlobOffset.unsafe(12L), BlobOffset.unsafe(16L)), Map.empty),
                               )
                             )
                           )
@@ -66,8 +66,8 @@ object FramedManifestSpec extends ZIOSpecDefault:
           for
             bits    <- makeBits(8L)
             blobKey <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(_.toString)
-            entry1   = ManifestEntry(blobKey, Span.unsafe(Offset.unsafe(0L), Offset.unsafe(9L)), attrs)
-            entry2   = ManifestEntry(blobKey, Span.unsafe(Offset.unsafe(8L), Offset.unsafe(12L)), Map.empty)
+            entry1   = ManifestEntry(blobKey, Span.unsafe(BlobOffset.unsafe(0L), BlobOffset.unsafe(9L)), attrs)
+            entry2   = ManifestEntry(blobKey, Span.unsafe(BlobOffset.unsafe(8L), BlobOffset.unsafe(12L)), Map.empty)
             manifest = Manifest(List(entry1, entry2), size = 13L)
             result  <- ZIO.fromEither(FramedManifest.encode(manifest)).either
           yield assert(result)(isLeft(containsString("non-overlapping")))
@@ -85,7 +85,7 @@ object FramedManifestSpec extends ZIOSpecDefault:
                               List(
                                 ManifestEntry(
                                   blockKey,
-                                  Span.unsafe(Offset.unsafe(0L), Offset.unsafe(3L)),
+                                  Span.unsafe(BlobOffset.unsafe(0L), BlobOffset.unsafe(3L)),
                                   Map(
                                     ManifestAnnotationKey.applyUnsafe("p") -> ManifestAnnotationValue.applyUnsafe("q")
                                   ),

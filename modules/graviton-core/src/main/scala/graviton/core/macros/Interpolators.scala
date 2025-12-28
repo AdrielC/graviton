@@ -165,13 +165,13 @@ object Interpolators:
               case Right(span) =>
                 '{
                   Span.unsafe[BlobOffset](
-                    Offset.unsafe(${ Expr(span.startInclusive.value) }),
-                    Offset.unsafe(${ Expr(span.endInclusive.value) }),
+                    BlobOffset.unsafe(${ Expr(span.startInclusive.value) }),
+                    BlobOffset.unsafe(${ Expr(span.endInclusive.value) }),
                   )
                 }
               case Left(err)   =>
                 quotes.reflect.report.error(err)
-                '{ Span.unsafe[BlobOffset](Offset.unsafe(0L), Offset.unsafe(0L)) }
+                '{ Span.unsafe[BlobOffset](BlobOffset.unsafe(0L), BlobOffset.unsafe(0L)) }
           case None      =>
             runtimeSpan(scExpr, argsExpr)
       case _              =>
@@ -213,8 +213,8 @@ object Interpolators:
           for
             start0 <- parseLong(startPart)
             end0   <- parseLong(endPart)
-            start  <- Offset.either(start0)
-            end    <- Offset.either(end0)
+            start  <- BlobOffset.either(start0)
+            end    <- BlobOffset.either(end0)
             span   <- Span.fromBounds(start, end, startInclusive, endInclusive)
           yield span
 
