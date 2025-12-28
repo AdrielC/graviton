@@ -28,7 +28,9 @@ object BinaryAttrDiff:
       scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.types.ChunkCount]]],
       scala.compiletime.summonInline[Tag[AttrDiff[graviton.core.types.Mime]]],
       scala.compiletime.summonInline[Tag[AttrDiff[Map[graviton.core.types.Algo, graviton.core.types.HexLower]]]],
-      scala.compiletime.summonInline[Tag[AttrDiff[Map[String, String]]]],
+      scala.compiletime.summonInline[
+        Tag[AttrDiff[Map[graviton.core.types.CustomAttributeName, graviton.core.types.CustomAttributeValue]]]
+      ],
     )
 
   private def diff[A](advertised: Option[A], confirmed: Option[A]): AttrDiff[A] =

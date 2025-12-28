@@ -23,8 +23,8 @@ object CanonicalEncodingSpec extends ZIOSpecDefault:
         assertTrue(a.sameElements(b))
       },
       test("ViewTransformV1.encode is stable under arg map iteration order") {
-        val t1 = ViewTransform("x", Map("b" -> "2", "a" -> "1"), scope = Some("s"))
-        val t2 = ViewTransform("x", Map("a" -> "1", "b" -> "2"), scope = Some("s"))
+        val t1 = ViewTransform.from("x", Map("b" -> "2", "a" -> "1"), scope = Some("s")).toOption.get
+        val t2 = ViewTransform.from("x", Map("a" -> "1", "b" -> "2"), scope = Some("s")).toOption.get
         val a  = CanonicalEncoding.ViewTransformV1.encode(t1)
         val b  = CanonicalEncoding.ViewTransformV1.encode(t2)
         assertTrue(a.sameElements(b))

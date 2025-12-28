@@ -71,9 +71,22 @@ object BinaryKeyCodec:
   private val viewCodec: Codec[ViewTransform] =
     ((variableSizeBytes(uint16, utf8) :: attributesCodec) ::
       optional(byteFlag, variableSizeBytes(uint16, utf8)))
-      .xmap(
-        { case ((name, args), scope) => ViewTransform(name, args, scope) },
-        view => ((view.name, view.args), view.scope),
+      .exmap(
+        { case ((name, args), scope) =>
+          Attempt.fromEither(
+            ViewTransform
+              .from(name, args, scope)
+              .left
+              .map(Err(_))
+          )
+        },
+        view =>
+          Attempt.successful(
+            (
+              (view.name.value, ListMap.from(view.args.toList.map { case (k, v) => (k.value, v.value) })),
+              view.scope.map(_.value),
+            )
+          ),
       )
 
   val codec: Codec[BinaryKey] =

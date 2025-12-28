@@ -18,5 +18,7 @@ object BinaryAttrSyntax:
     inline def withDigests(value: F[Map[Algo, HexLower]]): Record[Fields & ("digests" ~ F[Map[Algo, HexLower]])] =
       rec & ("digests" ~ value)
 
-    inline def withCustom(value: F[Map[String, String]]): Record[Fields & ("custom" ~ F[Map[String, String]])] =
+    inline def withCustom(
+      value: F[Map[CustomAttributeName, CustomAttributeValue]]
+    ): Record[Fields & ("custom" ~ F[Map[CustomAttributeName, CustomAttributeValue]])] =
       rec & ("custom" ~ value)

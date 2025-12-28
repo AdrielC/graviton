@@ -6,6 +6,7 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.model.Block.*
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, ManifestAnnotationKey, ManifestAnnotationValue}
 import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
@@ -126,15 +127,21 @@ final class CasBlobStore(
                                 ZIO
                                   .fromEither(Span.make(start, end))
                                   .mapError(msg => new IllegalArgumentException(msg))
-                                  .map(span => ManifestEntry(e.key, span, Map.empty))
+                                  .map(span => ManifestEntry(e.key, span, Map.empty[ManifestAnnotationKey, ManifestAnnotationValue]))
                               }
                               .map(_.toList)
                 manifest <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
 
                 _ <- manifests.put(blob, manifest)
 
-                locator = plan.locatorHint.getOrElse(graviton.core.locator.BlobLocator("cas", "manifest", blob.bits.digest.hex.value))
-                attrs   = plan.attributes
+                locator <- plan.locatorHint match
+                             case Some(value) => ZIO.succeed(value)
+                             case None        =>
+                               val scheme = LocatorScheme.applyUnsafe("cas")
+                               val bucket = LocatorBucket.applyUnsafe("manifest")
+                               val path   = LocatorPath.applyUnsafe(blob.bits.digest.hex.value)
+                               ZIO.succeed(graviton.core.locator.BlobLocator(scheme, bucket, path))
+                attrs    = plan.attributes
               yield BlobWriteResult(blob, locator, attrs)
             }
         }

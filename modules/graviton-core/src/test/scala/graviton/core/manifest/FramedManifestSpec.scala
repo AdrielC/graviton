@@ -3,6 +3,7 @@ package graviton.core.manifest
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.*
 import graviton.core.ranges.Span
+import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
 import zio.*
 import zio.test.*
 import zio.test.Assertion.*
@@ -21,8 +22,16 @@ object FramedManifestSpec extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     suite("FramedManifest")(
       test("round-trips manifests with metadata and view transforms") {
-        val attrs = Map("name" -> "segment-a", "encoding" -> "utf-8")
-        val view  = ViewTransform("resize", Map("width" -> "100", "height" -> "200"), Some("public"))
+        val attrs =
+          Map(
+            ManifestAnnotationKey.applyUnsafe("name")     -> ManifestAnnotationValue.applyUnsafe("segment-a"),
+            ManifestAnnotationKey.applyUnsafe("encoding") -> ManifestAnnotationValue.applyUnsafe("utf-8"),
+          )
+        val view  =
+          ViewTransform
+            .from("resize", Map("width" -> "100", "height" -> "200"), Some("public"))
+            .toOption
+            .get
 
         val program =
           for
@@ -47,7 +56,10 @@ object FramedManifestSpec extends ZIOSpecDefault:
         program.mapError(TestFailure.fail)
       },
       test("rejects overlapping spans during encoding") {
-        val attrs = Map("name" -> "overlap")
+        val attrs =
+          Map(
+            ManifestAnnotationKey.applyUnsafe("name") -> ManifestAnnotationValue.applyUnsafe("overlap")
+          )
 
         val program =
           for
@@ -68,7 +80,17 @@ object FramedManifestSpec extends ZIOSpecDefault:
             blockKey <- ZIO.fromEither(BinaryKey.block(bits)).mapError(_.toString)
             manifest <- ZIO
                           .fromEither(
-                            Manifest.fromEntries(List(ManifestEntry(blockKey, Span.unsafe(0L, 3L), Map("p" -> "q"))))
+                            Manifest.fromEntries(
+                              List(
+                                ManifestEntry(
+                                  blockKey,
+                                  Span.unsafe(0L, 3L),
+                                  Map(
+                                    ManifestAnnotationKey.applyUnsafe("p") -> ManifestAnnotationValue.applyUnsafe("q")
+                                  ),
+                                )
+                              )
+                            )
                           )
                           .mapError(_.toString)
             encoded  <- ZIO.fromEither(FramedManifest.encode(manifest)).mapError(_.toString)

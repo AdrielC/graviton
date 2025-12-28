@@ -2,6 +2,7 @@ package graviton.core.manifest
 
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
+import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
 
 /**
  * A single manifest span pointing at a content-addressed key.
@@ -13,7 +14,11 @@ import graviton.core.ranges.Span
  *
  * If you need semantic flags (compression/encryption/layout), model them as typed fields.
  */
-final case class ManifestEntry(key: BinaryKey, span: Span[Long], annotations: Map[String, String])
+final case class ManifestEntry(
+  key: BinaryKey,
+  span: Span[Long],
+  annotations: Map[ManifestAnnotationKey, ManifestAnnotationValue],
+)
 
 final case class Manifest(entries: List[ManifestEntry], size: Long)
 
