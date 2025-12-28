@@ -4,6 +4,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.Manifest
 import graviton.core.types.UploadChunkSize
+import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, IngestProgram}
 import graviton.streams.Chunker
 import zio.*
@@ -119,6 +120,61 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           manifest.entries.length == 2,
           manifest.entries.map(_.span.startInclusive) == List(0L, 2L),
           manifest.entries.map(_.span.endInclusive) == List(1L, 3L),
+        )
+      },
+      test("supports IngestProgram.UseScan without breaking ingest (records metrics)") {
+        val input = "hello"
+        val data  = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+
+        val program =
+          IngestProgram.UseScan(
+            label = "byte-count",
+            build = () => graviton.core.scan.FS.counter[Byte],
+          )
+
+        for
+          registry <- InMemoryMetricsRegistry.make
+
+          chunkSize <- ZIO.fromEither(UploadChunkSize.either(2)).mapError(msg => new IllegalArgumentException(msg))
+          chunker    = Chunker.fixed(chunkSize)
+
+          blockStore <- InMemoryBlockStore.make
+          manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
+          repo        = InMemoryManifestRepo(manifestsR)
+          blobStore   = new CasBlobStore(blockStore, repo, metrics = registry)
+
+          result <- Chunker.locally(chunker) {
+                      ZStream
+                        .fromChunk(data)
+                        .run(blobStore.put(BlobWritePlan(program = program)))
+                    }
+
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+
+          bytes <- blobStore.get(blobKey).runCollect
+
+          snapshot <- registry.snapshot
+
+          tags =
+            Map(
+              "backend" -> "cas",
+              "store"   -> "blob",
+              "chunker" -> chunker.name,
+              "program" -> "scan",
+              "scan"    -> "byte-count",
+            )
+        yield assertTrue(
+          bytes == data,
+          snapshot.gauges.contains(MetricKey(MetricKeys.BytesIngested, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.BlocksIngested, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.ScanOutputs, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.UploadDuration, tags)),
         )
       },
     )
