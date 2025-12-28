@@ -10,7 +10,7 @@ object BinaryAttr:
 
   type Fields[F[_]] =
     "fileSize" ~ F[FileSize] & "chunkCount" ~ F[ChunkCount] & "mime" ~ F[Mime] & "digests" ~ F[Map[Algo, HexLower]] &
-      "custom" ~ F[Map[String, String]]
+      "custom" ~ F[Map[CustomAttributeName, CustomAttributeValue]]
 
   type Base = Fields[Id]
 
@@ -34,13 +34,13 @@ object BinaryAttr:
     chunkCount: F[ChunkCount],
     mime: F[Mime],
     digests: F[Map[Algo, HexLower]],
-    custom: F[Map[String, String]],
+    custom: F[Map[CustomAttributeName, CustomAttributeValue]],
   )(
     using Tag[F[FileSize]],
     Tag[F[ChunkCount]],
     Tag[F[Mime]],
     Tag[F[Map[Algo, HexLower]]],
-    Tag[F[Map[String, String]]],
+    Tag[F[Map[CustomAttributeName, CustomAttributeValue]]],
   ): Rec[F] =
 
     Record.empty
@@ -55,14 +55,14 @@ object BinaryAttr:
     chunkCount: Option[ChunkCount] = None,
     mime: Option[Mime] = None,
     digests: Option[Map[Algo, HexLower]] = Some(Map.empty),
-    custom: Option[Map[String, String]] = Some(Map.empty),
+    custom: Option[Map[CustomAttributeName, CustomAttributeValue]] = Some(Map.empty),
   ): Partial =
     build[Option](size, chunkCount, mime, digests, custom)(
       using scala.compiletime.summonInline[Tag[Option[FileSize]]],
       scala.compiletime.summonInline[Tag[Option[ChunkCount]]],
       scala.compiletime.summonInline[Tag[Option[Mime]]],
       scala.compiletime.summonInline[Tag[Option[Map[Algo, HexLower]]]],
-      scala.compiletime.summonInline[Tag[Option[Map[String, String]]]],
+      scala.compiletime.summonInline[Tag[Option[Map[CustomAttributeName, CustomAttributeValue]]]],
     )
 
   def plain(
@@ -70,14 +70,14 @@ object BinaryAttr:
     chunkCount: ChunkCount,
     mime: Mime,
     digests: Map[Algo, HexLower],
-    custom: Map[String, String],
+    custom: Map[CustomAttributeName, CustomAttributeValue],
   ): Plain =
     build[Id](size, chunkCount, mime, digests, custom)(
       using scala.compiletime.summonInline[Tag[Id[FileSize]]],
       scala.compiletime.summonInline[Tag[Id[ChunkCount]]],
       scala.compiletime.summonInline[Tag[Id[Mime]]],
       scala.compiletime.summonInline[Tag[Id[Map[Algo, HexLower]]]],
-      scala.compiletime.summonInline[Tag[Id[Map[String, String]]]],
+      scala.compiletime.summonInline[Tag[Id[Map[CustomAttributeName, CustomAttributeValue]]]],
     )
 
   object Access:
@@ -94,7 +94,7 @@ object BinaryAttr:
       inline def digestsValue: F[Map[Algo, HexLower]] =
         rec.digests
 
-      inline def customValue: F[Map[String, String]] =
+      inline def customValue: F[Map[CustomAttributeName, CustomAttributeValue]] =
         rec.custom
 
   object PartialOps:
@@ -106,14 +106,14 @@ object BinaryAttr:
         chunkCount: Option[ChunkCount] = rec.chunkCountValue,
         mime: Option[Mime] = rec.mimeValue,
         digests: Option[Map[Algo, HexLower]] = rec.digestsValue,
-        custom: Option[Map[String, String]] = rec.customValue,
+        custom: Option[Map[CustomAttributeName, CustomAttributeValue]] = rec.customValue,
       ): Partial =
         partial(size, chunkCount, mime, digests, custom)
 
       def digestsOrEmpty: Map[Algo, HexLower] =
         rec.digestsValue.getOrElse(Map.empty)
 
-      def customOrEmpty: Map[String, String] =
+      def customOrEmpty: Map[CustomAttributeName, CustomAttributeValue] =
         rec.customValue.getOrElse(Map.empty)
 
   given Tag[FileSize]                    =
@@ -121,6 +121,7 @@ object BinaryAttr:
   given Tag[Mime]                        = Tag.derive
   given Tag[HexLower]                    = Tag.derive
   given Tag[Algo]                        = Tag.derive
-  given Tag[String]                      = Tag.derive
+  given Tag[CustomAttributeName]         = Tag.derive
+  given Tag[CustomAttributeValue]        = Tag.derive
   given [A: Tag]: Tag[Option[A]]         = Tag.derive
   given [K: Tag, V: Tag]: Tag[Map[K, V]] = Tag.derive

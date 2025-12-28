@@ -6,6 +6,11 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.model.Block.*
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
+import graviton.core.types.Offset
+import graviton.core.scan.FS.*
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
@@ -22,14 +27,34 @@ final class CasBlobStore(
   blockStore: BlockStore,
   manifests: BlobManifestRepo,
   streamerConfig: BlobStreamer.Config = BlobStreamer.Config(),
+  metrics: MetricsRegistry = MetricsRegistry.noop,
 ) extends BlobStore:
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
       for
-        chunker    <- graviton.streams.Chunker.current.get
-        blobHasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-        totalBytes <- Ref.make(0L)
+        startedNanos <- Clock.nanoTime
+        chunker      <- graviton.streams.Chunker.current.get
+        blobHasher   <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+        totalBytes   <- Ref.make(0L)
+
+        scanDone <- Promise.make[Nothing, Long]
+
+        tags                                                  =
+          Map(
+            "backend" -> "cas",
+            "store"   -> "blob",
+            "chunker" -> chunker.name,
+          ) ++ (plan.program match
+            case graviton.runtime.model.IngestProgram.Default           => Map("program" -> "default")
+            case graviton.runtime.model.IngestProgram.UsePipeline(_)    => Map("program" -> "pipeline")
+            case graviton.runtime.model.IngestProgram.UseScan(label, _) => Map("program" -> "scan", "scan" -> label))
+
+        ingestPipeline: ZPipeline[Any, Throwable, Byte, Byte] =
+          plan.program match
+            case graviton.runtime.model.IngestProgram.Default               => ZPipeline.identity
+            case graviton.runtime.model.IngestProgram.UsePipeline(pipeline) => pipeline
+            case graviton.runtime.model.IngestProgram.UseScan(_, _)         => ZPipeline.identity
 
         // Stage 1: enqueue incoming bytes (bounded).
         inputQ <- Queue.bounded[Take[Throwable, Byte]](math.max(1, streamerConfig.windowRefs))
@@ -49,50 +74,82 @@ final class CasBlobStore(
             .intoPromise(batchDone))
             .forkScoped
 
-        // Run chunker on the incoming byte stream and emit canonical blocks.
+        // Run ingest program + optional scan (best-effort) + chunker + block hashing.
         _ <-
-          (ZStream
-            .fromQueue(inputQ)
-            .flattenTake
-            .via(chunker.pipeline)
-            .mapZIO { block =>
-              val payload = block.bytes
-              for
-                hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-                _       = hasher.update(payload.toArray)
-                digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-                bits   <- ZIO
-                            .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
-                            .mapError(msg => new IllegalArgumentException(msg))
-                key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-                canon  <- ZIO
-                            .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
-                            .mapError(msg => new IllegalArgumentException(msg))
-              yield canon
-            }
-            .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
-            .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
-            .ensuring(blocksQ.offer(Take.end).ignore))
-            .forkScoped
+          ZIO.scoped {
+            val postProgramBytes =
+              ZStream
+                .fromQueue(inputQ)
+                .flattenTake
+                .via(ingestPipeline)
+
+            def ingest(bytes: ZStream[Any, Throwable, Byte]): ZIO[Any, Throwable, Unit] =
+              bytes
+                .mapChunksZIO { (chunk: Chunk[Byte]) =>
+                  ZIO.attempt(blobHasher.update(chunk.toArray)) *>
+                    totalBytes.update(_ + chunk.length.toLong) *>
+                    ZIO.succeed(chunk)
+                }
+                .via(chunker.pipeline)
+                .mapZIO { block =>
+                  val payload = block.bytes
+                  for
+                    hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+                    _       = hasher.update(payload.toArray)
+                    digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+                    bits   <- ZIO
+                                .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
+                                .mapError(msg => new IllegalArgumentException(msg))
+                    key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+                    canon  <- ZIO
+                                .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
+                                .mapError(msg => new IllegalArgumentException(msg))
+                  yield canon
+                }
+                .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
+                .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
+                .ensuring(blocksQ.offer(Take.end).ignore)
+
+            plan.program match
+              case graviton.runtime.model.IngestProgram.UseScan(_, build) =>
+                val scan = build()
+                postProgramBytes
+                  .broadcast(2, maximumLag = math.max(1, streamerConfig.windowRefs))
+                  .flatMap { streams =>
+                    val ingestStream = streams(0)
+                    val scanStream   = streams(1)
+
+                    val scanEffect =
+                      scanStream
+                        .via(scan.toPipeline)
+                        .runFold(0L)((n, _) => n + 1L)
+                        .catchAll(_ => ZIO.succeed(0L))
+                        .flatMap(n => scanDone.succeed(n).ignore)
+                        .ensuring(scanDone.succeed(0L).ignore)
+
+                    ingest(ingestStream).zipParRight(scanEffect).unit
+                  }
+
+              case _ =>
+                scanDone.succeed(0L) *> ingest(postProgramBytes)
+          }.forkScoped
       yield ZSink
         .foldLeftChunksZIO[Any, Throwable, Byte, Unit](()) { (_, in) =>
-          ZIO.attempt {
-            blobHasher.update(in.toArray)
-          } *>
-            totalBytes.update(_ + in.length.toLong) *>
-            inputQ.offer(Take.chunk(in)).unit
+          inputQ.offer(Take.chunk(in)).unit
         }
         .mapZIO { _ =>
           for
-            _ <- ZIO
-                   .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
-                   .whenZIO(totalBytes.get.map(_ <= 0L))
             _ <- inputQ.offer(Take.end).ignore
 
             batch <- batchDone.await
 
+            size <- totalBytes.get
+            _    <-
+              ZIO
+                .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
+                .when(size <= 0L)
+
             digest <- ZIO.fromEither(blobHasher.digest).mapError(msg => new IllegalArgumentException(msg))
-            size   <- totalBytes.get
             bits   <- ZIO
                         .fromEither(KeyBits.create(blobHasher.algo, digest, size))
                         .mapError(msg => new IllegalArgumentException(msg))
@@ -104,20 +161,42 @@ final class CasBlobStore(
                             val start = e.offset.value
                             val end   = start + e.size.value.toLong - 1L
                             ZIO
-                              .fromEither(Span.make(start, end))
+                              .fromEither(
+                                for
+                                  s    <- BlobOffset.either(start)
+                                  t    <- BlobOffset.either(end)
+                                  span <- Span.make(s, t)
+                                yield span
+                              )
                               .mapError(msg => new IllegalArgumentException(msg))
-                              .map(span => ManifestEntry(e.key, span, Map.empty))
+                              .map(span => ManifestEntry(e.key, span, Map.empty[ManifestAnnotationKey, ManifestAnnotationValue]))
                           }
                           .map(_.toList)
             manifest <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
 
             _ <- manifests.put(blob, manifest)
 
-            locator = plan.locatorHint.getOrElse(graviton.core.locator.BlobLocator("cas", "manifest", blob.bits.digest.hex.value))
-            attrs   = plan.attributes
+            locator <- plan.locatorHint match
+                         case Some(value) => ZIO.succeed(value)
+                         case None        =>
+                           val scheme = LocatorScheme.applyUnsafe("cas")
+                           val bucket = LocatorBucket.applyUnsafe("manifest")
+                           val path   = LocatorPath.applyUnsafe(blob.bits.digest.hex.value)
+                           ZIO.succeed(graviton.core.locator.BlobLocator(scheme, bucket, path))
+
+            scanOutputs    <- scanDone.await
+            finishedNanos  <- Clock.nanoTime
+            durationSeconds = (finishedNanos - startedNanos).toDouble / 1e9
+            blockCount      = batch.manifest.entries.length.toDouble
+
+            _ <- metrics.gauge(MetricKeys.BytesIngested, size.toDouble, tags)
+            _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount, tags)
+            _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
+            _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
+
+            attrs = plan.attributes
           yield BlobWriteResult(blob, locator, attrs)
         }
-        .ignoreLeftover
     }
 
   override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
@@ -136,3 +215,6 @@ final class CasBlobStore(
 object CasBlobStore:
   val layer: ZLayer[BlockStore & BlobManifestRepo, Nothing, BlobStore] =
     ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo) => new CasBlobStore(bs, repo))
+
+  val layerWithMetrics: ZLayer[BlockStore & BlobManifestRepo & MetricsRegistry, Nothing, BlobStore] =
+    ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, reg: MetricsRegistry) => new CasBlobStore(bs, repo, metrics = reg))

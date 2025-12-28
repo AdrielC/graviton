@@ -3,6 +3,8 @@ package graviton.core.manifest
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.ranges.Span
+import graviton.core.types.{ManifestAnnotationKey, ManifestAnnotationValue}
+import graviton.core.types.BlobOffset
 import zio.test.*
 
 object PagedManifestSpec extends ZIOSpecDefault:
@@ -27,8 +29,8 @@ object PagedManifestSpec extends ZIOSpecDefault:
           (0 until entryCount).toList.map { i =>
             ManifestEntry(
               key = blobKey(1L),
-              span = Span.unsafe(i.toLong, i.toLong),
-              annotations = Map.empty,
+              span = Span.unsafe(BlobOffset.unsafe(i.toLong), BlobOffset.unsafe(i.toLong)),
+              annotations = Map.empty[ManifestAnnotationKey, ManifestAnnotationValue],
             )
           }
 
@@ -52,8 +54,8 @@ object PagedManifestSpec extends ZIOSpecDefault:
           (0 until entryCount).toList.map { i =>
             ManifestEntry(
               key = blobKey(1L),
-              span = Span.unsafe(i.toLong, i.toLong),
-              annotations = Map.empty,
+              span = Span.unsafe(BlobOffset.unsafe(i.toLong), BlobOffset.unsafe(i.toLong)),
+              annotations = Map.empty[ManifestAnnotationKey, ManifestAnnotationValue],
             )
           }
 

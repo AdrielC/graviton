@@ -106,8 +106,22 @@ object FreeScanV2Spec extends ZIOSpecDefault:
             keyBits2 <- KeyBits.create(runtimeHashAlgo, digest, 5L)
             blobKey1 <- BinaryKey.blob(keyBits1)
             blobKey2 <- BinaryKey.blob(keyBits2)
-            entry1    = ManifestEntry(blobKey1, Span.unsafe(0L, 9L), Map("name" -> "a"))
-            entry2    = ManifestEntry(blobKey2, Span.unsafe(10L, 14L), Map("name" -> "b"))
+            entry1    = ManifestEntry(
+                          blobKey1,
+                          Span.unsafe(graviton.core.types.BlobOffset.unsafe(0L), graviton.core.types.BlobOffset.unsafe(9L)),
+                          Map(
+                            graviton.core.types.ManifestAnnotationKey.applyUnsafe("name") ->
+                              graviton.core.types.ManifestAnnotationValue.applyUnsafe("a")
+                          ),
+                        )
+            entry2    = ManifestEntry(
+                          blobKey2,
+                          Span.unsafe(graviton.core.types.BlobOffset.unsafe(10L), graviton.core.types.BlobOffset.unsafe(14L)),
+                          Map(
+                            graviton.core.types.ManifestAnnotationKey.applyUnsafe("name") ->
+                              graviton.core.types.ManifestAnnotationValue.applyUnsafe("b")
+                          ),
+                        )
             outputs   = buildManifest.runChunk(List(entry1, entry2))
             manifest <- outputs.lastOption.toRight("No manifest found")
           yield assertTrue(

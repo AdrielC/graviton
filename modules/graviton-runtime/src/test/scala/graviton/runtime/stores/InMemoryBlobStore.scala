@@ -5,6 +5,7 @@ import graviton.core.bytes.*
 import graviton.core.keys.*
 import graviton.core.locator.*
 import graviton.core.model.ByteConstraints
+import graviton.core.types.{LocatorBucket, LocatorScheme}
 import graviton.core.types.{ChunkCount, FileSize}
 import graviton.runtime.model.*
 import zio.*
@@ -21,8 +22,8 @@ import scala.collection.immutable.Map
  */
 final class InMemoryBlobStore private (
   blobs: Ref[Map[BinaryKey, StoredBlob]],
-  scheme: String,
-  bucket: String,
+  scheme: LocatorScheme,
+  bucket: LocatorBucket,
 ) extends BlobStore:
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
@@ -32,7 +33,6 @@ final class InMemoryBlobStore private (
         builder
       }
       .mapZIO(builder => persist(builder.result(), plan))
-      .ignoreLeftover
 
   override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
     ZStream
@@ -85,7 +85,7 @@ final class InMemoryBlobStore private (
     else ((length - 1) / ByteConstraints.MaxBlockBytes + 1).toLong
 
   private def defaultLocator(key: BinaryKey): BlobLocator =
-    BlobLocator(scheme, bucket, key.bits.digest.hex.value)
+    BlobLocator(scheme, bucket, graviton.core.types.LocatorPath.applyUnsafe(key.bits.digest.hex.value))
 
 private final case class StoredBlob(
   bytes: Chunk[Byte],
@@ -96,4 +96,8 @@ private final case class StoredBlob(
 
 object InMemoryBlobStore:
   def make(bucket: String = "default", scheme: String = "memory"): UIO[InMemoryBlobStore] =
-    Ref.make(Map.empty[BinaryKey, StoredBlob]).map(ref => new InMemoryBlobStore(ref, scheme, bucket))
+    Ref.make(Map.empty[BinaryKey, StoredBlob]).map { ref =>
+      val s = graviton.core.types.LocatorScheme.applyUnsafe(Option(scheme).getOrElse("").trim.toLowerCase)
+      val b = graviton.core.types.LocatorBucket.applyUnsafe(Option(bucket).getOrElse("").trim)
+      new InMemoryBlobStore(ref, s, b)
+    }

@@ -5,6 +5,7 @@ import graviton.core.ranges.Span
 import graviton.core.macros.Interpolators.*
 import zio.test.*
 import graviton.core.types.HexLower
+import graviton.core.types.given
 
 object InterpolatorSpec extends ZIOSpecDefault:
 
@@ -29,8 +30,9 @@ object InterpolatorSpec extends ZIOSpecDefault:
         assertTrue(errors.head.message.contains("hex literal"))
       },
       test("locator interpolator constructs BlobLocator") {
-        val locator = locator"s3://my-bucket/path/to/object"
-        assertTrue(locator == BlobLocator("s3", "my-bucket", "path/to/object"))
+        val locator  = locator"s3://my-bucket/path/to/object"
+        val expected = BlobLocator.from("s3", "my-bucket", "path/to/object").toOption.get
+        assertTrue(locator == expected)
       },
       test("locator interpolator rejects malformed uri") {
         val errors =
@@ -39,16 +41,16 @@ object InterpolatorSpec extends ZIOSpecDefault:
       },
       test("span interpolator emits inclusive spans by default") {
         val window = span"0..42"
-        assertTrue(window == Span.unsafe(0L, 42L))
+        assertTrue(window == Span.unsafe(graviton.core.types.BlobOffset.unsafe(0L), graviton.core.types.BlobOffset.unsafe(42L)))
       },
       test("span interpolator honors exclusivity markers") {
         val halfOpen = span"[0..42)"
-        assertTrue(halfOpen == Span.unsafe(0L, 41L))
+        assertTrue(halfOpen == Span.unsafe(graviton.core.types.BlobOffset.unsafe(0L), graviton.core.types.BlobOffset.unsafe(41L)))
       },
       test("span interpolator supports runtime arguments") {
         val start = 10L
         val size  = 5L
         val block = span"$start..${start + size - 1}"
-        assertTrue(block == Span.unsafe(10L, 14L))
+        assertTrue(block == Span.unsafe(graviton.core.types.BlobOffset.unsafe(10L), graviton.core.types.BlobOffset.unsafe(14L)))
       },
     )

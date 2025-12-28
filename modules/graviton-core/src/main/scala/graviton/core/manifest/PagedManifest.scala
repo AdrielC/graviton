@@ -3,6 +3,7 @@ package graviton.core.manifest
 import graviton.core.bytes.{Digest, HashAlgo, Hasher}
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
+import graviton.core.types.BlobOffset
 
 /**
  * A paginated manifest representation: the logical manifest is split into multiple page-manifests,
@@ -13,7 +14,7 @@ import graviton.core.ranges.Span
  */
 final case class ManifestPageRef(
   key: BinaryKey.Manifest,
-  span: Span[Long],
+  span: Span[BlobOffset],
   entryCount: Int,
 )
 
@@ -30,20 +31,21 @@ object ManifestRoot:
     validate(pages, expectedSize = None)
 
   private def validate(pages: List[ManifestPageRef], expectedSize: Option[Long]): Either[String, ManifestRoot] =
+    val ord       = summon[Ordering[BlobOffset]]
     val validated =
-      pages.zipWithIndex.foldLeft[Either[String, (List[ManifestPageRef], Option[Long])]](Right((Nil, None))) { case (acc, (page, idx)) =>
-        acc.flatMap { case (accumulated, previousEnd) =>
-          val start = page.span.startInclusive
-          val end   = page.span.endInclusive
+      pages.zipWithIndex.foldLeft[Either[String, (List[ManifestPageRef], Option[BlobOffset])]](Right((Nil, None))) {
+        case (acc, (page, idx)) =>
+          acc.flatMap { case (accumulated, previousEnd) =>
+            val start = page.span.startInclusive
+            val end   = page.span.endInclusive
 
-          if page.entryCount <= 0 then Left(s"Page $idx must have positive entryCount, got ${page.entryCount}")
-          else if start < 0 then Left(s"Page $idx starts before zero: $start")
-          else if end < start then Left(s"Page $idx has negative length: start=$start end=$end")
-          else if previousEnd.exists(prior => start <= prior) then
-            val prior = previousEnd.get
-            Left(s"Pages must be strictly increasing and non-overlapping; page $idx starts at $start after $prior")
-          else Right((accumulated :+ page, Some(end)))
-        }
+            if page.entryCount <= 0 then Left(s"Page $idx must have positive entryCount, got ${page.entryCount}")
+            else if ord.lt(end, start) then Left(s"Page $idx has negative length: start=$start end=$end")
+            else if previousEnd.exists(prior => ord.lteq(start, prior)) then
+              val prior = previousEnd.get
+              Left(s"Pages must be strictly increasing and non-overlapping; page $idx starts at $start after $prior")
+            else Right((accumulated :+ page, Some(end)))
+          }
       }
 
     validated.flatMap { case (ordered, lastEnd) =>
@@ -51,7 +53,7 @@ object ManifestRoot:
         lastEnd match
           case None      => Right(0L)
           case Some(end) =>
-            try Right(math.addExact(end, 1L))
+            try Right(math.addExact(end.value, 1L))
             catch case _: ArithmeticException => Left("Manifest root size overflow")
 
       computedSize.flatMap { total =>

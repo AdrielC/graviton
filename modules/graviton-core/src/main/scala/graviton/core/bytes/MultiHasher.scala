@@ -33,19 +33,23 @@ object MultiHasher:
     def apply(algo: (HashAlgo, Hasher), algos: (HashAlgo, Hasher)*): Hashers =
       NonEmptySortedMap(algo, algos*)
 
-    def default: MultiHasher =
-      MultiHasher(
-        NonEmptySortedMap.fromNonEmptyChunk(
-          Validation
-            .validateAll(
-              HashAlgo.preferredOrder
-                .map(algo => Validation.fromEither(algo.hasher(None).map(hasher => (algo, hasher))))
-            )
-            .getOrElse(
-              throw new IllegalStateException("Failed to validate all hashers")
-            )
-        )
-      )
+    def default: Either[String, MultiHasher] =
+      val validated =
+        Validation
+          .validateAll(
+            HashAlgo.preferredOrder
+              .map(algo => Validation.fromEither(algo.hasher(None).map(hasher => (algo, hasher))))
+          )
+          .toEither
+          .left
+          .map(_.mkString(", "))
+
+      validated
+        .map { pairs =>
+          val hashers: NonEmptySortedMap[HashAlgo, Hasher] =
+            NonEmptySortedMap.fromNonEmptyChunk(pairs)
+          MultiHasher(MultiHasher.Hashers(hashers))
+        }
 
   def make(algorithm: HashAlgo, algorithms: HashAlgo*): Either[String, MultiHasher] =
     val acc = algorithms.foldLeft(algorithm.hasher(None).map(hasher => Hashers(algorithm -> hasher))) { (acc, algo) =>
