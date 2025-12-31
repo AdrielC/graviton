@@ -34,13 +34,11 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     suite("CasBlobStore")(
       test("uses Chunker boundaries for block spans") {
-        val bytes = "x" * 2500
-        val data  = Chunk.fromArray(bytes.getBytes(StandardCharsets.UTF_8))
+        val bytes   = "x" * 2500
+        val data    = Chunk.fromArray(bytes.getBytes(StandardCharsets.UTF_8))
+        val chunker = Chunker.fixed(UploadChunkSize(1024))
 
         for
-          chunkSize <- ZIO.fromEither(UploadChunkSize.either(1024)).mapError(msg => new IllegalArgumentException(msg))
-          chunker    = Chunker.fixed(chunkSize)
-
           blockStore <- InMemoryBlockStore.make
           manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
           repo        = InMemoryManifestRepo(manifestsR)
@@ -73,8 +71,9 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
         )
       },
       test("applies BlobWritePlan.program pipeline before chunking + hashing") {
-        val input = "a-b-c-d"
-        val data  = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+        val input   = "a-b-c-d"
+        val data    = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+        val chunker = Chunker.fixed(UploadChunkSize(2))
 
         val program =
           IngestProgram.UsePipeline(
@@ -82,9 +81,6 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           )
 
         for
-          chunkSize <- ZIO.fromEither(UploadChunkSize.either(2)).mapError(msg => new IllegalArgumentException(msg))
-          chunker    = Chunker.fixed(chunkSize)
-
           blockStore <- InMemoryBlockStore.make
           manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
           repo        = InMemoryManifestRepo(manifestsR)
@@ -135,8 +131,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
         for
           registry <- InMemoryMetricsRegistry.make
 
-          chunkSize <- ZIO.fromEither(UploadChunkSize.either(2)).mapError(msg => new IllegalArgumentException(msg))
-          chunker    = Chunker.fixed(chunkSize)
+          chunker = Chunker.fixed(UploadChunkSize(2))
 
           blockStore <- InMemoryBlockStore.make
           manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])

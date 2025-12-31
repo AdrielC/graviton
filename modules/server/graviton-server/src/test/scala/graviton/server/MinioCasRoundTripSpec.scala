@@ -44,17 +44,16 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
     else
       suite("MinIO + Postgres CAS round-trip")(
         test("upload then download matches bytes (Chunker.fixed)") {
-          val data =
+          val data    =
             Chunk.fromArray(("hello-minio-cas-" * 2000).getBytes(StandardCharsets.UTF_8))
+          val chunker = Chunker.fixed(UploadChunkSize(1024))
 
           for
-            chunkSize <- ZIO.fromEither(UploadChunkSize.either(1024)).mapError(msg => new IllegalArgumentException(msg))
-            chunker    = Chunker.fixed(chunkSize)
-            store     <- ZIO.service[BlobStore]
-            written   <- Chunker.locally(chunker) {
-                           ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
-                         }
-            readBack  <- store.get(written.key).runCollect
+            store    <- ZIO.service[BlobStore]
+            written  <- Chunker.locally(chunker) {
+                          ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+                        }
+            readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
         }
       ).provideShared(blobLayer) @@ TestAspect.sequential
