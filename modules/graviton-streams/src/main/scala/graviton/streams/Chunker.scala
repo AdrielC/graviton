@@ -9,13 +9,26 @@ import scala.Conversion
 
 trait Chunker:
   def name: String
-  def pipeline: ZPipeline[Any, Throwable, Byte, Block]
+  def pipeline: ZPipeline[Any, Chunker.Err, Byte, Block]
 
 object Chunker:
-  private val DefaultChunkBytes = 1024 * 1024
+  type Err = ChunkerCore.Err
+
+  final case class Failure(err: Err) extends Exception(render(err))
+
+  def toThrowable(err: Err): Throwable =
+    Failure(err)
+
+  private def render(err: Err): String =
+    err match
+      case ChunkerCore.Err.EmptyDelimiter        => "Delimiter cannot be empty"
+      case ChunkerCore.Err.InvalidBounds(msg)    => msg
+      case ChunkerCore.Err.InvalidDelimiter(msg) => msg
+      case ChunkerCore.Err.InvalidBlock(msg)     => msg
 
   private val defaultChunkSize: UploadChunkSize =
-    UploadChunkSize.either(DefaultChunkBytes).fold(_ => UploadChunkSize.unsafe(DefaultChunkBytes), identity)
+    // Compile-time refined (Iron) for a compile-time constant.
+    UploadChunkSize(1024 * 1024)
 
   val default: Chunker = fixed(defaultChunkSize)
 
@@ -58,32 +71,31 @@ object Chunker:
     val dLen     = delim.length
     SimpleChunker(label.getOrElse(s"delimiter-$dLen-${if includeDelimiter then "incl" else "excl"}"), pipeline)
 
-  given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Throwable, Byte, Block]] with
-    def apply(chunker: Chunker): ZPipeline[Any, Throwable, Byte, Block] =
+  given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Err, Byte, Block]] with
+    def apply(chunker: Chunker): ZPipeline[Any, Err, Byte, Block] =
       chunker.pipeline
 
 private final case class SimpleChunker(
   name: String,
-  pipeline: ZPipeline[Any, Throwable, Byte, Block],
+  pipeline: ZPipeline[Any, Chunker.Err, Byte, Block],
 ) extends Chunker
 
 private object Incremental:
 
   def pipeline(
     mode: ChunkerCore.Mode
-  ): ZPipeline[Any, Throwable, Byte, Block] =
+  ): ZPipeline[Any, Chunker.Err, Byte, Block] =
     ZPipeline.fromChannel {
-      def init: IO[Throwable, ChunkerCore.State] =
-        ZIO.fromEither(ChunkerCore.init(mode).left.map(toThrowable))
+      def init: IO[Chunker.Err, ChunkerCore.State] =
+        ZIO.fromEither(ChunkerCore.init(mode))
 
-      def loop(st0: ChunkerCore.State): ZChannel[Any, Throwable, Chunk[Byte], Any, Throwable, Chunk[Block], Any] =
+      def loop(st0: ChunkerCore.State): ZChannel[Any, Chunker.Err, Chunk[Byte], Any, Chunker.Err, Chunk[Block], Any] =
         ZChannel.readWith(
           (in: Chunk[Byte]) =>
             ZChannel
               .fromZIO {
                 ZIO
                   .fromEither(st0.step(in))
-                  .mapError(toThrowable)
               }
               .flatMap { case (st2, out) =>
                 ZChannel.write(out) *> loop(st2)
@@ -93,17 +105,10 @@ private object Incremental:
             // end-of-stream: flush remaining bytes as a final block (if non-empty)
             ZChannel
               .fromZIO {
-                ZIO.fromEither(st0.finish).mapError(toThrowable).map(_._2)
+                ZIO.fromEither(st0.finish).map(_._2)
               }
               .flatMap(out => ZChannel.write(out) *> ZChannel.unit),
         )
 
       ZChannel.fromZIO(init).flatMap(loop)
     }
-
-  private def toThrowable(err: ChunkerCore.Err): Throwable =
-    err match
-      case ChunkerCore.Err.EmptyDelimiter        => new IllegalArgumentException("Delimiter cannot be empty")
-      case ChunkerCore.Err.InvalidBounds(msg)    => new IllegalArgumentException(msg)
-      case ChunkerCore.Err.InvalidDelimiter(msg) => new IllegalArgumentException(msg)
-      case ChunkerCore.Err.InvalidBlock(msg)     => new IllegalArgumentException(msg)

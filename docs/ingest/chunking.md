@@ -18,7 +18,7 @@ This page also mentions a few *planned* chunkers (Anchored CDC, BuzHash, Rabin).
 
 ### ZIO streams
 
-`graviton.streams.Chunker` exposes chunkers as `ZPipeline[Any, Throwable, Byte, Block]`:
+`graviton.streams.Chunker` exposes chunkers as a typed `ZPipeline[Any, Chunker.Err, Byte, Block]`:
 
 ```scala
 import graviton.core.types.UploadChunkSize
@@ -26,9 +26,9 @@ import graviton.streams.Chunker
 import zio._
 import zio.stream._
 
-val chunkSize = UploadChunkSize.unsafe(1024 * 1024)
+val chunkSize = UploadChunkSize(1024 * 1024) // compile-time refined
 
-val blocks: ZStream[Any, Throwable, graviton.core.model.Block] =
+val blocks: ZStream[Any, Throwable | Chunker.Err, graviton.core.model.Block] =
   ZStream.fromFileName("data.bin")
     .via(Chunker.fixed(chunkSize).pipeline)
 ```
@@ -82,7 +82,7 @@ import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
 import zio.stream.ZStream
 
-val chunkSize = UploadChunkSize.unsafe(1024 * 1024)
+val chunkSize = UploadChunkSize(1024 * 1024) // compile-time refined
 
 ZStream.fromFileName("data.bin")
   .via(Chunker.fixed(chunkSize).pipeline)

@@ -18,19 +18,19 @@ object ChunkerSpec extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     suite("Chunker")(
       test("fixed chunker does not emit empty blocks at exact multiples") {
-        val chunker = Chunker.fixed(UploadChunkSize.unsafe(3))
+        val chunker = Chunker.fixed(UploadChunkSize(3))
         assertZIO(
           ZStream.fromChunk(bytes(6)).via(chunker.pipeline).runCollect.map(_.map(_.length))
         )(Assertion.equalTo(Chunk(3, 3)))
       },
       test("fixed chunker emits a final remainder block (non-empty)") {
-        val chunker = Chunker.fixed(UploadChunkSize.unsafe(4))
+        val chunker = Chunker.fixed(UploadChunkSize(4))
         assertZIO(
           ZStream.fromChunk(bytes(10)).via(chunker.pipeline).runCollect.map(_.map(_.length))
         )(Assertion.equalTo(Chunk(4, 4, 2)))
       },
       test("fixed chunker emits no blocks for empty input") {
-        val chunker = Chunker.fixed(UploadChunkSize.unsafe(4))
+        val chunker = Chunker.fixed(UploadChunkSize(4))
         assertZIO(
           ZStream.empty.via(chunker.pipeline).runCollect
         )(Assertion.isEmpty)

@@ -31,13 +31,12 @@ final case class Ingest(blockStore: BlockStore):
     yield canonical
 
   def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
-    val attrs = BinaryAttributes.empty
-    val sink  = blockStore.putBlocks()
+    val attrs     = BinaryAttributes.empty
+    val sink      = blockStore.putBlocks()
+    val chunkSize = UploadChunkSize(1 * 1024 * 1024) // compile-time refined
 
-    for
-      chunkSize <- UploadChunkSize.either(1 * 1024 * 1024).toTask
-      result    <- bytes
-                     .via(Chunker.fixed(chunkSize))
-                     .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
-                     .run(sink)
+    for result <- bytes
+                    .via(Chunker.fixed(chunkSize).pipeline.mapError(Chunker.toThrowable))
+                    .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
+                    .run(sink)
     yield result
