@@ -26,13 +26,13 @@ object ChunkerPerfSpec extends ZIOSpecDefault:
       si += 1
     out.result()
 
-  private def time[A](label: String)(zio: ZIO[Any, Throwable, A]): ZIO[Any, Throwable, A] =
+  private def time[E, A](label: String)(zio: ZIO[Any, E, A]): ZIO[Any, E, A] =
     for
       t0 <- Clock.nanoTime
       a  <- zio
       t1 <- Clock.nanoTime
       ms  = (t1 - t0).toDouble / 1e6
-      _  <- Console.printLine(f"$label%-28s $ms%8.2f ms")
+      _  <- Console.printLine(f"$label%-28s $ms%8.2f ms").orDie
     yield a
 
   override def spec: Spec[TestEnvironment, Any] =
@@ -46,40 +46,41 @@ object ChunkerPerfSpec extends ZIOSpecDefault:
         val cfgAvg = 1024
         val cfgMax = 4096
 
-        val runCore =
+        val runCore: ZIO[Any, ChunkerCore.Err, Int] =
           ZIO
             .fromEither(ChunkerCore.init(ChunkerCore.Mode.FastCdc(cfgMin, cfgAvg, cfgMax)))
-            .mapError(err => new RuntimeException(err.toString))
             .flatMap { st0 =>
-              ZIO.attempt {
+              ZIO.fromEither {
                 var st     = st0
                 var blocks = 0
+                var err0   = Option.empty[ChunkerCore.Err]
 
                 var i = 0
-                while i < chunks.length do
+                while i < chunks.length && err0.isEmpty do
                   st.step(chunks(i)) match
-                    case Left(err)            => throw new RuntimeException(err.toString)
+                    case Left(err)            => err0 = Some(err)
                     case Right((st2, outBlk)) =>
                       st = st2
                       blocks += outBlk.length
                   i += 1
 
-                st.finish match
-                  case Left(err)          => throw new RuntimeException(err.toString)
-                  case Right((_, outBlk)) => blocks += outBlk.length
-
-                blocks
+                err0 match
+                  case Some(err) => Left(err)
+                  case None      =>
+                    st.finish match
+                      case Left(err)          => Left(err)
+                      case Right((_, outBlk)) => Right(blocks + outBlk.length)
               }
             }
 
-        val runPipeline =
+        val runPipeline: ZIO[Any, ChunkerCore.Err, Int] =
           ZStream
             .fromChunks(chunks*)
             .via(Chunker.fastCdc(cfgMin, cfgAvg, cfgMax).pipeline)
             .runFold(0)((n, _) => n + 1)
 
         for
-          _  <- Console.printLine("---- Chunker microbench (FastCDC) ----")
+          _  <- Console.printLine("---- Chunker microbench (FastCDC) ----").orDie
           b1 <- time("ChunkerCore (step loop)")(runCore)
           b2 <- time("ZStream.via(Chunker)")(runPipeline)
         yield assertTrue(b1 > 0, b2 > 0)

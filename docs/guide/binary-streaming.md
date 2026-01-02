@@ -10,7 +10,7 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | **Blob** | Logical object addressable via `BinaryKey`. Blobs reference manifests and carry attributes that survive deduplication. | `graviton.runtime.stores.BlobStore` |
 | **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
-| **Chunker** | A `ZPipeline[Any, Throwable, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
+| **Chunker** | A `ZPipeline[Any, Chunker.Err, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
 ## End-to-end flow
 
@@ -77,15 +77,14 @@ final case class Ingest(blockStore: BlockStore):
     yield canonical
 
   def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
-    val attrs = BinaryAttributes.empty
-    val sink  = blockStore.putBlocks()
+    val attrs     = BinaryAttributes.empty
+    val sink      = blockStore.putBlocks()
+    val chunkSize = UploadChunkSize(1 * 1024 * 1024) // compile-time refined
 
-    for
-      chunkSize <- UploadChunkSize.either(1 * 1024 * 1024).toTask
-      result    <- bytes
-                     .via(Chunker.fixed(chunkSize))
-                     .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
-                     .run(sink)
+    for result <- bytes
+                    .via(Chunker.fixed(chunkSize).pipeline.mapError(Chunker.toThrowable))
+                    .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
+                    .run(sink)
     yield result
 ```
 <!-- snippet:binary-streaming-ingest:end -->

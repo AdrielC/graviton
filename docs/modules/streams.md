@@ -4,7 +4,7 @@
 
 ## Chunking & hashing
 
-- `Chunker`: factory for chunking pipelines (`ZPipeline[Any, Throwable, Byte, Block]`). Implemented as a single-pass incremental cutter with bounded memory (one in-flight `Array[Byte](maxBytes)` per stream).
+- `Chunker`: factory for chunking pipelines (`ZPipeline[Any, Chunker.Err, Byte, Block]`). Implemented as a single-pass incremental cutter with bounded memory (one in-flight `Array[Byte](maxBytes)` per stream).
 - `ChunkerCore`: the same chunking logic as a plain state machine (`Either[Err, (State, Chunk[Block])]`), useful for tests/benchmarks or lifting into non-ZIO stream runtimes.
 - `HashingZ`: exposes `sink` and `pipeline` helpers for `Hasher`/`MultiHasher` instances from `graviton-core`. These run incremental updates across byte streams and surface either a final hash or the original hasher for chained computations.
 

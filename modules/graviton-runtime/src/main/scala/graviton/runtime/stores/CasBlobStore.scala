@@ -90,7 +90,8 @@ final class CasBlobStore(
                     totalBytes.update(_ + chunk.length.toLong) *>
                     ZIO.succeed(chunk)
                 }
-                .via(chunker.pipeline)
+                // BlobStore APIs are `Throwable`-typed, so bridge ChunkerCore.Err at the boundary.
+                .via(chunker.pipeline.mapError(graviton.streams.Chunker.toThrowable))
                 .mapZIO { block =>
                   val payload = block.bytes
                   for

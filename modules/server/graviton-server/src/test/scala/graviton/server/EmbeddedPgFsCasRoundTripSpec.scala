@@ -63,17 +63,16 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
     else
       suite("Embedded PG + FS CAS round-trip")(
         test("upload then download matches bytes (Chunker.fixed)") {
-          val data =
+          val data    =
             Chunk.fromArray(("hello-embeddedpg-fs-" * 2000).getBytes(StandardCharsets.UTF_8))
+          val chunker = Chunker.fixed(UploadChunkSize(1024))
 
           for
-            chunkSize <- ZIO.fromEither(UploadChunkSize.either(1024)).mapError(msg => new IllegalArgumentException(msg))
-            chunker    = Chunker.fixed(chunkSize)
-            store     <- ZIO.service[BlobStore]
-            written   <- Chunker.locally(chunker) {
-                           ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
-                         }
-            readBack  <- store.get(written.key).runCollect
+            store    <- ZIO.service[BlobStore]
+            written  <- Chunker.locally(chunker) {
+                          ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+                        }
+            readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
         }
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
