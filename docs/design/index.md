@@ -22,6 +22,7 @@ This section contains detailed design documents for major Graviton features and 
 
 - **Schema Evolution** — Forward-compatible manifest format (planned)
 - **Binary Attributes** — Advertised vs confirmed metadata (see [Schema & Types](../core/schema.md))
+- **Principled TypeId system** — replacing `TypeName` with a Scala 2/3-safe, arity-aware `TypeId` (see [TypeId design](./typeid.md))
 - **Hashing Strategy** — Multi-algorithm support and key derivation (planned)
 
 ### Storage & Performance
