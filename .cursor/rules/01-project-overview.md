@@ -29,7 +29,7 @@ dbcodegen/           Postgres schema → Scala codegen tool
 
 | Concern          | Library / Version           |
 |------------------|-----------------------------|
-| Language         | Scala 3.8.1                 |
+| Language         | Scala 3.7.4                 |
 | Effect system    | ZIO 2.1.23                  |
 | Streaming        | zio-streams (bundled w/ ZIO)|
 | Schema / codecs  | zio-schema 1.7.6            |

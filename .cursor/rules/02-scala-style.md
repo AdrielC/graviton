@@ -2,7 +2,8 @@
 
 ## Language Level
 
-- **Scala 3.8.1** — use Scala 3 syntax throughout: `enum`, `given`/`using`, `extension`,
+- **Scala 3.7.4** — use Scala 3 syntax throughout. Pinned for `kyo.Record` compatibility
+  (multi-field Records with `&` intersections break at runtime on 3.8+).: `enum`, `given`/`using`, `extension`,
   optional braces, `opaque type`, `inline`, `transparent inline`, union types, match types.
 - **No Scala 2 idioms**: no `implicit` keyword, no `implicitly`, no procedure syntax, no
   `trait Foo { def bar }` (use `trait Foo: def bar`).
