@@ -4,13 +4,13 @@ object Dependencies {
    * Central version catalog.
    *
    * Keep this in sync with the constraints of the existing codebase:
-   * - Scala 3.7.4 (current build)
+   * - Scala 3.8.1 (current build)
    * - ZIO 2.x
    * - zio-http 3.x
    * - iron 3.x (required by `graviton.core.types` refinements on adriel-test)
    */
   object V {
-    val scala3     = "3.7.4"
+    val scala3     = "3.8.1"
     val zio        = "2.1.23"
     val zioSchema  = "1.7.6"
     val zioPrelude = "1.0.0-RC44"

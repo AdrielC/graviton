@@ -9,7 +9,7 @@ import zio.stream.*
 final class GravitonUploadGatewayClientZIO(
   gateway: GravitonUploadGatewayClientZIO.UploadGatewayClient,
   service: GravitonUploadGatewayClientZIO.UploadServiceClient,
-)(using clock: Clock):
+):
 
   import GravitonUploadGatewayClientZIO.*
 
