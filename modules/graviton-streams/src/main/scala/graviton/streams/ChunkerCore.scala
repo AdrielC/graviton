@@ -1,5 +1,6 @@
 package graviton.streams
 
+import graviton.core.GravitonError
 import graviton.core.model.Block
 import zio.{Chunk, ChunkBuilder}
 
@@ -12,9 +13,17 @@ import zio.{Chunk, ChunkBuilder}
  */
 object ChunkerCore:
 
-  sealed trait Err extends Product with Serializable
+  sealed trait Err extends Product with Serializable:
+    def message: String
+
+    /** Convert to the unified error hierarchy. */
+    def toGravitonError: GravitonError.ChunkerError =
+      GravitonError.ChunkerError(message)
+
   object Err:
-    case object EmptyDelimiter                         extends Err
+    case object EmptyDelimiter extends Err:
+      def message: String = "Delimiter cannot be empty"
+
     final case class InvalidBounds(message: String)    extends Err
     final case class InvalidBlock(message: String)     extends Err
     final case class InvalidDelimiter(message: String) extends Err
