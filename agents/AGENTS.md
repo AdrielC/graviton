@@ -49,3 +49,6 @@ Reference: https://www.ironrefined.org/
 - [ ] Domain invariants encoded with refined types.
 - [ ] Docs and tests updated where needed.
 - [ ] Validation commands executed.
+
+## Execution Playbook
+For the full, step-by-step execution guide, see `docs/dev/agent-strategy-playbook.md`.

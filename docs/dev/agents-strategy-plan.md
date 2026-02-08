@@ -37,3 +37,7 @@ Define an actionable strategy for consistent code style, streaming patterns, and
 - [x] Document Iron refined type patterns for domain modeling.
 - [x] Add validation checklist and update existing workflow references.
 - [x] Review module boundaries and confirm plan fits `modules/*` structure.
+
+## Deep-Dive Playbook
+For an exhaustive, step-by-step execution guide ("sicko mode"), see:
+- `docs/dev/agent-strategy-playbook.md`
