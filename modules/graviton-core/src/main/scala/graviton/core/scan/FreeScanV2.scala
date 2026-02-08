@@ -141,23 +141,25 @@ object FS:
       (hasher, Chunk.empty)
     }(hasher => Chunk(hasher.flatMap(h => h.digest)))
 
-  private final case class ManifestState(entries: List[ManifestEntry], total: Long)
-
   def buildManifest: FreeScan[Prim, ManifestEntry, Manifest] =
-    fold[ManifestEntry, Manifest, ManifestState](ManifestState(Nil, 0L)) { (state, entry) =>
+    type S = Record[("entries" ~ List[ManifestEntry]) & ("total" ~ Long)]
+    val init = (Record.empty & ("entries" ~ List.empty[ManifestEntry]) & ("total" ~ 0L)).asInstanceOf[S]
+    fold[ManifestEntry, Manifest, S](init) { (state, entry) =>
       val nextEntries = entry :: state.entries
       val nextTotal   = state.total + entry.span.length.value
-      (ManifestState(nextEntries, nextTotal), Chunk.empty)
+      val nextS       = (Record.empty & ("entries" ~ nextEntries) & ("total" ~ nextTotal)).asInstanceOf[S]
+      (nextS, Chunk.empty)
     }(state => Chunk(Manifest(state.entries.reverse, state.total)))
-
-  private final case class ChunkerState(buffer: Array[Byte], filled: Int)
 
   def fixedChunker(frameBytes: Int): FreeScan[Prim, Chunk[Byte], Chunk[Byte]] =
     val safeSize = math.max(1, frameBytes)
-    fold[Chunk[Byte], Chunk[Byte], ChunkerState](ChunkerState(Array.ofDim[Byte](safeSize), 0)) { (state, chunk) =>
+    type S = Record[("buffer" ~ Array[Byte]) & ("filled" ~ Int)]
+    val init = (Record.empty & ("buffer" ~ Array.ofDim[Byte](safeSize)) & ("filled" ~ 0)).asInstanceOf[S]
+    fold[Chunk[Byte], Chunk[Byte], S](init) { (state, chunk) =>
       val buffer   = state.buffer
+      val filled   = state.filled
       val out      = ChunkBuilder.make[Chunk[Byte]]()
-      var writeIdx = state.filled
+      var writeIdx = filled
       var idx      = 0
       while idx < chunk.length do
         buffer(writeIdx) = chunk(idx)
@@ -166,10 +168,13 @@ object FS:
           out += Chunk.fromArray(java.util.Arrays.copyOf(buffer, safeSize))
           writeIdx = 0
         idx += 1
-      (ChunkerState(buffer, writeIdx), out.result())
+      val nextS    = (Record.empty & ("buffer" ~ buffer) & ("filled" ~ writeIdx)).asInstanceOf[S]
+      (nextS, out.result())
     } { state =>
-      if state.filled == 0 then Chunk.empty
-      else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(state.buffer, state.filled)))
+      val buffer = state.buffer
+      val filled = state.filled
+      if filled == 0 then Chunk.empty
+      else Chunk(Chunk.fromArray(java.util.Arrays.copyOf(buffer, filled)))
     }
 
   def pair[L <: String & Singleton, R <: String & Singleton, A, B](

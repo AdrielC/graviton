@@ -2,7 +2,7 @@
 
 **Generated**: 2026-02-08
 **Branch**: `cursor/codebase-strategy-and-patterns-aea2`
-**Scala**: 3.8.1 | **ZIO**: 2.1.23 | **Iron**: 3.2.2 | **sbt**: 1.11.5
+**Scala**: 3.7.4 | **ZIO**: 2.1.23 | **Iron**: 3.2.2 | **sbt**: 1.11.5
 
 ---
 
@@ -173,7 +173,7 @@ db                     1 main /  1 test  █████████████
 
 | Dependency | Version | Latest Known | Status |
 |------------|---------|-------------|--------|
-| Scala | 3.8.1 | 3.8.1 | Current |
+| Scala | 3.7.4 | 3.8.1 | **Pinned for kyo.Record compat** |
 | ZIO | 2.1.23 | ~2.1.x | Current |
 | zio-schema | 1.7.6 | ~1.7.x | Current |
 | zio-http | 3.7.4 | ~3.7.x | Current |
@@ -184,7 +184,7 @@ db                     1 main /  1 test  █████████████
 
 ### Dependency Concerns
 
-1. **Kyo 1.0-RC1**: Pre-release dependency in `graviton-core`. Multi-field `kyo.Record` with `&` intersection types fails at runtime on Scala 3.8. Workaround applied (case classes for `buildManifest`/`fixedChunker`). Single-field Records still work. **Risk**: Future Kyo API changes could break more code.
+1. **Kyo 1.0-RC1**: Pre-release dependency in `graviton-core`. Multi-field `kyo.Record` with `&` intersection types fails at runtime on Scala 3.8+ due to changed `selectDynamic` dispatch. **Scala is pinned at 3.7.4** to preserve full Record functionality. Do not upgrade Scala without verifying kyo.Record compatibility.
 
 2. **Heavy core module**: `graviton-core` depends on `kyo-data` + `kyo-core` + `kyo-prelude` + `kyo-zio` (4 Kyo artifacts) plus `hearth` for its "pure domain" module. Consider isolating Kyo-dependent scan code.
 
@@ -226,10 +226,10 @@ db                     1 main /  1 test  █████████████
 ### Commits on this branch (9 commits)
 
 1. **Add comprehensive .cursor/rules** — 10 rule files covering architecture, style, Iron, ZIO streaming, services, scans, testing, health analysis, execution plan, code patterns
-2. **Upgrade Scala 3.7.4 → 3.8.1** — Version bump + fix deprecated `-Xfatal-warnings`, fix unused implicit detection
-3. **Fix Scala 3.8.1 compatibility** — Replace broken kyo.Record multi-field state with case classes, fix test call sites
-4. **Fix line-merging + scalafmt** — Post-replace formatting cleanup
-5. **Update rules for Scala 3.8.1** — Add kyo.Record compat warning to scan algebra rules
+2. **Scala version exploration** — Tested 3.8.1, discovered kyo.Record incompatibility, pinned back to 3.7.4 to preserve full Record support for scan composition
+3. **Fix unused implicit** — Removed unused `Clock` parameter from `GravitonUploadGatewayClientZIO` (good hygiene regardless of Scala version)
+4. **Fix test call sites + scalafmt** — Updated all test constructors, formatting cleanup
+5. **Update rules with Scala pinning rationale** — Document why 3.7.4 is required for kyo.Record
 6. **Phase 1: Foundation cleanup** — BlobWriteResult to own file, archive 15 stale markdown files
 7. **Phase 2: Unified error model** — GravitonError hierarchy, ChunkerCore.Err integration, StoreOps extensions with insertFile
 8. **Phase 3: Iron type hardening** — SAFETY comments on all applyUnsafe, 62 boundary value tests
