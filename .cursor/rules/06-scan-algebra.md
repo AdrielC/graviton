@@ -87,6 +87,12 @@ type S = Record[("buffer" ~ Array[Byte]) & ("filled" ~ Int)]
 Access fields with `state.buffer`, `state.filled`. The `asInstanceOf[S]` cast is safe
 because `Record` is erased at runtime.
 
+**WARNING (Scala 3.8 compatibility)**: Multi-field `kyo.Record` types with `&`
+intersections may fail at runtime due to changed `selectDynamic` dispatch in Scala 3.8.
+**Prefer plain case classes** for scan state when the state is private. Single-field
+Records (e.g., `Record["count" ~ Long]`) still work. The `buildManifest` and
+`fixedChunker` functions have been migrated to case classes as a workaround.
+
 ### IngestScan
 
 `IngestScan.fastCdc` is a production-grade CDC scan built on `FS.fold` that emits
