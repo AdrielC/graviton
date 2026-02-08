@@ -38,13 +38,12 @@ typeclass for automatic state merging is elegant.
 
 ### 1. Error Types Inconsistency
 **Problem**: Core uses `Either[String, A]`, streams use sealed `ChunkerCore.Err`,
-runtime uses `Throwable`. The bridging is ad-hoc (`mapError(msg => new IllegalArgumentException(msg))`).
+runtime uses `Throwable`. The bridging is ad-hoc.
 
-**Plan**:
-- [ ] Define a `GravitonError` sealed hierarchy in `graviton-core` with subtypes for
-  validation, IO, configuration, and codec errors.
-- [ ] Keep `Either[String, A]` in pure core code but make the string a `GravitonError.message`.
-- [ ] Bridge to `GravitonError` (not raw `Throwable`) at runtime boundaries.
+**Resolution**:
+- [x] Defined `GravitonError` sealed hierarchy in `graviton.core.GravitonError`.
+- [x] `ChunkerCore.Err` now has `message` method and `toGravitonError` converter.
+- [x] `StoreOps` provides opt-in typed-error extensions (`insertFileTyped`, `getTyped`, etc.).
 
 ### 2. `asInstanceOf` Overuse in Record/Scan State
 **Problem**: `IngestScan`, `FS.counter`, etc. use `asInstanceOf[S]` casts after
@@ -57,13 +56,11 @@ hides bugs if field names change.
   state is private and not part of the public API.
 
 ### 3. BlobWriteResult Duplication
-**Problem**: `BlobWriteResult` is defined in both `graviton.core.attributes` AND
-`graviton.runtime.model`. The runtime version has `BlobWritePlan` referencing
-`IngestProgram` which depends on `FreeScan` from core.
+**Problem**: `BlobWriteResult` was defined inline in `BinaryAttributes.scala`.
 
-**Plan**:
-- [ ] Consolidate `BlobWriteResult` into `graviton-runtime` (it's a runtime concept).
-- [ ] Remove the duplicate from `graviton.core.attributes.BinaryAttributes.scala`.
+**Resolution**:
+- [x] Moved to its own file `graviton.core.attributes.BlobWriteResult.scala`.
+- [x] Runtime module re-exports it via `export`.
 
 ### 4. Missing Chunker Abstraction in Core
 **Problem**: `AGENTS.md` lists "Introduce Chunker abstraction" as a TODO, but it already
@@ -98,12 +95,12 @@ stream exhaustion (whole-file ingest mode)" as a TODO.
   that handles `ZStream.fromFile` + leftover replay.
 
 ### 8. Stale Markdown Noise
-**Problem**: Multiple `*_STATUS.md`, `*_COMPLETE.md`, `MASTER_REFACTOR_PLAN.md`, etc.
-files in the root that appear to be working notes, not documentation.
+**Problem**: Multiple status/planning markdown files cluttered the root.
 
-**Plan**:
-- [ ] Archive or remove stale status/planning markdown files from root.
-- [ ] Keep only `README.md`, `AGENTS.md`, `LICENSE`, `ROADMAP.md` in root.
+**Resolution**:
+- [x] Archived 15 stale files to `docs/archive/`.
+- [x] Root now has only: `README.md`, `AGENTS.md`, `BUILD_AND_TEST.md`,
+  `CONTRIBUTING.md`, `LICENSE`, `ROADMAP.md`, `TODO.md`.
 
 ---
 
