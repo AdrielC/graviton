@@ -77,7 +77,7 @@ object GravitonCatalogClientZIOSpec extends ZIOSpecDefault {
                               ),
                             )
           uploadSvc       = new InMemoryUploadService
-          gatewayClient   = new GravitonUploadGatewayClientZIO(gatewayStub, uploadSvc)(using Clock.ClockLive)
+          gatewayClient   = new GravitonUploadGatewayClientZIO(gatewayStub, uploadSvc)
           catalogClient   = new GravitonCatalogClientZIO(catalogStub)
           exportedFrames <- catalogClient.exportData(ExportPlan(documentIds = Chunk("doc"))).runCollect
           _              <- gatewayClient.uploadFrames(
