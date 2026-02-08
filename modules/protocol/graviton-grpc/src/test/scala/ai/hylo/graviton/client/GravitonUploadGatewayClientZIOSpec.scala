@@ -40,7 +40,8 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
                         ),
                       )
           uploadSvc = new InMemoryUploadService
-          client    = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)          frame1    = DataFrame(
+          client    = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)
+          frame1    = DataFrame(
                         "sess-1",
                         sequence = 0L,
                         offsetBytes = 0L,
@@ -75,7 +76,8 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
             ServerFrame.Kind.Error(Error(code = Error.Code.SESSION_EXPIRED, message = "expired", details = Map("reason" -> "ttl")))
           ),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)        client
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        client
           .uploadFrames(
             StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
             ZStream.empty,
@@ -96,7 +98,8 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
             )
           ),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)        client
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        client
           .uploadFrames(
             StartUpload(objectContentType = "application/pdf", metadata = List.empty),
             ZStream.empty,
@@ -109,7 +112,8 @@ object GravitonUploadGatewayClientZIOSpec extends ZIOSpecDefault {
           ServerFrame(ServerFrame.Kind.StartAck(StartAck(sessionId = "ooo", ttlSeconds = 30L))),
           ServerFrame(ServerFrame.Kind.Ack(Ack(sessionId = "ooo", acknowledgedSequence = 2L, receivedBytes = 1L))),
         )
-        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)        client
+        val client    = new GravitonUploadGatewayClientZIO(RecordingGateway.drain(responses), new InMemoryUploadService)
+        client
           .uploadFrames(
             StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
             ZStream.empty,
