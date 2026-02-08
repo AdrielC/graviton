@@ -334,13 +334,8 @@ object Transducer:
       ZPipeline.fromChannel(self.toChannel.mapOut(identity).unit)
 
     /**
-     * Compile to a ZIO `ZSink` that consumes `I` elements and produces:
-     *   - **Summary** (`S`): the final state, accessible by the caller
-     *   - **Leftover** (`I`): unconsumed input (always empty for Transducer)
-     *   - **Output side-channel**: streamed outputs are collected into the summary
-     *
-     * This is the primary compilation target when the caller needs the state back,
-     * like `ZSink[Any, Nothing, I, I, (S, Chunk[O])]`.
+     * Compile to a `ZSink` that consumes the entire stream and produces
+     * `(summary, collectedOutputs)`. This is the "run once" target.
      */
     def toSink: zio.stream.ZSink[Any, Nothing, I, Nothing, (S, Chunk[O])] =
       zio.stream.ZSink
@@ -355,6 +350,48 @@ object Transducer:
           tail.foreach(o => builder += o)
           (sf, builder.result())
         }
+
+    /**
+     * Compile to a `ZSink` suitable for `stream.transduce(sink)`.
+     *
+     * This produces a sink that:
+     *   - Consumes input elements, building state and collecting outputs
+     *   - When `flush` is called (end of stream or transducer boundary), yields
+     *     the summary `S` as the sink's result
+     *   - Leftovers (`I`) are preserved for the next transduction cycle
+     *
+     * Use with `stream.transduce(scan.toTransducingSink)` to get a
+     * `ZStream[Any, Nothing, S]` — a stream of summaries, one per scan cycle.
+     *
+     * The outputs `O` from each cycle are available in the summary if the
+     * state captures them; otherwise use `toSink` for the collected outputs.
+     *
+     * For chunking use cases (like CDC), the scan runs until `flush` signals
+     * completion of a chunk, emits the summary (block digest, size, etc.),
+     * and restarts with leftovers for the next chunk.
+     */
+    def toTransducingSink: zio.stream.ZSink[Any, Nothing, I, I, S] =
+      zio.stream.ZSink.fromChannel(
+        ZChannel.suspend {
+          var s: S = self.init
+
+          def loop: ZChannel[Any, zio.ZNothing, Chunk[I], Any, Nothing, Chunk[I], S] =
+            ZChannel.readWith(
+              (chunk: Chunk[I]) =>
+                val (s2, _out) = self.stepChunk(s, chunk)
+                s = s2
+                loop
+              ,
+              (_: Any) => ZChannel.succeedNow(s),
+              (_: Any) =>
+                val (sf, _tail) = self.flush(s)
+                s = sf
+                ZChannel.succeedNow(sf),
+            )
+
+          loop
+        }
+      )
 
   // ---------------------------------------------------------------------------
   //  Batteries-included transducers

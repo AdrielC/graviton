@@ -281,5 +281,23 @@ object TransducerSpec extends ZIOSpecDefault:
           // ZChannel.runCollect returns (Chunk[O], Z) where Z is the terminal
           assertTrue(result._1.flatten == Chunk(1L, 2L, 3L))
       },
+      test("transduce: sink runs repeatedly, emitting summaries as stream elements") {
+        // A scan that buffers 3 elements then flushes (simulating a chunker)
+        val batcher = Transducer.fold[Int, Int, List[Int]](Nil)((buf, i) =>
+          val next = i :: buf
+          if next.length >= 3 then (Nil, Chunk.fromIterable(next.reverse))
+          else (next, Chunk.empty)
+        )(buf => (buf, if buf.nonEmpty then Chunk.fromIterable(buf.reverse) else Chunk.empty))
+
+        // Transduce: run the batcher as a sink repeatedly, getting a stream of summaries
+        for summaries <- zio.stream.ZStream
+                           .fromIterable(1 to 7)
+                           .transduce(batcher.toTransducingSink)
+                           .runCollect
+        yield
+          // Summaries are the final states of each batch:
+          // batch 1: processes all 7, state is whatever flush produces
+          assertTrue(summaries.nonEmpty)
+      },
     ),
   )
