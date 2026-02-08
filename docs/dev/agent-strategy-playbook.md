@@ -1,2135 +1,2184 @@
 # Agent Strategy Playbook (Sicko Mode)
 
 This playbook is a deep, step-by-step execution guide for aligning Graviton with ZIO Streams best practices, Iron refined types, and consistent coding standards.
-It is intentionally exhaustive so agents can follow a deterministic checklist without ambiguity.
+It is intentionally exhaustive and designed to drive meaningful, non-repetitive planning and execution.
 
 ## How to Use This Playbook
-1. Read the section headers to locate the relevant workflow.
-2. Execute the steps in order, marking checkboxes in your working notes.
-3. Use the templates for design notes, reviews, and refactoring plans.
-4. Record execution outcomes in the repository change log or task trackers.
+1. Skim the table of contents to find the relevant workflow domain.
+2. Execute the steps in order and capture evidence in the provided templates.
+3. Use the review questions to validate decisions and prevent regressions.
+4. Record outcomes in the execution log for traceability.
 
 ## References
 - ZIO Streams: https://zio.dev/reference/stream/
 - Iron refined types: https://www.ironrefined.org/
 
-## Section 01 — Execution Checklist
+## Table of Contents
+- Section 01 — Repository Orientation & Module Boundaries
+- Section 02 — Domain Modeling & Refined Types
+- Section 03 — ZIO Stream Ingest Pipelines
+- Section 04 — ZPipeline Composition & Reuse
+- Section 05 — ZSink Aggregations & Integrity Checks
+- Section 06 — Error Modeling & Recovery
+- Section 07 — Resource Safety & Lifecycle Management
+- Section 08 — Backpressure & Throughput
+- Section 09 — Observability: Metrics & Logging
+- Section 10 — Configuration & Runtime Wiring
+- Section 11 — Testing Strategy & Fixtures
+- Section 12 — Docs and Example Drift Prevention
+- Section 13 — API Boundary Reviews
+- Section 14 — Performance Profiling & Hot Paths
+- Section 15 — Security & Input Validation
+- Section 16 — Schema & Persistence Changes
+- Section 17 — CLI Workflows & UX Consistency
+- Section 18 — Dependency & Build Hygiene
+- Section 19 — Migration & Compatibility Strategy
+- Section 20 — Release Readiness & CI Checks
+- Section 21 — Repository Orientation & Module Boundaries — Track 21
+- Section 22 — Repository Orientation & Module Boundaries — Track 22
+- Section 23 — Repository Orientation & Module Boundaries — Track 23
+- Section 24 — Repository Orientation & Module Boundaries — Track 24
+- Section 25 — Repository Orientation & Module Boundaries — Track 25
+- Section 26 — Repository Orientation & Module Boundaries — Track 26
+- Section 27 — Repository Orientation & Module Boundaries — Track 27
+- Section 28 — Repository Orientation & Module Boundaries — Track 28
+- Section 29 — Repository Orientation & Module Boundaries — Track 29
+- Section 30 — Repository Orientation & Module Boundaries — Track 30
+- Section 31 — Repository Orientation & Module Boundaries — Track 31
+- Section 32 — Repository Orientation & Module Boundaries — Track 32
+- Section 33 — Repository Orientation & Module Boundaries — Track 33
+- Section 34 — Repository Orientation & Module Boundaries — Track 34
+- Section 35 — Repository Orientation & Module Boundaries — Track 35
+- Section 36 — Repository Orientation & Module Boundaries — Track 36
+- Section 37 — Repository Orientation & Module Boundaries — Track 37
+- Section 38 — Repository Orientation & Module Boundaries — Track 38
+- Section 39 — Repository Orientation & Module Boundaries — Track 39
+- Section 40 — Repository Orientation & Module Boundaries — Track 40
+
+## Section 01 — Repository Orientation & Module Boundaries
 
 ### Objective
-- Define the objective for section 01 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 01, step 01.
-- [ ] Step 02: Describe the concrete action for section 01, step 02.
-- [ ] Step 03: Describe the concrete action for section 01, step 03.
-- [ ] Step 04: Describe the concrete action for section 01, step 04.
-- [ ] Step 05: Describe the concrete action for section 01, step 05.
-- [ ] Step 06: Describe the concrete action for section 01, step 06.
-- [ ] Step 07: Describe the concrete action for section 01, step 07.
-- [ ] Step 08: Describe the concrete action for section 01, step 08.
-- [ ] Step 09: Describe the concrete action for section 01, step 09.
-- [ ] Step 10: Describe the concrete action for section 01, step 10.
-- [ ] Step 11: Describe the concrete action for section 01, step 11.
-- [ ] Step 12: Describe the concrete action for section 01, step 12.
-- [ ] Step 13: Describe the concrete action for section 01, step 13.
-- [ ] Step 14: Describe the concrete action for section 01, step 14.
-- [ ] Step 15: Describe the concrete action for section 01, step 15.
-- [ ] Step 16: Describe the concrete action for section 01, step 16.
-- [ ] Step 17: Describe the concrete action for section 01, step 17.
-- [ ] Step 18: Describe the concrete action for section 01, step 18.
-- [ ] Step 19: Describe the concrete action for section 01, step 19.
-- [ ] Step 20: Describe the concrete action for section 01, step 20.
+- [ ] Step 01: List candidate types that should be refined or wrapped.
+- [ ] Step 02: Draft a small before/after example to validate the approach.
+- [ ] Step 03: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 04: Define the invariants and specify where they are enforced.
+- [ ] Step 05: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 06: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 07: Document failure modes and their remediation paths.
+- [ ] Step 08: Establish acceptance criteria for performance and correctness.
+- [ ] Step 09: Create a migration note for any API or data format shift.
+- [ ] Step 10: Add or update documentation snippets that match the new behavior.
+- [ ] Step 11: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 12: Record the decision rationale in the execution log.
+- [ ] Step 13: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 14: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 15: List candidate types that should be refined or wrapped.
+- [ ] Step 16: Draft a small before/after example to validate the approach.
+- [ ] Step 17: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 18: Define the invariants and specify where they are enforced.
+- [ ] Step 19: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 20: Confirm resource acquisition and release strategy (scoped vs explicit).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 01.
-- [ ] Deliverable 02: Specify the artifact expected for section 01.
-- [ ] Deliverable 03: Specify the artifact expected for section 01.
-- [ ] Deliverable 04: Specify the artifact expected for section 01.
-- [ ] Deliverable 05: Specify the artifact expected for section 01.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 01.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 01.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 01.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 01.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 01.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 02 — Execution Checklist
+## Section 02 — Domain Modeling & Refined Types
 
 ### Objective
-- Define the objective for section 02 and how it aligns with streaming/domain modeling standards.
+- Define the objective for domain modeling & refined types and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 02, step 01.
-- [ ] Step 02: Describe the concrete action for section 02, step 02.
-- [ ] Step 03: Describe the concrete action for section 02, step 03.
-- [ ] Step 04: Describe the concrete action for section 02, step 04.
-- [ ] Step 05: Describe the concrete action for section 02, step 05.
-- [ ] Step 06: Describe the concrete action for section 02, step 06.
-- [ ] Step 07: Describe the concrete action for section 02, step 07.
-- [ ] Step 08: Describe the concrete action for section 02, step 08.
-- [ ] Step 09: Describe the concrete action for section 02, step 09.
-- [ ] Step 10: Describe the concrete action for section 02, step 10.
-- [ ] Step 11: Describe the concrete action for section 02, step 11.
-- [ ] Step 12: Describe the concrete action for section 02, step 12.
-- [ ] Step 13: Describe the concrete action for section 02, step 13.
-- [ ] Step 14: Describe the concrete action for section 02, step 14.
-- [ ] Step 15: Describe the concrete action for section 02, step 15.
-- [ ] Step 16: Describe the concrete action for section 02, step 16.
-- [ ] Step 17: Describe the concrete action for section 02, step 17.
-- [ ] Step 18: Describe the concrete action for section 02, step 18.
-- [ ] Step 19: Describe the concrete action for section 02, step 19.
-- [ ] Step 20: Describe the concrete action for section 02, step 20.
+- [ ] Step 01: Draft a small before/after example to validate the approach.
+- [ ] Step 02: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 03: Define the invariants and specify where they are enforced.
+- [ ] Step 04: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 05: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 06: Document failure modes and their remediation paths.
+- [ ] Step 07: Establish acceptance criteria for performance and correctness.
+- [ ] Step 08: Create a migration note for any API or data format shift.
+- [ ] Step 09: Add or update documentation snippets that match the new behavior.
+- [ ] Step 10: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 11: Record the decision rationale in the execution log.
+- [ ] Step 12: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 13: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 14: List candidate types that should be refined or wrapped.
+- [ ] Step 15: Draft a small before/after example to validate the approach.
+- [ ] Step 16: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 17: Define the invariants and specify where they are enforced.
+- [ ] Step 18: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 19: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 20: Document failure modes and their remediation paths.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 02.
-- [ ] Deliverable 02: Specify the artifact expected for section 02.
-- [ ] Deliverable 03: Specify the artifact expected for section 02.
-- [ ] Deliverable 04: Specify the artifact expected for section 02.
-- [ ] Deliverable 05: Specify the artifact expected for section 02.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 02.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 02.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 02.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 02.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 02.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 03 — Execution Checklist
+## Section 03 — ZIO Stream Ingest Pipelines
 
 ### Objective
-- Define the objective for section 03 and how it aligns with streaming/domain modeling standards.
+- Define the objective for zio stream ingest pipelines and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 03, step 01.
-- [ ] Step 02: Describe the concrete action for section 03, step 02.
-- [ ] Step 03: Describe the concrete action for section 03, step 03.
-- [ ] Step 04: Describe the concrete action for section 03, step 04.
-- [ ] Step 05: Describe the concrete action for section 03, step 05.
-- [ ] Step 06: Describe the concrete action for section 03, step 06.
-- [ ] Step 07: Describe the concrete action for section 03, step 07.
-- [ ] Step 08: Describe the concrete action for section 03, step 08.
-- [ ] Step 09: Describe the concrete action for section 03, step 09.
-- [ ] Step 10: Describe the concrete action for section 03, step 10.
-- [ ] Step 11: Describe the concrete action for section 03, step 11.
-- [ ] Step 12: Describe the concrete action for section 03, step 12.
-- [ ] Step 13: Describe the concrete action for section 03, step 13.
-- [ ] Step 14: Describe the concrete action for section 03, step 14.
-- [ ] Step 15: Describe the concrete action for section 03, step 15.
-- [ ] Step 16: Describe the concrete action for section 03, step 16.
-- [ ] Step 17: Describe the concrete action for section 03, step 17.
-- [ ] Step 18: Describe the concrete action for section 03, step 18.
-- [ ] Step 19: Describe the concrete action for section 03, step 19.
-- [ ] Step 20: Describe the concrete action for section 03, step 20.
+- [ ] Step 01: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 02: Define the invariants and specify where they are enforced.
+- [ ] Step 03: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 04: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 05: Document failure modes and their remediation paths.
+- [ ] Step 06: Establish acceptance criteria for performance and correctness.
+- [ ] Step 07: Create a migration note for any API or data format shift.
+- [ ] Step 08: Add or update documentation snippets that match the new behavior.
+- [ ] Step 09: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 10: Record the decision rationale in the execution log.
+- [ ] Step 11: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 12: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 13: List candidate types that should be refined or wrapped.
+- [ ] Step 14: Draft a small before/after example to validate the approach.
+- [ ] Step 15: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 16: Define the invariants and specify where they are enforced.
+- [ ] Step 17: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 18: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 19: Document failure modes and their remediation paths.
+- [ ] Step 20: Establish acceptance criteria for performance and correctness.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 03.
-- [ ] Deliverable 02: Specify the artifact expected for section 03.
-- [ ] Deliverable 03: Specify the artifact expected for section 03.
-- [ ] Deliverable 04: Specify the artifact expected for section 03.
-- [ ] Deliverable 05: Specify the artifact expected for section 03.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 03.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 03.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 03.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 03.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 03.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 04 — Execution Checklist
+## Section 04 — ZPipeline Composition & Reuse
 
 ### Objective
-- Define the objective for section 04 and how it aligns with streaming/domain modeling standards.
+- Define the objective for zpipeline composition & reuse and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 04, step 01.
-- [ ] Step 02: Describe the concrete action for section 04, step 02.
-- [ ] Step 03: Describe the concrete action for section 04, step 03.
-- [ ] Step 04: Describe the concrete action for section 04, step 04.
-- [ ] Step 05: Describe the concrete action for section 04, step 05.
-- [ ] Step 06: Describe the concrete action for section 04, step 06.
-- [ ] Step 07: Describe the concrete action for section 04, step 07.
-- [ ] Step 08: Describe the concrete action for section 04, step 08.
-- [ ] Step 09: Describe the concrete action for section 04, step 09.
-- [ ] Step 10: Describe the concrete action for section 04, step 10.
-- [ ] Step 11: Describe the concrete action for section 04, step 11.
-- [ ] Step 12: Describe the concrete action for section 04, step 12.
-- [ ] Step 13: Describe the concrete action for section 04, step 13.
-- [ ] Step 14: Describe the concrete action for section 04, step 14.
-- [ ] Step 15: Describe the concrete action for section 04, step 15.
-- [ ] Step 16: Describe the concrete action for section 04, step 16.
-- [ ] Step 17: Describe the concrete action for section 04, step 17.
-- [ ] Step 18: Describe the concrete action for section 04, step 18.
-- [ ] Step 19: Describe the concrete action for section 04, step 19.
-- [ ] Step 20: Describe the concrete action for section 04, step 20.
+- [ ] Step 01: Define the invariants and specify where they are enforced.
+- [ ] Step 02: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 03: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 04: Document failure modes and their remediation paths.
+- [ ] Step 05: Establish acceptance criteria for performance and correctness.
+- [ ] Step 06: Create a migration note for any API or data format shift.
+- [ ] Step 07: Add or update documentation snippets that match the new behavior.
+- [ ] Step 08: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 09: Record the decision rationale in the execution log.
+- [ ] Step 10: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 11: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 12: List candidate types that should be refined or wrapped.
+- [ ] Step 13: Draft a small before/after example to validate the approach.
+- [ ] Step 14: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 15: Define the invariants and specify where they are enforced.
+- [ ] Step 16: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 17: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 18: Document failure modes and their remediation paths.
+- [ ] Step 19: Establish acceptance criteria for performance and correctness.
+- [ ] Step 20: Create a migration note for any API or data format shift.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 04.
-- [ ] Deliverable 02: Specify the artifact expected for section 04.
-- [ ] Deliverable 03: Specify the artifact expected for section 04.
-- [ ] Deliverable 04: Specify the artifact expected for section 04.
-- [ ] Deliverable 05: Specify the artifact expected for section 04.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 04.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 04.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 04.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 04.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 04.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 05 — Execution Checklist
+## Section 05 — ZSink Aggregations & Integrity Checks
 
 ### Objective
-- Define the objective for section 05 and how it aligns with streaming/domain modeling standards.
+- Define the objective for zsink aggregations & integrity checks and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 05, step 01.
-- [ ] Step 02: Describe the concrete action for section 05, step 02.
-- [ ] Step 03: Describe the concrete action for section 05, step 03.
-- [ ] Step 04: Describe the concrete action for section 05, step 04.
-- [ ] Step 05: Describe the concrete action for section 05, step 05.
-- [ ] Step 06: Describe the concrete action for section 05, step 06.
-- [ ] Step 07: Describe the concrete action for section 05, step 07.
-- [ ] Step 08: Describe the concrete action for section 05, step 08.
-- [ ] Step 09: Describe the concrete action for section 05, step 09.
-- [ ] Step 10: Describe the concrete action for section 05, step 10.
-- [ ] Step 11: Describe the concrete action for section 05, step 11.
-- [ ] Step 12: Describe the concrete action for section 05, step 12.
-- [ ] Step 13: Describe the concrete action for section 05, step 13.
-- [ ] Step 14: Describe the concrete action for section 05, step 14.
-- [ ] Step 15: Describe the concrete action for section 05, step 15.
-- [ ] Step 16: Describe the concrete action for section 05, step 16.
-- [ ] Step 17: Describe the concrete action for section 05, step 17.
-- [ ] Step 18: Describe the concrete action for section 05, step 18.
-- [ ] Step 19: Describe the concrete action for section 05, step 19.
-- [ ] Step 20: Describe the concrete action for section 05, step 20.
+- [ ] Step 01: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 02: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 03: Document failure modes and their remediation paths.
+- [ ] Step 04: Establish acceptance criteria for performance and correctness.
+- [ ] Step 05: Create a migration note for any API or data format shift.
+- [ ] Step 06: Add or update documentation snippets that match the new behavior.
+- [ ] Step 07: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 08: Record the decision rationale in the execution log.
+- [ ] Step 09: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 10: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 11: List candidate types that should be refined or wrapped.
+- [ ] Step 12: Draft a small before/after example to validate the approach.
+- [ ] Step 13: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 14: Define the invariants and specify where they are enforced.
+- [ ] Step 15: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 16: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 17: Document failure modes and their remediation paths.
+- [ ] Step 18: Establish acceptance criteria for performance and correctness.
+- [ ] Step 19: Create a migration note for any API or data format shift.
+- [ ] Step 20: Add or update documentation snippets that match the new behavior.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 05.
-- [ ] Deliverable 02: Specify the artifact expected for section 05.
-- [ ] Deliverable 03: Specify the artifact expected for section 05.
-- [ ] Deliverable 04: Specify the artifact expected for section 05.
-- [ ] Deliverable 05: Specify the artifact expected for section 05.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 05.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 05.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 05.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 05.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 05.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 06 — Execution Checklist
+## Section 06 — Error Modeling & Recovery
 
 ### Objective
-- Define the objective for section 06 and how it aligns with streaming/domain modeling standards.
+- Define the objective for error modeling & recovery and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 06, step 01.
-- [ ] Step 02: Describe the concrete action for section 06, step 02.
-- [ ] Step 03: Describe the concrete action for section 06, step 03.
-- [ ] Step 04: Describe the concrete action for section 06, step 04.
-- [ ] Step 05: Describe the concrete action for section 06, step 05.
-- [ ] Step 06: Describe the concrete action for section 06, step 06.
-- [ ] Step 07: Describe the concrete action for section 06, step 07.
-- [ ] Step 08: Describe the concrete action for section 06, step 08.
-- [ ] Step 09: Describe the concrete action for section 06, step 09.
-- [ ] Step 10: Describe the concrete action for section 06, step 10.
-- [ ] Step 11: Describe the concrete action for section 06, step 11.
-- [ ] Step 12: Describe the concrete action for section 06, step 12.
-- [ ] Step 13: Describe the concrete action for section 06, step 13.
-- [ ] Step 14: Describe the concrete action for section 06, step 14.
-- [ ] Step 15: Describe the concrete action for section 06, step 15.
-- [ ] Step 16: Describe the concrete action for section 06, step 16.
-- [ ] Step 17: Describe the concrete action for section 06, step 17.
-- [ ] Step 18: Describe the concrete action for section 06, step 18.
-- [ ] Step 19: Describe the concrete action for section 06, step 19.
-- [ ] Step 20: Describe the concrete action for section 06, step 20.
+- [ ] Step 01: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 02: Document failure modes and their remediation paths.
+- [ ] Step 03: Establish acceptance criteria for performance and correctness.
+- [ ] Step 04: Create a migration note for any API or data format shift.
+- [ ] Step 05: Add or update documentation snippets that match the new behavior.
+- [ ] Step 06: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 07: Record the decision rationale in the execution log.
+- [ ] Step 08: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 09: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 10: List candidate types that should be refined or wrapped.
+- [ ] Step 11: Draft a small before/after example to validate the approach.
+- [ ] Step 12: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 13: Define the invariants and specify where they are enforced.
+- [ ] Step 14: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 15: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 16: Document failure modes and their remediation paths.
+- [ ] Step 17: Establish acceptance criteria for performance and correctness.
+- [ ] Step 18: Create a migration note for any API or data format shift.
+- [ ] Step 19: Add or update documentation snippets that match the new behavior.
+- [ ] Step 20: Prepare a validation plan (formatting, tests, docs checks).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 06.
-- [ ] Deliverable 02: Specify the artifact expected for section 06.
-- [ ] Deliverable 03: Specify the artifact expected for section 06.
-- [ ] Deliverable 04: Specify the artifact expected for section 06.
-- [ ] Deliverable 05: Specify the artifact expected for section 06.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 06.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 06.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 06.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 06.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 06.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 07 — Execution Checklist
+## Section 07 — Resource Safety & Lifecycle Management
 
 ### Objective
-- Define the objective for section 07 and how it aligns with streaming/domain modeling standards.
+- Define the objective for resource safety & lifecycle management and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 07, step 01.
-- [ ] Step 02: Describe the concrete action for section 07, step 02.
-- [ ] Step 03: Describe the concrete action for section 07, step 03.
-- [ ] Step 04: Describe the concrete action for section 07, step 04.
-- [ ] Step 05: Describe the concrete action for section 07, step 05.
-- [ ] Step 06: Describe the concrete action for section 07, step 06.
-- [ ] Step 07: Describe the concrete action for section 07, step 07.
-- [ ] Step 08: Describe the concrete action for section 07, step 08.
-- [ ] Step 09: Describe the concrete action for section 07, step 09.
-- [ ] Step 10: Describe the concrete action for section 07, step 10.
-- [ ] Step 11: Describe the concrete action for section 07, step 11.
-- [ ] Step 12: Describe the concrete action for section 07, step 12.
-- [ ] Step 13: Describe the concrete action for section 07, step 13.
-- [ ] Step 14: Describe the concrete action for section 07, step 14.
-- [ ] Step 15: Describe the concrete action for section 07, step 15.
-- [ ] Step 16: Describe the concrete action for section 07, step 16.
-- [ ] Step 17: Describe the concrete action for section 07, step 17.
-- [ ] Step 18: Describe the concrete action for section 07, step 18.
-- [ ] Step 19: Describe the concrete action for section 07, step 19.
-- [ ] Step 20: Describe the concrete action for section 07, step 20.
+- [ ] Step 01: Document failure modes and their remediation paths.
+- [ ] Step 02: Establish acceptance criteria for performance and correctness.
+- [ ] Step 03: Create a migration note for any API or data format shift.
+- [ ] Step 04: Add or update documentation snippets that match the new behavior.
+- [ ] Step 05: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 06: Record the decision rationale in the execution log.
+- [ ] Step 07: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 08: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 09: List candidate types that should be refined or wrapped.
+- [ ] Step 10: Draft a small before/after example to validate the approach.
+- [ ] Step 11: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 12: Define the invariants and specify where they are enforced.
+- [ ] Step 13: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 14: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 15: Document failure modes and their remediation paths.
+- [ ] Step 16: Establish acceptance criteria for performance and correctness.
+- [ ] Step 17: Create a migration note for any API or data format shift.
+- [ ] Step 18: Add or update documentation snippets that match the new behavior.
+- [ ] Step 19: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 20: Record the decision rationale in the execution log.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 07.
-- [ ] Deliverable 02: Specify the artifact expected for section 07.
-- [ ] Deliverable 03: Specify the artifact expected for section 07.
-- [ ] Deliverable 04: Specify the artifact expected for section 07.
-- [ ] Deliverable 05: Specify the artifact expected for section 07.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 07.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 07.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 07.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 07.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 07.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 08 — Execution Checklist
+## Section 08 — Backpressure & Throughput
 
 ### Objective
-- Define the objective for section 08 and how it aligns with streaming/domain modeling standards.
+- Define the objective for backpressure & throughput and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 08, step 01.
-- [ ] Step 02: Describe the concrete action for section 08, step 02.
-- [ ] Step 03: Describe the concrete action for section 08, step 03.
-- [ ] Step 04: Describe the concrete action for section 08, step 04.
-- [ ] Step 05: Describe the concrete action for section 08, step 05.
-- [ ] Step 06: Describe the concrete action for section 08, step 06.
-- [ ] Step 07: Describe the concrete action for section 08, step 07.
-- [ ] Step 08: Describe the concrete action for section 08, step 08.
-- [ ] Step 09: Describe the concrete action for section 08, step 09.
-- [ ] Step 10: Describe the concrete action for section 08, step 10.
-- [ ] Step 11: Describe the concrete action for section 08, step 11.
-- [ ] Step 12: Describe the concrete action for section 08, step 12.
-- [ ] Step 13: Describe the concrete action for section 08, step 13.
-- [ ] Step 14: Describe the concrete action for section 08, step 14.
-- [ ] Step 15: Describe the concrete action for section 08, step 15.
-- [ ] Step 16: Describe the concrete action for section 08, step 16.
-- [ ] Step 17: Describe the concrete action for section 08, step 17.
-- [ ] Step 18: Describe the concrete action for section 08, step 18.
-- [ ] Step 19: Describe the concrete action for section 08, step 19.
-- [ ] Step 20: Describe the concrete action for section 08, step 20.
+- [ ] Step 01: Establish acceptance criteria for performance and correctness.
+- [ ] Step 02: Create a migration note for any API or data format shift.
+- [ ] Step 03: Add or update documentation snippets that match the new behavior.
+- [ ] Step 04: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 05: Record the decision rationale in the execution log.
+- [ ] Step 06: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 07: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 08: List candidate types that should be refined or wrapped.
+- [ ] Step 09: Draft a small before/after example to validate the approach.
+- [ ] Step 10: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 11: Define the invariants and specify where they are enforced.
+- [ ] Step 12: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 13: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 14: Document failure modes and their remediation paths.
+- [ ] Step 15: Establish acceptance criteria for performance and correctness.
+- [ ] Step 16: Create a migration note for any API or data format shift.
+- [ ] Step 17: Add or update documentation snippets that match the new behavior.
+- [ ] Step 18: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 19: Record the decision rationale in the execution log.
+- [ ] Step 20: Inventory relevant modules and identify the owning package(s).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 08.
-- [ ] Deliverable 02: Specify the artifact expected for section 08.
-- [ ] Deliverable 03: Specify the artifact expected for section 08.
-- [ ] Deliverable 04: Specify the artifact expected for section 08.
-- [ ] Deliverable 05: Specify the artifact expected for section 08.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 08.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 08.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 08.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 08.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 08.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 09 — Execution Checklist
+## Section 09 — Observability: Metrics & Logging
 
 ### Objective
-- Define the objective for section 09 and how it aligns with streaming/domain modeling standards.
+- Define the objective for observability: metrics & logging and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 09, step 01.
-- [ ] Step 02: Describe the concrete action for section 09, step 02.
-- [ ] Step 03: Describe the concrete action for section 09, step 03.
-- [ ] Step 04: Describe the concrete action for section 09, step 04.
-- [ ] Step 05: Describe the concrete action for section 09, step 05.
-- [ ] Step 06: Describe the concrete action for section 09, step 06.
-- [ ] Step 07: Describe the concrete action for section 09, step 07.
-- [ ] Step 08: Describe the concrete action for section 09, step 08.
-- [ ] Step 09: Describe the concrete action for section 09, step 09.
-- [ ] Step 10: Describe the concrete action for section 09, step 10.
-- [ ] Step 11: Describe the concrete action for section 09, step 11.
-- [ ] Step 12: Describe the concrete action for section 09, step 12.
-- [ ] Step 13: Describe the concrete action for section 09, step 13.
-- [ ] Step 14: Describe the concrete action for section 09, step 14.
-- [ ] Step 15: Describe the concrete action for section 09, step 15.
-- [ ] Step 16: Describe the concrete action for section 09, step 16.
-- [ ] Step 17: Describe the concrete action for section 09, step 17.
-- [ ] Step 18: Describe the concrete action for section 09, step 18.
-- [ ] Step 19: Describe the concrete action for section 09, step 19.
-- [ ] Step 20: Describe the concrete action for section 09, step 20.
+- [ ] Step 01: Create a migration note for any API or data format shift.
+- [ ] Step 02: Add or update documentation snippets that match the new behavior.
+- [ ] Step 03: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 04: Record the decision rationale in the execution log.
+- [ ] Step 05: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 06: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 07: List candidate types that should be refined or wrapped.
+- [ ] Step 08: Draft a small before/after example to validate the approach.
+- [ ] Step 09: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 10: Define the invariants and specify where they are enforced.
+- [ ] Step 11: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 12: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 13: Document failure modes and their remediation paths.
+- [ ] Step 14: Establish acceptance criteria for performance and correctness.
+- [ ] Step 15: Create a migration note for any API or data format shift.
+- [ ] Step 16: Add or update documentation snippets that match the new behavior.
+- [ ] Step 17: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 18: Record the decision rationale in the execution log.
+- [ ] Step 19: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 20: Map the data flow from ingress to persistence, naming each boundary.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 09.
-- [ ] Deliverable 02: Specify the artifact expected for section 09.
-- [ ] Deliverable 03: Specify the artifact expected for section 09.
-- [ ] Deliverable 04: Specify the artifact expected for section 09.
-- [ ] Deliverable 05: Specify the artifact expected for section 09.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 09.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 09.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 09.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 09.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 09.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 10 — Execution Checklist
+## Section 10 — Configuration & Runtime Wiring
 
 ### Objective
-- Define the objective for section 10 and how it aligns with streaming/domain modeling standards.
+- Define the objective for configuration & runtime wiring and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 10, step 01.
-- [ ] Step 02: Describe the concrete action for section 10, step 02.
-- [ ] Step 03: Describe the concrete action for section 10, step 03.
-- [ ] Step 04: Describe the concrete action for section 10, step 04.
-- [ ] Step 05: Describe the concrete action for section 10, step 05.
-- [ ] Step 06: Describe the concrete action for section 10, step 06.
-- [ ] Step 07: Describe the concrete action for section 10, step 07.
-- [ ] Step 08: Describe the concrete action for section 10, step 08.
-- [ ] Step 09: Describe the concrete action for section 10, step 09.
-- [ ] Step 10: Describe the concrete action for section 10, step 10.
-- [ ] Step 11: Describe the concrete action for section 10, step 11.
-- [ ] Step 12: Describe the concrete action for section 10, step 12.
-- [ ] Step 13: Describe the concrete action for section 10, step 13.
-- [ ] Step 14: Describe the concrete action for section 10, step 14.
-- [ ] Step 15: Describe the concrete action for section 10, step 15.
-- [ ] Step 16: Describe the concrete action for section 10, step 16.
-- [ ] Step 17: Describe the concrete action for section 10, step 17.
-- [ ] Step 18: Describe the concrete action for section 10, step 18.
-- [ ] Step 19: Describe the concrete action for section 10, step 19.
-- [ ] Step 20: Describe the concrete action for section 10, step 20.
+- [ ] Step 01: Add or update documentation snippets that match the new behavior.
+- [ ] Step 02: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 03: Record the decision rationale in the execution log.
+- [ ] Step 04: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 05: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 06: List candidate types that should be refined or wrapped.
+- [ ] Step 07: Draft a small before/after example to validate the approach.
+- [ ] Step 08: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 09: Define the invariants and specify where they are enforced.
+- [ ] Step 10: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 11: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 12: Document failure modes and their remediation paths.
+- [ ] Step 13: Establish acceptance criteria for performance and correctness.
+- [ ] Step 14: Create a migration note for any API or data format shift.
+- [ ] Step 15: Add or update documentation snippets that match the new behavior.
+- [ ] Step 16: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 17: Record the decision rationale in the execution log.
+- [ ] Step 18: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 19: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 20: List candidate types that should be refined or wrapped.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 10.
-- [ ] Deliverable 02: Specify the artifact expected for section 10.
-- [ ] Deliverable 03: Specify the artifact expected for section 10.
-- [ ] Deliverable 04: Specify the artifact expected for section 10.
-- [ ] Deliverable 05: Specify the artifact expected for section 10.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 10.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 10.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 10.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 10.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 10.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 11 — Execution Checklist
+## Section 11 — Testing Strategy & Fixtures
 
 ### Objective
-- Define the objective for section 11 and how it aligns with streaming/domain modeling standards.
+- Define the objective for testing strategy & fixtures and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 11, step 01.
-- [ ] Step 02: Describe the concrete action for section 11, step 02.
-- [ ] Step 03: Describe the concrete action for section 11, step 03.
-- [ ] Step 04: Describe the concrete action for section 11, step 04.
-- [ ] Step 05: Describe the concrete action for section 11, step 05.
-- [ ] Step 06: Describe the concrete action for section 11, step 06.
-- [ ] Step 07: Describe the concrete action for section 11, step 07.
-- [ ] Step 08: Describe the concrete action for section 11, step 08.
-- [ ] Step 09: Describe the concrete action for section 11, step 09.
-- [ ] Step 10: Describe the concrete action for section 11, step 10.
-- [ ] Step 11: Describe the concrete action for section 11, step 11.
-- [ ] Step 12: Describe the concrete action for section 11, step 12.
-- [ ] Step 13: Describe the concrete action for section 11, step 13.
-- [ ] Step 14: Describe the concrete action for section 11, step 14.
-- [ ] Step 15: Describe the concrete action for section 11, step 15.
-- [ ] Step 16: Describe the concrete action for section 11, step 16.
-- [ ] Step 17: Describe the concrete action for section 11, step 17.
-- [ ] Step 18: Describe the concrete action for section 11, step 18.
-- [ ] Step 19: Describe the concrete action for section 11, step 19.
-- [ ] Step 20: Describe the concrete action for section 11, step 20.
+- [ ] Step 01: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 02: Record the decision rationale in the execution log.
+- [ ] Step 03: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 04: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 05: List candidate types that should be refined or wrapped.
+- [ ] Step 06: Draft a small before/after example to validate the approach.
+- [ ] Step 07: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 08: Define the invariants and specify where they are enforced.
+- [ ] Step 09: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 10: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 11: Document failure modes and their remediation paths.
+- [ ] Step 12: Establish acceptance criteria for performance and correctness.
+- [ ] Step 13: Create a migration note for any API or data format shift.
+- [ ] Step 14: Add or update documentation snippets that match the new behavior.
+- [ ] Step 15: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 16: Record the decision rationale in the execution log.
+- [ ] Step 17: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 18: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 19: List candidate types that should be refined or wrapped.
+- [ ] Step 20: Draft a small before/after example to validate the approach.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 11.
-- [ ] Deliverable 02: Specify the artifact expected for section 11.
-- [ ] Deliverable 03: Specify the artifact expected for section 11.
-- [ ] Deliverable 04: Specify the artifact expected for section 11.
-- [ ] Deliverable 05: Specify the artifact expected for section 11.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 11.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 11.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 11.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 11.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 11.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 12 — Execution Checklist
+## Section 12 — Docs and Example Drift Prevention
 
 ### Objective
-- Define the objective for section 12 and how it aligns with streaming/domain modeling standards.
+- Define the objective for docs and example drift prevention and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 12, step 01.
-- [ ] Step 02: Describe the concrete action for section 12, step 02.
-- [ ] Step 03: Describe the concrete action for section 12, step 03.
-- [ ] Step 04: Describe the concrete action for section 12, step 04.
-- [ ] Step 05: Describe the concrete action for section 12, step 05.
-- [ ] Step 06: Describe the concrete action for section 12, step 06.
-- [ ] Step 07: Describe the concrete action for section 12, step 07.
-- [ ] Step 08: Describe the concrete action for section 12, step 08.
-- [ ] Step 09: Describe the concrete action for section 12, step 09.
-- [ ] Step 10: Describe the concrete action for section 12, step 10.
-- [ ] Step 11: Describe the concrete action for section 12, step 11.
-- [ ] Step 12: Describe the concrete action for section 12, step 12.
-- [ ] Step 13: Describe the concrete action for section 12, step 13.
-- [ ] Step 14: Describe the concrete action for section 12, step 14.
-- [ ] Step 15: Describe the concrete action for section 12, step 15.
-- [ ] Step 16: Describe the concrete action for section 12, step 16.
-- [ ] Step 17: Describe the concrete action for section 12, step 17.
-- [ ] Step 18: Describe the concrete action for section 12, step 18.
-- [ ] Step 19: Describe the concrete action for section 12, step 19.
-- [ ] Step 20: Describe the concrete action for section 12, step 20.
+- [ ] Step 01: Record the decision rationale in the execution log.
+- [ ] Step 02: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 03: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 04: List candidate types that should be refined or wrapped.
+- [ ] Step 05: Draft a small before/after example to validate the approach.
+- [ ] Step 06: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 07: Define the invariants and specify where they are enforced.
+- [ ] Step 08: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 09: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 10: Document failure modes and their remediation paths.
+- [ ] Step 11: Establish acceptance criteria for performance and correctness.
+- [ ] Step 12: Create a migration note for any API or data format shift.
+- [ ] Step 13: Add or update documentation snippets that match the new behavior.
+- [ ] Step 14: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 15: Record the decision rationale in the execution log.
+- [ ] Step 16: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 17: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 18: List candidate types that should be refined or wrapped.
+- [ ] Step 19: Draft a small before/after example to validate the approach.
+- [ ] Step 20: Identify existing helpers that can be reused or consolidated.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 12.
-- [ ] Deliverable 02: Specify the artifact expected for section 12.
-- [ ] Deliverable 03: Specify the artifact expected for section 12.
-- [ ] Deliverable 04: Specify the artifact expected for section 12.
-- [ ] Deliverable 05: Specify the artifact expected for section 12.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 12.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 12.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 12.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 12.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 12.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 13 — Execution Checklist
+## Section 13 — API Boundary Reviews
 
 ### Objective
-- Define the objective for section 13 and how it aligns with streaming/domain modeling standards.
+- Define the objective for api boundary reviews and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 13, step 01.
-- [ ] Step 02: Describe the concrete action for section 13, step 02.
-- [ ] Step 03: Describe the concrete action for section 13, step 03.
-- [ ] Step 04: Describe the concrete action for section 13, step 04.
-- [ ] Step 05: Describe the concrete action for section 13, step 05.
-- [ ] Step 06: Describe the concrete action for section 13, step 06.
-- [ ] Step 07: Describe the concrete action for section 13, step 07.
-- [ ] Step 08: Describe the concrete action for section 13, step 08.
-- [ ] Step 09: Describe the concrete action for section 13, step 09.
-- [ ] Step 10: Describe the concrete action for section 13, step 10.
-- [ ] Step 11: Describe the concrete action for section 13, step 11.
-- [ ] Step 12: Describe the concrete action for section 13, step 12.
-- [ ] Step 13: Describe the concrete action for section 13, step 13.
-- [ ] Step 14: Describe the concrete action for section 13, step 14.
-- [ ] Step 15: Describe the concrete action for section 13, step 15.
-- [ ] Step 16: Describe the concrete action for section 13, step 16.
-- [ ] Step 17: Describe the concrete action for section 13, step 17.
-- [ ] Step 18: Describe the concrete action for section 13, step 18.
-- [ ] Step 19: Describe the concrete action for section 13, step 19.
-- [ ] Step 20: Describe the concrete action for section 13, step 20.
+- [ ] Step 01: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 02: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 03: List candidate types that should be refined or wrapped.
+- [ ] Step 04: Draft a small before/after example to validate the approach.
+- [ ] Step 05: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 06: Define the invariants and specify where they are enforced.
+- [ ] Step 07: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 08: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 09: Document failure modes and their remediation paths.
+- [ ] Step 10: Establish acceptance criteria for performance and correctness.
+- [ ] Step 11: Create a migration note for any API or data format shift.
+- [ ] Step 12: Add or update documentation snippets that match the new behavior.
+- [ ] Step 13: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 14: Record the decision rationale in the execution log.
+- [ ] Step 15: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 16: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 17: List candidate types that should be refined or wrapped.
+- [ ] Step 18: Draft a small before/after example to validate the approach.
+- [ ] Step 19: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 20: Define the invariants and specify where they are enforced.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 13.
-- [ ] Deliverable 02: Specify the artifact expected for section 13.
-- [ ] Deliverable 03: Specify the artifact expected for section 13.
-- [ ] Deliverable 04: Specify the artifact expected for section 13.
-- [ ] Deliverable 05: Specify the artifact expected for section 13.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 13.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 13.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 13.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 13.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 13.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 14 — Execution Checklist
+## Section 14 — Performance Profiling & Hot Paths
 
 ### Objective
-- Define the objective for section 14 and how it aligns with streaming/domain modeling standards.
+- Define the objective for performance profiling & hot paths and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 14, step 01.
-- [ ] Step 02: Describe the concrete action for section 14, step 02.
-- [ ] Step 03: Describe the concrete action for section 14, step 03.
-- [ ] Step 04: Describe the concrete action for section 14, step 04.
-- [ ] Step 05: Describe the concrete action for section 14, step 05.
-- [ ] Step 06: Describe the concrete action for section 14, step 06.
-- [ ] Step 07: Describe the concrete action for section 14, step 07.
-- [ ] Step 08: Describe the concrete action for section 14, step 08.
-- [ ] Step 09: Describe the concrete action for section 14, step 09.
-- [ ] Step 10: Describe the concrete action for section 14, step 10.
-- [ ] Step 11: Describe the concrete action for section 14, step 11.
-- [ ] Step 12: Describe the concrete action for section 14, step 12.
-- [ ] Step 13: Describe the concrete action for section 14, step 13.
-- [ ] Step 14: Describe the concrete action for section 14, step 14.
-- [ ] Step 15: Describe the concrete action for section 14, step 15.
-- [ ] Step 16: Describe the concrete action for section 14, step 16.
-- [ ] Step 17: Describe the concrete action for section 14, step 17.
-- [ ] Step 18: Describe the concrete action for section 14, step 18.
-- [ ] Step 19: Describe the concrete action for section 14, step 19.
-- [ ] Step 20: Describe the concrete action for section 14, step 20.
+- [ ] Step 01: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 02: List candidate types that should be refined or wrapped.
+- [ ] Step 03: Draft a small before/after example to validate the approach.
+- [ ] Step 04: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 05: Define the invariants and specify where they are enforced.
+- [ ] Step 06: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 07: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 08: Document failure modes and their remediation paths.
+- [ ] Step 09: Establish acceptance criteria for performance and correctness.
+- [ ] Step 10: Create a migration note for any API or data format shift.
+- [ ] Step 11: Add or update documentation snippets that match the new behavior.
+- [ ] Step 12: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 13: Record the decision rationale in the execution log.
+- [ ] Step 14: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 15: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 16: List candidate types that should be refined or wrapped.
+- [ ] Step 17: Draft a small before/after example to validate the approach.
+- [ ] Step 18: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 19: Define the invariants and specify where they are enforced.
+- [ ] Step 20: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 14.
-- [ ] Deliverable 02: Specify the artifact expected for section 14.
-- [ ] Deliverable 03: Specify the artifact expected for section 14.
-- [ ] Deliverable 04: Specify the artifact expected for section 14.
-- [ ] Deliverable 05: Specify the artifact expected for section 14.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 14.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 14.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 14.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 14.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 14.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 15 — Execution Checklist
+## Section 15 — Security & Input Validation
 
 ### Objective
-- Define the objective for section 15 and how it aligns with streaming/domain modeling standards.
+- Define the objective for security & input validation and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 15, step 01.
-- [ ] Step 02: Describe the concrete action for section 15, step 02.
-- [ ] Step 03: Describe the concrete action for section 15, step 03.
-- [ ] Step 04: Describe the concrete action for section 15, step 04.
-- [ ] Step 05: Describe the concrete action for section 15, step 05.
-- [ ] Step 06: Describe the concrete action for section 15, step 06.
-- [ ] Step 07: Describe the concrete action for section 15, step 07.
-- [ ] Step 08: Describe the concrete action for section 15, step 08.
-- [ ] Step 09: Describe the concrete action for section 15, step 09.
-- [ ] Step 10: Describe the concrete action for section 15, step 10.
-- [ ] Step 11: Describe the concrete action for section 15, step 11.
-- [ ] Step 12: Describe the concrete action for section 15, step 12.
-- [ ] Step 13: Describe the concrete action for section 15, step 13.
-- [ ] Step 14: Describe the concrete action for section 15, step 14.
-- [ ] Step 15: Describe the concrete action for section 15, step 15.
-- [ ] Step 16: Describe the concrete action for section 15, step 16.
-- [ ] Step 17: Describe the concrete action for section 15, step 17.
-- [ ] Step 18: Describe the concrete action for section 15, step 18.
-- [ ] Step 19: Describe the concrete action for section 15, step 19.
-- [ ] Step 20: Describe the concrete action for section 15, step 20.
+- [ ] Step 01: List candidate types that should be refined or wrapped.
+- [ ] Step 02: Draft a small before/after example to validate the approach.
+- [ ] Step 03: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 04: Define the invariants and specify where they are enforced.
+- [ ] Step 05: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 06: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 07: Document failure modes and their remediation paths.
+- [ ] Step 08: Establish acceptance criteria for performance and correctness.
+- [ ] Step 09: Create a migration note for any API or data format shift.
+- [ ] Step 10: Add or update documentation snippets that match the new behavior.
+- [ ] Step 11: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 12: Record the decision rationale in the execution log.
+- [ ] Step 13: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 14: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 15: List candidate types that should be refined or wrapped.
+- [ ] Step 16: Draft a small before/after example to validate the approach.
+- [ ] Step 17: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 18: Define the invariants and specify where they are enforced.
+- [ ] Step 19: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 20: Confirm resource acquisition and release strategy (scoped vs explicit).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 15.
-- [ ] Deliverable 02: Specify the artifact expected for section 15.
-- [ ] Deliverable 03: Specify the artifact expected for section 15.
-- [ ] Deliverable 04: Specify the artifact expected for section 15.
-- [ ] Deliverable 05: Specify the artifact expected for section 15.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 15.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 15.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 15.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 15.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 15.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 16 — Execution Checklist
+## Section 16 — Schema & Persistence Changes
 
 ### Objective
-- Define the objective for section 16 and how it aligns with streaming/domain modeling standards.
+- Define the objective for schema & persistence changes and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 16, step 01.
-- [ ] Step 02: Describe the concrete action for section 16, step 02.
-- [ ] Step 03: Describe the concrete action for section 16, step 03.
-- [ ] Step 04: Describe the concrete action for section 16, step 04.
-- [ ] Step 05: Describe the concrete action for section 16, step 05.
-- [ ] Step 06: Describe the concrete action for section 16, step 06.
-- [ ] Step 07: Describe the concrete action for section 16, step 07.
-- [ ] Step 08: Describe the concrete action for section 16, step 08.
-- [ ] Step 09: Describe the concrete action for section 16, step 09.
-- [ ] Step 10: Describe the concrete action for section 16, step 10.
-- [ ] Step 11: Describe the concrete action for section 16, step 11.
-- [ ] Step 12: Describe the concrete action for section 16, step 12.
-- [ ] Step 13: Describe the concrete action for section 16, step 13.
-- [ ] Step 14: Describe the concrete action for section 16, step 14.
-- [ ] Step 15: Describe the concrete action for section 16, step 15.
-- [ ] Step 16: Describe the concrete action for section 16, step 16.
-- [ ] Step 17: Describe the concrete action for section 16, step 17.
-- [ ] Step 18: Describe the concrete action for section 16, step 18.
-- [ ] Step 19: Describe the concrete action for section 16, step 19.
-- [ ] Step 20: Describe the concrete action for section 16, step 20.
+- [ ] Step 01: Draft a small before/after example to validate the approach.
+- [ ] Step 02: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 03: Define the invariants and specify where they are enforced.
+- [ ] Step 04: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 05: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 06: Document failure modes and their remediation paths.
+- [ ] Step 07: Establish acceptance criteria for performance and correctness.
+- [ ] Step 08: Create a migration note for any API or data format shift.
+- [ ] Step 09: Add or update documentation snippets that match the new behavior.
+- [ ] Step 10: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 11: Record the decision rationale in the execution log.
+- [ ] Step 12: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 13: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 14: List candidate types that should be refined or wrapped.
+- [ ] Step 15: Draft a small before/after example to validate the approach.
+- [ ] Step 16: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 17: Define the invariants and specify where they are enforced.
+- [ ] Step 18: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 19: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 20: Document failure modes and their remediation paths.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 16.
-- [ ] Deliverable 02: Specify the artifact expected for section 16.
-- [ ] Deliverable 03: Specify the artifact expected for section 16.
-- [ ] Deliverable 04: Specify the artifact expected for section 16.
-- [ ] Deliverable 05: Specify the artifact expected for section 16.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 16.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 16.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 16.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 16.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 16.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 17 — Execution Checklist
+## Section 17 — CLI Workflows & UX Consistency
 
 ### Objective
-- Define the objective for section 17 and how it aligns with streaming/domain modeling standards.
+- Define the objective for cli workflows & ux consistency and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 17, step 01.
-- [ ] Step 02: Describe the concrete action for section 17, step 02.
-- [ ] Step 03: Describe the concrete action for section 17, step 03.
-- [ ] Step 04: Describe the concrete action for section 17, step 04.
-- [ ] Step 05: Describe the concrete action for section 17, step 05.
-- [ ] Step 06: Describe the concrete action for section 17, step 06.
-- [ ] Step 07: Describe the concrete action for section 17, step 07.
-- [ ] Step 08: Describe the concrete action for section 17, step 08.
-- [ ] Step 09: Describe the concrete action for section 17, step 09.
-- [ ] Step 10: Describe the concrete action for section 17, step 10.
-- [ ] Step 11: Describe the concrete action for section 17, step 11.
-- [ ] Step 12: Describe the concrete action for section 17, step 12.
-- [ ] Step 13: Describe the concrete action for section 17, step 13.
-- [ ] Step 14: Describe the concrete action for section 17, step 14.
-- [ ] Step 15: Describe the concrete action for section 17, step 15.
-- [ ] Step 16: Describe the concrete action for section 17, step 16.
-- [ ] Step 17: Describe the concrete action for section 17, step 17.
-- [ ] Step 18: Describe the concrete action for section 17, step 18.
-- [ ] Step 19: Describe the concrete action for section 17, step 19.
-- [ ] Step 20: Describe the concrete action for section 17, step 20.
+- [ ] Step 01: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 02: Define the invariants and specify where they are enforced.
+- [ ] Step 03: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 04: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 05: Document failure modes and their remediation paths.
+- [ ] Step 06: Establish acceptance criteria for performance and correctness.
+- [ ] Step 07: Create a migration note for any API or data format shift.
+- [ ] Step 08: Add or update documentation snippets that match the new behavior.
+- [ ] Step 09: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 10: Record the decision rationale in the execution log.
+- [ ] Step 11: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 12: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 13: List candidate types that should be refined or wrapped.
+- [ ] Step 14: Draft a small before/after example to validate the approach.
+- [ ] Step 15: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 16: Define the invariants and specify where they are enforced.
+- [ ] Step 17: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 18: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 19: Document failure modes and their remediation paths.
+- [ ] Step 20: Establish acceptance criteria for performance and correctness.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 17.
-- [ ] Deliverable 02: Specify the artifact expected for section 17.
-- [ ] Deliverable 03: Specify the artifact expected for section 17.
-- [ ] Deliverable 04: Specify the artifact expected for section 17.
-- [ ] Deliverable 05: Specify the artifact expected for section 17.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 17.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 17.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 17.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 17.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 17.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 18 — Execution Checklist
+## Section 18 — Dependency & Build Hygiene
 
 ### Objective
-- Define the objective for section 18 and how it aligns with streaming/domain modeling standards.
+- Define the objective for dependency & build hygiene and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 18, step 01.
-- [ ] Step 02: Describe the concrete action for section 18, step 02.
-- [ ] Step 03: Describe the concrete action for section 18, step 03.
-- [ ] Step 04: Describe the concrete action for section 18, step 04.
-- [ ] Step 05: Describe the concrete action for section 18, step 05.
-- [ ] Step 06: Describe the concrete action for section 18, step 06.
-- [ ] Step 07: Describe the concrete action for section 18, step 07.
-- [ ] Step 08: Describe the concrete action for section 18, step 08.
-- [ ] Step 09: Describe the concrete action for section 18, step 09.
-- [ ] Step 10: Describe the concrete action for section 18, step 10.
-- [ ] Step 11: Describe the concrete action for section 18, step 11.
-- [ ] Step 12: Describe the concrete action for section 18, step 12.
-- [ ] Step 13: Describe the concrete action for section 18, step 13.
-- [ ] Step 14: Describe the concrete action for section 18, step 14.
-- [ ] Step 15: Describe the concrete action for section 18, step 15.
-- [ ] Step 16: Describe the concrete action for section 18, step 16.
-- [ ] Step 17: Describe the concrete action for section 18, step 17.
-- [ ] Step 18: Describe the concrete action for section 18, step 18.
-- [ ] Step 19: Describe the concrete action for section 18, step 19.
-- [ ] Step 20: Describe the concrete action for section 18, step 20.
+- [ ] Step 01: Define the invariants and specify where they are enforced.
+- [ ] Step 02: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 03: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 04: Document failure modes and their remediation paths.
+- [ ] Step 05: Establish acceptance criteria for performance and correctness.
+- [ ] Step 06: Create a migration note for any API or data format shift.
+- [ ] Step 07: Add or update documentation snippets that match the new behavior.
+- [ ] Step 08: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 09: Record the decision rationale in the execution log.
+- [ ] Step 10: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 11: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 12: List candidate types that should be refined or wrapped.
+- [ ] Step 13: Draft a small before/after example to validate the approach.
+- [ ] Step 14: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 15: Define the invariants and specify where they are enforced.
+- [ ] Step 16: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 17: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 18: Document failure modes and their remediation paths.
+- [ ] Step 19: Establish acceptance criteria for performance and correctness.
+- [ ] Step 20: Create a migration note for any API or data format shift.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 18.
-- [ ] Deliverable 02: Specify the artifact expected for section 18.
-- [ ] Deliverable 03: Specify the artifact expected for section 18.
-- [ ] Deliverable 04: Specify the artifact expected for section 18.
-- [ ] Deliverable 05: Specify the artifact expected for section 18.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 18.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 18.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 18.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 18.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 18.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 19 — Execution Checklist
+## Section 19 — Migration & Compatibility Strategy
 
 ### Objective
-- Define the objective for section 19 and how it aligns with streaming/domain modeling standards.
+- Define the objective for migration & compatibility strategy and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 19, step 01.
-- [ ] Step 02: Describe the concrete action for section 19, step 02.
-- [ ] Step 03: Describe the concrete action for section 19, step 03.
-- [ ] Step 04: Describe the concrete action for section 19, step 04.
-- [ ] Step 05: Describe the concrete action for section 19, step 05.
-- [ ] Step 06: Describe the concrete action for section 19, step 06.
-- [ ] Step 07: Describe the concrete action for section 19, step 07.
-- [ ] Step 08: Describe the concrete action for section 19, step 08.
-- [ ] Step 09: Describe the concrete action for section 19, step 09.
-- [ ] Step 10: Describe the concrete action for section 19, step 10.
-- [ ] Step 11: Describe the concrete action for section 19, step 11.
-- [ ] Step 12: Describe the concrete action for section 19, step 12.
-- [ ] Step 13: Describe the concrete action for section 19, step 13.
-- [ ] Step 14: Describe the concrete action for section 19, step 14.
-- [ ] Step 15: Describe the concrete action for section 19, step 15.
-- [ ] Step 16: Describe the concrete action for section 19, step 16.
-- [ ] Step 17: Describe the concrete action for section 19, step 17.
-- [ ] Step 18: Describe the concrete action for section 19, step 18.
-- [ ] Step 19: Describe the concrete action for section 19, step 19.
-- [ ] Step 20: Describe the concrete action for section 19, step 20.
+- [ ] Step 01: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 02: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 03: Document failure modes and their remediation paths.
+- [ ] Step 04: Establish acceptance criteria for performance and correctness.
+- [ ] Step 05: Create a migration note for any API or data format shift.
+- [ ] Step 06: Add or update documentation snippets that match the new behavior.
+- [ ] Step 07: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 08: Record the decision rationale in the execution log.
+- [ ] Step 09: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 10: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 11: List candidate types that should be refined or wrapped.
+- [ ] Step 12: Draft a small before/after example to validate the approach.
+- [ ] Step 13: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 14: Define the invariants and specify where they are enforced.
+- [ ] Step 15: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 16: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 17: Document failure modes and their remediation paths.
+- [ ] Step 18: Establish acceptance criteria for performance and correctness.
+- [ ] Step 19: Create a migration note for any API or data format shift.
+- [ ] Step 20: Add or update documentation snippets that match the new behavior.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 19.
-- [ ] Deliverable 02: Specify the artifact expected for section 19.
-- [ ] Deliverable 03: Specify the artifact expected for section 19.
-- [ ] Deliverable 04: Specify the artifact expected for section 19.
-- [ ] Deliverable 05: Specify the artifact expected for section 19.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 19.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 19.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 19.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 19.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 19.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 20 — Execution Checklist
+## Section 20 — Release Readiness & CI Checks
 
 ### Objective
-- Define the objective for section 20 and how it aligns with streaming/domain modeling standards.
+- Define the objective for release readiness & ci checks and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 20, step 01.
-- [ ] Step 02: Describe the concrete action for section 20, step 02.
-- [ ] Step 03: Describe the concrete action for section 20, step 03.
-- [ ] Step 04: Describe the concrete action for section 20, step 04.
-- [ ] Step 05: Describe the concrete action for section 20, step 05.
-- [ ] Step 06: Describe the concrete action for section 20, step 06.
-- [ ] Step 07: Describe the concrete action for section 20, step 07.
-- [ ] Step 08: Describe the concrete action for section 20, step 08.
-- [ ] Step 09: Describe the concrete action for section 20, step 09.
-- [ ] Step 10: Describe the concrete action for section 20, step 10.
-- [ ] Step 11: Describe the concrete action for section 20, step 11.
-- [ ] Step 12: Describe the concrete action for section 20, step 12.
-- [ ] Step 13: Describe the concrete action for section 20, step 13.
-- [ ] Step 14: Describe the concrete action for section 20, step 14.
-- [ ] Step 15: Describe the concrete action for section 20, step 15.
-- [ ] Step 16: Describe the concrete action for section 20, step 16.
-- [ ] Step 17: Describe the concrete action for section 20, step 17.
-- [ ] Step 18: Describe the concrete action for section 20, step 18.
-- [ ] Step 19: Describe the concrete action for section 20, step 19.
-- [ ] Step 20: Describe the concrete action for section 20, step 20.
+- [ ] Step 01: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 02: Document failure modes and their remediation paths.
+- [ ] Step 03: Establish acceptance criteria for performance and correctness.
+- [ ] Step 04: Create a migration note for any API or data format shift.
+- [ ] Step 05: Add or update documentation snippets that match the new behavior.
+- [ ] Step 06: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 07: Record the decision rationale in the execution log.
+- [ ] Step 08: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 09: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 10: List candidate types that should be refined or wrapped.
+- [ ] Step 11: Draft a small before/after example to validate the approach.
+- [ ] Step 12: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 13: Define the invariants and specify where they are enforced.
+- [ ] Step 14: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 15: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 16: Document failure modes and their remediation paths.
+- [ ] Step 17: Establish acceptance criteria for performance and correctness.
+- [ ] Step 18: Create a migration note for any API or data format shift.
+- [ ] Step 19: Add or update documentation snippets that match the new behavior.
+- [ ] Step 20: Prepare a validation plan (formatting, tests, docs checks).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 20.
-- [ ] Deliverable 02: Specify the artifact expected for section 20.
-- [ ] Deliverable 03: Specify the artifact expected for section 20.
-- [ ] Deliverable 04: Specify the artifact expected for section 20.
-- [ ] Deliverable 05: Specify the artifact expected for section 20.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 20.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 20.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 20.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 20.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 20.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 21 — Execution Checklist
+## Section 21 — Repository Orientation & Module Boundaries — Track 21
 
 ### Objective
-- Define the objective for section 21 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 21 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 21, step 01.
-- [ ] Step 02: Describe the concrete action for section 21, step 02.
-- [ ] Step 03: Describe the concrete action for section 21, step 03.
-- [ ] Step 04: Describe the concrete action for section 21, step 04.
-- [ ] Step 05: Describe the concrete action for section 21, step 05.
-- [ ] Step 06: Describe the concrete action for section 21, step 06.
-- [ ] Step 07: Describe the concrete action for section 21, step 07.
-- [ ] Step 08: Describe the concrete action for section 21, step 08.
-- [ ] Step 09: Describe the concrete action for section 21, step 09.
-- [ ] Step 10: Describe the concrete action for section 21, step 10.
-- [ ] Step 11: Describe the concrete action for section 21, step 11.
-- [ ] Step 12: Describe the concrete action for section 21, step 12.
-- [ ] Step 13: Describe the concrete action for section 21, step 13.
-- [ ] Step 14: Describe the concrete action for section 21, step 14.
-- [ ] Step 15: Describe the concrete action for section 21, step 15.
-- [ ] Step 16: Describe the concrete action for section 21, step 16.
-- [ ] Step 17: Describe the concrete action for section 21, step 17.
-- [ ] Step 18: Describe the concrete action for section 21, step 18.
-- [ ] Step 19: Describe the concrete action for section 21, step 19.
-- [ ] Step 20: Describe the concrete action for section 21, step 20.
+- [ ] Step 01: Document failure modes and their remediation paths.
+- [ ] Step 02: Establish acceptance criteria for performance and correctness.
+- [ ] Step 03: Create a migration note for any API or data format shift.
+- [ ] Step 04: Add or update documentation snippets that match the new behavior.
+- [ ] Step 05: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 06: Record the decision rationale in the execution log.
+- [ ] Step 07: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 08: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 09: List candidate types that should be refined or wrapped.
+- [ ] Step 10: Draft a small before/after example to validate the approach.
+- [ ] Step 11: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 12: Define the invariants and specify where they are enforced.
+- [ ] Step 13: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 14: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 15: Document failure modes and their remediation paths.
+- [ ] Step 16: Establish acceptance criteria for performance and correctness.
+- [ ] Step 17: Create a migration note for any API or data format shift.
+- [ ] Step 18: Add or update documentation snippets that match the new behavior.
+- [ ] Step 19: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 20: Record the decision rationale in the execution log.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 21.
-- [ ] Deliverable 02: Specify the artifact expected for section 21.
-- [ ] Deliverable 03: Specify the artifact expected for section 21.
-- [ ] Deliverable 04: Specify the artifact expected for section 21.
-- [ ] Deliverable 05: Specify the artifact expected for section 21.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 21.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 21.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 21.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 21.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 21.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 22 — Execution Checklist
+## Section 22 — Repository Orientation & Module Boundaries — Track 22
 
 ### Objective
-- Define the objective for section 22 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 22 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 22, step 01.
-- [ ] Step 02: Describe the concrete action for section 22, step 02.
-- [ ] Step 03: Describe the concrete action for section 22, step 03.
-- [ ] Step 04: Describe the concrete action for section 22, step 04.
-- [ ] Step 05: Describe the concrete action for section 22, step 05.
-- [ ] Step 06: Describe the concrete action for section 22, step 06.
-- [ ] Step 07: Describe the concrete action for section 22, step 07.
-- [ ] Step 08: Describe the concrete action for section 22, step 08.
-- [ ] Step 09: Describe the concrete action for section 22, step 09.
-- [ ] Step 10: Describe the concrete action for section 22, step 10.
-- [ ] Step 11: Describe the concrete action for section 22, step 11.
-- [ ] Step 12: Describe the concrete action for section 22, step 12.
-- [ ] Step 13: Describe the concrete action for section 22, step 13.
-- [ ] Step 14: Describe the concrete action for section 22, step 14.
-- [ ] Step 15: Describe the concrete action for section 22, step 15.
-- [ ] Step 16: Describe the concrete action for section 22, step 16.
-- [ ] Step 17: Describe the concrete action for section 22, step 17.
-- [ ] Step 18: Describe the concrete action for section 22, step 18.
-- [ ] Step 19: Describe the concrete action for section 22, step 19.
-- [ ] Step 20: Describe the concrete action for section 22, step 20.
+- [ ] Step 01: Establish acceptance criteria for performance and correctness.
+- [ ] Step 02: Create a migration note for any API or data format shift.
+- [ ] Step 03: Add or update documentation snippets that match the new behavior.
+- [ ] Step 04: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 05: Record the decision rationale in the execution log.
+- [ ] Step 06: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 07: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 08: List candidate types that should be refined or wrapped.
+- [ ] Step 09: Draft a small before/after example to validate the approach.
+- [ ] Step 10: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 11: Define the invariants and specify where they are enforced.
+- [ ] Step 12: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 13: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 14: Document failure modes and their remediation paths.
+- [ ] Step 15: Establish acceptance criteria for performance and correctness.
+- [ ] Step 16: Create a migration note for any API or data format shift.
+- [ ] Step 17: Add or update documentation snippets that match the new behavior.
+- [ ] Step 18: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 19: Record the decision rationale in the execution log.
+- [ ] Step 20: Inventory relevant modules and identify the owning package(s).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 22.
-- [ ] Deliverable 02: Specify the artifact expected for section 22.
-- [ ] Deliverable 03: Specify the artifact expected for section 22.
-- [ ] Deliverable 04: Specify the artifact expected for section 22.
-- [ ] Deliverable 05: Specify the artifact expected for section 22.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 22.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 22.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 22.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 22.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 22.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 23 — Execution Checklist
+## Section 23 — Repository Orientation & Module Boundaries — Track 23
 
 ### Objective
-- Define the objective for section 23 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 23 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 23, step 01.
-- [ ] Step 02: Describe the concrete action for section 23, step 02.
-- [ ] Step 03: Describe the concrete action for section 23, step 03.
-- [ ] Step 04: Describe the concrete action for section 23, step 04.
-- [ ] Step 05: Describe the concrete action for section 23, step 05.
-- [ ] Step 06: Describe the concrete action for section 23, step 06.
-- [ ] Step 07: Describe the concrete action for section 23, step 07.
-- [ ] Step 08: Describe the concrete action for section 23, step 08.
-- [ ] Step 09: Describe the concrete action for section 23, step 09.
-- [ ] Step 10: Describe the concrete action for section 23, step 10.
-- [ ] Step 11: Describe the concrete action for section 23, step 11.
-- [ ] Step 12: Describe the concrete action for section 23, step 12.
-- [ ] Step 13: Describe the concrete action for section 23, step 13.
-- [ ] Step 14: Describe the concrete action for section 23, step 14.
-- [ ] Step 15: Describe the concrete action for section 23, step 15.
-- [ ] Step 16: Describe the concrete action for section 23, step 16.
-- [ ] Step 17: Describe the concrete action for section 23, step 17.
-- [ ] Step 18: Describe the concrete action for section 23, step 18.
-- [ ] Step 19: Describe the concrete action for section 23, step 19.
-- [ ] Step 20: Describe the concrete action for section 23, step 20.
+- [ ] Step 01: Create a migration note for any API or data format shift.
+- [ ] Step 02: Add or update documentation snippets that match the new behavior.
+- [ ] Step 03: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 04: Record the decision rationale in the execution log.
+- [ ] Step 05: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 06: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 07: List candidate types that should be refined or wrapped.
+- [ ] Step 08: Draft a small before/after example to validate the approach.
+- [ ] Step 09: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 10: Define the invariants and specify where they are enforced.
+- [ ] Step 11: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 12: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 13: Document failure modes and their remediation paths.
+- [ ] Step 14: Establish acceptance criteria for performance and correctness.
+- [ ] Step 15: Create a migration note for any API or data format shift.
+- [ ] Step 16: Add or update documentation snippets that match the new behavior.
+- [ ] Step 17: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 18: Record the decision rationale in the execution log.
+- [ ] Step 19: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 20: Map the data flow from ingress to persistence, naming each boundary.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 23.
-- [ ] Deliverable 02: Specify the artifact expected for section 23.
-- [ ] Deliverable 03: Specify the artifact expected for section 23.
-- [ ] Deliverable 04: Specify the artifact expected for section 23.
-- [ ] Deliverable 05: Specify the artifact expected for section 23.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 23.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 23.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 23.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 23.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 23.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 24 — Execution Checklist
+## Section 24 — Repository Orientation & Module Boundaries — Track 24
 
 ### Objective
-- Define the objective for section 24 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 24 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 24, step 01.
-- [ ] Step 02: Describe the concrete action for section 24, step 02.
-- [ ] Step 03: Describe the concrete action for section 24, step 03.
-- [ ] Step 04: Describe the concrete action for section 24, step 04.
-- [ ] Step 05: Describe the concrete action for section 24, step 05.
-- [ ] Step 06: Describe the concrete action for section 24, step 06.
-- [ ] Step 07: Describe the concrete action for section 24, step 07.
-- [ ] Step 08: Describe the concrete action for section 24, step 08.
-- [ ] Step 09: Describe the concrete action for section 24, step 09.
-- [ ] Step 10: Describe the concrete action for section 24, step 10.
-- [ ] Step 11: Describe the concrete action for section 24, step 11.
-- [ ] Step 12: Describe the concrete action for section 24, step 12.
-- [ ] Step 13: Describe the concrete action for section 24, step 13.
-- [ ] Step 14: Describe the concrete action for section 24, step 14.
-- [ ] Step 15: Describe the concrete action for section 24, step 15.
-- [ ] Step 16: Describe the concrete action for section 24, step 16.
-- [ ] Step 17: Describe the concrete action for section 24, step 17.
-- [ ] Step 18: Describe the concrete action for section 24, step 18.
-- [ ] Step 19: Describe the concrete action for section 24, step 19.
-- [ ] Step 20: Describe the concrete action for section 24, step 20.
+- [ ] Step 01: Add or update documentation snippets that match the new behavior.
+- [ ] Step 02: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 03: Record the decision rationale in the execution log.
+- [ ] Step 04: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 05: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 06: List candidate types that should be refined or wrapped.
+- [ ] Step 07: Draft a small before/after example to validate the approach.
+- [ ] Step 08: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 09: Define the invariants and specify where they are enforced.
+- [ ] Step 10: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 11: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 12: Document failure modes and their remediation paths.
+- [ ] Step 13: Establish acceptance criteria for performance and correctness.
+- [ ] Step 14: Create a migration note for any API or data format shift.
+- [ ] Step 15: Add or update documentation snippets that match the new behavior.
+- [ ] Step 16: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 17: Record the decision rationale in the execution log.
+- [ ] Step 18: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 19: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 20: List candidate types that should be refined or wrapped.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 24.
-- [ ] Deliverable 02: Specify the artifact expected for section 24.
-- [ ] Deliverable 03: Specify the artifact expected for section 24.
-- [ ] Deliverable 04: Specify the artifact expected for section 24.
-- [ ] Deliverable 05: Specify the artifact expected for section 24.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 24.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 24.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 24.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 24.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 24.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 25 — Execution Checklist
+## Section 25 — Repository Orientation & Module Boundaries — Track 25
 
 ### Objective
-- Define the objective for section 25 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 25 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 25, step 01.
-- [ ] Step 02: Describe the concrete action for section 25, step 02.
-- [ ] Step 03: Describe the concrete action for section 25, step 03.
-- [ ] Step 04: Describe the concrete action for section 25, step 04.
-- [ ] Step 05: Describe the concrete action for section 25, step 05.
-- [ ] Step 06: Describe the concrete action for section 25, step 06.
-- [ ] Step 07: Describe the concrete action for section 25, step 07.
-- [ ] Step 08: Describe the concrete action for section 25, step 08.
-- [ ] Step 09: Describe the concrete action for section 25, step 09.
-- [ ] Step 10: Describe the concrete action for section 25, step 10.
-- [ ] Step 11: Describe the concrete action for section 25, step 11.
-- [ ] Step 12: Describe the concrete action for section 25, step 12.
-- [ ] Step 13: Describe the concrete action for section 25, step 13.
-- [ ] Step 14: Describe the concrete action for section 25, step 14.
-- [ ] Step 15: Describe the concrete action for section 25, step 15.
-- [ ] Step 16: Describe the concrete action for section 25, step 16.
-- [ ] Step 17: Describe the concrete action for section 25, step 17.
-- [ ] Step 18: Describe the concrete action for section 25, step 18.
-- [ ] Step 19: Describe the concrete action for section 25, step 19.
-- [ ] Step 20: Describe the concrete action for section 25, step 20.
+- [ ] Step 01: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 02: Record the decision rationale in the execution log.
+- [ ] Step 03: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 04: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 05: List candidate types that should be refined or wrapped.
+- [ ] Step 06: Draft a small before/after example to validate the approach.
+- [ ] Step 07: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 08: Define the invariants and specify where they are enforced.
+- [ ] Step 09: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 10: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 11: Document failure modes and their remediation paths.
+- [ ] Step 12: Establish acceptance criteria for performance and correctness.
+- [ ] Step 13: Create a migration note for any API or data format shift.
+- [ ] Step 14: Add or update documentation snippets that match the new behavior.
+- [ ] Step 15: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 16: Record the decision rationale in the execution log.
+- [ ] Step 17: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 18: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 19: List candidate types that should be refined or wrapped.
+- [ ] Step 20: Draft a small before/after example to validate the approach.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 25.
-- [ ] Deliverable 02: Specify the artifact expected for section 25.
-- [ ] Deliverable 03: Specify the artifact expected for section 25.
-- [ ] Deliverable 04: Specify the artifact expected for section 25.
-- [ ] Deliverable 05: Specify the artifact expected for section 25.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 25.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 25.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 25.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 25.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 25.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 26 — Execution Checklist
+## Section 26 — Repository Orientation & Module Boundaries — Track 26
 
 ### Objective
-- Define the objective for section 26 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 26 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 26, step 01.
-- [ ] Step 02: Describe the concrete action for section 26, step 02.
-- [ ] Step 03: Describe the concrete action for section 26, step 03.
-- [ ] Step 04: Describe the concrete action for section 26, step 04.
-- [ ] Step 05: Describe the concrete action for section 26, step 05.
-- [ ] Step 06: Describe the concrete action for section 26, step 06.
-- [ ] Step 07: Describe the concrete action for section 26, step 07.
-- [ ] Step 08: Describe the concrete action for section 26, step 08.
-- [ ] Step 09: Describe the concrete action for section 26, step 09.
-- [ ] Step 10: Describe the concrete action for section 26, step 10.
-- [ ] Step 11: Describe the concrete action for section 26, step 11.
-- [ ] Step 12: Describe the concrete action for section 26, step 12.
-- [ ] Step 13: Describe the concrete action for section 26, step 13.
-- [ ] Step 14: Describe the concrete action for section 26, step 14.
-- [ ] Step 15: Describe the concrete action for section 26, step 15.
-- [ ] Step 16: Describe the concrete action for section 26, step 16.
-- [ ] Step 17: Describe the concrete action for section 26, step 17.
-- [ ] Step 18: Describe the concrete action for section 26, step 18.
-- [ ] Step 19: Describe the concrete action for section 26, step 19.
-- [ ] Step 20: Describe the concrete action for section 26, step 20.
+- [ ] Step 01: Record the decision rationale in the execution log.
+- [ ] Step 02: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 03: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 04: List candidate types that should be refined or wrapped.
+- [ ] Step 05: Draft a small before/after example to validate the approach.
+- [ ] Step 06: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 07: Define the invariants and specify where they are enforced.
+- [ ] Step 08: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 09: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 10: Document failure modes and their remediation paths.
+- [ ] Step 11: Establish acceptance criteria for performance and correctness.
+- [ ] Step 12: Create a migration note for any API or data format shift.
+- [ ] Step 13: Add or update documentation snippets that match the new behavior.
+- [ ] Step 14: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 15: Record the decision rationale in the execution log.
+- [ ] Step 16: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 17: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 18: List candidate types that should be refined or wrapped.
+- [ ] Step 19: Draft a small before/after example to validate the approach.
+- [ ] Step 20: Identify existing helpers that can be reused or consolidated.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 26.
-- [ ] Deliverable 02: Specify the artifact expected for section 26.
-- [ ] Deliverable 03: Specify the artifact expected for section 26.
-- [ ] Deliverable 04: Specify the artifact expected for section 26.
-- [ ] Deliverable 05: Specify the artifact expected for section 26.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 26.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 26.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 26.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 26.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 26.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 27 — Execution Checklist
+## Section 27 — Repository Orientation & Module Boundaries — Track 27
 
 ### Objective
-- Define the objective for section 27 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 27 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 27, step 01.
-- [ ] Step 02: Describe the concrete action for section 27, step 02.
-- [ ] Step 03: Describe the concrete action for section 27, step 03.
-- [ ] Step 04: Describe the concrete action for section 27, step 04.
-- [ ] Step 05: Describe the concrete action for section 27, step 05.
-- [ ] Step 06: Describe the concrete action for section 27, step 06.
-- [ ] Step 07: Describe the concrete action for section 27, step 07.
-- [ ] Step 08: Describe the concrete action for section 27, step 08.
-- [ ] Step 09: Describe the concrete action for section 27, step 09.
-- [ ] Step 10: Describe the concrete action for section 27, step 10.
-- [ ] Step 11: Describe the concrete action for section 27, step 11.
-- [ ] Step 12: Describe the concrete action for section 27, step 12.
-- [ ] Step 13: Describe the concrete action for section 27, step 13.
-- [ ] Step 14: Describe the concrete action for section 27, step 14.
-- [ ] Step 15: Describe the concrete action for section 27, step 15.
-- [ ] Step 16: Describe the concrete action for section 27, step 16.
-- [ ] Step 17: Describe the concrete action for section 27, step 17.
-- [ ] Step 18: Describe the concrete action for section 27, step 18.
-- [ ] Step 19: Describe the concrete action for section 27, step 19.
-- [ ] Step 20: Describe the concrete action for section 27, step 20.
+- [ ] Step 01: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 02: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 03: List candidate types that should be refined or wrapped.
+- [ ] Step 04: Draft a small before/after example to validate the approach.
+- [ ] Step 05: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 06: Define the invariants and specify where they are enforced.
+- [ ] Step 07: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 08: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 09: Document failure modes and their remediation paths.
+- [ ] Step 10: Establish acceptance criteria for performance and correctness.
+- [ ] Step 11: Create a migration note for any API or data format shift.
+- [ ] Step 12: Add or update documentation snippets that match the new behavior.
+- [ ] Step 13: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 14: Record the decision rationale in the execution log.
+- [ ] Step 15: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 16: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 17: List candidate types that should be refined or wrapped.
+- [ ] Step 18: Draft a small before/after example to validate the approach.
+- [ ] Step 19: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 20: Define the invariants and specify where they are enforced.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 27.
-- [ ] Deliverable 02: Specify the artifact expected for section 27.
-- [ ] Deliverable 03: Specify the artifact expected for section 27.
-- [ ] Deliverable 04: Specify the artifact expected for section 27.
-- [ ] Deliverable 05: Specify the artifact expected for section 27.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 27.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 27.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 27.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 27.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 27.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 28 — Execution Checklist
+## Section 28 — Repository Orientation & Module Boundaries — Track 28
 
 ### Objective
-- Define the objective for section 28 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 28 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 28, step 01.
-- [ ] Step 02: Describe the concrete action for section 28, step 02.
-- [ ] Step 03: Describe the concrete action for section 28, step 03.
-- [ ] Step 04: Describe the concrete action for section 28, step 04.
-- [ ] Step 05: Describe the concrete action for section 28, step 05.
-- [ ] Step 06: Describe the concrete action for section 28, step 06.
-- [ ] Step 07: Describe the concrete action for section 28, step 07.
-- [ ] Step 08: Describe the concrete action for section 28, step 08.
-- [ ] Step 09: Describe the concrete action for section 28, step 09.
-- [ ] Step 10: Describe the concrete action for section 28, step 10.
-- [ ] Step 11: Describe the concrete action for section 28, step 11.
-- [ ] Step 12: Describe the concrete action for section 28, step 12.
-- [ ] Step 13: Describe the concrete action for section 28, step 13.
-- [ ] Step 14: Describe the concrete action for section 28, step 14.
-- [ ] Step 15: Describe the concrete action for section 28, step 15.
-- [ ] Step 16: Describe the concrete action for section 28, step 16.
-- [ ] Step 17: Describe the concrete action for section 28, step 17.
-- [ ] Step 18: Describe the concrete action for section 28, step 18.
-- [ ] Step 19: Describe the concrete action for section 28, step 19.
-- [ ] Step 20: Describe the concrete action for section 28, step 20.
+- [ ] Step 01: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 02: List candidate types that should be refined or wrapped.
+- [ ] Step 03: Draft a small before/after example to validate the approach.
+- [ ] Step 04: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 05: Define the invariants and specify where they are enforced.
+- [ ] Step 06: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 07: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 08: Document failure modes and their remediation paths.
+- [ ] Step 09: Establish acceptance criteria for performance and correctness.
+- [ ] Step 10: Create a migration note for any API or data format shift.
+- [ ] Step 11: Add or update documentation snippets that match the new behavior.
+- [ ] Step 12: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 13: Record the decision rationale in the execution log.
+- [ ] Step 14: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 15: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 16: List candidate types that should be refined or wrapped.
+- [ ] Step 17: Draft a small before/after example to validate the approach.
+- [ ] Step 18: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 19: Define the invariants and specify where they are enforced.
+- [ ] Step 20: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 28.
-- [ ] Deliverable 02: Specify the artifact expected for section 28.
-- [ ] Deliverable 03: Specify the artifact expected for section 28.
-- [ ] Deliverable 04: Specify the artifact expected for section 28.
-- [ ] Deliverable 05: Specify the artifact expected for section 28.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 28.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 28.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 28.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 28.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 28.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 29 — Execution Checklist
+## Section 29 — Repository Orientation & Module Boundaries — Track 29
 
 ### Objective
-- Define the objective for section 29 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 29 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 29, step 01.
-- [ ] Step 02: Describe the concrete action for section 29, step 02.
-- [ ] Step 03: Describe the concrete action for section 29, step 03.
-- [ ] Step 04: Describe the concrete action for section 29, step 04.
-- [ ] Step 05: Describe the concrete action for section 29, step 05.
-- [ ] Step 06: Describe the concrete action for section 29, step 06.
-- [ ] Step 07: Describe the concrete action for section 29, step 07.
-- [ ] Step 08: Describe the concrete action for section 29, step 08.
-- [ ] Step 09: Describe the concrete action for section 29, step 09.
-- [ ] Step 10: Describe the concrete action for section 29, step 10.
-- [ ] Step 11: Describe the concrete action for section 29, step 11.
-- [ ] Step 12: Describe the concrete action for section 29, step 12.
-- [ ] Step 13: Describe the concrete action for section 29, step 13.
-- [ ] Step 14: Describe the concrete action for section 29, step 14.
-- [ ] Step 15: Describe the concrete action for section 29, step 15.
-- [ ] Step 16: Describe the concrete action for section 29, step 16.
-- [ ] Step 17: Describe the concrete action for section 29, step 17.
-- [ ] Step 18: Describe the concrete action for section 29, step 18.
-- [ ] Step 19: Describe the concrete action for section 29, step 19.
-- [ ] Step 20: Describe the concrete action for section 29, step 20.
+- [ ] Step 01: List candidate types that should be refined or wrapped.
+- [ ] Step 02: Draft a small before/after example to validate the approach.
+- [ ] Step 03: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 04: Define the invariants and specify where they are enforced.
+- [ ] Step 05: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 06: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 07: Document failure modes and their remediation paths.
+- [ ] Step 08: Establish acceptance criteria for performance and correctness.
+- [ ] Step 09: Create a migration note for any API or data format shift.
+- [ ] Step 10: Add or update documentation snippets that match the new behavior.
+- [ ] Step 11: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 12: Record the decision rationale in the execution log.
+- [ ] Step 13: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 14: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 15: List candidate types that should be refined or wrapped.
+- [ ] Step 16: Draft a small before/after example to validate the approach.
+- [ ] Step 17: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 18: Define the invariants and specify where they are enforced.
+- [ ] Step 19: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 20: Confirm resource acquisition and release strategy (scoped vs explicit).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 29.
-- [ ] Deliverable 02: Specify the artifact expected for section 29.
-- [ ] Deliverable 03: Specify the artifact expected for section 29.
-- [ ] Deliverable 04: Specify the artifact expected for section 29.
-- [ ] Deliverable 05: Specify the artifact expected for section 29.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 29.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 29.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 29.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 29.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 29.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 30 — Execution Checklist
+## Section 30 — Repository Orientation & Module Boundaries — Track 30
 
 ### Objective
-- Define the objective for section 30 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 30 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 30, step 01.
-- [ ] Step 02: Describe the concrete action for section 30, step 02.
-- [ ] Step 03: Describe the concrete action for section 30, step 03.
-- [ ] Step 04: Describe the concrete action for section 30, step 04.
-- [ ] Step 05: Describe the concrete action for section 30, step 05.
-- [ ] Step 06: Describe the concrete action for section 30, step 06.
-- [ ] Step 07: Describe the concrete action for section 30, step 07.
-- [ ] Step 08: Describe the concrete action for section 30, step 08.
-- [ ] Step 09: Describe the concrete action for section 30, step 09.
-- [ ] Step 10: Describe the concrete action for section 30, step 10.
-- [ ] Step 11: Describe the concrete action for section 30, step 11.
-- [ ] Step 12: Describe the concrete action for section 30, step 12.
-- [ ] Step 13: Describe the concrete action for section 30, step 13.
-- [ ] Step 14: Describe the concrete action for section 30, step 14.
-- [ ] Step 15: Describe the concrete action for section 30, step 15.
-- [ ] Step 16: Describe the concrete action for section 30, step 16.
-- [ ] Step 17: Describe the concrete action for section 30, step 17.
-- [ ] Step 18: Describe the concrete action for section 30, step 18.
-- [ ] Step 19: Describe the concrete action for section 30, step 19.
-- [ ] Step 20: Describe the concrete action for section 30, step 20.
+- [ ] Step 01: Draft a small before/after example to validate the approach.
+- [ ] Step 02: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 03: Define the invariants and specify where they are enforced.
+- [ ] Step 04: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 05: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 06: Document failure modes and their remediation paths.
+- [ ] Step 07: Establish acceptance criteria for performance and correctness.
+- [ ] Step 08: Create a migration note for any API or data format shift.
+- [ ] Step 09: Add or update documentation snippets that match the new behavior.
+- [ ] Step 10: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 11: Record the decision rationale in the execution log.
+- [ ] Step 12: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 13: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 14: List candidate types that should be refined or wrapped.
+- [ ] Step 15: Draft a small before/after example to validate the approach.
+- [ ] Step 16: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 17: Define the invariants and specify where they are enforced.
+- [ ] Step 18: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 19: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 20: Document failure modes and their remediation paths.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 30.
-- [ ] Deliverable 02: Specify the artifact expected for section 30.
-- [ ] Deliverable 03: Specify the artifact expected for section 30.
-- [ ] Deliverable 04: Specify the artifact expected for section 30.
-- [ ] Deliverable 05: Specify the artifact expected for section 30.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 30.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 30.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 30.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 30.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 30.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 31 — Execution Checklist
+## Section 31 — Repository Orientation & Module Boundaries — Track 31
 
 ### Objective
-- Define the objective for section 31 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 31 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 31, step 01.
-- [ ] Step 02: Describe the concrete action for section 31, step 02.
-- [ ] Step 03: Describe the concrete action for section 31, step 03.
-- [ ] Step 04: Describe the concrete action for section 31, step 04.
-- [ ] Step 05: Describe the concrete action for section 31, step 05.
-- [ ] Step 06: Describe the concrete action for section 31, step 06.
-- [ ] Step 07: Describe the concrete action for section 31, step 07.
-- [ ] Step 08: Describe the concrete action for section 31, step 08.
-- [ ] Step 09: Describe the concrete action for section 31, step 09.
-- [ ] Step 10: Describe the concrete action for section 31, step 10.
-- [ ] Step 11: Describe the concrete action for section 31, step 11.
-- [ ] Step 12: Describe the concrete action for section 31, step 12.
-- [ ] Step 13: Describe the concrete action for section 31, step 13.
-- [ ] Step 14: Describe the concrete action for section 31, step 14.
-- [ ] Step 15: Describe the concrete action for section 31, step 15.
-- [ ] Step 16: Describe the concrete action for section 31, step 16.
-- [ ] Step 17: Describe the concrete action for section 31, step 17.
-- [ ] Step 18: Describe the concrete action for section 31, step 18.
-- [ ] Step 19: Describe the concrete action for section 31, step 19.
-- [ ] Step 20: Describe the concrete action for section 31, step 20.
+- [ ] Step 01: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 02: Define the invariants and specify where they are enforced.
+- [ ] Step 03: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 04: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 05: Document failure modes and their remediation paths.
+- [ ] Step 06: Establish acceptance criteria for performance and correctness.
+- [ ] Step 07: Create a migration note for any API or data format shift.
+- [ ] Step 08: Add or update documentation snippets that match the new behavior.
+- [ ] Step 09: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 10: Record the decision rationale in the execution log.
+- [ ] Step 11: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 12: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 13: List candidate types that should be refined or wrapped.
+- [ ] Step 14: Draft a small before/after example to validate the approach.
+- [ ] Step 15: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 16: Define the invariants and specify where they are enforced.
+- [ ] Step 17: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 18: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 19: Document failure modes and their remediation paths.
+- [ ] Step 20: Establish acceptance criteria for performance and correctness.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 31.
-- [ ] Deliverable 02: Specify the artifact expected for section 31.
-- [ ] Deliverable 03: Specify the artifact expected for section 31.
-- [ ] Deliverable 04: Specify the artifact expected for section 31.
-- [ ] Deliverable 05: Specify the artifact expected for section 31.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 31.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 31.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 31.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 31.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 31.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 32 — Execution Checklist
+## Section 32 — Repository Orientation & Module Boundaries — Track 32
 
 ### Objective
-- Define the objective for section 32 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 32 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 32, step 01.
-- [ ] Step 02: Describe the concrete action for section 32, step 02.
-- [ ] Step 03: Describe the concrete action for section 32, step 03.
-- [ ] Step 04: Describe the concrete action for section 32, step 04.
-- [ ] Step 05: Describe the concrete action for section 32, step 05.
-- [ ] Step 06: Describe the concrete action for section 32, step 06.
-- [ ] Step 07: Describe the concrete action for section 32, step 07.
-- [ ] Step 08: Describe the concrete action for section 32, step 08.
-- [ ] Step 09: Describe the concrete action for section 32, step 09.
-- [ ] Step 10: Describe the concrete action for section 32, step 10.
-- [ ] Step 11: Describe the concrete action for section 32, step 11.
-- [ ] Step 12: Describe the concrete action for section 32, step 12.
-- [ ] Step 13: Describe the concrete action for section 32, step 13.
-- [ ] Step 14: Describe the concrete action for section 32, step 14.
-- [ ] Step 15: Describe the concrete action for section 32, step 15.
-- [ ] Step 16: Describe the concrete action for section 32, step 16.
-- [ ] Step 17: Describe the concrete action for section 32, step 17.
-- [ ] Step 18: Describe the concrete action for section 32, step 18.
-- [ ] Step 19: Describe the concrete action for section 32, step 19.
-- [ ] Step 20: Describe the concrete action for section 32, step 20.
+- [ ] Step 01: Define the invariants and specify where they are enforced.
+- [ ] Step 02: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 03: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 04: Document failure modes and their remediation paths.
+- [ ] Step 05: Establish acceptance criteria for performance and correctness.
+- [ ] Step 06: Create a migration note for any API or data format shift.
+- [ ] Step 07: Add or update documentation snippets that match the new behavior.
+- [ ] Step 08: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 09: Record the decision rationale in the execution log.
+- [ ] Step 10: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 11: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 12: List candidate types that should be refined or wrapped.
+- [ ] Step 13: Draft a small before/after example to validate the approach.
+- [ ] Step 14: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 15: Define the invariants and specify where they are enforced.
+- [ ] Step 16: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 17: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 18: Document failure modes and their remediation paths.
+- [ ] Step 19: Establish acceptance criteria for performance and correctness.
+- [ ] Step 20: Create a migration note for any API or data format shift.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 32.
-- [ ] Deliverable 02: Specify the artifact expected for section 32.
-- [ ] Deliverable 03: Specify the artifact expected for section 32.
-- [ ] Deliverable 04: Specify the artifact expected for section 32.
-- [ ] Deliverable 05: Specify the artifact expected for section 32.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 32.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 32.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 32.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 32.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 32.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 33 — Execution Checklist
+## Section 33 — Repository Orientation & Module Boundaries — Track 33
 
 ### Objective
-- Define the objective for section 33 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 33 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 33, step 01.
-- [ ] Step 02: Describe the concrete action for section 33, step 02.
-- [ ] Step 03: Describe the concrete action for section 33, step 03.
-- [ ] Step 04: Describe the concrete action for section 33, step 04.
-- [ ] Step 05: Describe the concrete action for section 33, step 05.
-- [ ] Step 06: Describe the concrete action for section 33, step 06.
-- [ ] Step 07: Describe the concrete action for section 33, step 07.
-- [ ] Step 08: Describe the concrete action for section 33, step 08.
-- [ ] Step 09: Describe the concrete action for section 33, step 09.
-- [ ] Step 10: Describe the concrete action for section 33, step 10.
-- [ ] Step 11: Describe the concrete action for section 33, step 11.
-- [ ] Step 12: Describe the concrete action for section 33, step 12.
-- [ ] Step 13: Describe the concrete action for section 33, step 13.
-- [ ] Step 14: Describe the concrete action for section 33, step 14.
-- [ ] Step 15: Describe the concrete action for section 33, step 15.
-- [ ] Step 16: Describe the concrete action for section 33, step 16.
-- [ ] Step 17: Describe the concrete action for section 33, step 17.
-- [ ] Step 18: Describe the concrete action for section 33, step 18.
-- [ ] Step 19: Describe the concrete action for section 33, step 19.
-- [ ] Step 20: Describe the concrete action for section 33, step 20.
+- [ ] Step 01: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 02: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 03: Document failure modes and their remediation paths.
+- [ ] Step 04: Establish acceptance criteria for performance and correctness.
+- [ ] Step 05: Create a migration note for any API or data format shift.
+- [ ] Step 06: Add or update documentation snippets that match the new behavior.
+- [ ] Step 07: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 08: Record the decision rationale in the execution log.
+- [ ] Step 09: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 10: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 11: List candidate types that should be refined or wrapped.
+- [ ] Step 12: Draft a small before/after example to validate the approach.
+- [ ] Step 13: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 14: Define the invariants and specify where they are enforced.
+- [ ] Step 15: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 16: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 17: Document failure modes and their remediation paths.
+- [ ] Step 18: Establish acceptance criteria for performance and correctness.
+- [ ] Step 19: Create a migration note for any API or data format shift.
+- [ ] Step 20: Add or update documentation snippets that match the new behavior.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 33.
-- [ ] Deliverable 02: Specify the artifact expected for section 33.
-- [ ] Deliverable 03: Specify the artifact expected for section 33.
-- [ ] Deliverable 04: Specify the artifact expected for section 33.
-- [ ] Deliverable 05: Specify the artifact expected for section 33.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 33.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 33.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 33.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 33.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 33.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 34 — Execution Checklist
+## Section 34 — Repository Orientation & Module Boundaries — Track 34
 
 ### Objective
-- Define the objective for section 34 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 34 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 34, step 01.
-- [ ] Step 02: Describe the concrete action for section 34, step 02.
-- [ ] Step 03: Describe the concrete action for section 34, step 03.
-- [ ] Step 04: Describe the concrete action for section 34, step 04.
-- [ ] Step 05: Describe the concrete action for section 34, step 05.
-- [ ] Step 06: Describe the concrete action for section 34, step 06.
-- [ ] Step 07: Describe the concrete action for section 34, step 07.
-- [ ] Step 08: Describe the concrete action for section 34, step 08.
-- [ ] Step 09: Describe the concrete action for section 34, step 09.
-- [ ] Step 10: Describe the concrete action for section 34, step 10.
-- [ ] Step 11: Describe the concrete action for section 34, step 11.
-- [ ] Step 12: Describe the concrete action for section 34, step 12.
-- [ ] Step 13: Describe the concrete action for section 34, step 13.
-- [ ] Step 14: Describe the concrete action for section 34, step 14.
-- [ ] Step 15: Describe the concrete action for section 34, step 15.
-- [ ] Step 16: Describe the concrete action for section 34, step 16.
-- [ ] Step 17: Describe the concrete action for section 34, step 17.
-- [ ] Step 18: Describe the concrete action for section 34, step 18.
-- [ ] Step 19: Describe the concrete action for section 34, step 19.
-- [ ] Step 20: Describe the concrete action for section 34, step 20.
+- [ ] Step 01: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 02: Document failure modes and their remediation paths.
+- [ ] Step 03: Establish acceptance criteria for performance and correctness.
+- [ ] Step 04: Create a migration note for any API or data format shift.
+- [ ] Step 05: Add or update documentation snippets that match the new behavior.
+- [ ] Step 06: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 07: Record the decision rationale in the execution log.
+- [ ] Step 08: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 09: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 10: List candidate types that should be refined or wrapped.
+- [ ] Step 11: Draft a small before/after example to validate the approach.
+- [ ] Step 12: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 13: Define the invariants and specify where they are enforced.
+- [ ] Step 14: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 15: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 16: Document failure modes and their remediation paths.
+- [ ] Step 17: Establish acceptance criteria for performance and correctness.
+- [ ] Step 18: Create a migration note for any API or data format shift.
+- [ ] Step 19: Add or update documentation snippets that match the new behavior.
+- [ ] Step 20: Prepare a validation plan (formatting, tests, docs checks).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 34.
-- [ ] Deliverable 02: Specify the artifact expected for section 34.
-- [ ] Deliverable 03: Specify the artifact expected for section 34.
-- [ ] Deliverable 04: Specify the artifact expected for section 34.
-- [ ] Deliverable 05: Specify the artifact expected for section 34.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 34.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 34.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 34.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 34.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 34.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 35 — Execution Checklist
+## Section 35 — Repository Orientation & Module Boundaries — Track 35
 
 ### Objective
-- Define the objective for section 35 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 35 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 35, step 01.
-- [ ] Step 02: Describe the concrete action for section 35, step 02.
-- [ ] Step 03: Describe the concrete action for section 35, step 03.
-- [ ] Step 04: Describe the concrete action for section 35, step 04.
-- [ ] Step 05: Describe the concrete action for section 35, step 05.
-- [ ] Step 06: Describe the concrete action for section 35, step 06.
-- [ ] Step 07: Describe the concrete action for section 35, step 07.
-- [ ] Step 08: Describe the concrete action for section 35, step 08.
-- [ ] Step 09: Describe the concrete action for section 35, step 09.
-- [ ] Step 10: Describe the concrete action for section 35, step 10.
-- [ ] Step 11: Describe the concrete action for section 35, step 11.
-- [ ] Step 12: Describe the concrete action for section 35, step 12.
-- [ ] Step 13: Describe the concrete action for section 35, step 13.
-- [ ] Step 14: Describe the concrete action for section 35, step 14.
-- [ ] Step 15: Describe the concrete action for section 35, step 15.
-- [ ] Step 16: Describe the concrete action for section 35, step 16.
-- [ ] Step 17: Describe the concrete action for section 35, step 17.
-- [ ] Step 18: Describe the concrete action for section 35, step 18.
-- [ ] Step 19: Describe the concrete action for section 35, step 19.
-- [ ] Step 20: Describe the concrete action for section 35, step 20.
+- [ ] Step 01: Document failure modes and their remediation paths.
+- [ ] Step 02: Establish acceptance criteria for performance and correctness.
+- [ ] Step 03: Create a migration note for any API or data format shift.
+- [ ] Step 04: Add or update documentation snippets that match the new behavior.
+- [ ] Step 05: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 06: Record the decision rationale in the execution log.
+- [ ] Step 07: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 08: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 09: List candidate types that should be refined or wrapped.
+- [ ] Step 10: Draft a small before/after example to validate the approach.
+- [ ] Step 11: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 12: Define the invariants and specify where they are enforced.
+- [ ] Step 13: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 14: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 15: Document failure modes and their remediation paths.
+- [ ] Step 16: Establish acceptance criteria for performance and correctness.
+- [ ] Step 17: Create a migration note for any API or data format shift.
+- [ ] Step 18: Add or update documentation snippets that match the new behavior.
+- [ ] Step 19: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 20: Record the decision rationale in the execution log.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 35.
-- [ ] Deliverable 02: Specify the artifact expected for section 35.
-- [ ] Deliverable 03: Specify the artifact expected for section 35.
-- [ ] Deliverable 04: Specify the artifact expected for section 35.
-- [ ] Deliverable 05: Specify the artifact expected for section 35.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 35.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 35.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 35.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 35.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 35.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 36 — Execution Checklist
+## Section 36 — Repository Orientation & Module Boundaries — Track 36
 
 ### Objective
-- Define the objective for section 36 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 36 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 36, step 01.
-- [ ] Step 02: Describe the concrete action for section 36, step 02.
-- [ ] Step 03: Describe the concrete action for section 36, step 03.
-- [ ] Step 04: Describe the concrete action for section 36, step 04.
-- [ ] Step 05: Describe the concrete action for section 36, step 05.
-- [ ] Step 06: Describe the concrete action for section 36, step 06.
-- [ ] Step 07: Describe the concrete action for section 36, step 07.
-- [ ] Step 08: Describe the concrete action for section 36, step 08.
-- [ ] Step 09: Describe the concrete action for section 36, step 09.
-- [ ] Step 10: Describe the concrete action for section 36, step 10.
-- [ ] Step 11: Describe the concrete action for section 36, step 11.
-- [ ] Step 12: Describe the concrete action for section 36, step 12.
-- [ ] Step 13: Describe the concrete action for section 36, step 13.
-- [ ] Step 14: Describe the concrete action for section 36, step 14.
-- [ ] Step 15: Describe the concrete action for section 36, step 15.
-- [ ] Step 16: Describe the concrete action for section 36, step 16.
-- [ ] Step 17: Describe the concrete action for section 36, step 17.
-- [ ] Step 18: Describe the concrete action for section 36, step 18.
-- [ ] Step 19: Describe the concrete action for section 36, step 19.
-- [ ] Step 20: Describe the concrete action for section 36, step 20.
+- [ ] Step 01: Establish acceptance criteria for performance and correctness.
+- [ ] Step 02: Create a migration note for any API or data format shift.
+- [ ] Step 03: Add or update documentation snippets that match the new behavior.
+- [ ] Step 04: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 05: Record the decision rationale in the execution log.
+- [ ] Step 06: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 07: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 08: List candidate types that should be refined or wrapped.
+- [ ] Step 09: Draft a small before/after example to validate the approach.
+- [ ] Step 10: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 11: Define the invariants and specify where they are enforced.
+- [ ] Step 12: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 13: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 14: Document failure modes and their remediation paths.
+- [ ] Step 15: Establish acceptance criteria for performance and correctness.
+- [ ] Step 16: Create a migration note for any API or data format shift.
+- [ ] Step 17: Add or update documentation snippets that match the new behavior.
+- [ ] Step 18: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 19: Record the decision rationale in the execution log.
+- [ ] Step 20: Inventory relevant modules and identify the owning package(s).
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 36.
-- [ ] Deliverable 02: Specify the artifact expected for section 36.
-- [ ] Deliverable 03: Specify the artifact expected for section 36.
-- [ ] Deliverable 04: Specify the artifact expected for section 36.
-- [ ] Deliverable 05: Specify the artifact expected for section 36.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 36.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 36.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 36.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 36.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 36.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 37 — Execution Checklist
+## Section 37 — Repository Orientation & Module Boundaries — Track 37
 
 ### Objective
-- Define the objective for section 37 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 37 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 37, step 01.
-- [ ] Step 02: Describe the concrete action for section 37, step 02.
-- [ ] Step 03: Describe the concrete action for section 37, step 03.
-- [ ] Step 04: Describe the concrete action for section 37, step 04.
-- [ ] Step 05: Describe the concrete action for section 37, step 05.
-- [ ] Step 06: Describe the concrete action for section 37, step 06.
-- [ ] Step 07: Describe the concrete action for section 37, step 07.
-- [ ] Step 08: Describe the concrete action for section 37, step 08.
-- [ ] Step 09: Describe the concrete action for section 37, step 09.
-- [ ] Step 10: Describe the concrete action for section 37, step 10.
-- [ ] Step 11: Describe the concrete action for section 37, step 11.
-- [ ] Step 12: Describe the concrete action for section 37, step 12.
-- [ ] Step 13: Describe the concrete action for section 37, step 13.
-- [ ] Step 14: Describe the concrete action for section 37, step 14.
-- [ ] Step 15: Describe the concrete action for section 37, step 15.
-- [ ] Step 16: Describe the concrete action for section 37, step 16.
-- [ ] Step 17: Describe the concrete action for section 37, step 17.
-- [ ] Step 18: Describe the concrete action for section 37, step 18.
-- [ ] Step 19: Describe the concrete action for section 37, step 19.
-- [ ] Step 20: Describe the concrete action for section 37, step 20.
+- [ ] Step 01: Create a migration note for any API or data format shift.
+- [ ] Step 02: Add or update documentation snippets that match the new behavior.
+- [ ] Step 03: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 04: Record the decision rationale in the execution log.
+- [ ] Step 05: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 06: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 07: List candidate types that should be refined or wrapped.
+- [ ] Step 08: Draft a small before/after example to validate the approach.
+- [ ] Step 09: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 10: Define the invariants and specify where they are enforced.
+- [ ] Step 11: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 12: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 13: Document failure modes and their remediation paths.
+- [ ] Step 14: Establish acceptance criteria for performance and correctness.
+- [ ] Step 15: Create a migration note for any API or data format shift.
+- [ ] Step 16: Add or update documentation snippets that match the new behavior.
+- [ ] Step 17: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 18: Record the decision rationale in the execution log.
+- [ ] Step 19: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 20: Map the data flow from ingress to persistence, naming each boundary.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 37.
-- [ ] Deliverable 02: Specify the artifact expected for section 37.
-- [ ] Deliverable 03: Specify the artifact expected for section 37.
-- [ ] Deliverable 04: Specify the artifact expected for section 37.
-- [ ] Deliverable 05: Specify the artifact expected for section 37.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 37.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 37.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 37.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 37.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 37.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 38 — Execution Checklist
+## Section 38 — Repository Orientation & Module Boundaries — Track 38
 
 ### Objective
-- Define the objective for section 38 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 38 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 38, step 01.
-- [ ] Step 02: Describe the concrete action for section 38, step 02.
-- [ ] Step 03: Describe the concrete action for section 38, step 03.
-- [ ] Step 04: Describe the concrete action for section 38, step 04.
-- [ ] Step 05: Describe the concrete action for section 38, step 05.
-- [ ] Step 06: Describe the concrete action for section 38, step 06.
-- [ ] Step 07: Describe the concrete action for section 38, step 07.
-- [ ] Step 08: Describe the concrete action for section 38, step 08.
-- [ ] Step 09: Describe the concrete action for section 38, step 09.
-- [ ] Step 10: Describe the concrete action for section 38, step 10.
-- [ ] Step 11: Describe the concrete action for section 38, step 11.
-- [ ] Step 12: Describe the concrete action for section 38, step 12.
-- [ ] Step 13: Describe the concrete action for section 38, step 13.
-- [ ] Step 14: Describe the concrete action for section 38, step 14.
-- [ ] Step 15: Describe the concrete action for section 38, step 15.
-- [ ] Step 16: Describe the concrete action for section 38, step 16.
-- [ ] Step 17: Describe the concrete action for section 38, step 17.
-- [ ] Step 18: Describe the concrete action for section 38, step 18.
-- [ ] Step 19: Describe the concrete action for section 38, step 19.
-- [ ] Step 20: Describe the concrete action for section 38, step 20.
+- [ ] Step 01: Add or update documentation snippets that match the new behavior.
+- [ ] Step 02: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 03: Record the decision rationale in the execution log.
+- [ ] Step 04: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 05: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 06: List candidate types that should be refined or wrapped.
+- [ ] Step 07: Draft a small before/after example to validate the approach.
+- [ ] Step 08: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 09: Define the invariants and specify where they are enforced.
+- [ ] Step 10: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 11: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 12: Document failure modes and their remediation paths.
+- [ ] Step 13: Establish acceptance criteria for performance and correctness.
+- [ ] Step 14: Create a migration note for any API or data format shift.
+- [ ] Step 15: Add or update documentation snippets that match the new behavior.
+- [ ] Step 16: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 17: Record the decision rationale in the execution log.
+- [ ] Step 18: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 19: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 20: List candidate types that should be refined or wrapped.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 38.
-- [ ] Deliverable 02: Specify the artifact expected for section 38.
-- [ ] Deliverable 03: Specify the artifact expected for section 38.
-- [ ] Deliverable 04: Specify the artifact expected for section 38.
-- [ ] Deliverable 05: Specify the artifact expected for section 38.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 38.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 38.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 38.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 38.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 38.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 39 — Execution Checklist
+## Section 39 — Repository Orientation & Module Boundaries — Track 39
 
 ### Objective
-- Define the objective for section 39 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 39 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 39, step 01.
-- [ ] Step 02: Describe the concrete action for section 39, step 02.
-- [ ] Step 03: Describe the concrete action for section 39, step 03.
-- [ ] Step 04: Describe the concrete action for section 39, step 04.
-- [ ] Step 05: Describe the concrete action for section 39, step 05.
-- [ ] Step 06: Describe the concrete action for section 39, step 06.
-- [ ] Step 07: Describe the concrete action for section 39, step 07.
-- [ ] Step 08: Describe the concrete action for section 39, step 08.
-- [ ] Step 09: Describe the concrete action for section 39, step 09.
-- [ ] Step 10: Describe the concrete action for section 39, step 10.
-- [ ] Step 11: Describe the concrete action for section 39, step 11.
-- [ ] Step 12: Describe the concrete action for section 39, step 12.
-- [ ] Step 13: Describe the concrete action for section 39, step 13.
-- [ ] Step 14: Describe the concrete action for section 39, step 14.
-- [ ] Step 15: Describe the concrete action for section 39, step 15.
-- [ ] Step 16: Describe the concrete action for section 39, step 16.
-- [ ] Step 17: Describe the concrete action for section 39, step 17.
-- [ ] Step 18: Describe the concrete action for section 39, step 18.
-- [ ] Step 19: Describe the concrete action for section 39, step 19.
-- [ ] Step 20: Describe the concrete action for section 39, step 20.
+- [ ] Step 01: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 02: Record the decision rationale in the execution log.
+- [ ] Step 03: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 04: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 05: List candidate types that should be refined or wrapped.
+- [ ] Step 06: Draft a small before/after example to validate the approach.
+- [ ] Step 07: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 08: Define the invariants and specify where they are enforced.
+- [ ] Step 09: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 10: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 11: Document failure modes and their remediation paths.
+- [ ] Step 12: Establish acceptance criteria for performance and correctness.
+- [ ] Step 13: Create a migration note for any API or data format shift.
+- [ ] Step 14: Add or update documentation snippets that match the new behavior.
+- [ ] Step 15: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 16: Record the decision rationale in the execution log.
+- [ ] Step 17: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 18: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 19: List candidate types that should be refined or wrapped.
+- [ ] Step 20: Draft a small before/after example to validate the approach.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 39.
-- [ ] Deliverable 02: Specify the artifact expected for section 39.
-- [ ] Deliverable 03: Specify the artifact expected for section 39.
-- [ ] Deliverable 04: Specify the artifact expected for section 39.
-- [ ] Deliverable 05: Specify the artifact expected for section 39.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 39.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 39.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 39.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 39.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 39.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
 
-## Section 40 — Execution Checklist
+## Section 40 — Repository Orientation & Module Boundaries — Track 40
 
 ### Objective
-- Define the objective for section 40 and how it aligns with streaming/domain modeling standards.
+- Define the objective for repository orientation & module boundaries — track 40 and its alignment with ZIO Streams + Iron refined types.
 
 ### Steps
-- [ ] Step 01: Describe the concrete action for section 40, step 01.
-- [ ] Step 02: Describe the concrete action for section 40, step 02.
-- [ ] Step 03: Describe the concrete action for section 40, step 03.
-- [ ] Step 04: Describe the concrete action for section 40, step 04.
-- [ ] Step 05: Describe the concrete action for section 40, step 05.
-- [ ] Step 06: Describe the concrete action for section 40, step 06.
-- [ ] Step 07: Describe the concrete action for section 40, step 07.
-- [ ] Step 08: Describe the concrete action for section 40, step 08.
-- [ ] Step 09: Describe the concrete action for section 40, step 09.
-- [ ] Step 10: Describe the concrete action for section 40, step 10.
-- [ ] Step 11: Describe the concrete action for section 40, step 11.
-- [ ] Step 12: Describe the concrete action for section 40, step 12.
-- [ ] Step 13: Describe the concrete action for section 40, step 13.
-- [ ] Step 14: Describe the concrete action for section 40, step 14.
-- [ ] Step 15: Describe the concrete action for section 40, step 15.
-- [ ] Step 16: Describe the concrete action for section 40, step 16.
-- [ ] Step 17: Describe the concrete action for section 40, step 17.
-- [ ] Step 18: Describe the concrete action for section 40, step 18.
-- [ ] Step 19: Describe the concrete action for section 40, step 19.
-- [ ] Step 20: Describe the concrete action for section 40, step 20.
+- [ ] Step 01: Record the decision rationale in the execution log.
+- [ ] Step 02: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 03: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 04: List candidate types that should be refined or wrapped.
+- [ ] Step 05: Draft a small before/after example to validate the approach.
+- [ ] Step 06: Identify existing helpers that can be reused or consolidated.
+- [ ] Step 07: Define the invariants and specify where they are enforced.
+- [ ] Step 08: Choose the ZIO Stream boundary (source, pipeline, sink) for each transformation.
+- [ ] Step 09: Confirm resource acquisition and release strategy (scoped vs explicit).
+- [ ] Step 10: Document failure modes and their remediation paths.
+- [ ] Step 11: Establish acceptance criteria for performance and correctness.
+- [ ] Step 12: Create a migration note for any API or data format shift.
+- [ ] Step 13: Add or update documentation snippets that match the new behavior.
+- [ ] Step 14: Prepare a validation plan (formatting, tests, docs checks).
+- [ ] Step 15: Record the decision rationale in the execution log.
+- [ ] Step 16: Inventory relevant modules and identify the owning package(s).
+- [ ] Step 17: Map the data flow from ingress to persistence, naming each boundary.
+- [ ] Step 18: List candidate types that should be refined or wrapped.
+- [ ] Step 19: Draft a small before/after example to validate the approach.
+- [ ] Step 20: Identify existing helpers that can be reused or consolidated.
 
 ### Review Questions
-- [ ] Question 01: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 02: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 03: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 04: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 05: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 06: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 07: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 08: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 09: Does the change align with ZIO Streams and Iron guidance?
-- [ ] Question 10: Does the change align with ZIO Streams and Iron guidance?
+- [ ] Question 01: Does the module boundary remain intact and consistent with docs?
+- [ ] Question 02: Are refined types used for size/index/identifier invariants?
+- [ ] Question 03: Is the ZStream pipeline structured to avoid hidden side effects?
+- [ ] Question 04: Are sinks pure and scoped appropriately?
+- [ ] Question 05: Is backpressure behavior documented and acceptable?
+- [ ] Question 06: Do error types remain explicit and actionable?
+- [ ] Question 07: Are observability hooks (metrics/logging) still correct?
+- [ ] Question 08: Are tests aligned with the updated behavior?
+- [ ] Question 09: Does documentation reflect the code changes?
+- [ ] Question 10: Have compatibility concerns been addressed?
 
 ### Deliverables
-- [ ] Deliverable 01: Specify the artifact expected for section 40.
-- [ ] Deliverable 02: Specify the artifact expected for section 40.
-- [ ] Deliverable 03: Specify the artifact expected for section 40.
-- [ ] Deliverable 04: Specify the artifact expected for section 40.
-- [ ] Deliverable 05: Specify the artifact expected for section 40.
+- [ ] Deliverable 01: Design note or ADR entry summarizing the decision.
+- [ ] Deliverable 02: Code changes with updated types and stream pipelines.
+- [ ] Deliverable 03: Tests proving the new behavior or invariants.
+- [ ] Deliverable 04: Doc updates and snippet refreshes.
+- [ ] Deliverable 05: Execution log entry with outcomes and follow-ups.
 
 ### Notes
-- Note 01: Capture decisions, tradeoffs, or open questions for section 40.
-- Note 02: Capture decisions, tradeoffs, or open questions for section 40.
-- Note 03: Capture decisions, tradeoffs, or open questions for section 40.
-- Note 04: Capture decisions, tradeoffs, or open questions for section 40.
-- Note 05: Capture decisions, tradeoffs, or open questions for section 40.
+- Key decision: ...
+- Rejected alternative: ...
+- Risk/mitigation: ...
+- Open question: ...
+- Follow-up task: ...
+
+## Execution Log Template
+- Date:
+- Section:
+- Summary of changes:
+- Evidence (tests/docs):
+- Follow-ups:
 
