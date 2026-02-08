@@ -10,6 +10,11 @@ import scala.util.NotGiven
  * Uses the Aux pattern: `Out` is a dependent type member so that composed
  * state types are inferred, not manually threaded.
  *
+ * The composed state is **user-facing** — it's the summary type that callers
+ * get back from `runChunk`, `toSink`, etc. So the merge strategy directly
+ * affects the API surface: Record fields are accessible by name, and tuple
+ * fields by position.
+ *
  * Instance resolution priority:
  *   1. `Unit + Unit = Unit`
  *   2. `Unit + S = S`  (left identity)
@@ -37,7 +42,7 @@ object StateMerge extends StateMergeLowPriority:
   /** Summon the merge instance and expose the dependent `Out` type. */
   inline def apply[S1, S2](using sm: StateMerge[S1, S2]): sm.type = sm
 
-  // --- Priority 1: Unit + Unit = Unit (identity ⊗ identity) ---
+  // --- Priority 1: Unit + Unit = Unit ---
 
   given unitUnit: Aux[Unit, Unit, Unit] = new StateMerge[Unit, Unit]:
     type Out = Unit
@@ -63,27 +68,21 @@ object StateMerge extends StateMergeLowPriority:
 
   // --- Priority 4: Record[A] + Record[B] = Record[A & B] (field union) ---
   //
-  // At runtime, kyo.Record is Map[String, Any]. Merging is map union.
-  // The left/right projections are identity casts because Record[A & B]
-  // contains all fields of both A and B, so it IS a valid Record[A] and Record[B].
+  // kyo.Record `&` merges fields at the JVM level (Map union).
+  // After merge, both sides' fields are accessible by name.
   //
-  // INVARIANT: Composed scans must have non-overlapping field names.
-  // Overlapping fields will silently take the right-side value.
+  // INVARIANT: Field names must not overlap. Overlap silently takes right-side value.
 
   given recordUnion[A, B]: Aux[Record[A], Record[B], Record[A & B]] = new StateMerge[Record[A], Record[B]]:
     type Out = Record[A & B]
 
     def merge(s1: Record[A], s2: Record[B]): Record[A & B] =
-      // Record's `&` extension merges two records at the JVM level (Map union).
-      // We use the public API rather than casting to Map.
       s1.asInstanceOf[Record[Any]].&(s2.asInstanceOf[Record[Any]]).asInstanceOf[Record[A & B]]
 
     def left(out: Record[A & B]): Record[A] =
-      // A & B ⊃ A: the merged record has all A-fields. Safe cast.
       out.asInstanceOf[Record[A]]
 
     def right(out: Record[A & B]): Record[B] =
-      // A & B ⊃ B: the merged record has all B-fields. Safe cast.
       out.asInstanceOf[Record[B]]
 
 end StateMerge

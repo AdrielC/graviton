@@ -235,4 +235,51 @@ object TransducerSpec extends ZIOSpecDefault:
         yield assertTrue(out == Chunk(1, 2, 3))
       },
     ),
+
+    // =========================================================================
+    //  State as user-facing summary (like ZSink's Z type)
+    // =========================================================================
+
+    suite("state as summary")(
+      test("summarize returns only the final state") {
+        val summary = Transducer.counter[Int].summarize(List(1, 2, 3))
+        assertTrue(summary.count == 3L)
+      },
+      test("composed summary has all fields from both scans") {
+        val t       = Transducer.counter[Int] &&& Transducer.summer[Int]
+        val summary = t.summarize(List(10, 20, 30))
+        assertTrue(summary.count == 3L) &&
+        assertTrue(summary.sum == 60)
+      },
+      test("toSink exposes summary through ZStream.run") {
+        for
+          result            <- zio.stream.ZStream
+                                 .fromIterable(List(10, 20, 30))
+                                 .run(Transducer.counter[Int].toSink)
+          (summary, outputs) = result
+        yield assertTrue(summary.count == 3L) &&
+          assertTrue(outputs == Chunk(1L, 2L, 3L))
+      },
+      test("toSink with composed Record state: both fields accessible") {
+        val t = Transducer.counter[Int] &&& Transducer.summer[Int]
+        for
+          result            <- zio.stream.ZStream
+                                 .fromIterable(List(5, 10, 15))
+                                 .run(t.toSink)
+          (summary, outputs) = result
+        yield assertTrue(summary.count == 3L) &&
+          assertTrue(summary.sum == 30) &&
+          assertTrue(outputs.length == 3)
+      },
+      test("toChannel yields summary as terminal value") {
+        for result <- zio.stream.ZStream
+                        .fromIterable(List(1, 2, 3))
+                        .channel
+                        .pipeToOrFail(Transducer.counter[Int].toChannel)
+                        .runCollect
+        yield
+          // ZChannel.runCollect returns (Chunk[O], Z) where Z is the terminal
+          assertTrue(result._1.flatten == Chunk(1L, 2L, 3L))
+      },
+    ),
   )

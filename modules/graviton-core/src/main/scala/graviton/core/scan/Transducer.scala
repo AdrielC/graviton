@@ -278,8 +278,13 @@ object Transducer:
       fanout(that)
 
     // --- Compilation / execution ---------------------------------------------
+    //
+    // The state type `S` is user-facing: it is the **summary** of the scan,
+    // analogous to `Z` in `ZSink[R, E, I, L, Z]`. When you compose two scans
+    // with Record state, the summary is the merged Record with all fields
+    // accessible by name.
 
-    /** Run on an in-memory collection. Returns (final state, all outputs). */
+    /** Run on an in-memory collection. Returns `(summary, outputs)`. */
     def runChunk(inputs: Iterable[I]): (S, Chunk[O]) =
       var s          = self.init
       val builder    = ChunkBuilder.make[O]()
@@ -292,16 +297,19 @@ object Transducer:
       tail.foreach(o => builder += o)
       (sf, builder.result())
 
-    /** Run, discarding final state. */
+    /** Run, discarding the summary. */
     def run(inputs: Iterable[I]): Chunk[O] = runChunk(inputs)._2
 
-    /** Compile to a ZIO `ZChannel`. */
-    def toChannel: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
+    /** Run, returning only the summary (discarding outputs). */
+    def summarize(inputs: Iterable[I]): S = runChunk(inputs)._1
+
+    /** Compile to a ZIO `ZChannel` that emits outputs and yields the summary. */
+    def toChannel: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], S] =
       ZChannel.unwrap {
         zio.ZIO.succeed {
           var s: S = self.init
 
-          def loop: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], Unit] =
+          def loop: ZChannel[Any, Nothing, Chunk[I], Any, Nothing, Chunk[O], S] =
             ZChannel.readWith(
               (chunk: Chunk[I]) =>
                 val (s2, out) = self.stepChunk(s, chunk)
@@ -309,20 +317,44 @@ object Transducer:
                 if out.isEmpty then loop
                 else ZChannel.write(out) *> loop
               ,
-              (_: Any) => ZChannel.unit,
+              (_: Any) => ZChannel.succeedNow(s),
               (_: Any) =>
                 val (sf, tail) = self.flush(s)
                 s = sf
-                if tail.isEmpty then ZChannel.unit else ZChannel.write(tail),
+                if tail.isEmpty then ZChannel.succeedNow(sf)
+                else ZChannel.write(tail) *> ZChannel.succeedNow(sf),
             )
 
           loop
         }
       }
 
-    /** Compile to a ZIO `ZPipeline`. */
+    /** Compile to a ZIO `ZPipeline` (outputs only; summary is discarded). */
     def toPipeline: ZPipeline[Any, Nothing, I, O] =
-      ZPipeline.fromChannel(self.toChannel)
+      ZPipeline.fromChannel(self.toChannel.mapOut(identity).unit)
+
+    /**
+     * Compile to a ZIO `ZSink` that consumes `I` elements and produces:
+     *   - **Summary** (`S`): the final state, accessible by the caller
+     *   - **Leftover** (`I`): unconsumed input (always empty for Transducer)
+     *   - **Output side-channel**: streamed outputs are collected into the summary
+     *
+     * This is the primary compilation target when the caller needs the state back,
+     * like `ZSink[Any, Nothing, I, I, (S, Chunk[O])]`.
+     */
+    def toSink: zio.stream.ZSink[Any, Nothing, I, Nothing, (S, Chunk[O])] =
+      zio.stream.ZSink
+        .foldLeftChunks[I, (S, ChunkBuilder[O])]((self.init, ChunkBuilder.make[O]())) { (acc, chunk) =>
+          val (state, builder) = acc
+          val (s2, out)        = self.stepChunk(state, chunk)
+          out.foreach(o => builder += o)
+          (s2, builder)
+        }
+        .map { case (state, builder) =>
+          val (sf, tail) = self.flush(state)
+          tail.foreach(o => builder += o)
+          (sf, builder.result())
+        }
 
   // ---------------------------------------------------------------------------
   //  Batteries-included transducers
