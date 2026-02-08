@@ -60,6 +60,7 @@ object Digest:
     def value: Chunk[Byte]     = digest
     def bytes: Array[Byte]     = value.toArray
     def byteVector: ByteVector = ByteVector(value.toArray)
+    // SAFETY: ByteVector.toHex always produces lowercase hex matching HexLowerConstraint
     def hex: HexLower          = HexLower.applyUnsafe(byteVector.toHex)
 
   def apply(algo: HashAlgo)(value: Hasher.Digestable): Either[String, Digest] =

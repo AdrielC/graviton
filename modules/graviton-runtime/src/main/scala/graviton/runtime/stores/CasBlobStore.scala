@@ -180,8 +180,10 @@ final class CasBlobStore(
             locator <- plan.locatorHint match
                          case Some(value) => ZIO.succeed(value)
                          case None        =>
+                           // SAFETY: compile-time constants matching their respective constraints
                            val scheme = LocatorScheme.applyUnsafe("cas")
                            val bucket = LocatorBucket.applyUnsafe("manifest")
+                           // SAFETY: hex digest is always non-empty, no whitespace
                            val path   = LocatorPath.applyUnsafe(blob.bits.digest.hex.value)
                            ZIO.succeed(graviton.core.locator.BlobLocator(scheme, bucket, path))
 
