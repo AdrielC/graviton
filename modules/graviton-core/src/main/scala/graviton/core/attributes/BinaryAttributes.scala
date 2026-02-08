@@ -4,8 +4,6 @@ import BinaryAttr.Access.*
 import BinaryAttr.PartialOps.*
 import BinaryAttrDiff.Record as DiffRecord
 import graviton.core.types.{CustomAttributeName, CustomAttributeValue, Identifier}
-import graviton.core.keys.BinaryKey
-import graviton.core.locator.BlobLocator
 import graviton.core.types.*
 
 import java.time.Instant
@@ -143,9 +141,3 @@ final case class BinaryAttributes private (
   private def modifyConfirmed(f: BinaryAttr.Partial => BinaryAttr.Partial): BinaryAttributes =
     copy(confirmed = f(confirmed))
 end BinaryAttributes
-
-final case class BlobWriteResult(
-  key: BinaryKey,
-  locator: BlobLocator,
-  attributes: BinaryAttributes,
-)
