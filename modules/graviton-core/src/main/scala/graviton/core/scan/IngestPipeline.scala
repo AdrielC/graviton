@@ -6,299 +6,110 @@ import kyo.Record.`~`
 import zio.{Chunk, ChunkBuilder}
 
 /**
- * Chunk-level transducers for the ingest pipeline.
+ * Chunk-level transducers for the CAS ingest pipeline.
  *
- * **Critical design rule**: the element type is always `Chunk[Byte]`, never `Byte`.
- * This matches ZIO Streams' internal chunking and ensures:
- *   - No per-byte iteration overhead
- *   - No arbitrary memory collection
- *   - O(blockSize) bounded memory for the rechunker
- *   - Clean composition via `>>>` and `&&&`
+ * Element type is always `Chunk[Byte]`. Memory is O(blockSize), never O(stream).
  *
- * Pass-through transducers (counting, hashing) observe each chunk and return it
- * unchanged. The rechunker buffers into bounded blocks. All compose cleanly
- * because `step` returns `Chunk.single(chunk)` for pass-throughs, so the `>>>`
- * composition loop body executes exactly once per upstream chunk.
+ * All transducers use `Hot` state (primitives) on the hot path and only construct
+ * `kyo.Record` summaries at flush boundaries. This means `>>>` composition is
+ * '''zero-overhead''' — the composed hot state is a tuple of primitives.
  */
 object IngestPipeline:
 
-  // ---------------------------------------------------------------------------
-  //  Byte counting (pass-through)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Count total bytes flowing through. Pass-through: outputs == inputs.
-   *
-   * Memory: O(1) — just a counter.
-   */
+  /** Count total bytes. Pass-through. Hot = Long. */
   val countBytes: Transducer[Chunk[Byte], Chunk[Byte], Record["totalBytes" ~ Long]] =
     type S = Record["totalBytes" ~ Long]
-    Transducer.fold1[Chunk[Byte], Chunk[Byte], S](
-      (Record.empty & ("totalBytes" ~ 0L)).asInstanceOf[S]
-    ) { (state, chunk) =>
-      val next = (Record.empty & ("totalBytes" ~ (state.totalBytes + chunk.length.toLong))).asInstanceOf[S]
-      (next, chunk) // pass-through: output == input
-    }(s => (s, Chunk.empty))
+    new Transducer[Chunk[Byte], Chunk[Byte], S]:
+      type Hot = Long
+      def initHot: Long                                                 = 0L
+      def step(h: Long, chunk: Chunk[Byte]): (Long, Chunk[Chunk[Byte]]) =
+        (h + chunk.length.toLong, Chunk.single(chunk))
+      def flush(h: Long): (Long, Chunk[Chunk[Byte]])                    = (h, Chunk.empty)
+      def toSummary(h: Long): S                                         = (Record.empty & ("totalBytes" ~ h)).asInstanceOf[S]
+      override def stepChunk(h: Long, chunks: Chunk[Chunk[Byte]])       =
+        var total = h
+        var idx   = 0
+        while idx < chunks.length do
+          total += chunks(idx).length.toLong
+          idx += 1
+        (total, chunks)
 
-  // ---------------------------------------------------------------------------
-  //  Incremental hashing (pass-through)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Incrementally hash all bytes flowing through. Pass-through: outputs == inputs.
-   *
-   * Summary fields:
-   *   - `hashBytes`: total bytes hashed so far
-   *   - `digestHex`: hex string of final digest (empty string until flush)
-   *
-   * The `digestHex` field is only meaningful after flush (end-of-stream).
-   * Use `digestResult` on the return value of `runChunk` or `toSink` for the
-   * typed `Either[String, Digest]`.
-   *
-   * Memory: O(1) — just the hasher state (MessageDigest internals).
-   */
+  /** Incremental hash. Pass-through. Hot = (Hasher, Long). */
   def hashBytes(
     algo: HashAlgo = HashAlgo.runtimeDefault
-  ): HashBytesTransducer =
-    new HashBytesTransducer(algo)
-
-  /** Wrapper to expose `digestResult` alongside the Record summary. */
-  final class HashBytesTransducer(algo: HashAlgo)
-      extends Transducer[Chunk[Byte], Chunk[Byte], Record[("digestHex" ~ String) & ("hashBytes" ~ Long)]]:
+  ): Transducer[Chunk[Byte], Chunk[Byte], Record[("digestHex" ~ String) & ("hashBytes" ~ Long)]] =
     type S = Record[("digestHex" ~ String) & ("hashBytes" ~ Long)]
-
-    // Mutable hasher — NOT stored in Record (Java object, no kyo.Tag)
-    private var hasher: Either[String, Hasher] = scala.compiletime.uninitialized
-    private var total: Long                    = scala.compiletime.uninitialized
-
-    private def mkStepSummary: S =
-      (Record.empty & ("digestHex" ~ "") & ("hashBytes" ~ total)).asInstanceOf[S]
-
-    private def mkFlushSummary: S =
-      val hex = hasher.flatMap(_.digest).fold(_ => "", _.hex.value)
-      (Record.empty & ("digestHex" ~ hex) & ("hashBytes" ~ total)).asInstanceOf[S]
-
-    def init: S =
-      hasher = Hasher.hasher(algo, None)
-      total = 0L
-      mkStepSummary
-
-    def step(s: S, chunk: Chunk[Byte]): (S, Chunk[Chunk[Byte]]) =
-      hasher.foreach { h =>
-        val _ = h.update(chunk.toArray)
-      }
-      total += chunk.length.toLong
-      (mkStepSummary, Chunk.single(chunk))
-
-    def flush(s: S): (S, Chunk[Chunk[Byte]]) =
-      (mkFlushSummary, Chunk.empty)
-
-    override def stepChunk(s: S, chunks: Chunk[Chunk[Byte]]): (S, Chunk[Chunk[Byte]]) =
-      var idx = 0
-      while idx < chunks.length do
-        val c = chunks(idx)
-        hasher.foreach { h =>
-          val _ = h.update(c.toArray)
+    new Transducer[Chunk[Byte], Chunk[Byte], S]:
+      type Hot = (Either[String, Hasher], Long)
+      def initHot: Hot                                                = (Hasher.hasher(algo, None), 0L)
+      def step(h: Hot, chunk: Chunk[Byte]): (Hot, Chunk[Chunk[Byte]]) =
+        h._1.foreach { hasher =>
+          val _ = hasher.update(chunk.toArray)
         }
-        total += c.length.toLong
-        idx += 1
-      (mkStepSummary, chunks)
+        ((h._1, h._2 + chunk.length.toLong), Chunk.single(chunk))
+      def flush(h: Hot): (Hot, Chunk[Chunk[Byte]])                    = (h, Chunk.empty)
+      def toSummary(h: Hot): S                                        =
+        val hex = h._1.flatMap(_.digest).fold(_ => "", _.hex.value)
+        (Record.empty & ("digestHex" ~ hex) & ("hashBytes" ~ h._2)).asInstanceOf[S]
+      override def stepChunk(h: Hot, chunks: Chunk[Chunk[Byte]])      =
+        var total = h._2
+        var idx   = 0
+        while idx < chunks.length do
+          val c = chunks(idx)
+          h._1.foreach { hasher =>
+            val _ = hasher.update(c.toArray)
+          }
+          total += c.length.toLong
+          idx += 1
+        ((h._1, total), chunks)
 
-    /** Get the typed digest result (call after `runChunk` or on the `toSink` summary). */
-    def digestResult: Either[String, Digest] =
-      hasher.flatMap(_.digest)
-
-  // ---------------------------------------------------------------------------
-  //  Fixed-size rechunker (bounded buffer)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Rechunk variable-size `Chunk[Byte]` inputs into fixed-size blocks.
-   *
-   * Input:  `Chunk[Byte]` of any size (from upstream / previous transducer)
-   * Output: `Chunk[Byte]` of exactly `blockSize` bytes (except last block on flush)
-   *
-   * Memory: O(blockSize) — exactly one block buffer, never more.
-   * The buffer is a fixed-size `Array[Byte]` allocated once.
-   *
-   * This is the rechunking equivalent of `ChunkerCore.Mode.Fixed` but
-   * operating at the `Chunk[Byte]` element level for clean composition.
-   */
+  /** Fixed-size rechunker. Hot = (Array, fill, blockCount). */
   def rechunk(
     blockSize: Int
   ): Transducer[Chunk[Byte], Chunk[Byte], Record[("blockCount" ~ Long) & ("rechunkFill" ~ Int)]] =
     type S = Record[("blockCount" ~ Long) & ("rechunkFill" ~ Int)]
     val safeSize = math.max(1, math.min(blockSize, 16 * 1024 * 1024))
-
     new Transducer[Chunk[Byte], Chunk[Byte], S]:
-      private var buf: Array[Byte] = scala.compiletime.uninitialized
-      private var fill: Int        = scala.compiletime.uninitialized
-      private var count: Long      = scala.compiletime.uninitialized
-
-      private def mkSummary: S =
-        (Record.empty & ("blockCount" ~ count) & ("rechunkFill" ~ fill)).asInstanceOf[S]
-
-      def init: S =
-        buf = Array.ofDim[Byte](safeSize)
-        fill = 0
-        count = 0L
-        mkSummary
-
-      def step(s: S, chunk: Chunk[Byte]): (S, Chunk[Chunk[Byte]]) =
-        if chunk.isEmpty then (mkSummary, Chunk.empty)
+      type Hot = (Array[Byte], Int, Long) // buf, fill, blockCount
+      def initHot: Hot                                                = (Array.ofDim[Byte](safeSize), 0, 0L)
+      def step(h: Hot, chunk: Chunk[Byte]): (Hot, Chunk[Chunk[Byte]]) =
+        val (buf, fill0, count0) = h
+        if chunk.isEmpty then (h, Chunk.empty)
         else
-          val out = ChunkBuilder.make[Chunk[Byte]]()
-          var idx = 0
+          val out   = ChunkBuilder.make[Chunk[Byte]]()
+          var fill  = fill0
+          var count = count0
+          var idx   = 0
           while idx < chunk.length do
-            val space     = safeSize - fill
-            val available = chunk.length - idx
-            val toCopy    = math.min(space, available)
-
-            // Copy toCopy bytes from chunk[idx..] into buf[fill..]
-            var j = 0
+            val space  = safeSize - fill
+            val toCopy = math.min(space, chunk.length - idx)
+            var j      = 0
             while j < toCopy do
               buf(fill + j) = chunk(idx + j)
               j += 1
             fill += toCopy
             idx += toCopy
-
-            // Emit block if buffer is full
             if fill >= safeSize then
               out += Chunk.fromArray(java.util.Arrays.copyOf(buf, safeSize))
               count += 1
               fill = 0
           end while
-          (mkSummary, out.result())
-
-      def flush(s: S): (S, Chunk[Chunk[Byte]]) =
-        if fill > 0 then
-          val remainder = Chunk.fromArray(java.util.Arrays.copyOf(buf, fill))
-          val summary   = mkSummary
-          fill = 0
-          (summary, Chunk.single(remainder))
-        else (mkSummary, Chunk.empty)
-
-      override def stepChunk(s: S, chunks: Chunk[Chunk[Byte]]): (S, Chunk[Chunk[Byte]]) =
-        val out = ChunkBuilder.make[Chunk[Byte]]()
-        var ci  = 0
-        while ci < chunks.length do
-          val chunk = chunks(ci)
-          var idx   = 0
-          while idx < chunk.length do
-            val space     = safeSize - fill
-            val available = chunk.length - idx
-            val toCopy    = math.min(space, available)
-            System.arraycopy(chunk.toArray, idx, buf, fill, toCopy)
-            fill += toCopy
-            idx += toCopy
-            if fill >= safeSize then
-              out += Chunk.fromArray(java.util.Arrays.copyOf(buf, safeSize))
-              count += 1
-              fill = 0
-          end while
-          ci += 1
-        (mkSummary, out.result())
-
-  // ---------------------------------------------------------------------------
-  //  The composed pipeline
-  // ---------------------------------------------------------------------------
-
-  /**
-   * **The full ingest pipeline**: count bytes + hash + rechunk, all in one composed scan.
-   *
-   * Two implementations:
-   *   - `countHashRechunk`: composed via `>>>` — clean, composable, slightly more overhead
-   *   - `countHashRechunkFused`: hand-fused single transducer — maximum performance
-   *
-   * Both produce the same summary type with all fields accessible by name.
-   *
-   * Memory: O(blockSize) — NEVER collects arbitrarily-sized data.
-   */
-  def countHashRechunk(
-    blockSize: Int,
-    algo: HashAlgo = HashAlgo.runtimeDefault,
-  ) =
-    countBytes >>> hashBytes(algo) >>> rechunk(blockSize)
-
-  /**
-   * **Fused ingest pipeline**: count + hash + rechunk in a single transducer.
-   *
-   * Same semantics as `countHashRechunk` but avoids per-step Record reconstruction.
-   * The hot path is a tight imperative loop with zero allocations per byte.
-   * Record summary is only constructed at flush.
-   *
-   * Use this when throughput matters (multi-GB ingest).
-   */
-  def countHashRechunkFused(
-    blockSize: Int,
-    algo: HashAlgo = HashAlgo.runtimeDefault,
-  ): Transducer[Chunk[Byte], Chunk[Byte], Record[("totalBytes" ~ Long) & ("digestHex" ~ String) & ("blockCount" ~ Long)]] =
-    type S = Record[("totalBytes" ~ Long) & ("digestHex" ~ String) & ("blockCount" ~ Long)]
-    val safeSize = math.max(1, math.min(blockSize, 16 * 1024 * 1024))
-
-    new Transducer[Chunk[Byte], Chunk[Byte], S]:
-      private var hasher: Either[String, Hasher] = scala.compiletime.uninitialized
-      private var buf: Array[Byte]               = scala.compiletime.uninitialized
-      private var fill: Int                      = scala.compiletime.uninitialized
-      private var totalBytes: Long               = scala.compiletime.uninitialized
-      private var blockCount: Long               = scala.compiletime.uninitialized
-
-      // Sentinel: avoid Record construction on hot path
-      private val sentinel: S = null.asInstanceOf[S]
-
-      private def mkSummary: S =
-        val hex = hasher.flatMap(_.digest).fold(_ => "", _.hex.value)
-        (Record.empty & ("totalBytes" ~ totalBytes) & ("digestHex" ~ hex) & ("blockCount" ~ blockCount)).asInstanceOf[S]
-
-      def init: S =
-        hasher = Hasher.hasher(algo, None)
-        buf = Array.ofDim[Byte](safeSize)
-        fill = 0
-        totalBytes = 0L
-        blockCount = 0L
-        sentinel
-
-      def step(s: S, chunk: Chunk[Byte]): (S, Chunk[Chunk[Byte]]) =
-        // Hash
-        hasher.foreach { h =>
-          val _ = h.update(chunk.toArray)
-        }
-        totalBytes += chunk.length.toLong
-
-        // Rechunk
-        val out = ChunkBuilder.make[Chunk[Byte]]()
-        var idx = 0
-        while idx < chunk.length do
-          val space  = safeSize - fill
-          val toCopy = math.min(space, chunk.length - idx)
-          var j      = 0
-          while j < toCopy do
-            buf(fill + j) = chunk(idx + j)
-            j += 1
-          fill += toCopy
-          idx += toCopy
-          if fill >= safeSize then
-            out += Chunk.fromArray(java.util.Arrays.copyOf(buf, safeSize))
-            blockCount += 1
-            fill = 0
-        end while
-        (sentinel, out.result()) // sentinel avoids Record alloc on hot path
-
-      def flush(s: S): (S, Chunk[Chunk[Byte]]) =
-        val summary = mkSummary
-        if fill > 0 then (summary, Chunk.single(Chunk.fromArray(java.util.Arrays.copyOf(buf, fill))))
-        else (summary, Chunk.empty)
-
-      override def stepChunk(s: S, chunks: Chunk[Chunk[Byte]]): (S, Chunk[Chunk[Byte]]) =
-        val out = ChunkBuilder.make[Chunk[Byte]]()
-        var ci  = 0
+          ((buf, fill, count), out.result())
+      def flush(h: Hot): (Hot, Chunk[Chunk[Byte]])                    =
+        val (buf, fill, count) = h
+        if fill > 0 then ((buf, 0, count), Chunk.single(Chunk.fromArray(java.util.Arrays.copyOf(buf, fill))))
+        else (h, Chunk.empty)
+      def toSummary(h: Hot): S                                        =
+        (Record.empty & ("blockCount" ~ h._3) & ("rechunkFill" ~ h._2)).asInstanceOf[S]
+      override def stepChunk(h: Hot, chunks: Chunk[Chunk[Byte]])      =
+        val (buf, fill0, count0) = h
+        val out                  = ChunkBuilder.make[Chunk[Byte]]()
+        var fill                 = fill0
+        var count                = count0
+        var ci                   = 0
         while ci < chunks.length do
           val chunk = chunks(ci)
           val arr   = chunk.toArray
-          hasher.foreach { h =>
-            val _ = h.update(arr)
-          }
-          totalBytes += arr.length.toLong
           var idx   = 0
           while idx < arr.length do
             val space  = safeSize - fill
@@ -308,10 +119,25 @@ object IngestPipeline:
             idx += toCopy
             if fill >= safeSize then
               out += Chunk.fromArray(java.util.Arrays.copyOf(buf, safeSize))
-              blockCount += 1
+              count += 1
               fill = 0
           end while
           ci += 1
-        (sentinel, out.result())
+        ((buf, fill, count), out.result())
+
+  /**
+   * **The full CAS ingest pipeline**: count + hash + rechunk via `>>>`.
+   *
+   * Hot state: `((Long, (Either[String, Hasher], Long)), (Array[Byte], Int, Long))`
+   * — all primitives/arrays, '''zero Record allocations in the loop'''.
+   *
+   * Summary: `Record[(totalBytes ~ Long) & (digestHex ~ String) & (hashBytes ~ Long) & (blockCount ~ Long) & (rechunkFill ~ Int)]`
+   * — all fields accessible by name, constructed ONCE at flush.
+   */
+  def countHashRechunk(
+    blockSize: Int,
+    algo: HashAlgo = HashAlgo.runtimeDefault,
+  ) =
+    countBytes >>> hashBytes(algo) >>> rechunk(blockSize)
 
 end IngestPipeline
