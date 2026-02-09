@@ -106,6 +106,7 @@ export default withMermaid(defineConfig({
       { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
+      { text: 'Quasar Demo', link: '/quasar-demo' },
       // Note: VitePress automatically prefixes `base` for internal links.
       // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
       { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
