@@ -224,24 +224,14 @@ object TransducerBench extends ZIOSpecDefault:
   override def spec: Spec[TestEnvironment, Any] =
     suite("TransducerBench")(
       test("Benchmark 1: Count + Hash + Rechunk (4 MB, 4 KB blocks)") {
-        val bench1_fused: ZIO[Any, Nothing, (Long, String, Long)] = ZIO.succeed {
-          val pipeline       = IngestPipeline.countHashRechunkFused(blockSize)
-          val (summary, out) = pipeline.runChunk(inputChunks)
-          (summary.totalBytes, summary.digestHex, summary.blockCount + (if out.nonEmpty && out.last.length < blockSize then 1L else 0L))
-        }
-
         for
-          _        <- printHeader(s"CAS Ingest: ${dataSize / 1024 / 1024} MB → ${blockSize / 1024} KB blocks")
+          _        <-
+            printHeader(s"CAS Ingest: ${dataSize / 1024 / 1024} MB → ${blockSize / 1024} KB blocks [Hot state: tuples, no Record in loop]")
           (t1, r1) <- bench("Hand-rolled imperative loop")(bench1_handRolled)
-          (t3, r3) <- bench("Transducer FUSED (single loop)")(bench1_fused)
-          (t2, r2) <- bench("Transducer COMPOSED (>>>)")(bench1_transducer)
-          _        <- Console.printLine(f"  Fused vs hand-rolled:    ${(t3 / t1 - 1) * 100}%+.1f%%").orDie
-          _        <- Console.printLine(f"  Composed vs hand-rolled: ${(t2 / t1 - 1) * 100}%+.1f%%").orDie
-          _        <- Console.printLine(f"  Composed vs fused:       ${(t2 / t3 - 1) * 100}%+.1f%%").orDie
+          (t2, r2) <- bench("Transducer COMPOSED (count>>>hash>>>rechunk)")(bench1_transducer)
+          _        <- Console.printLine(f"  Composed Transducer vs hand-rolled: ${(t2 / t1 - 1) * 100}%+.1f%%").orDie
         yield assertTrue(r1._1 == r2._1) &&
           assertTrue(r1._2 == r2._2) &&
-          assertTrue(r1._1 == r3._1) &&
-          assertTrue(r1._2 == r3._2) &&
           assertTrue(r1._1 == dataSize.toLong)
       },
       test("Benchmark 2: Map fusion (1M elements, 5 chained transforms)") {

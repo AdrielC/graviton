@@ -66,7 +66,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
         assertTrue(blocks(1).length == 4) &&
         assertTrue(blocks(2).length == 2) &&
         assertTrue(summary.blockCount == 2L) && // 2 complete blocks
-        assertTrue(summary.rechunkFill == 2)    // 2 bytes leftover before flush
+        assertTrue(summary.rechunkFill == 0)    // after flush, buffer is drained
       },
       test("handles exact multiple") {
         val input             = List(Chunk.fromArray(Array.fill(8)(1.toByte)))
@@ -116,7 +116,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
         assertTrue(hashBytes == 3000L) &&
         assertTrue(digestHex == referenceDigest(data).map(_.hex.value).getOrElse("")) &&
         assertTrue(blockCount == 2L) &&   // 3000/1024 = 2 full blocks
-        assertTrue(rechunkFill == 952) && // 3000 - 2*1024 = 952 leftover before flush
+        assertTrue(rechunkFill == 0) &&   // after flush, buffer is drained
         assertTrue(blocks.length == 3) && // 2 full (1024) + 1 remainder (952)
         assertTrue(blocks(0).length == 1024) &&
         assertTrue(blocks(1).length == 1024) &&
