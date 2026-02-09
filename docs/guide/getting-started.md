@@ -82,10 +82,12 @@ object Demo extends ZIOAppDefault:
 
 ## What's Next?
 
+- **[Pipeline Explorer](../pipeline-explorer.md)** — Compose transducer stages interactively in the browser
 - **[Installation Guide](./installation.md)** — Set up Graviton in your environment
 - **[Configuration Reference](./configuration-reference.md)** — Every env var the current server reads (with defaults)
 - **[CLI & Server Usage](./cli.md)** — Run the server and interact via curl
 - **[Binary Streaming Guide](./binary-streaming.md)** — Learn how blocks, manifests, and chunkers fit together
+- **[Transducer Algebra](../core/transducers.md)** — Typed, composable pipeline stages with Record summaries
 - **[Architecture Overview](../architecture.md)** — Understand the module structure
 - **[Core Concepts](../core/schema.md)** — Deep dive into schemas, ranges, and scans
 - **[API Reference](../api.md)** — Explore gRPC and HTTP endpoints
