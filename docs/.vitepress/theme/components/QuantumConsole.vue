@@ -87,12 +87,28 @@ type ConsoleEntry = {
 
 const entries: ConsoleEntry[] = [
   {
+    label: 'Pipeline Explorer',
+    description: 'Compose transducer stages interactively and watch data flow',
+    href: '/pipeline-explorer',
+    icon: 'PE',
+    shortcut: 'X',
+    keywords: ['pipeline', 'transducer', 'interactive', 'compose', 'explorer', 'playground']
+  },
+  {
     label: 'Getting Started',
     description: 'Spin up Graviton locally and ingest your first payload',
     href: '/guide/getting-started',
     icon: 'GS',
     shortcut: 'G',
     keywords: ['start', 'guide', 'intro', 'quick']
+  },
+  {
+    label: 'Transducer Algebra',
+    description: 'Typed composable pipeline stages with Record summaries',
+    href: '/core/transducers',
+    icon: 'TA',
+    shortcut: 'R',
+    keywords: ['transducer', 'algebra', 'compose', 'pipeline', 'record', 'summary']
   },
   {
     label: 'Architecture',
@@ -125,6 +141,14 @@ const entries: ConsoleEntry[] = [
     icon: 'CS',
     shortcut: 'C',
     keywords: ['chunking', 'fastcdc', 'dedup']
+  },
+  {
+    label: 'Binary Streaming',
+    description: 'Blocks, blobs, manifests, attributes — end to end',
+    href: '/guide/binary-streaming',
+    icon: 'BS',
+    shortcut: 'B',
+    keywords: ['binary', 'streaming', 'blocks', 'manifest', 'attributes']
   },
   {
     label: 'Testing Toolkit',
