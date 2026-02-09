@@ -159,8 +159,22 @@ Because manifest offsets and chunk counts are validated during ingest, retrieval
 - **Typed helpers**: `DynamicRecordCodec.toRecord` / `fromRecord` wrap `Schema.toDynamic` and `Schema.fromDynamic` so system schemas can keep compiling down to DynamicValue while remaining typesafe.
 - **Encoding**: `DynamicJsonCodec.encodeDynamic/decodeDynamicRecord` bridge DynamicValue ↔ `zio.json.ast.Json`. For system namespaces the flow is JSON → typed meta → DynamicValue.Record; for tenant namespaces you can skip the typed hop and work directly with DynamicValue once validation succeeds.
 
+## Transducer-based ingest (next generation)
+
+The [Transducer algebra](../core/transducers.md) provides a cleaner, composable alternative to the manual queue/fiber orchestration in `CasBlobStore.put()`. The same ingest pipeline can be expressed as:
+
+```scala
+val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize) >>> blockKeyDeriver
+val (summary, blocks) = byteStream.run(pipeline.toSink)
+// summary.totalBytes, summary.digestHex, summary.blockCount — all named fields
+```
+
+This approach is testable in isolation (no ZIO needed for unit tests), produces typed Record summaries, and composes with verification and deduplication stages via `>>>` and `&&&`. See the [Pipeline Explorer](../pipeline-explorer.md) to experiment interactively.
+
 ## Next steps
 
 - Start from [`guide/getting-started`](./getting-started.md) to build and run the project locally.
+- Try the [Pipeline Explorer](../pipeline-explorer.md) to compose transducer stages interactively.
 - Dive into [`ingest/chunking`](../ingest/chunking.md) for algorithm-level tuning.
+- Read the [Transducer Algebra](../core/transducers.md) for the full composition API.
 - Explore [`runtime/ports`](../runtime/ports.md) to see how stores, protocols, and schedulers compose inside the runtime.

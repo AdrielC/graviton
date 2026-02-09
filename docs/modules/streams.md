@@ -31,8 +31,19 @@ These types are pure and can be shared between JVM services and Scala.js visuali
 
 The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is already production-ready and covered by unit tests in `modules/graviton-streams/src/test`.
 
+## Transducer integration
+
+The streaming utilities are designed to compose with the [Transducer algebra](../core/transducers.md). Each Chunker and HashingZ pipeline maps naturally to a Transducer stage:
+
+- `Chunker.fixed(size)` corresponds to `IngestPipeline.rechunk(size)` in the transducer world
+- `HashingZ.pipeline` corresponds to `IngestPipeline.hashBytes()`
+- The `toSink` / `toPipeline` compilation targets bridge transducers back into ZIO Streams
+
+See the [Pipeline Explorer](../pipeline-explorer.md) for an interactive visualization of how these stages compose.
+
 ## Roadmap
 
 1. Add anchored/multi-delimiter chunking strategies on top of the incremental core.
 2. Add `ZPipeline` stages for compression and encryption so block storage can pipe bytes through a single reusable composition.
 3. Export additional metrics (histograms, gauges) derived from the `timeseries` helpers.
+4. Port FastCDC into a first-class `Transducer` so it composes with hashing and counting via `>>>`.

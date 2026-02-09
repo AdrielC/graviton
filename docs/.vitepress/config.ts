@@ -103,6 +103,7 @@ export default withMermaid(defineConfig({
       { text: 'Streaming', link: '/guide/binary-streaming' },
       { text: 'Architecture', link: '/architecture' },
       { text: 'API', link: '/api' },
+      { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
       { text: 'Quasar Demo', link: '/quasar-demo' },
@@ -129,6 +130,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Architecture', link: '/architecture' },
           { text: 'Schema & Types', link: '/core/schema' },
+          { text: 'Transducer Algebra', link: '/core/transducers' },
           { text: 'Scans & Events', link: '/core/scans' },
           { text: 'Ranges & Boundaries', link: '/core/ranges' }
         ]
@@ -200,6 +202,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
+          { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
           { text: 'Live Demo', link: '/demo' },
           { text: 'Quasar Demo', link: '/quasar-demo' }
         ]
