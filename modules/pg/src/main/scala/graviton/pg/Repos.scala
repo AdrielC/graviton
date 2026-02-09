@@ -106,6 +106,7 @@ final class BlockRepoLive(xa: TransactorZIO) extends BlockRepo:
         SELECT size_bytes, (inline_bytes IS NOT NULL) AS has_inline
         FROM block WHERE algo_id = ${key.algoId} AND hash = ${key.hash}
       """.query[(Long, Boolean)].run().headOption.map { case (s, b) =>
+        // SAFETY: size_bytes column has CHECK(size_bytes > 0) in DDL
         (PosLong.applyUnsafe(s), b)
       }
     }

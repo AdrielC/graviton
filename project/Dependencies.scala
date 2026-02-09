@@ -4,7 +4,7 @@ object Dependencies {
    * Central version catalog.
    *
    * Keep this in sync with the constraints of the existing codebase:
-   * - Scala 3.7.4 (current build)
+   * - Scala 3.7.4 (pinned for kyo.Record multi-field compatibility)
    * - ZIO 2.x
    * - zio-http 3.x
    * - iron 3.x (required by `graviton.core.types` refinements on adriel-test)

@@ -23,7 +23,9 @@ cs
 
 .metals
 # .vscode
-.cursor
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .cursorrules
 .cursorignore
 metals.sbt

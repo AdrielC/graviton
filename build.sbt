@@ -180,6 +180,9 @@ lazy val docs = (project in file("docs-mdoc"))
   .settings(
     publish / skip := true,
     name := "graviton-docs",
+    // Scala 3.8+ deprecated -Xfatal-warnings in favour of -Werror; strip the old flag to avoid
+    // the deprecation warning itself becoming a fatal error.
+    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(o => o == "-Xfatal-warnings" || o == "-Werror"),
     mdocIn := (ThisBuild / baseDirectory).value / "docs",
     mdocOut := target.value / "mdoc-out",
     // Keep mdoc fast + deterministic: ignore generated assets and npm installs under docs/.
