@@ -30,11 +30,11 @@
 - [ ] Set up CI: run tests, publish docs, push to Maven Central.
 
 **Refactor / Storage API**
-- [ ] Adopt Iron refined types for sizes/indices.
-- [ ] Split `BinaryAttributes` into advertised/confirmed keyed by `BinaryAttributeKey`; enforce `validate` at ingest.
-- [ ] Introduce `Chunker` abstraction (`ZPipeline[Any, Throwable, Byte, Block]`), configurable via `FiberRef`.
+- [x] Adopt Iron refined types for sizes/indices. (done — `types.scala` with `SizeTrait`, `RefinedTypeExt`)
+- [x] Split `BinaryAttributes` into advertised/confirmed keyed by `BinaryAttributeKey`; enforce `validate` at ingest. (done — `BinaryAttributes` has advertised/confirmed with `BinaryAttributeKey`)
+- [x] Introduce `Chunker` abstraction (`ZPipeline[Any, Throwable, Byte, Block]`), configurable via `FiberRef`. (done — `graviton.streams.Chunker` with `FiberRef[Chunker]`)
 - [ ] Provide `insertFile` helper to replay leftovers until stream exhaustion (whole-file ingest mode).
-- [ ] Track ingestion context via `FiberRef` (chunker, attributes, store mode).
+- [x] Track ingestion context via `FiberRef` (chunker, attributes, store mode). (done — `Chunker.current: FiberRef[Chunker]`)
 - [ ] Persist advertised/confirmed attributes with manifests.
 
 ---
@@ -51,6 +51,28 @@
 - [ ] Implement cold-storage tiering (configurable store policies for “active” vs “archival”).
 - [ ] Add background compaction (repack small blocks, drop deprecated replicas).
 - [ ] Expose metrics for deduplication ratio, replication health, and ingest latency.
+
+---
+
+## Coding Standards & Agent Rules
+
+Comprehensive coding standards, architectural patterns, and restructuring plans are
+maintained in **`.cursor/rules/`**:
+
+| File | Contents |
+|------|----------|
+| `01-project-overview.md` | Architecture, module map, tech stack, domain concepts |
+| `02-scala-style.md` | Scala 3 style guide, formatting, naming, error handling |
+| `03-iron-refined-types.md` | Iron patterns: `RefinedTypeExt`, `SizeTrait`, boundaries |
+| `04-zio-streaming.md` | ZIO Streams patterns: Chunker, ZChannel, Sinks, queues |
+| `05-service-architecture.md` | ZLayer patterns, CAS architecture, error strategy |
+| `06-scan-algebra.md` | Scan trait, FreeScan, combinators, IngestScan |
+| `07-testing-standards.md` | zio-test patterns, what to test, test naming |
+| `08-code-health-analysis.md` | What's working, what needs improvement |
+| `09-execution-plan.md` | Phased restructuring roadmap with verification steps |
+| `10-code-patterns-reference.md` | Copy-paste-ready code patterns for common tasks |
+
+Agents **must** consult these rules before making changes.
 
 ---
 

@@ -31,8 +31,8 @@ object BuildHelper {
   )
 
   val baseSettings: Seq[Setting[_]] = Seq(
-    // Temporarily disable fatal warnings for new scan algebra development
-    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(_ == "-Xfatal-warnings"),
+    // Disable fatal warnings for development; Scala 3.8+ renamed -Xfatal-warnings to -Werror.
+    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(o => o == "-Xfatal-warnings" || o == "-Werror"),
   ) ++ testSettings
 
   val isTestContainers: SettingKey[Boolean] = settingKey[Boolean]("Whether to run tests with TestContainers")

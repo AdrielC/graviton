@@ -4,8 +4,6 @@ import BinaryAttr.Access.*
 import BinaryAttr.PartialOps.*
 import BinaryAttrDiff.Record as DiffRecord
 import graviton.core.types.{CustomAttributeName, CustomAttributeValue, Identifier}
-import graviton.core.keys.BinaryKey
-import graviton.core.locator.BlobLocator
 import graviton.core.types.*
 
 import java.time.Instant
@@ -16,18 +14,23 @@ sealed trait BinaryAttributeKey[A] extends Product with Serializable:
 
 object BinaryAttributeKey:
   case object Size extends BinaryAttributeKey[FileSize]:
+    // SAFETY: compile-time constant matching IdentifierConstraint
     val identifier = Identifier.applyUnsafe("graviton.size")
 
   case object ChunkCount extends BinaryAttributeKey[ChunkCount]:
+    // SAFETY: compile-time constant matching IdentifierConstraint
     val identifier = Identifier.applyUnsafe("graviton.chunk-count")
 
   case object Mime extends BinaryAttributeKey[Mime]:
+    // SAFETY: compile-time constant matching IdentifierConstraint
     val identifier = Identifier.applyUnsafe("graviton.mime")
 
   final case class Digest(algo: Algo) extends BinaryAttributeKey[HexLower]:
+    // SAFETY: algo.value is pre-refined to AlgoConstraint; "graviton.digest.<algo>" matches IdentifierConstraint
     val identifier: Identifier = Identifier.applyUnsafe(s"graviton.digest.${algo.value}")
 
   final case class Custom(name: CustomAttributeName) extends BinaryAttributeKey[CustomAttributeValue]:
+    // SAFETY: name.value is pre-refined to IdentifierConstraint & MaxLength[64]; "user.<name>" matches IdentifierConstraint
     val identifier: Identifier = Identifier.applyUnsafe(s"user.${name.value}")
 
 object BinaryAttributes:
@@ -143,9 +146,3 @@ final case class BinaryAttributes private (
   private def modifyConfirmed(f: BinaryAttr.Partial => BinaryAttr.Partial): BinaryAttributes =
     copy(confirmed = f(confirmed))
 end BinaryAttributes
-
-final case class BlobWriteResult(
-  key: BinaryKey,
-  locator: BlobLocator,
-  attributes: BinaryAttributes,
-)

@@ -1,5 +1,6 @@
 package graviton.streams
 
+import graviton.core.GravitonError
 import graviton.core.model.Block
 import graviton.core.types.*
 import zio.*
@@ -14,17 +15,15 @@ trait Chunker:
 object Chunker:
   type Err = ChunkerCore.Err
 
-  final case class Failure(err: Err) extends Exception(render(err))
+  final case class Failure(err: Err) extends Exception(err.message)
 
+  /** Convert a chunker error to the unified `GravitonError` hierarchy. */
+  def toGravitonError(err: Err): GravitonError =
+    err.toGravitonError
+
+  /** Convert a chunker error to a `Throwable` (for untyped error channels). */
   def toThrowable(err: Err): Throwable =
-    Failure(err)
-
-  private def render(err: Err): String =
-    err match
-      case ChunkerCore.Err.EmptyDelimiter        => "Delimiter cannot be empty"
-      case ChunkerCore.Err.InvalidBounds(msg)    => msg
-      case ChunkerCore.Err.InvalidDelimiter(msg) => msg
-      case ChunkerCore.Err.InvalidBlock(msg)     => msg
+    err.toGravitonError.toThrowable
 
   private val defaultChunkSize: UploadChunkSize =
     // Compile-time refined (Iron) for a compile-time constant.

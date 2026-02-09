@@ -37,7 +37,7 @@ object GravitonUploadHttpClientSpec extends ZIOSpecDefault {
                             ),
                           )
           uploadSvc     = new InMemoryUploadService
-          gatewayClient = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)(using Clock.ClockLive)
+          gatewayClient = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)
           outcome      <- gatewayClient.uploadFrames(
                             StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
                             ZStream.succeed(
