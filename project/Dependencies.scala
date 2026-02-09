@@ -21,6 +21,9 @@ object Dependencies {
     // Kyo
     val kyo = "1.0-RC1"
 
+    // zio-blocks (local publish from submodule)
+    val zioBlocks = "0.1.0-graviton"
+
     // Misc
     val iron       = "3.2.2"
     val awsV2      = "2.25.54"

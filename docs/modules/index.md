@@ -4,9 +4,9 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 
 ## High-level Layout
 
-- **Core** (documented separately): pure data types, codecs, and algebraic structures.
+- **Core** (documented separately): pure data types, codecs, algebraic structures, and the [Transducer algebra](../core/transducers.md) for composable pipeline stages.
 - **Runtime**: storage ports, policies, and operational concerns that wire pure logic to effectful infrastructure.
-- **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives.
+- **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives — designed to compose with Transducers.
 - **Protocol**: shared API models and transport-specific servers (gRPC + HTTP).
 - **Backend adapters**: concrete integrations (PostgreSQL, S3, RocksDB) that satisfy runtime ports.
 - **Frontend**: Scala.js dashboard used in the interactive documentation demo.

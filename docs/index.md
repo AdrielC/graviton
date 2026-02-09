@@ -22,6 +22,8 @@ hero:
 features:
   - title: Verified Content Keys
     details: Content-defined chunking and cryptographic hashing ensure every blob is stored and addressed by its bytes.
+  - title: Composable Transducer Pipelines
+    details: The Transducer algebra lets you compose ingest stages with >>> and &&& — typed summaries, automatic state merging, zero boilerplate.
   - title: Stream-First Runtime
     details: ZIO Streams power ingestion, hashing, and replication so large payloads flow without buffering.
   - title: Modular Backends
@@ -30,8 +32,6 @@ features:
     details: Scala 3, refined types, and schema derivation guard invariants across transports and storage boundaries.
   - title: Built-In Observability
     details: Structured logging, Prometheus metrics, and correlation IDs surface ingestion and retrieval behaviour.
-  - title: Operations Ready
-    details: Replication policies, backpressure, and failure recovery hooks keep clusters responsive under load.
 ---
 
 ## Operations Snapshot
@@ -66,13 +66,22 @@ Architecture, manifests, and operations pages include interactive Mermaid diagra
 
 ### Key Features
 
+- **Composable Transducer pipelines** — build ingest, verify, and retrieval paths from typed stages with `>>>` and `&&&`
 - **Streaming ingest and retrieval** with ZIO Streams and zero-copy pipelines
 - **Content-defined chunking** via FastCDC and multi-hash verification
 - **Pluggable storage backends** for S3, PostgreSQL, RocksDB, and future targets
 - **Strongly-typed schemas** shared across HTTP, gRPC, and Scala.js clients
 - **Integrated observability** with Prometheus metrics and structured logging
 - **Replica coordination** through policies that balance durability and latency
-- **Schema explorer** powered by the Scala.js dashboard embedded in the docs
+- **Interactive Pipeline Explorer** — compose and visualize transducer stages in the browser
+
+## Pipeline Explorer
+
+Compose transducer stages interactively — toggle stages on and off, see the composition expression update in real time, and watch animated data flow through the pipeline.
+
+<PipelinePlayground />
+
+[Open full Pipeline Explorer](pipeline-explorer.md) for detailed explanations and scenarios.
 
 ## Next Steps
 
@@ -81,6 +90,11 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
 :::
 
 <div class="grid-container">
+  <a href="pipeline-explorer" class="feature-card">
+    <h3>Pipeline Explorer</h3>
+    <p>Compose transducer stages interactively and watch data flow in real time</p>
+  </a>
+
   <a href="architecture" class="feature-card">
     <h3>Architecture</h3>
     <p>Understand the module-by-module breakdown and system design</p>
@@ -91,6 +105,11 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
     <p>Follow a binary blob through the entire ingest pipeline</p>
   </a>
   
+  <a href="core/transducers" class="feature-card">
+    <h3>Transducer Algebra</h3>
+    <p>Typed, composable pipeline stages with Record summaries</p>
+  </a>
+  
   <a href="api" class="feature-card">
     <h3>API Reference</h3>
     <p>Explore gRPC and HTTP endpoints with examples</p>
@@ -99,11 +118,6 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
   <a href="dev/contributing" class="feature-card">
     <h3>Contributing</h3>
     <p>Join the community and help build the future of storage</p>
-  </a>
-
-  <a href="dev/scalajs" class="feature-card">
-    <h3>Scala.js Playbook</h3>
-    <p>Run the Laminar dashboard locally with live reload and shared models</p>
   </a>
 </div>
 

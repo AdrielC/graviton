@@ -5,6 +5,7 @@ import './custom.css'
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import NeonHud from './components/NeonHud.vue'
 import QuantumConsole from './components/QuantumConsole.vue'
+import PipelinePlayground from './components/PipelinePlayground.vue'
 
 const cleanupCallbacks: Array<() => void> = []
 const processedCodeBlocks = new WeakSet<Element>()
@@ -51,6 +52,7 @@ const theme: Theme = {
     DefaultTheme.enhanceApp?.({ app })
     app.component('NeonHud', NeonHud)
     app.component('QuantumConsole', QuantumConsole)
+    app.component('PipelinePlayground', PipelinePlayground)
   }
 }
 

@@ -143,6 +143,18 @@ flowchart TB
   JR --> L
 ```
 
+## Transducer Algebra
+
+The **Transducer algebra** is the composable pipeline engine that sits between the pure core and the effectful runtime. Transducers compose via `>>>` (sequential) and `&&&` (fanout) with automatic Record-state merging:
+
+```
+bytes → countBytes >>> hashBytes >>> rechunk(blockSize) → CanonicalBlock
+```
+
+Each transducer produces a typed Record summary. After composition, the summary contains **all** named fields from **all** stages — accessible by name, never by index. The algebra ships 12 production transducers (counting, hashing, rechunking, block keying, dedup, compression, framing, verification, metrics, bomb protection) and compiles to `ZSink`, `ZPipeline`, or `ZChannel`.
+
+See the [Transducer Algebra](./core/transducers.md) page for the full API, or try the [Pipeline Explorer](./pipeline-explorer.md) to compose stages interactively.
+
 ## Core
 
 `graviton-core` contains purely functional data structures and codecs:
