@@ -48,7 +48,14 @@ final case class PipelineDescriptor(
   def allSummaryFields: List[SummaryField] =
     stages.flatMap(_.summaryFields)
 
-/** Pre-built pipeline descriptors corresponding to real Graviton transducers. */
+/**
+ * Pre-built pipeline descriptors corresponding to Graviton transducers.
+ *
+ * Stages marked `implemented = true` in their description exist as production
+ * `Transducer` instances in `graviton.core.scan.IngestPipeline` and
+ * `graviton.core.scan.Transducers`. Stages marked as roadmap items are
+ * described here for visualization but not yet wired into the `>>>` chain.
+ */
 object PipelineCatalog:
 
   val countBytes: TransducerStage = TransducerStage(
