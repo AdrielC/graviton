@@ -17,6 +17,7 @@
 - [ ] Ensure `./sbt docs/mdoc test` passes after each doc change; fix nav links.
 - [ ] Document replication model (Stores, Sectors, Replicas) with diagrams.
 - [ ] Document manifest format and forward-compatibility guarantees.
+- [x] Add agent standards + strategy planning doc. (done 2026-02-08)
 
 ---
 
