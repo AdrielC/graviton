@@ -62,7 +62,7 @@ jobs:
 
       - name: Publish zio-blocks-schema locally
         working-directory: modules/zio-blocks
-        run: sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
+        run: ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
       
       - name: Build all docs assets (Scaladoc + Scala.js Frontend)
         run: |
