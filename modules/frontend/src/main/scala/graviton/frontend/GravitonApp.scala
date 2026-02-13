@@ -295,7 +295,10 @@ object GravitonApp {
       div(
         cls := "page-pipeline",
         h1("⚡ Pipeline Explorer"),
-        p(cls := "page-intro", "Compose transducer stages interactively. This component uses the shared PipelineCatalog — the same model the JVM runtime uses."),
+        p(
+          cls := "page-intro",
+          "Compose transducer stages interactively. This component uses the shared PipelineCatalog — the same model the JVM runtime uses.",
+        ),
         PipelineExplorer(),
       )
   }

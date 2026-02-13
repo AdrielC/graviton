@@ -34,7 +34,7 @@ final case class TransducerStage(
 /** How two stages are composed. */
 enum CompositionOp derives JsonCodec:
   case Sequential // >>>
-  case Fanout     // &&&
+  case Fanout // &&&
 
 /** A composed pipeline: a non-empty list of stages with composition operators between them. */
 final case class PipelineDescriptor(
@@ -64,7 +64,7 @@ object PipelineCatalog:
     inputType = "Chunk[Byte]",
     outputType = "Chunk[Byte]",
     summaryFields = List(
-      SummaryField("totalBytes", "Long", "Running total of bytes processed"),
+      SummaryField("totalBytes", "Long", "Running total of bytes processed")
     ),
     description = "Pass-through counter. Tracks total bytes without modifying the stream.",
     hotStateDescription = "Hot = Long (zero-alloc)",
@@ -102,7 +102,7 @@ object PipelineCatalog:
     inputType = "Chunk[Byte]",
     outputType = "CanonicalBlock",
     summaryFields = List(
-      SummaryField("blocksKeyed", "Long", "Number of blocks that received a content-addressed key"),
+      SummaryField("blocksKeyed", "Long", "Number of blocks that received a content-addressed key")
     ),
     description = "Per-block hashing to derive BinaryKey.Block via KeyBits.create. Bridges byte processing to CAS semantics.",
     hotStateDescription = "Hot = Long",
@@ -127,7 +127,7 @@ object PipelineCatalog:
     inputType = "Chunk[Byte]",
     outputType = "Chunk[Byte]",
     summaryFields = List(
-      SummaryField("blockCount", "Long", "Number of blocks counted"),
+      SummaryField("blockCount", "Long", "Number of blocks counted")
     ),
     description = "Pass-through block counter.",
     hotStateDescription = "Hot = Long",
