@@ -228,7 +228,17 @@ final class CasBlobStore(
         ZStream.fail(new UnsupportedOperationException(s"CasBlobStore.get only supports blob keys, got $other"))
 
   override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
-    ZIO.succeed(None)
+    key match
+      case blob: BinaryKey.Blob =>
+        manifests.get(blob).map {
+          case None           => None
+          case Some(manifest) =>
+            val totalSize = manifest.entries.foldLeft(0L) { (acc, e) =>
+              acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
+            }
+            Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, java.time.Instant.now()))
+        }
+      case _                    => ZIO.succeed(None)
 
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
     ZIO.fail(new UnsupportedOperationException("CasBlobStore.delete is not implemented yet"))
