@@ -15,5 +15,8 @@ import zio.stream.ZStream
 trait BlobManifestRepo:
   def put(blob: BinaryKey.Blob, manifest: Manifest): ZIO[Any, Throwable, Unit]
 
+  /** Retrieve the full manifest for a blob, if it exists. */
+  def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]]
+
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]

@@ -11,11 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 21
           cache: sbt
+      - name: Publish zio-blocks-schema locally
+        working-directory: modules/zio-blocks
+        run: ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
       - name: Scalafmt check
         run: ./sbt scalafmtCheckAll
 
@@ -53,11 +58,16 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 21
           cache: sbt
+      - name: Publish zio-blocks-schema locally
+        working-directory: modules/zio-blocks
+        run: ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
       - name: Wait for Postgres + apply schema
         run: |
           set -euo pipefail
@@ -99,11 +109,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 21
           cache: sbt
+      - name: Publish zio-blocks-schema locally
+        working-directory: modules/zio-blocks
+        run: ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
       - name: Build Scala.js Frontend
         run: ./sbt buildFrontend
       - name: Verify docs snippets

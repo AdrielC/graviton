@@ -19,6 +19,9 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
     override def put(blob: BinaryKey.Blob, manifest: Manifest): ZIO[Any, Throwable, Unit] =
       ref.update(_.updated(blob, manifest)).unit
 
+    override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]] =
+      ref.get.map(_.get(blob))
+
     override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, graviton.runtime.streaming.BlobStreamer.BlockRef] =
       ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
         case None    =>

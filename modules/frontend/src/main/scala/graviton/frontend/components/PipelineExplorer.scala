@@ -29,11 +29,11 @@ object PipelineExplorer:
     val speedVar            = Var(3)
 
     // Simulated metrics state
-    val totalBytesVar      = Var(0L)
-    val blockCountVar      = Var(0L)
-    val uniqueCountVar     = Var(0L)
-    val duplicateCountVar  = Var(0L)
-    val digestProgressVar  = Var(0L)
+    val totalBytesVar     = Var(0L)
+    val blockCountVar     = Var(0L)
+    val uniqueCountVar    = Var(0L)
+    val duplicateCountVar = Var(0L)
+    val digestProgressVar = Var(0L)
 
     var animHandle: Option[Int] = None
 
@@ -88,7 +88,7 @@ object PipelineExplorer:
           cls := "pp-header__info",
           h3(cls := "pp-header__title", "Transducer Pipeline Explorer"),
           p(
-            cls := "pp-header__subtitle",
+            cls  := "pp-header__subtitle",
             "Powered by ",
             code("graviton.shared.pipeline.PipelineCatalog"),
             " — the same model used by the JVM runtime",
@@ -117,11 +117,9 @@ object PipelineExplorer:
           cls := "pp-scenarios__grid",
           catalog.allPipelines.map { p =>
             button(
-              cls <-- selectedPipelineVar.signal.map(sel =>
-                if sel.name == p.name then "pp-scenario active" else "pp-scenario",
-              ),
-              span(cls := "pp-scenario__icon", p.name.take(3).toUpperCase),
-              span(cls := "pp-scenario__name", p.name),
+              cls <-- selectedPipelineVar.signal.map(sel => if sel.name == p.name then "pp-scenario active" else "pp-scenario"),
+              span(cls             := "pp-scenario__icon", p.name.take(3).toUpperCase),
+              span(cls             := "pp-scenario__name", p.name),
               HtmlTag("small")(cls := "pp-scenario__desc", p.scalaExpression),
               onClick --> { _ => selectPipeline(p) },
             )
@@ -149,7 +147,7 @@ object PipelineExplorer:
             pipeline.stages.zipWithIndex.flatMap { case (stage, idx) =>
               val connector =
                 if idx > 0 then
-                  val op = pipeline.operators(idx - 1)
+                  val op      = pipeline.operators(idx - 1)
                   val opLabel = op match
                     case CompositionOp.Sequential => ">>>"
                     case CompositionOp.Fanout     => "&&&"
@@ -157,7 +155,7 @@ object PipelineExplorer:
                     div(
                       cls := "pp-connector",
                       span(cls := "pp-connector__op", opLabel),
-                      div(cls := "pp-connector__line"),
+                      div(cls  := "pp-connector__line"),
                     )
                   )
                 else Nil
@@ -166,35 +164,42 @@ object PipelineExplorer:
                 cls := "pp-stage-wrapper",
                 connector.map(c => c),
                 div(
-                  cls := "pp-stage",
+                  cls       := "pp-stage",
                   styleAttr := s"--stage-hue: ${120 + idx * 30}",
                   div(
-                    cls := "pp-stage__header",
+                    cls       := "pp-stage__header",
                     span(cls := "pp-stage__icon", stage.name.take(1)),
                     span(cls := "pp-stage__name", stage.name),
                   ),
-                  div(cls := "pp-stage__type", code(s"${stage.inputType} => ${stage.outputType}")),
+                  div(cls     := "pp-stage__type", code(s"${stage.inputType} => ${stage.outputType}")),
                   p(
                     styleAttr := "margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--vp-c-text-3, #808080);",
                     stage.hotStateDescription,
                   ),
                   // Live metrics
                   div(
-                    cls := "pp-stage__metrics",
+                    cls       := "pp-stage__metrics",
                     stage.summaryFields.map { f =>
                       div(
                         cls := "pp-stage__metric",
                         span(cls := "pp-stage__metric-label", f.name),
                         span(
-                          cls := "pp-stage__metric-value",
-                          child.text <-- metricSignal(f.name, totalBytesVar, blockCountVar, uniqueCountVar, duplicateCountVar, digestProgressVar),
+                          cls    := "pp-stage__metric-value",
+                          child.text <-- metricSignal(
+                            f.name,
+                            totalBytesVar,
+                            blockCountVar,
+                            uniqueCountVar,
+                            duplicateCountVar,
+                            digestProgressVar,
+                          ),
                         ),
                       )
                     },
                   ),
                   // Throughput bar
                   div(
-                    cls := "pp-stage__throughput",
+                    cls       := "pp-stage__throughput",
                     div(
                       cls := "pp-stage__throughput-bar",
                       div(
@@ -221,18 +226,18 @@ object PipelineExplorer:
 
       // Summary output
       div(
-        cls := "pp-output",
+        cls       := "pp-output",
         styleAttr := "margin-top: 1rem;",
         div(cls := "pp-output__icon", "RECORD SUMMARY"),
         div(
-          cls := "pp-output__fields",
+          cls   := "pp-output__fields",
           children <-- selectedPipelineVar.signal.map { pipeline =>
             pipeline.allSummaryFields.map { f =>
               div(
                 cls := "pp-output__field",
                 span(cls := "pp-output__field-name", f.name),
                 span(
-                  cls := "pp-output__field-value",
+                  cls    := "pp-output__field-value",
                   child.text <-- metricSignal(f.name, totalBytesVar, blockCountVar, uniqueCountVar, duplicateCountVar, digestProgressVar),
                 ),
                 span(cls := "pp-output__field-type", f.scalaType),
@@ -251,7 +256,7 @@ object PipelineExplorer:
             div(
               styleAttr := "padding: 0.75rem; margin-bottom: 0.5rem; border: 1px solid rgba(0,255,65,0.12); border-radius: 10px; background: rgba(0,0,0,0.2);",
               strong(styleAttr := "color: var(--vp-c-brand-1, #00ff41);", stage.name),
-              p(styleAttr := "margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--vp-c-text-2, #b3b3b3);", stage.description),
+              p(styleAttr      := "margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--vp-c-text-2, #b3b3b3);", stage.description),
             )
           }
         },
@@ -259,18 +264,18 @@ object PipelineExplorer:
 
       // Speed control
       div(
-        cls := "pp-dataflow__speed",
+        cls       := "pp-dataflow__speed",
         styleAttr := "margin-top: 1rem;",
         label("Speed: "),
         input(
-          typ := "range",
+          typ     := "range",
           minAttr := "1",
           maxAttr := "10",
           controlled(
             value <-- speedVar.signal.map(_.toString),
             onInput.mapToValue.map(_.toInt) --> speedVar,
           ),
-          cls := "pp-dataflow__slider",
+          cls     := "pp-dataflow__slider",
         ),
         child.text <-- speedVar.signal.map(s => s"${s}x"),
       ),
@@ -288,27 +293,27 @@ object PipelineExplorer:
     fieldName match
       case "totalBytes" | "hashBytes" | "totalSeen" | "compressedBytes" =>
         totalBytesVar.signal.map(formatBytesS)
-      case "blockCount" | "blocksKeyed" | "entries" =>
+      case "blockCount" | "blocksKeyed" | "entries"                     =>
         blockCountVar.signal.map(_.toString)
-      case "rechunkFill" =>
+      case "rechunkFill"                                                =>
         blockCountVar.signal.map(c => s"${(c % 100).toInt}%")
-      case "uniqueCount" | "verified" =>
+      case "uniqueCount" | "verified"                                   =>
         uniqueCountVar.signal.map(_.toString)
-      case "duplicateCount" | "failed" =>
+      case "duplicateCount" | "failed"                                  =>
         duplicateCountVar.signal.map(_.toString)
-      case "digestHex" =>
+      case "digestHex"                                                  =>
         digestProgressVar.signal.map { p =>
           if p > 0 then hashHexS(p).take(16) + "..." else "---"
         }
-      case "ratio" =>
+      case "ratio"                                                      =>
         totalBytesVar.signal.map { tb =>
           if tb > 0 then f"${tb.toDouble / Math.max(1, (tb * 0.62).toLong).toDouble}%.2f" else "---"
         }
-      case "rejected" =>
+      case "rejected"                                                   =>
         totalBytesVar.signal.map(tb => if tb > 10_000_000_000L then "true" else "false")
-      case "manifestSize" =>
+      case "manifestSize"                                               =>
         blockCountVar.signal.map(c => formatBytesS(c * 48))
-      case _ =>
+      case _                                                            =>
         Val("---")
 
   private def formatBytesS(n: Long): String =
@@ -318,11 +323,11 @@ object PipelineExplorer:
     else f"${n / 1073741824.0}%.2f GB"
 
   private def hashHexS(seed: Long): String =
-    var h = (seed & 0xFFFFFFFFL).toInt
+    var h  = (seed & 0xffffffffL).toInt
     val sb = new StringBuilder(32)
     (0 until 32).foreach { i =>
       h = ((h << 5) - h + (i * 7 + 13))
-      sb.append(Integer.toHexString((h >>> 0) & 0xF))
+      sb.append(Integer.toHexString((h >>> 0) & 0xf))
     }
     sb.result()
 
