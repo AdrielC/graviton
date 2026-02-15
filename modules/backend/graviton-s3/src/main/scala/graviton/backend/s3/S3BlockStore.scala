@@ -153,7 +153,7 @@ private final case class Acc(
       }
 
 private object Acc:
-  val empty: Acc =
+  def empty: Acc =
     Acc(
       entries = ChunkBuilder.make[BlockManifestEntry](),
       stored = ChunkBuilder.make[StoredBlock](),
