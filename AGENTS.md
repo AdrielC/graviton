@@ -23,19 +23,27 @@
 ## Implementation / Testing
 
 **Core for v0.1.0**
-- [ ] Finalize `BlockStore` and `BlobStore` APIs.
+- [x] Finalize `BlockStore` and `BlobStore` APIs. (done 2026-02-13 — `BlobManifestRepo.get`, `CasBlobStore.stat`, blockKeyPipeline)
 - [ ] Stabilize filesystem and S3 implementations.
 - [ ] Ship a CLI with end-to-end ingest + retrieval tests.
 - [ ] Add configuration-driven integration tests (TestContainers for backends).
-- [ ] Set up CI: run tests, publish docs, push to Maven Central.
+- [x] Set up CI: run tests, publish docs, push to Maven Central. (done 2026-02-13 — fixed submodule checkout + zio-blocks publishLocal in ci.yml/docs.yaml)
 
 **Refactor / Storage API**
 - [x] Adopt Iron refined types for sizes/indices. (done — `types.scala` with `SizeTrait`, `RefinedTypeExt`)
 - [x] Split `BinaryAttributes` into advertised/confirmed keyed by `BinaryAttributeKey`; enforce `validate` at ingest. (done — `BinaryAttributes` has advertised/confirmed with `BinaryAttributeKey`)
 - [x] Introduce `Chunker` abstraction (`ZPipeline[Any, Throwable, Byte, Block]`), configurable via `FiberRef`. (done — `graviton.streams.Chunker` with `FiberRef[Chunker]`)
-- [ ] Provide `insertFile` helper to replay leftovers until stream exhaustion (whole-file ingest mode).
+- [x] Provide `insertFile` helper to replay leftovers until stream exhaustion (whole-file ingest mode). (done — `StoreOps.insertFile` streams file bytes through `BlobStore.put`)
 - [x] Track ingestion context via `FiberRef` (chunker, attributes, store mode). (done — `Chunker.current: FiberRef[Chunker]`)
-- [ ] Persist advertised/confirmed attributes with manifests.
+- [x] Persist advertised/confirmed attributes with manifests. (done 2026-02-13 — `CasBlobStore.put` builds confirmed attrs: `confirmSize`, `confirmDigest`)
+
+**Transducer-Powered CAS Pipeline**
+- [x] `CasIngest.blockKeyDeriver`: per-block hashing → `BinaryKey.Block` derivation. (done 2026-02-13)
+- [x] `CasIngest.pipeline`: `countBytes >>> hashBytes >>> rechunk >>> blockKey`. (done 2026-02-13)
+- [x] Wire Transducer-backed per-block keying into `CasBlobStore.put`. (done 2026-02-13)
+- [x] `BlockVerify.verifier`: re-hash + compare against expected keys. (done 2026-02-13)
+- [x] `BlockVerify.blobVerifier`: `rechunk >>> verifier` for full blob integrity checks. (done 2026-02-13)
+- [x] Round-trip proven: `CasIngest.pipeline` → `BlockVerify.blobVerifier` → all pass. (done 2026-02-13)
 
 ---
 
