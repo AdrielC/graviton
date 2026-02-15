@@ -203,10 +203,22 @@ lazy val docs = (project in file("docs-mdoc"))
     Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "docs/snippets/src/main/scala"
   )
 
+lazy val cli = (project in file("modules/graviton-cli"))
+  .dependsOn(runtime, streams)
+  .settings(
+    baseSettings,
+    name := "graviton-cli",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"         % V.zio,
+      "dev.zio" %% "zio-streams" % V.zio,
+    ),
+  )
+
 lazy val root = (project in file(".")).aggregate(
   core,
   streams,
   runtime,
+  cli,
   quasarCore,
   quasarHttp,
   quasarLegacy,
