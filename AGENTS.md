@@ -45,6 +45,16 @@
 - [x] `BlockVerify.blobVerifier`: `rechunk >>> verifier` for full blob integrity checks. (done 2026-02-13)
 - [x] Round-trip proven: `CasIngest.pipeline` → `BlockVerify.blobVerifier` → all pass. (done 2026-02-13)
 
+**Operational Hardening (done 2026-02-15)**
+- [x] `BombGuard` transducer: ingestion bomb protection with configurable byte limit. (done 2026-02-15)
+- [x] `MetricsBlobStore`: observable BlobStore decorator for Prometheus metrics. (done 2026-02-15)
+- [x] `IngestStats` in `BlobWriteResult`: totalBytes, blockCount, fresh/dup counts, dedupRatio, duration. (done 2026-02-15)
+- [x] `CasBlobStore.delete`: manifest-level delete support. (done 2026-02-15)
+- [x] `StoreOps.insertBytes`, `StoreOps.roundTrip`: convenience helpers for testing/CLI. (done 2026-02-15)
+- [x] `InMemoryBlobManifestRepo`: reusable test-kit with delete/keys/snapshot helpers. (done 2026-02-15)
+- [x] Property-based CAS tests: 5 Gen-based invariant checks (round-trip, content-addressing, manifest spans, stats). (done 2026-02-15)
+- [x] 255 tests passing across core/streams/runtime. (done 2026-02-15)
+
 ---
 
 ## Advanced Enhancements (post-v0.1.0)
@@ -54,11 +64,11 @@
 - [ ] Define + implement **self-describing frame format** (magic `"QUASAR"`, algo IDs, sizes, nonce, truncated hash, key ID, AAD encoding, strict `Take` semantics).
 - [ ] Extend deduplication: store CDC base blocks, keep manifests mutable, prototype rolling-hash index for containment.
 - [ ] Add format-aware views (PDF object/page maps, ZIP central directory) layered over manifest offsets.
-- [ ] Add operational guardrails: bounded `Queue[Take]`, guaranteed `OutputStream` closure, ingestion bomb protection, enforced pre-commit checks.
+- [x] Add operational guardrails: `BombGuard` transducer for ingestion bomb protection. (done 2026-02-15)
 - [ ] Add repair jobs for missing or quarantined replicas.
-- [ ] Implement cold-storage tiering (configurable store policies for “active” vs “archival”).
+- [ ] Implement cold-storage tiering (configurable store policies for "active" vs "archival").
 - [ ] Add background compaction (repack small blocks, drop deprecated replicas).
-- [ ] Expose metrics for deduplication ratio, replication health, and ingest latency.
+- [x] Expose metrics for deduplication ratio, replication health, and ingest latency. (done 2026-02-15 — `IngestStats.dedupRatio`, `MetricsBlobStore`)
 
 ---
 
