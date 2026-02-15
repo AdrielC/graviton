@@ -193,6 +193,7 @@ export default withMermaid(defineConfig({
           { text: 'Testing', link: '/dev/testing' },
           { text: 'Scala.js Playbook', link: '/dev/scalajs' },
           { text: 'Design Docs', link: '/design/' },
+          { text: 'Principled TypeId system (Draft)', link: '/design/typeid' },
           { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
           { text: 'Quasar ↔ Cedar Compat (Draft)', link: '/design/quasar-cedar-compat' },
           { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
