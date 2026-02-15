@@ -83,6 +83,47 @@ object CasRoundTripSpec extends ZIOSpecDefault:
             result2 <- ZStream.fromChunk(Chunk.fromArray("data-two".getBytes)).run(blobStore.put())
           yield assertTrue(result1.key != result2.key)
         },
+        test("ingest stats report correct byte count and block info") {
+          val data = Chunk.fromArray(Array.tabulate(3000)(i => (i % 200).toByte))
+
+          for
+            blockStore <- InMemoryBlockStore.make
+            repo       <- InMemoryBlobManifestRepo.make
+            blobStore   = new CasBlobStore(blockStore, repo)
+            chunker     = Chunker.fixed(UploadChunkSize(1024))
+
+            result <- Chunker.locally(chunker) {
+                        ZStream.fromChunk(data).run(blobStore.put())
+                      }
+
+            stats = result.stats
+          yield assertTrue(
+            stats.totalBytes == data.length.toLong,
+            stats.blockCount == 3, // 1024 + 1024 + 952
+            stats.freshBlocks == 3,
+            stats.duplicateBlocks == 0,
+            stats.durationSeconds >= 0.0,
+            stats.dedupRatio == 0.0,
+          )
+        },
+        test("ingest stats track dedup when same data ingested twice") {
+          val data = Chunk.fromArray("dedup-stats-test".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+
+          for
+            blockStore <- InMemoryBlockStore.make
+            repo       <- InMemoryBlobManifestRepo.make
+            blobStore   = new CasBlobStore(blockStore, repo)
+
+            result1 <- ZStream.fromChunk(data).run(blobStore.put())
+            result2 <- ZStream.fromChunk(data).run(blobStore.put())
+          yield assertTrue(
+            result1.stats.freshBlocks > 0,
+            result1.stats.duplicateBlocks == 0,
+            result2.stats.freshBlocks == 0,
+            result2.stats.duplicateBlocks > 0,
+            result2.stats.dedupRatio == 1.0,
+          )
+        },
         test("delete removes manifest so stat returns None") {
           val data = Chunk.fromArray("delete-me".getBytes(StandardCharsets.UTF_8))
 
