@@ -20,3 +20,7 @@ trait BlobManifestRepo:
 
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]
+
+  /** Remove the manifest entry for a blob. Returns true if it existed. */
+  def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
+    ZIO.fail(new UnsupportedOperationException("BlobManifestRepo.delete is not implemented by this backend"))
