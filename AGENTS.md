@@ -24,8 +24,8 @@
 
 **Core for v0.1.0**
 - [x] Finalize `BlockStore` and `BlobStore` APIs. (done 2026-02-13 — `BlobManifestRepo.get`, `CasBlobStore.stat`, blockKeyPipeline)
-- [ ] Stabilize filesystem and S3 implementations.
-- [ ] Ship a CLI with end-to-end ingest + retrieval tests.
+- [x] Stabilize filesystem and S3 implementations. (done 2026-02-15 — fixed shared-mutable-state bug in FsBlockStore.Acc/S3BlockStore.Acc, 7 FsBlockStore tests, CAS round-trip tests)
+- [x] Ship a CLI with end-to-end ingest + retrieval tests. (done 2026-02-15 — graviton-cli module: ingest/stat/get/verify, 11 CasRoundTripSpec tests)
 - [ ] Add configuration-driven integration tests (TestContainers for backends).
 - [x] Set up CI: run tests, publish docs, push to Maven Central. (done 2026-02-13 — fixed submodule checkout + zio-blocks publishLocal in ci.yml/docs.yaml)
 
