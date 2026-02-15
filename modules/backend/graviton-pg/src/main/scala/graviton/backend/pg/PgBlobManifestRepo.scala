@@ -20,6 +20,53 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         insertBlobBlocks(conn, blob, manifest)
     }
 
+  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]] =
+    ZIO
+      .attemptBlocking {
+        val conn = ds.getConnection()
+        try
+          val ps = conn.prepareStatement(
+            """SELECT block_count FROM graviton.blob
+              |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+          )
+          try
+            toDbAlg(blob.bits.algo) match
+              case Left(msg)  => None
+              case Right(alg) =>
+                ps.setString(1, alg)
+                ps.setBytes(2, blob.bits.digest.bytes)
+                ps.setLong(3, blob.bits.size)
+                val rs = ps.executeQuery()
+                if rs.next() then Some(()) else None
+          finally ps.close()
+        finally conn.close()
+      }
+      .flatMap {
+        case None    => ZIO.succeed(None)
+        case Some(_) =>
+          // Re-read the full manifest via block refs
+          streamBlockRefs(blob).runCollect.flatMap { refs =>
+            if refs.isEmpty then ZIO.succeed(None)
+            else
+              import graviton.core.manifest.ManifestEntry
+              import graviton.core.ranges.Span
+              import graviton.core.types.BlobOffset
+              val entries = refs.zipWithIndex.map { case (ref, _) =>
+                // For stat purposes, we only need the key; span is approximate from size
+                val start = BlobOffset.unsafe(0L)
+                val end   = BlobOffset.unsafe(math.max(0L, ref.key.bits.size - 1))
+                val span  = Span.make(start, end).getOrElse(Span.unsafe(start, end))
+                ManifestEntry(ref.key, span, Map.empty)
+              }
+              ZIO
+                .fromEither(Manifest.fromEntries(entries.toList))
+                .mapBoth(
+                  msg => new IllegalArgumentException(msg),
+                  m => Some(m),
+                )
+          }
+      }
+
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
     val sql =
       """

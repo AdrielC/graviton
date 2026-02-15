@@ -16,17 +16,17 @@ import zio.test.*
  */
 object RegisterVsTupleBenchSpec extends ZIOSpecDefault:
 
-  private val blockSize = 1024 * 1024 // 1 MiB blocks
+  private val blockSize  = 1024 * 1024 // 1 MiB blocks
   private val dataSizeMB = 128
-  private val chunkSize  = 64 * 1024  // 64 KiB input chunks
+  private val chunkSize  = 64 * 1024   // 64 KiB input chunks
   private val iterations = 5
 
   /** Generate test data: `dataSizeMB` MB of pseudo-random bytes in 64 KiB chunks. */
   private def generateData: Chunk[Chunk[Byte]] =
-    val rng        = new java.util.Random(42L) // deterministic seed
-    val numChunks  = (dataSizeMB * 1024 * 1024) / chunkSize
-    val builder    = ChunkBuilder.make[Chunk[Byte]]()
-    var i = 0
+    val rng       = new java.util.Random(42L) // deterministic seed
+    val numChunks = (dataSizeMB * 1024 * 1024) / chunkSize
+    val builder   = ChunkBuilder.make[Chunk[Byte]]()
+    var i         = 0
     while i < numChunks do
       val arr = Array.ofDim[Byte](chunkSize)
       rng.nextBytes(arr)
@@ -35,17 +35,17 @@ object RegisterVsTupleBenchSpec extends ZIOSpecDefault:
     builder.result()
 
   private def benchTuple(data: Chunk[Chunk[Byte]]): (Long, Long, String) =
-    val pipeline = IngestPipeline.countHashRechunk(blockSize)
-    val start    = java.lang.System.nanoTime()
+    val pipeline          = IngestPipeline.countHashRechunk(blockSize)
+    val start             = java.lang.System.nanoTime()
     val (summary, blocks) = pipeline.runChunk(data)
-    val elapsed  = java.lang.System.nanoTime() - start
+    val elapsed           = java.lang.System.nanoTime() - start
     (elapsed, blocks.length.toLong, s"tuple: ${elapsed / 1_000_000}ms, ${blocks.length} blocks")
 
   private def benchRegisters(data: Chunk[Chunk[Byte]]): (Long, Long, String) =
-    val pipeline = RegisterIngestPipeline.countHashRechunk(blockSize)
-    val start    = java.lang.System.nanoTime()
+    val pipeline          = RegisterIngestPipeline.countHashRechunk(blockSize)
+    val start             = java.lang.System.nanoTime()
     val (summary, blocks) = pipeline.runChunk(data)
-    val elapsed  = java.lang.System.nanoTime() - start
+    val elapsed           = java.lang.System.nanoTime() - start
     (elapsed, blocks.length.toLong, s"registers: ${elapsed / 1_000_000}ms, ${blocks.length} blocks")
 
   def spec = suite("RegisterVsTupleBench")(
@@ -75,9 +75,9 @@ object RegisterVsTupleBenchSpec extends ZIOSpecDefault:
       val tupleMB = dataSizeMB.toDouble / (tupleMedianNs.toDouble / 1e9)
       val regMB   = dataSizeMB.toDouble / (regMedianNs.toDouble / 1e9)
 
-      println(s"=== Pipeline Benchmark (${dataSizeMB} MB, ${blockSize / 1024} KiB blocks, $iterations iterations) ===")
-      println(s"  Tuple-based (median):    ${tupleMedianNs / 1_000_000}ms  (${f"$tupleMB%.1f"} MB/s)  blocks=${tupleBlocks}")
-      println(s"  Register-based (median): ${regMedianNs / 1_000_000}ms  (${f"$regMB%.1f"} MB/s)  blocks=${regBlocks}")
+      println(s"=== Pipeline Benchmark ($dataSizeMB MB, ${blockSize / 1024} KiB blocks, $iterations iterations) ===")
+      println(s"  Tuple-based (median):    ${tupleMedianNs / 1_000_000}ms  (${f"$tupleMB%.1f"} MB/s)  blocks=$tupleBlocks")
+      println(s"  Register-based (median): ${regMedianNs / 1_000_000}ms  (${f"$regMB%.1f"} MB/s)  blocks=$regBlocks")
       println(s"  Speedup:                 ${f"${tupleMedianNs.toDouble / regMedianNs.toDouble}%.3f"}x")
       println(s"  All tuple times:         ${tupleRuns.map(_._1 / 1_000_000).mkString(", ")} ms")
       println(s"  All register times:      ${regRuns.map(_._1 / 1_000_000).mkString(", ")} ms")

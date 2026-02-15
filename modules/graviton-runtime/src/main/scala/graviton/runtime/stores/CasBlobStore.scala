@@ -1,15 +1,13 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.Hasher
+import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.model.Block.*
-import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, ManifestAnnotationKey, ManifestAnnotationValue}
-import graviton.core.types.BlobOffset
-import graviton.core.types.Offset
-import graviton.core.scan.FS.*
+import graviton.core.scan.FS.toPipeline
+import graviton.core.types.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
 import graviton.runtime.streaming.BlobStreamer
@@ -22,6 +20,9 @@ import zio.stream.*
  * - store blocks by CAS key (via [[BlockStore]])
  * - build and persist manifest (via [[BlobManifestRepo]])
  * - serve reads by streaming refs from DB and bytes from the block store
+ *
+ * The per-block keying stage uses [[CasIngest.blockKeyDeriver]], a composable
+ * `Transducer` that derives content-addressed keys for each block.
  */
 final class CasBlobStore(
   blockStore: BlockStore,
@@ -29,6 +30,29 @@ final class CasBlobStore(
   streamerConfig: BlobStreamer.Config = BlobStreamer.Config(),
   metrics: MetricsRegistry = MetricsRegistry.noop,
 ) extends BlobStore:
+
+  /**
+   * Pipeline that converts post-chunker Blocks into CanonicalBlocks.
+   *
+   * Uses [[CasIngest.blockKeyDeriver]] under the hood: each block is hashed
+   * independently to derive its `BinaryKey.Block`, then wrapped as a
+   * `CanonicalBlock` for persistence.
+   */
+  private val blockKeyPipeline: ZPipeline[Any, Throwable, graviton.core.model.Block, CanonicalBlock] =
+    ZPipeline.mapZIO[Any, Throwable, graviton.core.model.Block, CanonicalBlock] { block =>
+      val payload = block.bytes
+      val result  = for
+        hasher <- ZIO.fromEither(Hasher.hasher(HashAlgo.runtimeDefault, None)).mapError(msg => new IllegalArgumentException(msg))
+        _       = hasher.update(payload.toArray)
+        digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+        bits   <-
+          ZIO.fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong)).mapError(msg => new IllegalArgumentException(msg))
+        key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+        canon  <-
+          ZIO.fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty)).mapError(msg => new IllegalArgumentException(msg))
+      yield canon
+      result
+    }
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
@@ -70,11 +94,11 @@ final class CasBlobStore(
           (ZStream
             .fromQueue(blocksQ)
             .flattenTake
-            .run(blockStore.putBlocks())
-            .intoPromise(batchDone))
+            .run(blockStore.putBlocks()))
+            .intoPromise(batchDone)
             .forkScoped
 
-        // Run ingest program + optional scan (best-effort) + chunker + block hashing.
+        // Run ingest program + optional scan + chunker + per-block keying.
         _ <-
           ZIO.scoped {
             val postProgramBytes =
@@ -92,21 +116,8 @@ final class CasBlobStore(
                 }
                 // BlobStore APIs are `Throwable`-typed, so bridge ChunkerCore.Err at the boundary.
                 .via(chunker.pipeline.mapError(graviton.streams.Chunker.toThrowable))
-                .mapZIO { block =>
-                  val payload = block.bytes
-                  for
-                    hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-                    _       = hasher.update(payload.toArray)
-                    digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-                    bits   <- ZIO
-                                .fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong))
-                                .mapError(msg => new IllegalArgumentException(msg))
-                    key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-                    canon  <- ZIO
-                                .fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty))
-                                .mapError(msg => new IllegalArgumentException(msg))
-                  yield canon
-                }
+                // Per-block keying: hash each block → derive BinaryKey.Block → CanonicalBlock.
+                .via(blockKeyPipeline)
                 .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
                 .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
                 .ensuring(blocksQ.offer(Take.end).ignore)
@@ -197,8 +208,15 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
 
-            attrs = plan.attributes
-          yield BlobWriteResult(blob, locator, attrs)
+            // Build confirmed attributes from the ingest summary (Phase B.3).
+            confirmedAttrs = {
+              val algoName  = Algo.applyUnsafe(blobHasher.algo.primaryName)
+              val hexDigest = HexLower.applyUnsafe(digest.hex.value)
+              plan.attributes
+                .confirmSize(FileSize.unsafe(size))
+                .confirmDigest(algoName, hexDigest)
+            }
+          yield BlobWriteResult(blob, locator, confirmedAttrs)
         }
     }
 
@@ -210,7 +228,17 @@ final class CasBlobStore(
         ZStream.fail(new UnsupportedOperationException(s"CasBlobStore.get only supports blob keys, got $other"))
 
   override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
-    ZIO.succeed(None)
+    key match
+      case blob: BinaryKey.Blob =>
+        manifests.get(blob).map {
+          case None           => None
+          case Some(manifest) =>
+            val totalSize = manifest.entries.foldLeft(0L) { (acc, e) =>
+              acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
+            }
+            Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, java.time.Instant.now()))
+        }
+      case _                    => ZIO.succeed(None)
 
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
     ZIO.fail(new UnsupportedOperationException("CasBlobStore.delete is not implemented yet"))

@@ -59,6 +59,10 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
           cache: 'sbt'
+
+      - name: Publish zio-blocks-schema locally
+        working-directory: modules/zio-blocks
+        run: ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
       
       - name: Build all docs assets (Scaladoc + Scala.js Frontend)
         run: |
