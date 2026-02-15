@@ -241,7 +241,11 @@ final class CasBlobStore(
       case _                    => ZIO.succeed(None)
 
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
-    ZIO.fail(new UnsupportedOperationException("CasBlobStore.delete is not implemented yet"))
+    key match
+      case blob: BinaryKey.Blob =>
+        manifests.delete(blob).unit
+      case other                =>
+        ZIO.fail(new UnsupportedOperationException(s"CasBlobStore.delete only supports blob keys, got $other"))
 
 object CasBlobStore:
   val layer: ZLayer[BlockStore & BlobManifestRepo, Nothing, BlobStore] =
