@@ -4374,3 +4374,341 @@ body.konami-mode .VPNavBarTitle .logo {
     transition: none;
   }
 }
+
+/* ============================================================
+   CAS Playground
+   ============================================================ */
+
+.cas-playground {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 0;
+}
+
+.cas-pg-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.cas-pg-header h2 {
+  background: linear-gradient(135deg, #00ff41, #00ccff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 2rem;
+  margin: 0;
+}
+
+.cas-pg-subtitle {
+  color: var(--vp-c-text-2, #999);
+  margin: 0.5rem 0 0;
+}
+
+.cas-pg-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1rem;
+  border: 1px solid rgba(0, 255, 65, 0.15);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  margin-bottom: 1rem;
+}
+
+.cas-pg-mode {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.cas-pg-mode label {
+  font-size: 0.85rem;
+  color: var(--vp-c-text-2, #999);
+}
+
+.cas-pg-btn {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid rgba(0, 255, 65, 0.3);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vp-c-text-1, #eee);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.cas-pg-btn:hover {
+  border-color: rgba(0, 255, 65, 0.6);
+  background: rgba(0, 255, 65, 0.08);
+}
+
+.cas-pg-btn.active {
+  border-color: #00ff41;
+  background: rgba(0, 255, 65, 0.15);
+  color: #00ff41;
+}
+
+.cas-pg-btn--ghost {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.cas-pg-chunk-size,
+.cas-pg-random-size {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cas-pg-chunk-size label,
+.cas-pg-random-size label {
+  font-size: 0.8rem;
+  color: var(--vp-c-text-2, #999);
+}
+
+.cas-pg-slider {
+  width: 160px;
+  accent-color: #00ff41;
+}
+
+.cas-pg-input {
+  margin-bottom: 1rem;
+}
+
+.cas-pg-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid rgba(0, 255, 65, 0.2);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--vp-c-text-1, #eee);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.cas-pg-textarea:focus {
+  outline: none;
+  border-color: #00ff41;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.15);
+}
+
+.cas-pg-random-label {
+  font-size: 0.85rem;
+  color: var(--vp-c-text-3, #777);
+  font-style: italic;
+}
+
+.cas-pg-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.cas-pg-run-btn {
+  padding: 0.5rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #00ff41, #00cc33);
+  color: #000;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cas-pg-run-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 255, 65, 0.3);
+}
+
+.cas-pg-run-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cas-pg-history-count {
+  font-size: 0.75rem;
+  color: var(--vp-c-text-3, #777);
+}
+
+/* Stats Grid */
+.cas-pg-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.cas-pg-stat {
+  padding: 0.75rem;
+  border: 1px solid rgba(0, 255, 65, 0.12);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  text-align: center;
+}
+
+.cas-pg-stat-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #00ff41;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.cas-pg-stat-label {
+  font-size: 0.75rem;
+  color: var(--vp-c-text-2, #999);
+  margin-top: 0.2rem;
+}
+
+.cas-pg-stat-unit {
+  font-size: 0.65rem;
+  color: var(--vp-c-text-3, #666);
+}
+
+/* Block Grid */
+.cas-pg-blocks {
+  margin-bottom: 1.5rem;
+}
+
+.cas-pg-blocks h4 {
+  color: var(--vp-c-brand-1, #00ff41);
+  margin: 0 0 0.3rem;
+}
+
+.cas-pg-blocks-hint {
+  font-size: 0.75rem;
+  color: var(--vp-c-text-3, #777);
+  margin: 0 0 0.75rem;
+}
+
+.cas-pg-block-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cas-pg-block {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  cursor: default;
+  transition: transform 0.15s;
+  position: relative;
+}
+
+.cas-pg-block:hover {
+  transform: scale(1.2);
+  z-index: 2;
+}
+
+.cas-pg-block.fresh {
+  background: rgba(0, 255, 65, 0.2);
+  border: 1px solid rgba(0, 255, 65, 0.5);
+  color: #00ff41;
+}
+
+.cas-pg-block.duplicate {
+  background: rgba(255, 180, 0, 0.15);
+  border: 1px solid rgba(255, 180, 0, 0.4);
+  color: #ffb400;
+}
+
+.cas-pg-block-idx {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Detail Table */
+.cas-pg-detail {
+  margin-bottom: 1.5rem;
+}
+
+.cas-pg-detail h4 {
+  color: var(--vp-c-brand-1, #00ff41);
+  margin: 0 0 0.75rem;
+}
+
+.cas-pg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.cas-pg-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid rgba(0, 255, 65, 0.2);
+  color: var(--vp-c-text-2, #999);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cas-pg-table td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cas-pg-table .fresh-row td {
+  color: var(--vp-c-text-1, #eee);
+}
+
+.cas-pg-table .dup-row td {
+  color: var(--vp-c-text-3, #777);
+}
+
+.cas-pg-digest {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  color: var(--vp-c-brand-1, #00ff41);
+}
+
+.cas-pg-preview {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: var(--vp-c-text-3, #777);
+}
+
+.cas-pg-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.cas-pg-badge.fresh {
+  background: rgba(0, 255, 65, 0.15);
+  color: #00ff41;
+}
+
+.cas-pg-badge.dup {
+  background: rgba(255, 180, 0, 0.15);
+  color: #ffb400;
+}
+
+@media (max-width: 768px) {
+  .cas-pg-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cas-pg-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .cas-pg-block {
+    width: 28px;
+    height: 28px;
+    font-size: 0.55rem;
+  }
+}
