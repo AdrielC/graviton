@@ -26,6 +26,10 @@ ThisBuild / PB.protocVersion := "3.21.12"
 
 // Semantic versioning
 ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / libraryDependencySchemes ++= Seq(
+  "dev.zio" %% "zio-json" % VersionScheme.Always,
+  "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
+)
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
 ThisBuild / licenses := List("MIT" -> url("https://github.com/AdrielC/graviton/blob/main/LICENSE"))
 ThisBuild / developers := List(
@@ -470,7 +474,9 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-schema"            % V.zioSchema,
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
-      "io.github.iltotore" %%% "iron"       % V.iron,
+      "io.github.iltotore" %%% "iron"           % V.iron,
+      "io.github.iltotore" %%% "iron-zio-json" % V.iron,
+      "pt.kcry"            %%% "sha"           % "2.0.2",
     )
   )
   .jsSettings(
