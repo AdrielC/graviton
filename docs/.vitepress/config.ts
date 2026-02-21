@@ -104,6 +104,7 @@ export default withMermaid(defineConfig({
       { text: 'Architecture', link: '/architecture' },
       { text: 'API', link: '/api' },
       { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
+      { text: 'CAS Playground', link: '/cas-playground' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'Demo', link: '/demo' },
       { text: 'Quasar Demo', link: '/quasar-demo' },
@@ -203,6 +204,7 @@ export default withMermaid(defineConfig({
         text: 'Interactive',
         items: [
           { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
+          { text: 'CAS Playground', link: '/cas-playground' },
           { text: 'Live Demo', link: '/demo' },
           { text: 'Quasar Demo', link: '/quasar-demo' }
         ]
