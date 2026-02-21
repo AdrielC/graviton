@@ -201,10 +201,12 @@ final class CasBlobStore(
             scanOutputs    <- scanDone.await
             finishedNanos  <- Clock.nanoTime
             durationSeconds = (finishedNanos - startedNanos).toDouble / 1e9
-            blockCount      = batch.manifest.entries.length.toDouble
+            blockCount      = batch.manifest.entries.length
+            freshBlocks     = batch.stored.count(_.status == graviton.runtime.model.BlockStoredStatus.Fresh)
+            dupBlocks       = batch.stored.count(_.status == graviton.runtime.model.BlockStoredStatus.Duplicate)
 
             _ <- metrics.gauge(MetricKeys.BytesIngested, size.toDouble, tags)
-            _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount, tags)
+            _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
 
@@ -216,7 +218,15 @@ final class CasBlobStore(
                 .confirmSize(FileSize.unsafe(size))
                 .confirmDigest(algoName, hexDigest)
             }
-          yield BlobWriteResult(blob, locator, confirmedAttrs)
+
+            ingestStats = graviton.core.attributes.IngestStats(
+                            totalBytes = size,
+                            blockCount = blockCount,
+                            freshBlocks = freshBlocks,
+                            duplicateBlocks = dupBlocks,
+                            durationSeconds = durationSeconds,
+                          )
+          yield BlobWriteResult(blob, locator, confirmedAttrs, ingestStats)
         }
     }
 
@@ -241,7 +251,11 @@ final class CasBlobStore(
       case _                    => ZIO.succeed(None)
 
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
-    ZIO.fail(new UnsupportedOperationException("CasBlobStore.delete is not implemented yet"))
+    key match
+      case blob: BinaryKey.Blob =>
+        manifests.delete(blob).unit
+      case other                =>
+        ZIO.fail(new UnsupportedOperationException(s"CasBlobStore.delete only supports blob keys, got $other"))
 
 object CasBlobStore:
   val layer: ZLayer[BlockStore & BlobManifestRepo, Nothing, BlobStore] =

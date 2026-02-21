@@ -2,7 +2,6 @@ package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
-import graviton.core.manifest.Manifest
 import graviton.core.types.UploadChunkSize
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, IngestProgram}
@@ -15,25 +14,6 @@ import java.nio.charset.StandardCharsets
 
 object CasBlobStoreSpec extends ZIOSpecDefault:
 
-  private final class InMemoryManifestRepo(ref: Ref[Map[BinaryKey.Blob, Manifest]]) extends BlobManifestRepo:
-    override def put(blob: BinaryKey.Blob, manifest: Manifest): ZIO[Any, Throwable, Unit] =
-      ref.update(_.updated(blob, manifest)).unit
-
-    override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]] =
-      ref.get.map(_.get(blob))
-
-    override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, graviton.runtime.streaming.BlobStreamer.BlockRef] =
-      ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-        case None    =>
-          ZStream.fail(new NoSuchElementException("Missing manifest"))
-        case Some(m) =>
-          ZStream.fromIterable(
-            m.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
-              graviton.runtime.streaming.BlobStreamer.BlockRef(idx.toLong, b)
-            }
-          )
-      }
-
   override def spec: Spec[TestEnvironment, Any] =
     suite("CasBlobStore")(
       test("uses Chunker boundaries for block spans") {
@@ -43,8 +23,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
 
         for
           blockStore <- InMemoryBlockStore.make
-          manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
-          repo        = InMemoryManifestRepo(manifestsR)
+          repo       <- InMemoryBlobManifestRepo.make
           blobStore   = new CasBlobStore(blockStore, repo)
 
           result <- Chunker.locally(chunker) {
@@ -58,9 +37,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                             case other             => Left(s"Expected blob key, got $other")
                         )
                         .mapError(msg => new IllegalStateException(msg))
-          manifest <- manifestsR.get
-                        .map(_.get(blobKey))
-                        .someOrFail(new NoSuchElementException("Manifest missing"))
+          manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           spans = manifest.entries.map(_.span)
         yield assertTrue(
@@ -85,8 +62,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
 
         for
           blockStore <- InMemoryBlockStore.make
-          manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
-          repo        = InMemoryManifestRepo(manifestsR)
+          repo       <- InMemoryBlobManifestRepo.make
           blobStore   = new CasBlobStore(blockStore, repo)
 
           result <- Chunker.locally(chunker) {
@@ -109,9 +85,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                             case other             => Left(s"Expected blob key, got $other")
                         )
                         .mapError(msg => new IllegalStateException(msg))
-          manifest <- manifestsR.get
-                        .map(_.get(blobKey))
-                        .someOrFail(new NoSuchElementException("Manifest missing"))
+          manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           bytes <- blobStore.get(blobKey).runCollect
         yield assertTrue(
@@ -137,8 +111,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           chunker = Chunker.fixed(UploadChunkSize(2))
 
           blockStore <- InMemoryBlockStore.make
-          manifestsR <- Ref.make(Map.empty[BinaryKey.Blob, Manifest])
-          repo        = InMemoryManifestRepo(manifestsR)
+          repo       <- InMemoryBlobManifestRepo.make
           blobStore   = new CasBlobStore(blockStore, repo, metrics = registry)
 
           result <- Chunker.locally(chunker) {

@@ -36,7 +36,7 @@ object BlobExplorer {
       manifestVar.set(None)
       showManifestVar.set(false)
 
-      val blobId = BlobId(blobIdStr)
+      val blobId = BlobId.applyUnsafe(blobIdStr)
 
       Unsafe.unsafe { implicit unsafe =>
         runtime.unsafe.runToFuture(api.getBlobMetadata(blobId)).onComplete {

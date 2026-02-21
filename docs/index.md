@@ -90,6 +90,11 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
 :::
 
 <div class="grid-container">
+  <a href="cas-playground" class="feature-card">
+    <h3>CAS Playground</h3>
+    <p>Type text and watch it get chunked, hashed, and deduplicated in real time</p>
+  </a>
+
   <a href="pipeline-explorer" class="feature-card">
     <h3>Pipeline Explorer</h3>
     <p>Compose transducer stages interactively and watch data flow in real time</p>
