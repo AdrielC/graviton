@@ -15,26 +15,14 @@ onMounted(() => {
     }
     const jsPath = `${normalizedBase}/js/main.js`
     import(jsPath).then(() => {
-      // Navigate to the playground page after mount
       setTimeout(() => {
         if (window.location.hash !== '#/playground') {
           window.location.hash = '#/playground'
         }
       }, 100)
     }).catch(err => {
-      console.warn('CAS Playground not loaded:', err.message);
-      const appDiv = document.getElementById('graviton-app');
-      if (appDiv) {
-        appDiv.innerHTML = `
-          <div style="padding: 2rem; text-align: center; background: rgba(0, 255, 65, 0.05); border: 1px solid rgba(0, 255, 65, 0.2); border-radius: 12px;">
-            <h3 style="color: #00ff41;">🧪 CAS Playground</h3>
-            <p>Build the Scala.js frontend to enable the interactive playground:</p>
-            <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 8px; display: inline-block; text-align: left;"><code>./sbt buildFrontend
-cd docs && npm run docs:dev</code></pre>
-          </div>
-        `;
-      }
-    });
+      console.warn('CAS Playground not loaded:', err.message)
+    })
   }
 })
 </script>
@@ -46,9 +34,15 @@ Experience content-addressed storage hands-on. Type text, paste content, or gene
 ::: tip How it works
 The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
 1. **Chunking** — splits input into fixed-size blocks (configurable 8–256 bytes for demo)
-2. **Hashing** — computes a content digest for each block
+2. **Hashing** — computes a real SHA-256 digest for each block via `pt.kcry:sha`
 3. **Deduplication** — tracks which block digests have been seen before
-4. **Manifest** — shows how the blob maps to its constituent blocks
+4. **Iron types** — `BlockSize`, `Sha256Hex`, `BlockIndex` enforce invariants at the type level
+:::
+
+::: info Build Checklist
+1. Run `./sbt buildFrontend` from the repo root.
+2. Run `cd docs && npm run docs:dev`.
+3. Navigate to this page.
 :::
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
@@ -82,10 +76,10 @@ The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
 The CAS Playground mirrors the production pipeline:
 
 ```
-Input Bytes → Fixed-Size Chunker → Per-Block Hash → Dedup Check → Block Map
+Input Bytes → Fixed-Size Chunker → Per-Block SHA-256 → Dedup Check → Block Map
                   │                      │                │
                   ▼                      ▼                ▼
-           Chunk[Byte]          BinaryKey.Block     Fresh | Duplicate
+           Chunk[Byte]            Sha256Hex           Fresh | Duplicate
 ```
 
 In the real Graviton runtime, this pipeline is composed using the Transducer algebra:
@@ -95,3 +89,16 @@ val ingest = BombGuard(maxBytes) >>> countBytes >>> hashBytes() >>> rechunk(bloc
 ```
 
 Each `>>>` composes two stages sequentially, merging their summary Records automatically. The playground visualizes what each stage produces.
+
+## Iron Types
+
+All types in the playground are cross-compiled Iron refined types from `graviton.shared.cas`:
+
+| Type | Constraint |
+|------|-----------|
+| `BlockSize` | `Int :| GreaterEqual[1] & LessEqual[16777216]` |
+| `BlockIndex` | `Int :| GreaterEqual[0]` |
+| `ByteCount` | `Long :| GreaterEqual[0L]` |
+| `Sha256Hex` | `String :| Match["[0-9a-f]{64}"]` |
+| `HexDigest` | `String :| Match["[0-9a-f]+"] & MinLength[1] & MaxLength[128]` |
+| `Algo` | `String :| Match["(sha-256\|sha-1\|blake3\|md5)"]` |
