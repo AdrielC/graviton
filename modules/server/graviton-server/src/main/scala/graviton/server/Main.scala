@@ -49,10 +49,10 @@ object Main extends ZIOAppDefault:
                               Method.GET / "api" / "stats"  -> Handler.succeed(
                                 Response.json(
                                   SystemStats(
-                                    totalBlobs = 0L,
-                                    totalBytes = 0L,
-                                    uniqueChunks = 0L,
-                                    deduplicationRatio = 1.0,
+                                    totalBlobs = Count.applyUnsafe(0L),
+                                    totalBytes = SizeBytes.applyUnsafe(0L),
+                                    uniqueChunks = Count.applyUnsafe(0L),
+                                    deduplicationRatio = Ratio.applyUnsafe(1.0),
                                   ).toJson
                                 )
                               ),
