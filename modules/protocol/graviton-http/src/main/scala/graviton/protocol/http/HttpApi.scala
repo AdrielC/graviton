@@ -32,7 +32,7 @@ final case class HttpApi(
       req.body.asStream
         .run(blobStore.put(BlobWritePlan()))
         .map { result =>
-          val id = BlobId(s"${result.key.bits.algo.primaryName}:${result.key.bits.digest.hex.value}:${result.key.bits.size}")
+          val id = BlobId.applyUnsafe(s"${result.key.bits.algo.primaryName}:${result.key.bits.digest.hex.value}:${result.key.bits.size}")
           Response.json(id.toJson)
         }
         .catchAll(err => ZIO.succeed(Response.text(err.getMessage).copy(status = Status.InternalServerError)))
@@ -40,7 +40,7 @@ final case class HttpApi(
 
   private val getBlobHandler: Handler[Any, Nothing, (String, Request), Response] =
     Handler.fromFunctionZIO[(String, Request)] { case (rawId, _) =>
-      blobKeyFromId(BlobId(rawId)) match
+      blobKeyFromId(BlobId.applyUnsafe(rawId)) match
         case Left(msg)  => ZIO.succeed(badRequest(msg))
         case Right(key) =>
           ZIO.succeed(
