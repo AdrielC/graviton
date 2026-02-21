@@ -1,19 +1,40 @@
 package graviton.shared
 
 import graviton.shared.schema.SchemaExplorer
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
+import io.github.iltotore.iron.zioJson.given
 import zio.json.*
 import zio.schema.{DeriveSchema, Schema}
 
 /** Shared API models for Graviton HTTP API */
 object ApiModels {
 
-  /** Binary blob identifier */
-  final case class BlobId(value: String) derives JsonCodec
+  /** Blob identifier: non-empty, max 256 chars. `BlobId <: String`. */
+  type BlobId = BlobId.T
+  object BlobId extends RefinedSubtype[String, MinLength[1] & MaxLength[256]]:
+    given Schema[BlobId] =
+      Schema[String].transformOrFail(
+        s => either(s),
+        id => Right(id.value),
+      )
+
+  /** Non-negative size in bytes. `SizeBytes <: Long`. */
+  type SizeBytes = SizeBytes.T
+  object SizeBytes extends RefinedSubtype[Long, GreaterEqual[0L]]
+
+  /** Non-negative count. `Count <: Long`. */
+  type Count = Count.T
+  object Count extends RefinedSubtype[Long, GreaterEqual[0L]]
+
+  /** Non-negative ratio ∈ [0.0, ∞). `Ratio <: Double`. */
+  type Ratio = Ratio.T
+  object Ratio extends RefinedSubtype[Double, GreaterEqual[0.0]]
 
   /** Blob metadata */
   final case class BlobMetadata(
     id: BlobId,
-    size: Long,
+    size: SizeBytes,
     contentType: Option[String],
     createdAt: Long,
     checksums: Map[String, String],
@@ -22,7 +43,7 @@ object ApiModels {
   /** Blob upload request */
   final case class UploadRequest(
     contentType: Option[String],
-    expectedSize: Option[Long],
+    expectedSize: Option[SizeBytes],
   ) derives JsonCodec
 
   /** Upload response with blob ID */
@@ -38,24 +59,24 @@ object ApiModels {
 
   /** Chunk information for streaming */
   final case class ChunkInfo(
-    offset: Long,
-    size: Long,
-    hash: String,
+    offset: SizeBytes,
+    size: SizeBytes,
+    hash: String :| MinLength[1],
   ) derives JsonCodec
 
   /** Manifest for a blob */
   final case class BlobManifest(
     blobId: BlobId,
-    totalSize: Long,
+    totalSize: SizeBytes,
     chunks: List[ChunkInfo],
   ) derives JsonCodec
 
   /** System stats */
   final case class SystemStats(
-    totalBlobs: Long,
-    totalBytes: Long,
-    uniqueChunks: Long,
-    deduplicationRatio: Double,
+    totalBlobs: Count,
+    totalBytes: SizeBytes,
+    uniqueChunks: Count,
+    deduplicationRatio: Ratio,
   ) derives JsonCodec
 
   /** Health check response */
