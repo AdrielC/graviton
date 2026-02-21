@@ -466,10 +466,11 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
     baseSettings,
     name := "graviton-shared",
     libraryDependencies ++= Seq(
-      "dev.zio" %%% "zio"                 % V.zio,
-      "dev.zio" %%% "zio-schema"          % V.zioSchema,
+      "dev.zio" %%% "zio"                   % V.zio,
+      "dev.zio" %%% "zio-schema"            % V.zioSchema,
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
-      "dev.zio" %%% "zio-schema-json"     % V.zioSchema
+      "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
+      "io.github.iltotore" %%% "iron"       % V.iron,
     )
   )
   .jsSettings(
