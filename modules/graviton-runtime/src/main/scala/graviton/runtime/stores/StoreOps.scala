@@ -36,6 +36,32 @@ object StoreOps:
         .run(store.put(plan))
 
     /**
+     * Ingest raw bytes from an in-memory chunk.
+     *
+     * Convenience for testing and CLI flows where the data is already in memory.
+     */
+    def insertBytes(
+      data: Chunk[Byte],
+      plan: BlobWritePlan = BlobWritePlan(),
+    ): ZIO[Any, Throwable, BlobWriteResult] =
+      ZStream.fromChunk(data).run(store.put(plan))
+
+    /**
+     * Write-then-read round-trip: ingest `data`, then read it back and return both
+     * the write result and the read-back bytes.
+     *
+     * Useful for integration tests and verification workflows.
+     */
+    def roundTrip(
+      data: Chunk[Byte],
+      plan: BlobWritePlan = BlobWritePlan(),
+    ): ZIO[Any, Throwable, (BlobWriteResult, Chunk[Byte])] =
+      for
+        result   <- insertBytes(data, plan)
+        readBack <- store.get(result.key).runCollect
+      yield (result, readBack)
+
+    /**
      * Ingest a file with errors mapped to `GravitonError`.
      */
     def insertFileTyped(

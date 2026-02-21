@@ -13,66 +13,73 @@ object GravitonApp {
 
   sealed trait Page
   object Page {
-    case object Dashboard extends Page
-    case object Explorer  extends Page
-    case object Upload    extends Page
-    case object Stats     extends Page
-    case object Schema    extends Page
-    case object Updates   extends Page
-    case object Mission   extends Page
-    case object Pipeline  extends Page
+    case object Dashboard  extends Page
+    case object Explorer   extends Page
+    case object Upload     extends Page
+    case object Stats      extends Page
+    case object Schema     extends Page
+    case object Updates    extends Page
+    case object Mission    extends Page
+    case object Pipeline   extends Page
+    case object Playground extends Page
   }
 
   private def pageHref(page: Page): String = page match
-    case Page.Dashboard => "#/"
-    case Page.Explorer  => "#/explorer"
-    case Page.Upload    => "#/upload"
-    case Page.Stats     => "#/stats"
-    case Page.Schema    => "#/schema"
-    case Page.Updates   => "#/updates"
-    case Page.Mission   => "#/mission"
-    case Page.Pipeline  => "#/pipeline"
+    case Page.Dashboard  => "#/"
+    case Page.Explorer   => "#/explorer"
+    case Page.Upload     => "#/upload"
+    case Page.Stats      => "#/stats"
+    case Page.Schema     => "#/schema"
+    case Page.Updates    => "#/updates"
+    case Page.Mission    => "#/mission"
+    case Page.Pipeline   => "#/pipeline"
+    case Page.Playground => "#/playground"
 
-  val dashboardRoute = Route.static(Page.Dashboard, root / endOfSegments)
-  val explorerRoute  = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
-  val uploadRoute    = Route.static(Page.Upload, root / "upload" / endOfSegments)
-  val statsRoute     = Route.static(Page.Stats, root / "stats" / endOfSegments)
-  val schemaRoute    = Route.static(Page.Schema, root / "schema" / endOfSegments)
-  val updatesRoute   = Route.static(Page.Updates, root / "updates" / endOfSegments)
-  val missionRoute   = Route.static(Page.Mission, root / "mission" / endOfSegments)
-  val pipelineRoute  = Route.static(Page.Pipeline, root / "pipeline" / endOfSegments)
+  val dashboardRoute  = Route.static(Page.Dashboard, root / endOfSegments)
+  val explorerRoute   = Route.static(Page.Explorer, root / "explorer" / endOfSegments)
+  val uploadRoute     = Route.static(Page.Upload, root / "upload" / endOfSegments)
+  val statsRoute      = Route.static(Page.Stats, root / "stats" / endOfSegments)
+  val schemaRoute     = Route.static(Page.Schema, root / "schema" / endOfSegments)
+  val updatesRoute    = Route.static(Page.Updates, root / "updates" / endOfSegments)
+  val missionRoute    = Route.static(Page.Mission, root / "mission" / endOfSegments)
+  val pipelineRoute   = Route.static(Page.Pipeline, root / "pipeline" / endOfSegments)
+  val playgroundRoute = Route.static(Page.Playground, root / "playground" / endOfSegments)
 
   val router = new Router[Page](
-    routes = List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute, updatesRoute, missionRoute, pipelineRoute),
+    routes =
+      List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute, updatesRoute, missionRoute, pipelineRoute, playgroundRoute),
     getPageTitle = {
-      case Page.Dashboard => "Graviton - Dashboard"
-      case Page.Explorer  => "Graviton - Blob Explorer"
-      case Page.Upload    => "Graviton - File Upload"
-      case Page.Stats     => "Graviton - Statistics"
-      case Page.Schema    => "Graviton - Schema Viewer"
-      case Page.Updates   => "Graviton - Datalake Updates"
-      case Page.Mission   => "Graviton - Mission Control"
-      case Page.Pipeline  => "Graviton - Pipeline Explorer"
+      case Page.Dashboard  => "Graviton - Dashboard"
+      case Page.Explorer   => "Graviton - Blob Explorer"
+      case Page.Upload     => "Graviton - File Upload"
+      case Page.Stats      => "Graviton - Statistics"
+      case Page.Schema     => "Graviton - Schema Viewer"
+      case Page.Updates    => "Graviton - Datalake Updates"
+      case Page.Mission    => "Graviton - Mission Control"
+      case Page.Pipeline   => "Graviton - Pipeline Explorer"
+      case Page.Playground => "Graviton - CAS Playground"
     },
     serializePage = {
-      case Page.Dashboard => "#/"
-      case Page.Explorer  => "#/explorer"
-      case Page.Upload    => "#/upload"
-      case Page.Stats     => "#/stats"
-      case Page.Schema    => "#/schema"
-      case Page.Updates   => "#/updates"
-      case Page.Mission   => "#/mission"
-      case Page.Pipeline  => "#/pipeline"
+      case Page.Dashboard  => "#/"
+      case Page.Explorer   => "#/explorer"
+      case Page.Upload     => "#/upload"
+      case Page.Stats      => "#/stats"
+      case Page.Schema     => "#/schema"
+      case Page.Updates    => "#/updates"
+      case Page.Mission    => "#/mission"
+      case Page.Pipeline   => "#/pipeline"
+      case Page.Playground => "#/playground"
     },
     deserializePage = {
-      case s if s.contains("pipeline") => Page.Pipeline
-      case s if s.contains("explorer") => Page.Explorer
-      case s if s.contains("upload")   => Page.Upload
-      case s if s.contains("stats")    => Page.Stats
-      case s if s.contains("schema")   => Page.Schema
-      case s if s.contains("updates")  => Page.Updates
-      case s if s.contains("mission")  => Page.Mission
-      case _                           => Page.Dashboard
+      case s if s.contains("playground") => Page.Playground
+      case s if s.contains("pipeline")   => Page.Pipeline
+      case s if s.contains("explorer")   => Page.Explorer
+      case s if s.contains("upload")     => Page.Upload
+      case s if s.contains("stats")      => Page.Stats
+      case s if s.contains("schema")     => Page.Schema
+      case s if s.contains("updates")    => Page.Updates
+      case s if s.contains("mission")    => Page.Mission
+      case _                             => Page.Dashboard
     },
   )(
     popStateEvents = windowEvents(_.onPopState),
@@ -106,6 +113,7 @@ object GravitonApp {
           navLink(Page.Stats, "📊 Stats"),
           navLink(Page.Schema, "🧬 Schema"),
           navLink(Page.Pipeline, "⚡ Pipeline"),
+          navLink(Page.Playground, "🧪 CAS Lab"),
           navLink(Page.Updates, "🛰️ Updates"),
           navLink(Page.Mission, "🛠️ Mission Control"),
         ),
@@ -300,6 +308,12 @@ object GravitonApp {
           "Compose transducer stages interactively. This component uses the shared PipelineCatalog — the same model the JVM runtime uses.",
         ),
         PipelineExplorer(),
+      )
+
+    case Page.Playground =>
+      div(
+        cls := "page-playground",
+        CasPlayground(),
       )
   }
 }

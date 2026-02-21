@@ -110,7 +110,7 @@ object FsBlockStore:
         }
 
   private[stores] object Acc:
-    val empty: Acc =
+    def empty: Acc =
       Acc(
         entries = ChunkBuilder.make[BlockManifestEntry](),
         stored = ChunkBuilder.make[StoredBlock](),
