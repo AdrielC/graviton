@@ -3,6 +3,7 @@ package graviton.frontend
 import graviton.shared.ApiModels.*
 import graviton.shared.dashboard.DashboardSamples
 import graviton.shared.schema.SchemaExplorer
+import io.github.iltotore.iron.*
 
 /**
  * Static dataset used when the interactive demo is opened without a live Graviton service.
@@ -30,7 +31,7 @@ final case class DemoDataset(
   def schemaCatalog: List[ObjectSchema] = schemas
 
   def simulateUpload(request: UploadRequest): UploadResponse = simulatedUpload.copy(
-    blobId = BlobId(s"sha256:demo-upload-${request.expectedSize.getOrElse(0L)}")
+    blobId = BlobId.applyUnsafe(s"sha256:demo-upload-${request.expectedSize.getOrElse(0L)}")
   )
 }
 
@@ -38,6 +39,12 @@ object DemoDataset {
 
   /** Simple pair holding metadata + manifest for a demo blob. */
   final case class DemoBlob(metadata: BlobMetadata, manifest: BlobManifest)
+
+  private def sz(v: Long): SizeBytes                                   = SizeBytes.applyUnsafe(v)
+  private def cnt(v: Long): Count                                      = Count.applyUnsafe(v)
+  private def ratio(v: Double): Ratio                                  = Ratio.applyUnsafe(v)
+  private def chunk(offset: Long, size: Long, hash: String): ChunkInfo =
+    ChunkInfo(offset = sz(offset), size = sz(size), hash = hash.refineUnsafe)
 
   /** Default dataset shipped with the documentation build. */
   val default: DemoDataset = {
@@ -48,26 +55,26 @@ object DemoDataset {
     val blobCId = BlobId("sha256:demo-shared")
 
     val blobABaseChunks = List(
-      ChunkInfo(offset = 0L, size = 512L, hash = "chunk:01:welcome"),
-      ChunkInfo(offset = 512L, size = 768L, hash = "chunk:02:intro"),
-      ChunkInfo(offset = 1_280L, size = 640L, hash = "chunk:03:overview"),
+      chunk(0L, 512L, "chunk:01:welcome"),
+      chunk(512L, 768L, "chunk:02:intro"),
+      chunk(1_280L, 640L, "chunk:03:overview"),
     )
 
     val blobBChunks = List(
-      ChunkInfo(offset = 0L, size = 512L, hash = "chunk:01:welcome"),
-      ChunkInfo(offset = 512L, size = 896L, hash = "chunk:04:pipeline"),
-      ChunkInfo(offset = 1_408L, size = 960L, hash = "chunk:05:storage"),
+      chunk(0L, 512L, "chunk:01:welcome"),
+      chunk(512L, 896L, "chunk:04:pipeline"),
+      chunk(1_408L, 960L, "chunk:05:storage"),
     )
 
     val blobCChunks = List(
-      ChunkInfo(offset = 0L, size = 256L, hash = "chunk:06:header"),
-      ChunkInfo(offset = 256L, size = 768L, hash = "chunk:02:intro"),
-      ChunkInfo(offset = 1_024L, size = 1_024L, hash = "chunk:07:appendix"),
+      chunk(0L, 256L, "chunk:06:header"),
+      chunk(256L, 768L, "chunk:02:intro"),
+      chunk(1_024L, 1_024L, "chunk:07:appendix"),
     )
 
     val blobAMetadata = BlobMetadata(
       id = blobAId,
-      size = blobABaseChunks.map(_.size).sum,
+      size = sz(blobABaseChunks.map(c => c.size: Long).sum),
       contentType = Some("application/graviton-demo"),
       createdAt = createdAt,
       checksums = Map(
@@ -78,7 +85,7 @@ object DemoDataset {
 
     val blobBMetadata = BlobMetadata(
       id = blobBId,
-      size = blobBChunks.map(_.size).sum,
+      size = sz(blobBChunks.map(c => c.size: Long).sum),
       contentType = Some("application/graviton-demo"),
       createdAt = createdAt + 86_400_000L,
       checksums = Map(
@@ -89,7 +96,7 @@ object DemoDataset {
 
     val blobCMetadata = BlobMetadata(
       id = blobCId,
-      size = blobCChunks.map(_.size).sum,
+      size = sz(blobCChunks.map(c => c.size: Long).sum),
       contentType = Some("application/graviton-demo"),
       createdAt = createdAt + 2L * 86_400_000L,
       checksums = Map(
@@ -120,10 +127,10 @@ object DemoDataset {
         uptime = 42L * 60L * 60L * 1000L,
       ),
       stats = SystemStats(
-        totalBlobs = blobs.size,
-        totalBytes = blobs.values.map(_.metadata.size).sum,
-        uniqueChunks = (blobABaseChunks ++ blobBChunks ++ blobCChunks).map(_.hash).distinct.size,
-        deduplicationRatio = 1.0 / 0.72, // illustrative value ~1.39:1
+        totalBlobs = cnt(blobs.size.toLong),
+        totalBytes = sz(blobs.values.map(m => m.metadata.size: Long).sum),
+        uniqueChunks = cnt((blobABaseChunks ++ blobBChunks ++ blobCChunks).map(c => c.hash: String).distinct.size.toLong),
+        deduplicationRatio = ratio(1.0 / 0.72),
       ),
       blobs = blobs,
       schemas = List(

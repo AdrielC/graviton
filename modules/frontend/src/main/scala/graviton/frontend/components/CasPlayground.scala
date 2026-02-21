@@ -10,10 +10,9 @@ import graviton.shared.cas.*
  * Imports the cross-compiled `graviton.shared.cas` model:
  *   - `CasSimulator.ingest` — pure simulation using real SHA-256 (`pt.kcry:sha`)
  *   - `CasBlock`, `IngestSummary` — domain types with Iron refined fields
- *   - `BlockSizeR`, `BlockIndexR`, `ByteCountR` — Iron `RefinedTypeOps` newtypes
- *   - `HexDigest` — validated hex string wrapper
- *
- * The same SHA-256 runs on JVM and Scala.js — no shims, no fakes.
+ *   - `BlockSize`, `BlockIndex`, `ByteCount` — Iron opaque types
+ *   - `Sha256Hex` — exactly 64 lowercase hex chars, validated by Iron
+ *   - `Sha256Cross` — cross-platform SHA-256 (JVM + JS + Native)
  */
 object CasPlayground:
 
@@ -24,7 +23,7 @@ object CasPlayground:
     val processingVar = Var(false)
     val modeVar       = Var("text")
     val randomSizeVar = Var(256)
-    val historyVar    = Var(Set.empty[HexDigest])
+    val historyVar    = Var(Set.empty[Sha256Hex])
 
     def processInput(): Unit =
       val bytes = modeVar.now() match
@@ -45,9 +44,9 @@ object CasPlayground:
 
       processingVar.set(true)
 
-      val bs = BlockSizeR.either(math.max(8, blockSizeVar.now())) match
+      val bs = BlockSize.either(math.max(8, blockSizeVar.now())) match
         case Right(v) => v
-        case Left(_)  => BlockSizeR.applyUnsafe(32)
+        case Left(_)  => BlockSize.applyUnsafe(32)
 
       val (summary, blocks, updatedHistory) =
         CasSimulator.ingest(bytes, bs, historyVar.now())
@@ -80,7 +79,7 @@ object CasPlayground:
         ),
         div(
           cls := "cas-pg-chunk-size",
-          label(child.text <-- blockSizeVar.signal.map(s => s"Block size: $s bytes — BlockSizeR = Int :| GreaterEqual[1]")),
+          label(child.text <-- blockSizeVar.signal.map(s => s"Block size: $s bytes — BlockSize = Int :| [1, 16 MiB]")),
           input(
             typ      := "range",
             minAttr  := "8",
@@ -142,7 +141,7 @@ object CasPlayground:
           cls := "cas-pg-btn cas-pg-btn--ghost",
           "Clear History",
           onClick --> { _ =>
-            historyVar.set(Set.empty)
+            historyVar.set(Set.empty[Sha256Hex])
             resultVar.set(None)
           },
         ),
@@ -158,22 +157,22 @@ object CasPlayground:
       div(
         cls       := "cas-pg-types",
         styleAttr := "margin-top: 2rem; padding: 1rem; border: 1px solid rgba(0,255,65,0.12); border-radius: 10px; background: rgba(0,0,0,0.15);",
-        h4(styleAttr := "color: var(--vp-c-brand-1, #00ff41); margin: 0 0 0.5rem;", "Iron Refined Types (from graviton.shared.cas)"),
+        h4(styleAttr := "color: var(--vp-c-brand-1, #00ff41); margin: 0 0 0.5rem;", "Iron Types (from graviton.shared.cas)"),
         HtmlTag("table")(
           cls        := "cas-pg-table",
           HtmlTag("thead")(
             HtmlTag("tr")(
               HtmlTag("th")("Type"),
-              HtmlTag("th")("Definition"),
-              HtmlTag("th")("Companion"),
+              HtmlTag("th")("Constraint"),
             )
           ),
           HtmlTag("tbody")(
-            typeRow("BlockSizeR", "Int :| GreaterEqual[1]", "extends RefinedTypeOps[...]"),
-            typeRow("BlockIndexR", "Int :| GreaterEqual[0]", "extends RefinedTypeOps[...]"),
-            typeRow("ByteCountR", "Long :| GreaterEqual[0L]", "extends RefinedTypeOps[...]"),
-            typeRow("HexDigest", "case class(String :| MinLength[1])", "fromHex: Either[String, HexDigest]"),
-            typeRow("Sha256Cross", "pt.kcry.sha.Sha256", "cross-platform (JVM + JS + Native)"),
+            typeRow("BlockSize", "Int :| GreaterEqual[1] & LessEqual[16777216]"),
+            typeRow("BlockIndex", "Int :| GreaterEqual[0]"),
+            typeRow("ByteCount", "Long :| GreaterEqual[0L]"),
+            typeRow("Sha256Hex", """String :| Match["[0-9a-f]{64}"]"""),
+            typeRow("HexDigest", """String :| Match["[0-9a-f]+"] & MinLength[1] & MaxLength[128]"""),
+            typeRow("Algo", """String :| Match["(sha-256|sha-1|blake3|md5)"]"""),
           ),
         ),
       ),
@@ -191,12 +190,12 @@ object CasPlayground:
       cls := "cas-pg-result",
       div(
         cls := "cas-pg-stats",
-        statCard("Total Bytes", summary.totalBytes.value.toString, "ByteCountR"),
-        statCard("Blocks", summary.blockCount.value.toString, "BlockIndexR"),
-        statCard("Unique", summary.uniqueBlocks.value.toString, "fresh"),
-        statCard("Duplicates", summary.duplicateBlocks.value.toString, "deduped"),
+        statCard("Total Bytes", summary.totalBytes.toString, "ByteCount"),
+        statCard("Blocks", summary.blockCount.toString, "BlockIndex"),
+        statCard("Unique", summary.uniqueBlocks.toString, "fresh"),
+        statCard("Duplicates", summary.duplicateBlocks.toString, "deduped"),
         statCard("Dedup Ratio", f"${summary.dedupRatio * 100}%.1f%%", "saved"),
-        statCard("Blob Digest", summary.blobDigest.truncated, summary.algo.label),
+        statCard("Blob Digest", summary.blobDigest.take(16) + "...", summary.algo.label),
       ),
       div(
         cls := "cas-pg-blocks",
@@ -207,8 +206,8 @@ object CasPlayground:
           blocks.map { block =>
             div(
               cls   := (if block.isDuplicate then "cas-pg-block duplicate" else "cas-pg-block fresh"),
-              title := s"CasBlock(index=${block.index.value}, size=${block.size.value}, digest=${block.digest.value: String}, isDuplicate=${block.isDuplicate})",
-              span(cls := "cas-pg-block-idx", block.index.value.toString),
+              title := s"CasBlock(index=${block.index}, size=${block.size}, digest=${block.digest}, isDuplicate=${block.isDuplicate})",
+              span(cls := "cas-pg-block-idx", block.index.toString),
             )
           },
         ),
@@ -222,7 +221,7 @@ object CasPlayground:
             HtmlTag("tr")(
               HtmlTag("th")("index"),
               HtmlTag("th")("size"),
-              HtmlTag("th")("digest: HexDigest"),
+              HtmlTag("th")("digest: Sha256Hex"),
               HtmlTag("th")("Status"),
             )
           ),
@@ -230,8 +229,8 @@ object CasPlayground:
             blocks.take(50).map { block =>
               HtmlTag("tr")(
                 cls := (if block.isDuplicate then "dup-row" else "fresh-row"),
-                HtmlTag("td")(block.index.value.toString),
-                HtmlTag("td")(s"${block.size.value} B"),
+                HtmlTag("td")(block.index.toString),
+                HtmlTag("td")(s"${block.size} B"),
                 HtmlTag("td")(code(cls := "cas-pg-digest", block.shortDigest)),
                 HtmlTag("td")(
                   span(
@@ -256,11 +255,10 @@ object CasPlayground:
       div(cls := "cas-pg-stat-unit", unit),
     )
 
-  private def typeRow(name: String, definition: String, companion: String): HtmlElement =
+  private def typeRow(name: String, constraint: String): HtmlElement =
     HtmlTag("tr")(
       HtmlTag("td")(code(name)),
-      HtmlTag("td")(code(definition)),
-      HtmlTag("td")(code(companion)),
+      HtmlTag("td")(code(constraint)),
     )
 
 end CasPlayground
