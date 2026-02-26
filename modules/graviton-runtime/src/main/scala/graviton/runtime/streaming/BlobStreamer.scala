@@ -36,10 +36,9 @@ object BlobStreamer:
     val window = math.max(1, config.windowRefs)
     val par    = math.max(1, config.maxInFlight)
 
-    // For bounded-size blocks, we can keep the implementation simple and robust:
     // - `buffer(window)` bounds how far ahead we read refs (DB cursor pressure)
-    // - `mapZIOPar(par)` bounds block fetch concurrency
-    // - output remains in manifest order (mapZIOPar preserves input order)
+    // - `mapZIOPar(par)` prefetches blocks concurrently while preserving manifest order
+    // - worst-case memory: par * MaxBlockBytes (default: 8 * 16 MiB = 128 MiB)
     refs
       .buffer(window)
       .mapZIOPar(par)(ref => blockStore.get(ref.key).runCollect)

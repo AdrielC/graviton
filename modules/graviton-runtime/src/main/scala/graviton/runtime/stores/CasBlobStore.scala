@@ -1,11 +1,11 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.{HashAlgo, Hasher}
+import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
-import graviton.core.model.Block.*
+import graviton.core.model.Block
 import graviton.core.scan.FS.toPipeline
 import graviton.core.types.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
@@ -34,25 +34,23 @@ final class CasBlobStore(
   /**
    * Pipeline that converts post-chunker Blocks into CanonicalBlocks.
    *
-   * Uses [[CasIngest.blockKeyDeriver]] under the hood: each block is hashed
-   * independently to derive its `BinaryKey.Block`, then wrapped as a
+   * Delegates to [[graviton.core.scan.CasIngest.blockKeyDeriver]] for per-block
+   * hashing and `BinaryKey.Block` derivation, then wraps each `KeyedBlock` as a
    * `CanonicalBlock` for persistence.
    */
   private val blockKeyPipeline: ZPipeline[Any, Throwable, graviton.core.model.Block, CanonicalBlock] =
-    ZPipeline.mapZIO[Any, Throwable, graviton.core.model.Block, CanonicalBlock] { block =>
-      val payload = block.bytes
-      val result  = for
-        hasher <- ZIO.fromEither(Hasher.hasher(HashAlgo.runtimeDefault, None)).mapError(msg => new IllegalArgumentException(msg))
-        _       = hasher.update(payload.toArray)
-        digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-        bits   <-
-          ZIO.fromEither(KeyBits.create(hasher.algo, digest, payload.length.toLong)).mapError(msg => new IllegalArgumentException(msg))
-        key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
-        canon  <-
-          ZIO.fromEither(CanonicalBlock.make(key, payload, BinaryAttributes.empty)).mapError(msg => new IllegalArgumentException(msg))
-      yield canon
-      result
-    }
+    import graviton.core.scan.CasIngest
+    val toBytes: ZPipeline[Any, Nothing, graviton.core.model.Block, Chunk[Byte]]     =
+      ZPipeline.map(block => block: Chunk[Byte])
+    val keyDeriver: ZPipeline[Any, Nothing, Chunk[Byte], CasIngest.KeyedBlock]       =
+      CasIngest.blockKeyDeriver().toPipeline
+    val toCanonical: ZPipeline[Any, Throwable, CasIngest.KeyedBlock, CanonicalBlock] =
+      ZPipeline.mapZIO { kb =>
+        ZIO
+          .fromEither(CanonicalBlock.make(kb.key, kb.payload, BinaryAttributes.empty))
+          .mapError(msg => new IllegalArgumentException(msg))
+      }
+    toBytes >>> keyDeriver >>> toCanonical
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
@@ -119,6 +117,7 @@ final class CasBlobStore(
                 // Per-block keying: hash each block → derive BinaryKey.Block → CanonicalBlock.
                 .via(blockKeyPipeline)
                 .runForeach(canon => blocksQ.offer(Take.single(canon)).unit)
+                .tapError(err => ZIO.logWarning(s"Ingest stream failed: ${err.getMessage}"))
                 .catchAll(err => blocksQ.offer(Take.fail(err)).unit)
                 .ensuring(blocksQ.offer(Take.end).ignore)
 
@@ -135,6 +134,7 @@ final class CasBlobStore(
                       scanStream
                         .via(scan.toPipeline)
                         .runFold(0L)((n, _) => n + 1L)
+                        .tapError(err => ZIO.logWarning(s"Scan pipeline failed: ${err.getMessage}"))
                         .catchAll(_ => ZIO.succeed(0L))
                         .flatMap(n => scanDone.succeed(n).ignore)
                         .ensuring(scanDone.succeed(0L).ignore)
@@ -240,13 +240,13 @@ final class CasBlobStore(
   override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
     key match
       case blob: BinaryKey.Blob =>
-        manifests.get(blob).map {
-          case None           => None
+        manifests.get(blob).flatMap {
+          case None           => ZIO.succeed(None)
           case Some(manifest) =>
             val totalSize = manifest.entries.foldLeft(0L) { (acc, e) =>
               acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
             }
-            Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, java.time.Instant.now()))
+            Clock.instant.map(now => Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, now)))
         }
       case _                    => ZIO.succeed(None)
 

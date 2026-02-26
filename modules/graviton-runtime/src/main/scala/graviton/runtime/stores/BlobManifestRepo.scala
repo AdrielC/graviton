@@ -24,3 +24,6 @@ trait BlobManifestRepo:
   /** Remove the manifest entry for a blob. Returns true if it existed. */
   def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
     ZIO.fail(new UnsupportedOperationException("BlobManifestRepo.delete is not implemented by this backend"))
+
+object BlobManifestRepo:
+  val service: ZIO[BlobManifestRepo, Nothing, BlobManifestRepo] = ZIO.service[BlobManifestRepo]
