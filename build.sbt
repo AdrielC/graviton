@@ -313,6 +313,8 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
       "dev.zio" %% "zio-nio"     % V.zioNio,
+      "dev.zio" %% "zio-config"          % V.zioConfig,
+      "dev.zio" %% "zio-config-typesafe" % V.zioConfig,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
