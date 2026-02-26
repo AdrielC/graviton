@@ -23,45 +23,100 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
 
   override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ZIO
-      .attemptBlocking {
-        val conn = ds.getConnection()
-        try
-          val ps = conn.prepareStatement(
-            """SELECT block_count, created_at FROM graviton.blob
-              |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
-          )
-          try
-            toDbAlg(blob.bits.algo) match
-              case Left(msg)  => None
-              case Right(alg) =>
-                ps.setString(1, alg)
-                ps.setBytes(2, blob.bits.digest.bytes)
-                ps.setLong(3, blob.bits.size)
-                val rs = ps.executeQuery()
-                if rs.next() then
-                  val ts = Option(rs.getTimestamp(2)).map(_.toInstant).getOrElse(Instant.EPOCH)
-                  Some(ts)
-                else None
-          finally ps.close()
-        finally conn.close()
-      }
-      .flatMap {
-        case None             => ZIO.succeed(None)
-        case Some(ingestedAt) =>
-          streamBlockRefs(blob).runCollect.flatMap { refs =>
-            if refs.isEmpty then ZIO.succeed(None)
-            else
-              import graviton.core.manifest.ManifestEntry
-              import graviton.core.ranges.Span
-              import graviton.core.types.BlobOffset
-              val entries = refs.zipWithIndex.map { case (ref, _) =>
-                val start = BlobOffset.unsafe(0L)
-                val end   = BlobOffset.unsafe(math.max(0L, ref.key.bits.size - 1))
-                val span  = Span.make(start, end).getOrElse(Span.unsafe(start, end))
-                ManifestEntry(ref.key, span, Map.empty)
-              }
+      .fromEither(toDbAlg(blob.bits.algo))
+      .mapError(msg => new IllegalArgumentException(msg))
+      .flatMap { blobAlg =>
+        ZIO
+          .attemptBlocking {
+            val conn = ds.getConnection()
+            try
+              // Check blob exists and get ingestedAt
+              val blobPs        = conn.prepareStatement(
+                """SELECT created_at FROM graviton.blob
+                  |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+              )
+              val ingestedAtOpt =
+                try
+                  blobPs.setString(1, blobAlg)
+                  blobPs.setBytes(2, blob.bits.digest.bytes)
+                  blobPs.setLong(3, blob.bits.size)
+                  val blobRs = blobPs.executeQuery()
+                  if blobRs.next() then Some(Option(blobRs.getTimestamp(1)).map(_.toInstant).getOrElse(Instant.EPOCH))
+                  else None
+                finally blobPs.close()
+
+              ingestedAtOpt match
+                case None             => None
+                case Some(ingestedAt) =>
+                  // Read real spans from blob_block (block_offset + block_length)
+                  val blockPs = conn.prepareStatement(
+                    """SELECT
+                      |  block_alg,
+                      |  block_hash_bytes,
+                      |  block_byte_length,
+                      |  block_offset,
+                      |  block_length
+                      |FROM graviton.blob_block
+                      |WHERE alg = ?::core.hash_alg
+                      |  AND hash_bytes = ?
+                      |  AND byte_length = ?
+                      |ORDER BY ordinal ASC""".stripMargin
+                  )
+                  try
+                    blockPs.setString(1, blobAlg)
+                    blockPs.setBytes(2, blob.bits.digest.bytes)
+                    blockPs.setLong(3, blob.bits.size)
+                    val blockRs = blockPs.executeQuery()
+
+                    import graviton.core.manifest.ManifestEntry
+                    import graviton.core.ranges.Span
+                    import graviton.core.types.BlobOffset
+
+                    val entries = scala.collection.mutable.ListBuffer.empty[ManifestEntry]
+                    while blockRs.next() do
+                      val blockAlgStr = blockRs.getString(1)
+                      val blockHash   = blockRs.getBytes(2)
+                      val blockLen    = blockRs.getLong(3)
+                      val offset      = blockRs.getLong(4)
+                      val length      = blockRs.getLong(5)
+
+                      val blockAlg = parseDbAlg(blockAlgStr).getOrElse(
+                        throw new IllegalArgumentException(s"Unsupported hash algorithm '$blockAlgStr'")
+                      )
+                      val digest   = Digest
+                        .fromBytes(blockHash)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+                      val bits     = KeyBits
+                        .create(blockAlg, digest, blockLen)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+                      val key      = BinaryKey
+                        .block(bits)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+
+                      val start = BlobOffset.unsafe(offset)
+                      val end   = BlobOffset.unsafe(offset + length - 1L)
+                      val span  = Span.unsafe(start, end)
+                      entries += ManifestEntry(key, span, Map.empty)
+
+                    Some((ingestedAt, entries.toList))
+                  finally blockPs.close()
+            finally conn.close()
+          }
+          .flatMap {
+            case None                                  => ZIO.succeed(None)
+            case Some((_, entries)) if entries.isEmpty => ZIO.succeed(None)
+            case Some((ingestedAt, entries))           =>
               ZIO
-                .fromEither(Manifest.fromEntries(entries.toList))
+                .fromEither(Manifest.fromEntries(entries))
                 .mapBoth(
                   msg => new IllegalArgumentException(msg),
                   m => Some(StoredManifest(m, ingestedAt)),
