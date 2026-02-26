@@ -61,7 +61,7 @@ final class FsBlockStore(
               BlockStoredStatus.Duplicate
         finally
           try { val _ = Files.deleteIfExists(tmp); () }
-          catch case _: Throwable => ()
+          catch case _: java.io.IOException => ()
     }
 
   private def pathFor(key: BinaryKey.Block): Path =

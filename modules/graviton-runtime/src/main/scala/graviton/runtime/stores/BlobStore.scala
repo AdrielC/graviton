@@ -22,3 +22,6 @@ trait BlobStore:
 
   /** Remove the blob and any associated manifest/attribute entries. */
   def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]
+
+object BlobStore:
+  val service: ZIO[BlobStore, Nothing, BlobStore] = ZIO.service[BlobStore]
