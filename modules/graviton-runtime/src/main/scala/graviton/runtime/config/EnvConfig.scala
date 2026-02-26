@@ -1,53 +1,86 @@
 package graviton.runtime.config
 
 import zio.*
+import zio.Config
 
 /**
- * Lightweight typed configuration from environment variables.
+ * Typed Graviton configuration via ZIO Config.
  *
- * Centralizes env var access so config reads are testable (via ZLayer)
- * and discoverable (all known env var names in one place).
+ * Reads from environment variables with `GRAVITON_` prefix.
+ * All fields have sensible defaults so the app runs without any config.
  */
-object EnvConfig:
+final case class GravitonConfig(
+  httpPort: Int = 8081,
+  blobBackend: String = "s3",
+  dataDir: String = ".graviton",
+  chunkSize: Int = 1048576,
+  fs: GravitonConfig.FsConfig = GravitonConfig.FsConfig(),
+  s3: GravitonConfig.S3EnvConfig = GravitonConfig.S3EnvConfig(),
+  pg: GravitonConfig.PgConfig = GravitonConfig.PgConfig(),
+)
 
-  def string(name: String): ZIO[Any, IllegalArgumentException, String] =
-    ZIO
-      .attempt(sys.env.get(name).map(_.trim).filter(_.nonEmpty))
-      .mapError(err => new IllegalArgumentException(s"Error reading env var '$name': ${err.getMessage}"))
-      .flatMap {
-        case Some(value) => ZIO.succeed(value)
-        case None        => ZIO.fail(new IllegalArgumentException(s"Missing required env var '$name'"))
+object GravitonConfig:
+
+  final case class FsConfig(
+    root: String = ".graviton",
+    blockPrefix: String = "cas/blocks",
+  )
+
+  final case class S3EnvConfig(
+    blockBucket: String = "graviton-blocks",
+    blockPrefix: String = "cas/blocks",
+    bucket: String = "graviton-blobs",
+    tmpBucket: String = "graviton-tmp",
+    region: String = "us-east-1",
+  )
+
+  final case class PgConfig(
+    jdbcUrl: Option[String] = None,
+    username: Option[String] = None,
+    password: Option[String] = None,
+  )
+
+  private val fsConfig: Config[FsConfig] =
+    (Config.string("root").withDefault("graviton") ++
+      Config.string("block-prefix").withDefault("cas/blocks"))
+      .map { case (root, prefix) =>
+        FsConfig(root, prefix)
       }
+      .nested("fs")
 
-  def stringOr(name: String, default: String): UIO[String] =
-    ZIO.succeed(sys.env.get(name).map(_.trim).filter(_.nonEmpty).getOrElse(default))
+  private val s3Config: Config[S3EnvConfig] =
+    (Config.string("block-bucket").withDefault("graviton-blocks") ++
+      Config.string("block-prefix").withDefault("cas/blocks") ++
+      Config.string("bucket").withDefault("graviton-blobs") ++
+      Config.string("tmp-bucket").withDefault("graviton-tmp") ++
+      Config.string("region").withDefault("us-east-1"))
+      .map { case (bb, bp, b, tb, r) =>
+        S3EnvConfig(bb, bp, b, tb, r)
+      }
+      .nested("s3")
 
-  def intOr(name: String, default: Int): UIO[Int] =
-    ZIO.succeed(sys.env.get(name).flatMap(_.trim.toIntOption).getOrElse(default))
+  private val pgConfig: Config[PgConfig] =
+    (Config.string("jdbc-url").optional ++
+      Config.string("username").optional ++
+      Config.string("password").optional)
+      .map { case (url, user, pass) =>
+        PgConfig(url, user, pass)
+      }
+      .nested("pg")
 
-  def boolean(name: String, default: Boolean = false): UIO[Boolean] =
-    ZIO.succeed(sys.env.get(name).exists(v => v == "1" || v.equalsIgnoreCase("true")))
+  val config: Config[GravitonConfig] =
+    (Config.int("http-port").withDefault(8081) ++
+      Config.string("blob-backend").withDefault("s3") ++
+      Config.string("data-dir").withDefault(".graviton") ++
+      Config.int("chunk-size").withDefault(1048576) ++
+      fsConfig ++ s3Config ++ pgConfig)
+      .map { case (port, backend, dataDir, chunk, fs, s3, pg) =>
+        GravitonConfig(port, backend, dataDir, chunk, fs, s3, pg)
+      }
+      .nested("graviton")
 
-  /**
-   * Known environment variable names used across Graviton modules.
-   * Serves as documentation and a single source of truth.
-   */
-  object Keys:
-    val HttpPort          = "GRAVITON_HTTP_PORT"
-    val BlobBackend       = "GRAVITON_BLOB_BACKEND"
-    val FsRoot            = "GRAVITON_FS_ROOT"
-    val FsBlockPrefix     = "GRAVITON_FS_BLOCK_PREFIX"
-    val DataDir           = "GRAVITON_DATA_DIR"
-    val ChunkSize         = "GRAVITON_CHUNK_SIZE"
-    val S3BlockBucket     = "GRAVITON_S3_BLOCK_BUCKET"
-    val S3BlockPrefix     = "GRAVITON_S3_BLOCK_PREFIX"
-    val S3Region          = "GRAVITON_S3_REGION"
-    val PgJdbcUrl         = "PG_JDBC_URL"
-    val PgUsername        = "PG_USERNAME"
-    val PgPassword        = "PG_PASSWORD"
-    val MinioUrl          = "QUASAR_MINIO_URL"
-    val MinioRootUser     = "MINIO_ROOT_USER"
-    val MinioRootPassword = "MINIO_ROOT_PASSWORD"
-    val TestContainers    = "TESTCONTAINERS"
-    val IntegrationTest   = "GRAVITON_IT"
-    val MinioIT           = "GRAVITON_MINIO_IT"
+  val layer: ZLayer[Any, Config.Error, GravitonConfig] =
+    ZLayer.fromZIO(ZIO.config(config))
+
+  val default: ULayer[GravitonConfig] =
+    ZLayer.succeed(GravitonConfig())

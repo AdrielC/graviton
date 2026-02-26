@@ -114,10 +114,9 @@ object S3BlockStore:
    */
   val layerFromEnv: ZLayer[Any, Throwable, BlockStore] =
     ZLayer.fromZIO {
-      val bucket = sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks")
-      val prefix = sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks")
-
       for
+        bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
+        prefix <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks"))
         base   <- ZIO
                     .fromEither(S3Config.fromEndpointEnv(bucket = bucket, prefix = prefix))
                     .mapError(msg => new IllegalArgumentException(msg))
