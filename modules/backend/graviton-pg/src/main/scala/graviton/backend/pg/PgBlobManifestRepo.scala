@@ -16,7 +16,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
 
   override def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): ZIO[Any, Throwable, Unit] =
     withTransaction { conn =>
-      upsertBlob(conn, blob, manifest) *>
+      upsertBlob(conn, blob, manifest, ingestedAt) *>
         upsertBlocks(conn, manifest) *>
         insertBlobBlocks(conn, blob, manifest)
     }
@@ -200,11 +200,11 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
     yield BlobStreamer.BlockRef(ordinal, key)
 
-  private def upsertBlob(conn: Connection, blob: BinaryKey.Blob, manifest: Manifest): Task[Unit] =
+  private def upsertBlob(conn: Connection, blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): Task[Unit] =
     val sql =
       """
-        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, chunker, attrs)
-        |VALUES (?::core.hash_alg, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
+        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, created_at, chunker, attrs)
+        |VALUES (?::core.hash_alg, ?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
         |ON CONFLICT (alg, hash_bytes, byte_length) DO NOTHING
         |""".stripMargin
 
@@ -219,6 +219,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
             ps.setBytes(2, blob.bits.digest.bytes)
             ps.setLong(3, blob.bits.size)
             ps.setInt(4, manifest.entries.length)
+            ps.setTimestamp(5, java.sql.Timestamp.from(ingestedAt))
             ps.executeUpdate()
             ()
           finally ps.close()
