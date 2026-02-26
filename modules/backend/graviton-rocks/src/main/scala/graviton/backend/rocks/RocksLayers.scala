@@ -1,6 +1,10 @@
 package graviton.backend.rocks
 
-import zio.{Layer, ZLayer}
+import graviton.runtime.kv.KeyValueStore
+import zio.{ZLayer, Scope}
+
+import java.nio.file.Path
 
 object RocksLayers:
-  val live: Layer[Nothing, RocksKeyValueStore] = ZLayer.succeed(new RocksKeyValueStore)
+  def live(path: Path): ZLayer[Scope, Throwable, KeyValueStore] =
+    ZLayer.fromZIO(RocksKeyValueStore.open(path))
