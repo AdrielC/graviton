@@ -5,7 +5,7 @@ import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
-import graviton.core.model.Block
+import graviton.core.model.Block as GBlock
 import graviton.core.scan.FS.toPipeline
 import graviton.core.types.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
@@ -38,9 +38,9 @@ final class CasBlobStore(
    * hashing and `BinaryKey.Block` derivation, then wraps each `KeyedBlock` as a
    * `CanonicalBlock` for persistence.
    */
-  private val blockKeyPipeline: ZPipeline[Any, Throwable, graviton.core.model.Block, CanonicalBlock] =
+  private val blockKeyPipeline: ZPipeline[Any, Throwable, GBlock, CanonicalBlock] =
     import graviton.core.scan.CasIngest
-    val toBytes: ZPipeline[Any, Nothing, graviton.core.model.Block, Chunk[Byte]]     =
+    val toBytes: ZPipeline[Any, Nothing, GBlock, Chunk[Byte]]                        =
       ZPipeline.map(block => block: Chunk[Byte])
     val keyDeriver: ZPipeline[Any, Nothing, Chunk[Byte], CasIngest.KeyedBlock]       =
       CasIngest.blockKeyDeriver().toPipeline

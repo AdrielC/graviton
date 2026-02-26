@@ -238,7 +238,6 @@ lazy val root = (project in file(".")).aggregate(
   frontend,
   quasarFrontend,
   docs,
-  `core-v1`
 ).settings(
   baseSettings,
   publish / skip := true,
@@ -265,15 +264,6 @@ lazy val root = (project in file(".")).aggregate(
     )
   }
 )
-
-lazy val `core-v1` = (project in file("modules/core"))
-  .dependsOn(core)
-  .settings(baseSettings,
-    name := "graviton-core-v1",
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-prelude-experimental" % V.zioPrelude,
-		)
-  )
 
 lazy val core = (project in file("modules/graviton-core"))
   .settings(baseSettings,
