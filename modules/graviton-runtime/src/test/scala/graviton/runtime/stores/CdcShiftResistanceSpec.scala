@@ -63,8 +63,8 @@ object CdcShiftResistanceSpec extends ZIOSpecDefault:
                       ZStream.fromChunk(data).run(blobStore.put())
                     }
       blobKey     = result.key.asInstanceOf[BinaryKey.Blob]
-      manifest   <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest"))
-      keys        = manifest.entries.collect { case e if e.key.isInstanceOf[BinaryKey.Block] => e.key.asInstanceOf[BinaryKey.Block] }.toSet
+      stored     <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest"))
+      keys        = stored.manifest.entries.collect { case e if e.key.isInstanceOf[BinaryKey.Block] => e.key.asInstanceOf[BinaryKey.Block] }.toSet
     yield keys
 
   override def spec: Spec[TestEnvironment, Any] =
