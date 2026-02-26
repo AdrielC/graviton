@@ -230,7 +230,8 @@ object CasRoundTripSpec extends ZIOSpecDefault:
       digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
 
       // Manifest entries should cover the full blob
-      totalSpanBytes = stored.manifest.entries.foldLeft(0L)((acc, e) => acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L))
+      totalSpanBytes =
+        stored.manifest.entries.foldLeft(0L)((acc, e) => acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L))
     yield assertTrue(
       readBack.length == data.length,
       readBack.toArray.sameElements(data),

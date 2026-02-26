@@ -4,29 +4,30 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.Manifest
 import graviton.runtime.streaming.BlobStreamer
-import graviton.runtime.stores.BlobManifestRepo
+import graviton.runtime.stores.{BlobManifestRepo, StoredManifest}
 import zio.*
 import zio.stream.ZStream
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.time.Instant
 import javax.sql.DataSource
 
 final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestRepo:
 
-  override def put(blob: BinaryKey.Blob, manifest: Manifest): ZIO[Any, Throwable, Unit] =
+  override def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): ZIO[Any, Throwable, Unit] =
     withTransaction { conn =>
       upsertBlob(conn, blob, manifest) *>
         upsertBlocks(conn, manifest) *>
         insertBlobBlocks(conn, blob, manifest)
     }
 
-  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]] =
+  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ZIO
       .attemptBlocking {
         val conn = ds.getConnection()
         try
           val ps = conn.prepareStatement(
-            """SELECT block_count FROM graviton.blob
+            """SELECT block_count, created_at FROM graviton.blob
               |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
           )
           try
@@ -37,14 +38,16 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
                 ps.setBytes(2, blob.bits.digest.bytes)
                 ps.setLong(3, blob.bits.size)
                 val rs = ps.executeQuery()
-                if rs.next() then Some(()) else None
+                if rs.next() then
+                  val ts = Option(rs.getTimestamp(2)).map(_.toInstant).getOrElse(Instant.EPOCH)
+                  Some(ts)
+                else None
           finally ps.close()
         finally conn.close()
       }
       .flatMap {
-        case None    => ZIO.succeed(None)
-        case Some(_) =>
-          // Re-read the full manifest via block refs
+        case None             => ZIO.succeed(None)
+        case Some(ingestedAt) =>
           streamBlockRefs(blob).runCollect.flatMap { refs =>
             if refs.isEmpty then ZIO.succeed(None)
             else
@@ -52,7 +55,6 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
               import graviton.core.ranges.Span
               import graviton.core.types.BlobOffset
               val entries = refs.zipWithIndex.map { case (ref, _) =>
-                // For stat purposes, we only need the key; span is approximate from size
                 val start = BlobOffset.unsafe(0L)
                 val end   = BlobOffset.unsafe(math.max(0L, ref.key.bits.size - 1))
                 val span  = Span.make(start, end).getOrElse(Span.unsafe(start, end))
@@ -62,7 +64,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
                 .fromEither(Manifest.fromEntries(entries.toList))
                 .mapBoth(
                   msg => new IllegalArgumentException(msg),
-                  m => Some(m),
+                  m => Some(StoredManifest(m, ingestedAt)),
                 )
           }
       }

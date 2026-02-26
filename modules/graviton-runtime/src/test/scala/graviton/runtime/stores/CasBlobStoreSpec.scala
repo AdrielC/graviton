@@ -30,14 +30,14 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                       ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = BinaryAttributes.empty)))
                     }
 
-          blobKey  <- ZIO
-                        .fromEither(
-                          result.key match
-                            case b: BinaryKey.Blob => Right(b)
-                            case other             => Left(s"Expected blob key, got $other")
-                        )
-                        .mapError(msg => new IllegalStateException(msg))
-          stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           spans = stored.manifest.entries.map(_.span)
         yield assertTrue(
@@ -78,14 +78,14 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                         )
                     }
 
-          blobKey  <- ZIO
-                        .fromEither(
-                          result.key match
-                            case b: BinaryKey.Blob => Right(b)
-                            case other             => Left(s"Expected blob key, got $other")
-                        )
-                        .mapError(msg => new IllegalStateException(msg))
-          stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           bytes <- blobStore.get(blobKey).runCollect
         yield assertTrue(

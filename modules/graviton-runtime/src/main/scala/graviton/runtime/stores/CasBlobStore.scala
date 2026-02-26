@@ -168,25 +168,26 @@ final class CasBlobStore(
             blob   <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
 
             // Convert the runtime block manifest into the generic manifest format.
-            entries  <- ZIO
-                          .foreach(batch.manifest.entries) { e =>
-                            val start = e.offset.value
-                            val end   = start + e.size.value.toLong - 1L
-                            ZIO
-                              .fromEither(
-                                for
-                                  s    <- BlobOffset.either(start)
-                                  t    <- BlobOffset.either(end)
-                                  span <- Span.make(s, t)
-                                yield span
-                              )
-                              .mapError(msg => new IllegalArgumentException(msg))
-                              .map(span => ManifestEntry(e.key, span, Map.empty[ManifestAnnotationKey, ManifestAnnotationValue]))
-                          }
-                          .map(_.toList)
-            manifest <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
+            entries    <- ZIO
+                            .foreach(batch.manifest.entries) { e =>
+                              val start = e.offset.value
+                              val end   = start + e.size.value.toLong - 1L
+                              ZIO
+                                .fromEither(
+                                  for
+                                    s    <- BlobOffset.either(start)
+                                    t    <- BlobOffset.either(end)
+                                    span <- Span.make(s, t)
+                                  yield span
+                                )
+                                .mapError(msg => new IllegalArgumentException(msg))
+                                .map(span => ManifestEntry(e.key, span, Map.empty[ManifestAnnotationKey, ManifestAnnotationValue]))
+                            }
+                            .map(_.toList)
+            manifest   <- ZIO.fromEither(Manifest.fromEntries(entries)).mapError(msg => new IllegalArgumentException(msg))
+            ingestedAt <- Clock.instant
 
-            _ <- manifests.put(blob, manifest)
+            _ <- manifests.put(blob, manifest, ingestedAt)
 
             locator <- plan.locatorHint match
                          case Some(value) => ZIO.succeed(value)
@@ -240,13 +241,13 @@ final class CasBlobStore(
   override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
     key match
       case blob: BinaryKey.Blob =>
-        manifests.get(blob).flatMap {
-          case None           => ZIO.succeed(None)
-          case Some(manifest) =>
-            val totalSize = manifest.entries.foldLeft(0L) { (acc, e) =>
+        manifests.get(blob).map {
+          case None         => None
+          case Some(stored) =>
+            val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, e) =>
               acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
             }
-            Clock.instant.map(now => Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, now)))
+            Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, stored.ingestedAt))
         }
       case _                    => ZIO.succeed(None)
 

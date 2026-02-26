@@ -144,23 +144,27 @@ object GravitonCli extends ZIOAppDefault:
  * Minimal in-memory manifest repo for the CLI.
  */
 private final class InMemoryManifestRepo(
-  ref: Ref[Map[BinaryKey.Blob, graviton.core.manifest.Manifest]]
+  ref: Ref[Map[BinaryKey.Blob, StoredManifest]]
 ) extends BlobManifestRepo:
 
-  override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest): ZIO[Any, Throwable, Unit] =
-    ref.update(_.updated(blob, manifest)).unit
+  override def put(
+    blob: BinaryKey.Blob,
+    manifest: graviton.core.manifest.Manifest,
+    ingestedAt: java.time.Instant,
+  ): ZIO[Any, Throwable, Unit] =
+    ref.update(_.updated(blob, StoredManifest(manifest, ingestedAt))).unit
 
-  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[graviton.core.manifest.Manifest]] =
+  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ref.get.map(_.get(blob))
 
   override def streamBlockRefs(
     blob: BinaryKey.Blob
   ): ZStream[Any, Throwable, graviton.runtime.streaming.BlobStreamer.BlockRef] =
     ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-      case None    => ZStream.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.digest.hex.value}"))
-      case Some(m) =>
+      case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.digest.hex.value}"))
+      case Some(stored) =>
         ZStream.fromIterable(
-          m.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
+          stored.manifest.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
             graviton.runtime.streaming.BlobStreamer.BlockRef(idx.toLong, b)
           }
         )
@@ -174,4 +178,4 @@ private final class InMemoryManifestRepo(
 
 private object InMemoryManifestRepo:
   def make: UIO[InMemoryManifestRepo] =
-    Ref.make(Map.empty[BinaryKey.Blob, graviton.core.manifest.Manifest]).map(new InMemoryManifestRepo(_))
+    Ref.make(Map.empty[BinaryKey.Blob, StoredManifest]).map(new InMemoryManifestRepo(_))
