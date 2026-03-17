@@ -24,6 +24,9 @@ object Dependencies {
     // zio-blocks (local publish from submodule)
     val zioBlocks = "0.1.0-graviton"
 
+    // ZIO Config
+    val zioConfig = "4.0.6"
+
     // Misc
     val iron       = "3.2.2"
     val awsV2      = "2.25.54"

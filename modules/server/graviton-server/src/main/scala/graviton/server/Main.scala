@@ -3,6 +3,7 @@ package graviton.server
 import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{HttpApi, MetricsHttpApi}
+import graviton.runtime.config.GravitonConfig
 import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
 import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore, FsBlockStore}
@@ -16,15 +17,10 @@ import java.util.concurrent.TimeUnit
 
 object Main extends ZIOAppDefault:
 
-  private def envIntOr(name: String, default: Int): Int =
-    sys.env.get(name).flatMap(_.trim.toIntOption).getOrElse(default)
-
-  private def envOr(name: String, default: String): String =
-    sys.env.get(name).map(_.trim).filter(_.nonEmpty).getOrElse(default)
-
   override def run: ZIO[Any, Any, Any] =
     for
-      port    <- ZIO.succeed(envIntOr("GRAVITON_HTTP_PORT", 8081))
+      cfg     <- ZIO.config(GravitonConfig.config).orElseSucceed(GravitonConfig())
+      port     = cfg.httpPort
       started <- Clock.currentTime(TimeUnit.MILLISECONDS)
       _       <- ZIO.logInfo(s"Starting Graviton server on :$port")
       program  =
@@ -66,7 +62,7 @@ object Main extends ZIOAppDefault:
           _      <- Server.serve(routes)
         yield ()
 
-      blobBackend = envOr("GRAVITON_BLOB_BACKEND", "s3").toLowerCase
+      blobBackend = cfg.blobBackend.toLowerCase
       blobLayer   =
         blobBackend match
           case "s3" | "minio" =>
@@ -77,8 +73,8 @@ object Main extends ZIOAppDefault:
               CasBlobStore.layer,
             )
           case "fs"           =>
-            val root   = Path.of(envOr("GRAVITON_FS_ROOT", "./.graviton"))
-            val prefix = envOr("GRAVITON_FS_BLOCK_PREFIX", "cas/blocks")
+            val root   = Path.of(cfg.fs.root)
+            val prefix = cfg.fs.blockPrefix
             ZLayer.make[BlobStore](
               PgDataSource.layerFromEnv,
               PgBlobManifestRepo.layer,

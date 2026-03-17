@@ -122,26 +122,7 @@ object Graviton:
     metrics: MetricsRegistry = MetricsRegistry.noop,
   ): ZIO[Any, Nothing, Graviton] =
     for
-      manifestRepo <- zio.Ref.make(Map.empty[BinaryKey.Blob, graviton.core.manifest.Manifest]).map { ref =>
-                        new BlobManifestRepo:
-                          override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest) =
-                            ref.update(_.updated(blob, manifest)).unit
-                          override def get(blob: BinaryKey.Blob)                                            =
-                            ref.get.map(_.get(blob))
-                          override def streamBlockRefs(blob: BinaryKey.Blob)                                =
-                            ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-                              case None    => ZStream.fail(new NoSuchElementException(s"Missing manifest"))
-                              case Some(m) =>
-                                ZStream.fromIterable(
-                                  m.entries.zipWithIndex.collect {
-                                    case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
-                                      streaming.BlobStreamer.BlockRef(idx.toLong, b)
-                                  }
-                                )
-                            }
-                          override def delete(blob: BinaryKey.Blob)                                         =
-                            ref.modify(m => (m.contains(blob), m - blob))
-                      }
+      manifestRepo <- makeInlineManifestRepo
       blockStore    = new FsBlockStore(root)
       blobStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
@@ -156,29 +137,31 @@ object Graviton:
   ): ZIO[Any, Nothing, Graviton] =
     for
       blockStore   <- InMemoryBlockStore.make
-      manifestRepo <- zio.Ref.make(Map.empty[BinaryKey.Blob, graviton.core.manifest.Manifest]).map { ref =>
-                        new BlobManifestRepo:
-                          override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest) =
-                            ref.update(_.updated(blob, manifest)).unit
-                          override def get(blob: BinaryKey.Blob)                                            =
-                            ref.get.map(_.get(blob))
-                          override def streamBlockRefs(blob: BinaryKey.Blob)                                =
-                            ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-                              case None    => ZStream.fail(new NoSuchElementException(s"Missing manifest"))
-                              case Some(m) =>
-                                ZStream.fromIterable(
-                                  m.entries.zipWithIndex.collect {
-                                    case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
-                                      streaming.BlobStreamer.BlockRef(idx.toLong, b)
-                                  }
-                                )
-                            }
-                          override def delete(blob: BinaryKey.Blob)                                         =
-                            ref.modify(m => (m.contains(blob), m - blob))
-                      }
+      manifestRepo <- makeInlineManifestRepo
       blobStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
     yield new Graviton(blobStore, blockStore, manifestRepo, chunker)
+
+  private def makeInlineManifestRepo: UIO[BlobManifestRepo] =
+    zio.Ref.make(Map.empty[BinaryKey.Blob, stores.StoredManifest]).map { ref =>
+      new BlobManifestRepo:
+        override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest, ingestedAt: java.time.Instant) =
+          ref.update(_.updated(blob, stores.StoredManifest(manifest, ingestedAt))).unit
+        override def get(blob: BinaryKey.Blob)                                                                           =
+          ref.get.map(_.get(blob))
+        override def streamBlockRefs(blob: BinaryKey.Blob)                                                               =
+          ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
+            case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest"))
+            case Some(stored) =>
+              ZStream.fromIterable(
+                stored.manifest.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
+                  streaming.BlobStreamer.BlockRef(idx.toLong, b)
+                }
+              )
+          }
+        override def delete(blob: BinaryKey.Blob)                                                                        =
+          ref.modify(m => (m.contains(blob), m - blob))
+    }
 
   /** Transducer pipelines for composition. */
   object pipelines:

@@ -63,8 +63,8 @@ final case class BinaryAttributes private (
 ):
   import BinaryAttributes.*
 
-  def record(event: String): BinaryAttributes =
-    copy(history = history :+ (event -> Instant.now()))
+  def record(event: String, at: Instant): BinaryAttributes =
+    copy(history = history :+ (event -> at))
 
   def advertiseSize(value: FileSize): BinaryAttributes =
     modifyAdvertised(_.copyValues(size = Some(value)))

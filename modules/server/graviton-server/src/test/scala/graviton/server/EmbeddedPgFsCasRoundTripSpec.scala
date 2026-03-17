@@ -42,15 +42,15 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       }
     }
 
-  private val blobStoreLayer: ZLayer[Any, Throwable, BlobStore] =
-    embeddedPgLayer >>> ZLayer.scoped {
+  private val blobStoreLayer: ZLayer[Any, Throwable, BlobStore & javax.sql.DataSource] =
+    embeddedPgLayer >+> ZLayer.scoped {
       for
         ds   <- ZIO.service[javax.sql.DataSource]
         root <- ZIO.attemptBlocking(Files.createTempDirectory("graviton-fs-blocks"))
         _    <- ZIO.addFinalizer(ZIO.attemptBlocking(deleteRecursive(root)).orDie)
         repo  = new PgBlobManifestRepo(ds)
         bs    = new FsBlockStore(root)
-      yield new CasBlobStore(bs, repo)
+      yield new CasBlobStore(bs, repo): BlobStore
     }
 
   override def spec: Spec[TestEnvironment, Any] =
@@ -74,7 +74,52 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
                         }
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
-        }
+        },
+        test("stat returns real ingestion timestamp and correct size") {
+          val data    = Chunk.fromArray(("stat-test-" * 500).getBytes(StandardCharsets.UTF_8))
+          val chunker = Chunker.fixed(UploadChunkSize(1024))
+
+          for
+            before  <- Clock.instant
+            store   <- ZIO.service[BlobStore]
+            written <- Chunker.locally(chunker) {
+                         ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+                       }
+            after   <- Clock.instant
+            statOpt <- store.stat(written.key)
+          yield assertTrue(
+            statOpt.isDefined,
+            statOpt.get.size.value == data.length.toLong,
+            !statOpt.get.lastModified.isBefore(before),
+            !statOpt.get.lastModified.isAfter(after),
+          )
+        },
+        test("manifest spans are contiguous and cover the full blob") {
+          val data    = Chunk.fromArray(("span-test-data-" * 300).getBytes(StandardCharsets.UTF_8))
+          val chunker = Chunker.fixed(UploadChunkSize(1024))
+
+          for
+            store   <- ZIO.service[BlobStore]
+            written <- Chunker.locally(chunker) {
+                         ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+                       }
+            blobKey  = written.key match
+                         case b: graviton.core.keys.BinaryKey.Blob => b
+                         case _                                    => throw new IllegalStateException("expected blob key")
+            ds      <- ZIO.service[javax.sql.DataSource]
+            repo     = new PgBlobManifestRepo(ds)
+            stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest not found"))
+            entries  = stored.manifest.entries
+            spans    = entries.map(_.span)
+          yield assertTrue(
+            entries.nonEmpty,
+            spans.head.startInclusive.value == 0L,
+            spans.zip(spans.drop(1)).forall { case (a, b) =>
+              b.startInclusive.value == a.endInclusive.value + 1L
+            },
+            stored.manifest.size == data.length.toLong,
+          )
+        },
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
   private val ddlRelPath: Path =

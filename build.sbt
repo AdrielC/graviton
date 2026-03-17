@@ -238,7 +238,6 @@ lazy val root = (project in file(".")).aggregate(
   frontend,
   quasarFrontend,
   docs,
-  `core-v1`
 ).settings(
   baseSettings,
   publish / skip := true,
@@ -265,15 +264,6 @@ lazy val root = (project in file(".")).aggregate(
     )
   }
 )
-
-lazy val `core-v1` = (project in file("modules/core"))
-  .dependsOn(core)
-  .settings(baseSettings,
-    name := "graviton-core-v1",
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-prelude-experimental" % V.zioPrelude,
-		)
-  )
 
 lazy val core = (project in file("modules/graviton-core"))
   .settings(baseSettings,
@@ -323,6 +313,8 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
       "dev.zio" %% "zio-nio"     % V.zioNio,
+      "dev.zio" %% "zio-config"          % V.zioConfig,
+      "dev.zio" %% "zio-config-typesafe" % V.zioConfig,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,

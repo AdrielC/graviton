@@ -31,8 +31,14 @@ object BuildHelper {
   )
 
   val baseSettings: Seq[Setting[_]] = Seq(
-    // Disable fatal warnings for development; Scala 3.8+ renamed -Xfatal-warnings to -Werror.
-    Compile / scalacOptions := (Compile / scalacOptions).value.filterNot(o => o == "-Xfatal-warnings" || o == "-Werror"),
+    // In CI (GRAVITON_WERROR=1), treat warnings as errors to prevent regression.
+    // Locally, strip -Werror/-Xfatal-warnings so iteration stays fast.
+    Compile / scalacOptions := {
+      val opts = (Compile / scalacOptions).value
+        .filterNot(o => o == "-Xfatal-warnings" || o == "-Werror")
+      if (sys.env.getOrElse("GRAVITON_WERROR", "0") == "1") opts :+ "-Werror"
+      else opts
+    },
   ) ++ testSettings
 
   val isTestContainers: SettingKey[Boolean] = settingKey[Boolean]("Whether to run tests with TestContainers")
