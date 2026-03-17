@@ -9,6 +9,7 @@ project/project/
 modules/*/target/
 docs/target/
 docs/.vitepress/dist/
+docs/.vitepress/cache/
 docs/node_modules/
 
 # Generated Scala.js output (built by CI)
