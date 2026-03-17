@@ -79,10 +79,10 @@ object CasPropertySpec extends ZIOSpecDefault:
                         ZStream.fromChunk(data).run(blobStore.put())
                       }
 
-            blobKey   = result.key.asInstanceOf[BinaryKey.Blob]
-            manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest missing"))
+            blobKey = result.key.asInstanceOf[BinaryKey.Blob]
+            stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest missing"))
 
-            totalSpan = manifest.entries.foldLeft(0L) { (acc, e) =>
+            totalSpan = stored.manifest.entries.foldLeft(0L) { (acc, e) =>
                           acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
                         }
           yield assertTrue(totalSpan == data.length.toLong)

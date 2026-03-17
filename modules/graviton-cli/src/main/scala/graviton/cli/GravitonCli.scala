@@ -3,6 +3,7 @@ package graviton.cli
 import graviton.core.bytes.*
 import graviton.core.keys.BinaryKey
 import graviton.core.types.*
+import graviton.runtime.config.GravitonConfig
 import graviton.runtime.stores.*
 import graviton.streams.Chunker
 import zio.*
@@ -20,42 +21,38 @@ import java.nio.file.{Files, Path, Paths}
  *   verify <blobKey>    Verify blob integrity (read + re-hash)
  *
  * Uses filesystem-backed block store by default.
+ * Configure via GRAVITON_DATA_DIR and GRAVITON_CHUNK_SIZE env vars.
  */
 object GravitonCli extends ZIOAppDefault:
 
-  private val defaultRoot: Path =
-    Paths.get(sys.env.getOrElse("GRAVITON_DATA_DIR", ".graviton"))
-
-  private val defaultChunkSize: Int =
-    sys.env.get("GRAVITON_CHUNK_SIZE").flatMap(_.toIntOption).getOrElse(1024 * 1024) // 1 MiB
-
   override def run: ZIO[ZIOAppArgs, Any, Any] =
     for
+      cfg  <- ZIO.config(GravitonConfig.config).orElseSucceed(GravitonConfig())
       args <- ZIOAppArgs.getArgs
       _    <- args.toList match
-                case "ingest" :: filePath :: _       => ingest(Paths.get(filePath))
-                case "stat" :: blobKeyHex :: Nil     => stat(blobKeyHex)
-                case "get" :: blobKeyHex :: out :: _ => retrieve(blobKeyHex, Paths.get(out))
-                case "verify" :: blobKeyHex :: _     => verify(blobKeyHex)
+                case "ingest" :: filePath :: _       => ingest(Paths.get(filePath), cfg)
+                case "stat" :: blobKeyHex :: Nil     => stat(blobKeyHex, cfg)
+                case "get" :: blobKeyHex :: out :: _ => retrieve(blobKeyHex, Paths.get(out), cfg)
+                case "verify" :: blobKeyHex :: _     => verify(blobKeyHex, cfg)
                 case "help" :: _                     => printUsage
                 case other                           =>
                   Console.printLineError(s"Unknown command: ${other.mkString(" ")}") *> printUsage *> ZIO.fail(ExitCode.failure)
     yield ()
 
-  private def ingest(filePath: Path): ZIO[Any, Any, Unit] =
+  private def ingest(filePath: Path, cfg: GravitonConfig): ZIO[Any, Any, Unit] =
     val absPath = filePath.toAbsolutePath
     for
       _      <- Console.printLine(s"Ingesting: $absPath")
       _      <- ZIO.unless(Files.exists(absPath))(
                   Console.printLineError(s"File not found: $absPath") *> ZIO.fail(ExitCode.failure)
                 )
-      store  <- makeStore
-      result <- Chunker.locally(Chunker.fixed(UploadChunkSize.applyUnsafe(defaultChunkSize))) {
+      store  <- makeStore(cfg)
+      result <- Chunker.locally(Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))) {
                   StoreOps.insertFile(store)(absPath)
                 }
       blobKey = result.key match
                   case b: BinaryKey.Blob => b
-                  case other             => other // shouldn't happen
+                  case other             => other
       stats   = result.stats
       _      <- Console.printLine(s"  Blob key:     ${blobKey.bits.digest.hex.value}")
       _      <- Console.printLine(s"  Locator:      ${result.locator.render}")
@@ -66,9 +63,9 @@ object GravitonCli extends ZIOAppDefault:
       _      <- Console.printLine("  Done.")
     yield ()
 
-  private def stat(blobKeyHex: String): ZIO[Any, Any, Unit] =
+  private def stat(blobKeyHex: String, cfg: GravitonConfig): ZIO[Any, Any, Unit] =
     for
-      store   <- makeStore
+      store   <- makeStore(cfg)
       blobKey <- parseBlobKey(blobKeyHex)
       statOpt <- store.stat(blobKey)
       _       <- statOpt match
@@ -80,9 +77,9 @@ object GravitonCli extends ZIOAppDefault:
                      Console.printLineError(s"Blob not found: $blobKeyHex")
     yield ()
 
-  private def retrieve(blobKeyHex: String, outPath: Path): ZIO[Any, Any, Unit] =
+  private def retrieve(blobKeyHex: String, outPath: Path, cfg: GravitonConfig): ZIO[Any, Any, Unit] =
     for
-      store   <- makeStore
+      store   <- makeStore(cfg)
       blobKey <- parseBlobKey(blobKeyHex)
       _       <- Console.printLine(s"Retrieving blob ${blobKeyHex.take(16)}... to $outPath")
       bytes   <- store.get(blobKey).runCollect
@@ -93,9 +90,9 @@ object GravitonCli extends ZIOAppDefault:
       _       <- Console.printLine(s"  Written ${bytes.length} bytes to $outPath")
     yield ()
 
-  private def verify(blobKeyHex: String): ZIO[Any, Any, Unit] =
+  private def verify(blobKeyHex: String, cfg: GravitonConfig): ZIO[Any, Any, Unit] =
     for
-      store   <- makeStore
+      store   <- makeStore(cfg)
       blobKey <- parseBlobKey(blobKeyHex)
       _       <- Console.printLine(s"Verifying blob ${blobKeyHex.take(16)}...")
       bytes   <- store.get(blobKey).runCollect
@@ -107,9 +104,9 @@ object GravitonCli extends ZIOAppDefault:
                  else Console.printLineError(s"  FAIL: expected ${blobKey.bits.digest.hex.value}, got ${digest.hex.value}")
     yield ()
 
-  private def makeStore: ZIO[Any, Any, BlobStore] =
+  private def makeStore(cfg: GravitonConfig): ZIO[Any, Any, BlobStore] =
     for
-      root      <- ZIO.attempt(defaultRoot.toAbsolutePath)
+      root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
       _         <- ZIO.attemptBlocking(Files.createDirectories(root))
       blockStore = new FsBlockStore(root)
       repo      <- InMemoryManifestRepo.make
@@ -137,36 +134,37 @@ object GravitonCli extends ZIOAppDefault:
         |  graviton verify <blobKeyHex>        Verify blob integrity
         |  graviton help                       Show this help
         |
-        |Environment:
-        |  GRAVITON_DATA_DIR    Data directory (default: .graviton)
-        |  GRAVITON_CHUNK_SIZE  Block size in bytes (default: 1048576)
+        |Environment (via ZIO Config — GRAVITON_ prefix):
+        |  GRAVITON_DATA_DIR      Data directory (default: .graviton)
+        |  GRAVITON_CHUNK_SIZE    Block size in bytes (default: 1048576)
         |""".stripMargin
     )
 
 /**
  * Minimal in-memory manifest repo for the CLI.
- *
- * In production, this would be backed by Postgres or another persistent store.
- * For the CLI, we track manifests in memory per session.
  */
 private final class InMemoryManifestRepo(
-  ref: Ref[Map[BinaryKey.Blob, graviton.core.manifest.Manifest]]
+  ref: Ref[Map[BinaryKey.Blob, StoredManifest]]
 ) extends BlobManifestRepo:
 
-  override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest): ZIO[Any, Throwable, Unit] =
-    ref.update(_.updated(blob, manifest)).unit
+  override def put(
+    blob: BinaryKey.Blob,
+    manifest: graviton.core.manifest.Manifest,
+    ingestedAt: java.time.Instant,
+  ): ZIO[Any, Throwable, Unit] =
+    ref.update(_.updated(blob, StoredManifest(manifest, ingestedAt))).unit
 
-  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[graviton.core.manifest.Manifest]] =
+  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ref.get.map(_.get(blob))
 
   override def streamBlockRefs(
     blob: BinaryKey.Blob
   ): ZStream[Any, Throwable, graviton.runtime.streaming.BlobStreamer.BlockRef] =
     ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-      case None    => ZStream.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.digest.hex.value}"))
-      case Some(m) =>
+      case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.digest.hex.value}"))
+      case Some(stored) =>
         ZStream.fromIterable(
-          m.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
+          stored.manifest.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
             graviton.runtime.streaming.BlobStreamer.BlockRef(idx.toLong, b)
           }
         )
@@ -180,4 +178,4 @@ private final class InMemoryManifestRepo(
 
 private object InMemoryManifestRepo:
   def make: UIO[InMemoryManifestRepo] =
-    Ref.make(Map.empty[BinaryKey.Blob, graviton.core.manifest.Manifest]).map(new InMemoryManifestRepo(_))
+    Ref.make(Map.empty[BinaryKey.Blob, StoredManifest]).map(new InMemoryManifestRepo(_))

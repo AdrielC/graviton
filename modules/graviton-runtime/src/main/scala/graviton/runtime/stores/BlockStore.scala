@@ -16,3 +16,6 @@ trait BlockStore:
 
   /** Return whether a canonical block already exists in the configured store. */
   def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean]
+
+object BlockStore:
+  val service: ZIO[BlockStore, Nothing, BlockStore] = ZIO.service[BlockStore]

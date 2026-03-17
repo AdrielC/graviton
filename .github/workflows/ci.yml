@@ -28,18 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TESTCONTAINERS: '1'
-      # Enable opt-in integration specs in CI
       GRAVITON_IT: '1'
       GRAVITON_MINIO_IT: '1'
-      # Postgres (service below)
       PG_JDBC_URL: 'jdbc:postgresql://127.0.0.1:5432/postgres'
       PG_USERNAME: 'postgres'
       PG_PASSWORD: 'postgres'
-      # MinIO (service below)
       QUASAR_MINIO_URL: 'http://127.0.0.1:9000'
       MINIO_ROOT_USER: 'minio'
       MINIO_ROOT_PASSWORD: 'minioadmin'
-      # Graviton S3 block store config
       GRAVITON_S3_BLOCK_BUCKET: 'graviton-blocks'
       GRAVITON_S3_BLOCK_PREFIX: 'cas/blocks'
     services:
@@ -100,7 +96,13 @@ jobs:
           "$MC" alias set local "${QUASAR_MINIO_URL}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
           "$MC" mb --ignore-existing "local/${GRAVITON_S3_BLOCK_BUCKET}"
       - name: Test
-        run: ./sbt test
+        run: ./sbt 'set ThisBuild / Test / testOptions += Tests.Argument("-oD", "-u", "target/test-reports")' test
+      - name: Publish test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: '**/target/test-reports/**/*.xml'
+          check_name: Test Results
       - name: Stop MinIO
         if: always()
         run: docker rm -f minio || true

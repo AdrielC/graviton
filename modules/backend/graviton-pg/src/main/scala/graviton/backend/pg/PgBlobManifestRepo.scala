@@ -4,65 +4,122 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.Manifest
 import graviton.runtime.streaming.BlobStreamer
-import graviton.runtime.stores.BlobManifestRepo
+import graviton.runtime.stores.{BlobManifestRepo, StoredManifest}
 import zio.*
 import zio.stream.ZStream
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.time.Instant
 import javax.sql.DataSource
 
 final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestRepo:
 
-  override def put(blob: BinaryKey.Blob, manifest: Manifest): ZIO[Any, Throwable, Unit] =
+  override def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): ZIO[Any, Throwable, Unit] =
     withTransaction { conn =>
-      upsertBlob(conn, blob, manifest) *>
+      upsertBlob(conn, blob, manifest, ingestedAt) *>
         upsertBlocks(conn, manifest) *>
         insertBlobBlocks(conn, blob, manifest)
     }
 
-  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[Manifest]] =
+  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ZIO
-      .attemptBlocking {
-        val conn = ds.getConnection()
-        try
-          val ps = conn.prepareStatement(
-            """SELECT block_count FROM graviton.blob
-              |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
-          )
-          try
-            toDbAlg(blob.bits.algo) match
-              case Left(msg)  => None
-              case Right(alg) =>
-                ps.setString(1, alg)
-                ps.setBytes(2, blob.bits.digest.bytes)
-                ps.setLong(3, blob.bits.size)
-                val rs = ps.executeQuery()
-                if rs.next() then Some(()) else None
-          finally ps.close()
-        finally conn.close()
-      }
-      .flatMap {
-        case None    => ZIO.succeed(None)
-        case Some(_) =>
-          // Re-read the full manifest via block refs
-          streamBlockRefs(blob).runCollect.flatMap { refs =>
-            if refs.isEmpty then ZIO.succeed(None)
-            else
-              import graviton.core.manifest.ManifestEntry
-              import graviton.core.ranges.Span
-              import graviton.core.types.BlobOffset
-              val entries = refs.zipWithIndex.map { case (ref, _) =>
-                // For stat purposes, we only need the key; span is approximate from size
-                val start = BlobOffset.unsafe(0L)
-                val end   = BlobOffset.unsafe(math.max(0L, ref.key.bits.size - 1))
-                val span  = Span.make(start, end).getOrElse(Span.unsafe(start, end))
-                ManifestEntry(ref.key, span, Map.empty)
-              }
+      .fromEither(toDbAlg(blob.bits.algo))
+      .mapError(msg => new IllegalArgumentException(msg))
+      .flatMap { blobAlg =>
+        ZIO
+          .attemptBlocking {
+            val conn = ds.getConnection()
+            try
+              // Check blob exists and get ingestedAt
+              val blobPs        = conn.prepareStatement(
+                """SELECT created_at FROM graviton.blob
+                  |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+              )
+              val ingestedAtOpt =
+                try
+                  blobPs.setString(1, blobAlg)
+                  blobPs.setBytes(2, blob.bits.digest.bytes)
+                  blobPs.setLong(3, blob.bits.size)
+                  val blobRs = blobPs.executeQuery()
+                  if blobRs.next() then Some(Option(blobRs.getTimestamp(1)).map(_.toInstant).getOrElse(Instant.EPOCH))
+                  else None
+                finally blobPs.close()
+
+              ingestedAtOpt match
+                case None             => None
+                case Some(ingestedAt) =>
+                  // Read real spans from blob_block (block_offset + block_length)
+                  val blockPs = conn.prepareStatement(
+                    """SELECT
+                      |  block_alg,
+                      |  block_hash_bytes,
+                      |  block_byte_length,
+                      |  block_offset,
+                      |  block_length
+                      |FROM graviton.blob_block
+                      |WHERE alg = ?::core.hash_alg
+                      |  AND hash_bytes = ?
+                      |  AND byte_length = ?
+                      |ORDER BY ordinal ASC""".stripMargin
+                  )
+                  try
+                    blockPs.setString(1, blobAlg)
+                    blockPs.setBytes(2, blob.bits.digest.bytes)
+                    blockPs.setLong(3, blob.bits.size)
+                    val blockRs = blockPs.executeQuery()
+
+                    import graviton.core.manifest.ManifestEntry
+                    import graviton.core.ranges.Span
+                    import graviton.core.types.BlobOffset
+
+                    val entries = scala.collection.mutable.ListBuffer.empty[ManifestEntry]
+                    while blockRs.next() do
+                      val blockAlgStr = blockRs.getString(1)
+                      val blockHash   = blockRs.getBytes(2)
+                      val blockLen    = blockRs.getLong(3)
+                      val offset      = blockRs.getLong(4)
+                      val length      = blockRs.getLong(5)
+
+                      val blockAlg = parseDbAlg(blockAlgStr).getOrElse(
+                        throw new IllegalArgumentException(s"Unsupported hash algorithm '$blockAlgStr'")
+                      )
+                      val digest   = Digest
+                        .fromBytes(blockHash)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+                      val bits     = KeyBits
+                        .create(blockAlg, digest, blockLen)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+                      val key      = BinaryKey
+                        .block(bits)
+                        .fold(
+                          msg => throw new IllegalArgumentException(msg),
+                          identity,
+                        )
+
+                      val start = BlobOffset.unsafe(offset)
+                      val end   = BlobOffset.unsafe(offset + length - 1L)
+                      val span  = Span.unsafe(start, end)
+                      entries += ManifestEntry(key, span, Map.empty)
+
+                    Some((ingestedAt, entries.toList))
+                  finally blockPs.close()
+            finally conn.close()
+          }
+          .flatMap {
+            case None                                  => ZIO.succeed(None)
+            case Some((_, entries)) if entries.isEmpty => ZIO.succeed(None)
+            case Some((ingestedAt, entries))           =>
               ZIO
-                .fromEither(Manifest.fromEntries(entries.toList))
+                .fromEither(Manifest.fromEntries(entries))
                 .mapBoth(
                   msg => new IllegalArgumentException(msg),
-                  m => Some(m),
+                  m => Some(StoredManifest(m, ingestedAt)),
                 )
           }
       }
@@ -143,11 +200,11 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
     yield BlobStreamer.BlockRef(ordinal, key)
 
-  private def upsertBlob(conn: Connection, blob: BinaryKey.Blob, manifest: Manifest): Task[Unit] =
+  private def upsertBlob(conn: Connection, blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): Task[Unit] =
     val sql =
       """
-        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, chunker, attrs)
-        |VALUES (?::core.hash_alg, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
+        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, created_at, chunker, attrs)
+        |VALUES (?::core.hash_alg, ?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
         |ON CONFLICT (alg, hash_bytes, byte_length) DO NOTHING
         |""".stripMargin
 
@@ -162,6 +219,7 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
             ps.setBytes(2, blob.bits.digest.bytes)
             ps.setLong(3, blob.bits.size)
             ps.setInt(4, manifest.entries.length)
+            ps.setTimestamp(5, java.sql.Timestamp.from(ingestedAt))
             ps.executeUpdate()
             ()
           finally ps.close()

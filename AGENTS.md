@@ -110,3 +110,42 @@ Agents **must** consult these rules before making changes.
   4. Commit the updated files in `modules/pg/src/main/resources/generated/` together with the DDL change.
 - Sync with latest main before commits (git fetch origin main && git merge origin/main or rebase).
 - Mark tasks as done with commit/date in this file.
+
+---
+
+## Cursor Cloud specific instructions
+
+### Prerequisites
+
+The VM image ships with JDK 21 (OpenJDK). No additional JDK installation is needed.
+
+### Build dependency: zio-blocks submodule
+
+The `modules/zio-blocks` git submodule **must** be initialized and its `schemaJVM` artifact published locally before the main build can resolve. The update script handles this automatically. If you see unresolved `dev.zio::zio-blocks-schema` errors, run:
+
+```bash
+git submodule update --init --recursive
+cd modules/zio-blocks && ../../sbt 'set ThisBuild / version := "0.1.0-graviton"' 'schemaJVM/publishLocal'
+```
+
+Note: the zio-blocks submodule uses SBT 1.11.7 while the main project uses 1.11.5; both launchers are cached after first run.
+
+### Running tests
+
+```bash
+TESTCONTAINERS=0 ./sbt scalafmtAll test
+```
+
+This runs the formatter and all unit tests without requiring Docker or external services. Integration tests (Postgres, MinIO) are gated by `GRAVITON_IT=1` / `GRAVITON_MINIO_IT=1` and are skipped by default.
+
+### Running the CLI
+
+```bash
+GRAVITON_DATA_DIR=/tmp/graviton-data ./sbt "cli/run ingest <file>"
+```
+
+The CLI uses an in-memory manifest repo per invocation, so `stat`/`get`/`verify` only work within the same process session as `ingest`. The filesystem-backed block store persists blocks across runs under `$GRAVITON_DATA_DIR/cas/blocks/`.
+
+### Documentation site
+
+Requires Node.js 20+. See `BUILD_AND_TEST.md` and `CONTRIBUTING.md` for full instructions. Not needed for core Scala development or tests.

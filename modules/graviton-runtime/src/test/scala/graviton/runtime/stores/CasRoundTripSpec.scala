@@ -219,7 +219,7 @@ object CasRoundTripSpec extends ZIOSpecDefault:
       blobKey = result.key.asInstanceOf[BinaryKey.Blob]
 
       // Verify manifest was stored
-      manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+      stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
       // Read back all bytes
       readBack <- blobStore.get(blobKey).runCollect
@@ -230,11 +230,12 @@ object CasRoundTripSpec extends ZIOSpecDefault:
       digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
 
       // Manifest entries should cover the full blob
-      totalSpanBytes = manifest.entries.foldLeft(0L)((acc, e) => acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L))
+      totalSpanBytes =
+        stored.manifest.entries.foldLeft(0L)((acc, e) => acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L))
     yield assertTrue(
       readBack.length == data.length,
       readBack.toArray.sameElements(data),
-      manifest.entries.nonEmpty,
+      stored.manifest.entries.nonEmpty,
       totalSpanBytes == data.length.toLong,
       blobKey.bits.digest.hex.value == digest.hex.value,
     )

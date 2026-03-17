@@ -30,18 +30,18 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                       ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = BinaryAttributes.empty)))
                     }
 
-          blobKey  <- ZIO
-                        .fromEither(
-                          result.key match
-                            case b: BinaryKey.Blob => Right(b)
-                            case other             => Left(s"Expected blob key, got $other")
-                        )
-                        .mapError(msg => new IllegalStateException(msg))
-          manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
-          spans = manifest.entries.map(_.span)
+          spans = stored.manifest.entries.map(_.span)
         yield assertTrue(
-          manifest.entries.length == 3,
+          stored.manifest.entries.length == 3,
           spans.head.startInclusive.value == 0L,
           spans.head.endInclusive.value == 1023L,
           spans(1).startInclusive.value == 1024L,
@@ -78,21 +78,21 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                         )
                     }
 
-          blobKey  <- ZIO
-                        .fromEither(
-                          result.key match
-                            case b: BinaryKey.Blob => Right(b)
-                            case other             => Left(s"Expected blob key, got $other")
-                        )
-                        .mapError(msg => new IllegalStateException(msg))
-          manifest <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           bytes <- blobStore.get(blobKey).runCollect
         yield assertTrue(
           bytes == Chunk.fromArray("abcd".getBytes(StandardCharsets.UTF_8)),
-          manifest.entries.length == 2,
-          manifest.entries.map(_.span.startInclusive) == List(0L, 2L),
-          manifest.entries.map(_.span.endInclusive) == List(1L, 3L),
+          stored.manifest.entries.length == 2,
+          stored.manifest.entries.map(_.span.startInclusive) == List(0L, 2L),
+          stored.manifest.entries.map(_.span.endInclusive) == List(1L, 3L),
         )
       },
       test("supports IngestProgram.UseScan without breaking ingest (records metrics)") {
