@@ -61,7 +61,7 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
       .newProxyInstance(
         classOf[S3Client].getClassLoader,
         Array(classOf[S3Client]),
-        (proxy, method, _) =>
+        (_, method, _) =>
           method.getName match
             case "close"    => null
             case "toString" =>

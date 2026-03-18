@@ -56,6 +56,6 @@ object RocksKeyValueStoreSpec extends ZIOSpecDefault:
         try
           stream
             .sorted(Comparator.reverseOrder())
-            .forEach(path => Files.deleteIfExists(path))
+            .forEach(path => { Files.deleteIfExists(path); () })
         finally stream.close()
     }
