@@ -146,10 +146,15 @@ final case class BinaryAttributes private (
     copy(confirmed = f(confirmed))
 
   private def advertisedDigestErrors: List[String] =
-    digestErrors("advertised", advertised.digestsValue.getOrElse(Map.empty))
+    digestErrors("advertised", safeDigests(advertised))
 
   private def confirmedDigestErrors: List[String] =
-    digestErrors("confirmed", confirmed.digestsValue.getOrElse(Map.empty))
+    digestErrors("confirmed", safeDigests(confirmed))
+
+  private def safeDigests(record: BinaryAttr.Partial): Map[Algo, HexLower] =
+    try record.digestsValue.getOrElse(Map.empty)
+    catch
+      case _: NoSuchElementException => Map.empty
 
   private def digestErrors(stage: String, digests: Map[Algo, HexLower]): List[String] =
     digests.toList.flatMap { case (algo, digest) =>
