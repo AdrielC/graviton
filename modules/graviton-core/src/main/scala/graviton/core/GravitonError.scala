@@ -19,9 +19,7 @@ sealed trait GravitonError extends Product with Serializable:
   def cause: Option[Throwable] = None
 
   /** Bridge to `Throwable` for layers that use untyped error channels. */
-  def toThrowable: Throwable = cause match
-    case Some(t) => GravitonException(message, t)
-    case None    => GravitonException(message)
+  def toThrowable: Throwable = GravitonException(this)
 
 object GravitonError:
 
@@ -91,17 +89,21 @@ end GravitonError
 
 /**
  * Throwable wrapper for `GravitonError`, used when bridging into untyped error channels.
+ *
+ * When constructed from a typed `GravitonError`, the original variant is preserved
+ * and can be recovered via [[error]]. Plain-string construction yields `InternalError`.
  */
-final class GravitonException(
+final class GravitonException private (
   msg: String,
-  causedBy: Throwable | Null = null,
+  causedBy: Throwable | Null,
+  private val typedError: Option[GravitonError],
 ) extends Exception(msg, causedBy):
-  def this(error: GravitonError) = this(error.message, error.cause.orNull)
 
-  /** Recover the typed error if this was created from one. */
-  def error: GravitonError = GravitonError.InternalError(msg, Option(causedBy))
+  /** Recover the typed error. Returns the original variant if constructed from one. */
+  def error: GravitonError = typedError.getOrElse(GravitonError.InternalError(msg, Option(causedBy)))
 
 object GravitonException:
-  def apply(msg: String): GravitonException                   = new GravitonException(msg)
-  def apply(msg: String, cause: Throwable): GravitonException = new GravitonException(msg, cause)
-  def apply(error: GravitonError): GravitonException          = new GravitonException(error)
+  def apply(msg: String): GravitonException                   = new GravitonException(msg, null, None)
+  def apply(msg: String, cause: Throwable): GravitonException = new GravitonException(msg, cause, None)
+  def apply(error: GravitonError): GravitonException          =
+    new GravitonException(error.message, error.cause.orNull, Some(error))
