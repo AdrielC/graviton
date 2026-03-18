@@ -127,12 +127,66 @@ final case class BinaryAttributes private (
     entriesOf(confirmed)
 
   /**
-   * Validate internal invariants.
+   * Validate that confirmed attributes are consistent with advertised ones.
    *
-   * Custom attribute keys/values are already refined at the type level, so this is currently total.
+   * When a caller advertises an attribute (e.g. size or digest) and the system
+   * later confirms a different value from the actual ingest measurement, the
+   * mismatch is surfaced here as an `Either[String, BinaryAttributes]`.  A
+   * mismatch indicates the client supplied incorrect metadata, which could
+   * silently corrupt verification logic if ignored.
+   *
+   * Attributes that are only advertised or only confirmed are always valid —
+   * the check fires only when both sides carry a value for the same key and
+   * those values disagree.
+   *
+   * @note Digest validation is per-algorithm: only algos present in both maps
+   *       are compared; extra algos on either side are ignored.
+   * @return `Right(this)` if all present confirmed/advertised pairs agree,
+   *         `Left(msg)` with a semicolon-separated list of mismatches otherwise.
+   * @example
+   *   {{{
+   *   val attrs = BinaryAttributes.empty
+   *     .advertiseSize(FileSize.unsafe(100L))
+   *     .confirmSize(FileSize.unsafe(200L))
+   *   attrs.validate // Left("size mismatch: advertised=100, confirmed=200")
+   *   }}}
    */
-  def validate: Either[Nothing, BinaryAttributes] =
-    Right(this)
+  def validate: Either[String, BinaryAttributes] =
+    // Import the custom Tag instances from BinaryAttr so that the inline
+    // Record.selectDynamic calls inside digestsValue / customValue resolve to
+    // the same Tag representation that was used when building the Record.
+    // Without this, the Tag for e.g. Option[Map[Algo, HexLower]] differs
+    // between the build site and the lookup site, causing NoSuchElementException.
+    import BinaryAttr.given
+
+    val errors = List.newBuilder[String]
+
+    (advertised.sizeValue, confirmed.sizeValue) match
+      case (Some(adv), Some(conf)) if adv != conf =>
+        errors += s"size mismatch: advertised=$adv, confirmed=$conf"
+      case _                                      => ()
+
+    (advertised.chunkCountValue, confirmed.chunkCountValue) match
+      case (Some(adv), Some(conf)) if adv != conf =>
+        errors += s"chunkCount mismatch: advertised=$adv, confirmed=$conf"
+      case _                                      => ()
+
+    (advertised.mimeValue, confirmed.mimeValue) match
+      case (Some(adv), Some(conf)) if adv != conf =>
+        errors += s"mime mismatch: advertised=$adv, confirmed=$conf"
+      case _                                      => ()
+
+    for
+      advDigests  <- advertised.digestsValue.toList
+      confDigests <- confirmed.digestsValue.toList
+      algo        <- (advDigests.keySet intersect confDigests.keySet).toList
+      advHex       = advDigests(algo)
+      confHex      = confDigests(algo)
+      if advHex != confHex
+    do errors += s"digest mismatch for $algo: advertised=$advHex, confirmed=$confHex"
+
+    val errs = errors.result()
+    if errs.isEmpty then Right(this) else Left(errs.mkString("; "))
 
   def diff: DiffRecord =
     BinaryAttrDiff.compute(advertised, confirmed)
