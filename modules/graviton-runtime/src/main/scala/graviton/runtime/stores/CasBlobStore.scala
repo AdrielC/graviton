@@ -55,10 +55,11 @@ final class CasBlobStore(
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
       for
-        startedNanos <- Clock.nanoTime
-        chunker      <- graviton.streams.Chunker.current.get
-        blobHasher   <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-        totalBytes   <- Ref.make(0L)
+        validatedAttrs <- ZIO.fromEither(plan.attributes.validate).mapError(msg => new IllegalArgumentException(msg))
+        startedNanos   <- Clock.nanoTime
+        chunker        <- graviton.streams.Chunker.current.get
+        blobHasher     <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+        totalBytes     <- Ref.make(0L)
 
         scanDone <- Promise.make[Nothing, Long]
 
@@ -212,13 +213,14 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
 
             // Build confirmed attributes from the ingest summary (Phase B.3).
-            confirmedAttrs = {
+            confirmedAttrs       = {
               val algoName  = Algo.applyUnsafe(blobHasher.algo.primaryName)
               val hexDigest = HexLower.applyUnsafe(digest.hex.value)
-              plan.attributes
+              validatedAttrs
                 .confirmSize(FileSize.unsafe(size))
                 .confirmDigest(algoName, hexDigest)
             }
+            validConfirmedAttrs <- ZIO.fromEither(confirmedAttrs.validate).mapError(msg => new IllegalArgumentException(msg))
 
             ingestStats = graviton.core.attributes.IngestStats(
                             totalBytes = size,
@@ -227,7 +229,7 @@ final class CasBlobStore(
                             duplicateBlocks = dupBlocks,
                             durationSeconds = durationSeconds,
                           )
-          yield BlobWriteResult(blob, locator, confirmedAttrs, ingestStats)
+          yield BlobWriteResult(blob, locator, validConfirmedAttrs, ingestStats)
         }
     }
 

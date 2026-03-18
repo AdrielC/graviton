@@ -211,7 +211,7 @@ final case class BinaryAttributes(
   def get[A](key: BinaryAttributeKey[A]): Option[Tracked[A]] =
     confirmed.get(key).orElse(advertised.get(key))
   
-  def validate: Either[Nothing, BinaryAttributes]
+  def validate: Either[String, BinaryAttributes]
 ```
 
 ### Confirmed vs Advertised

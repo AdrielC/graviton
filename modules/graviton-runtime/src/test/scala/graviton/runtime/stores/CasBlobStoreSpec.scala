@@ -148,4 +148,26 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.gauges.contains(MetricKey(MetricKeys.UploadDuration, tags)),
         )
       },
+      test("rejects invalid BinaryAttributes before persisting blocks or manifests") {
+        val data = Chunk.fromArray("hello".getBytes(StandardCharsets.UTF_8))
+        val plan =
+          BlobWritePlan(
+            attributes = BinaryAttributes.empty
+              .advertiseDigest(
+                graviton.core.types.Algo.applyUnsafe("sha-256"),
+                graviton.core.types.HexLower.applyUnsafe("ab"),
+              )
+          )
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+          exit       <- ZStream.fromChunk(data).run(blobStore.put(plan)).exit
+          snapshot   <- repo.snapshot
+        yield assertTrue(
+          exit.isFailure,
+          snapshot.isEmpty,
+        )
+      },
     )

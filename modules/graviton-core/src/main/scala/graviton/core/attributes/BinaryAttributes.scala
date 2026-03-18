@@ -54,6 +54,48 @@ object BinaryAttributes:
       builder += (BinaryAttributeKey.Custom(name) -> value)
     })
     builder.result()
+
+  private def validateRecord(label: String, record: BinaryAttr.Partial): Either[String, Unit] =
+    for
+      _ <- validateSizeAndChunkCount(label, record.sizeValue, record.chunkCountValue)
+      _ <- validateMime(label, record.mimeValue)
+      _ <- validateDigests(label, record.digestsOrEmpty)
+    yield ()
+
+  private def validateSizeAndChunkCount(
+    label: String,
+    size: Option[FileSize],
+    chunkCount: Option[ChunkCount],
+  ): Either[String, Unit] =
+    (size, chunkCount) match
+      case (Some(fileSize), Some(chunks)) =>
+        Either.cond(
+          chunks.value <= fileSize.value,
+          (),
+          s"$label chunk count ${chunks.value} cannot exceed size ${fileSize.value}",
+        )
+      case _                              =>
+        Right(())
+
+  private def validateMime(label: String, mime: Option[Mime]): Either[String, Unit] =
+    mime match
+      case None        => Right(())
+      case Some(value) =>
+        val raw       = value.value
+        val mediaType = raw.takeWhile(_ != ';')
+        val parts     = mediaType.split("/", -1)
+        Either.cond(
+          raw == raw.trim &&
+            parts.length == 2 &&
+            parts.forall(part => part.nonEmpty && !part.exists(_.isWhitespace)),
+          (),
+          s"$label mime must be a valid media type, got '$raw'",
+        )
+
+  private def validateDigests(label: String, digests: Map[Algo, HexLower]): Either[String, Unit] =
+    digests.foldLeft[Either[String, Unit]](Right(())) { case (acc, (algo, hex)) =>
+      acc.flatMap(_ => validateDigest(algo, hex).left.map(msg => s"$label digest '${algo.value}' invalid: $msg"))
+    }
 end BinaryAttributes
 
 final case class BinaryAttributes private (
@@ -129,10 +171,15 @@ final case class BinaryAttributes private (
   /**
    * Validate internal invariants.
    *
-   * Custom attribute keys/values are already refined at the type level, so this is currently total.
+   * This checks cross-field invariants that the refined wrappers alone cannot encode,
+   * such as digest length by algorithm, MIME structure, and impossible size/chunk-count pairs.
    */
-  def validate: Either[Nothing, BinaryAttributes] =
-    Right(this)
+  def validate: Either[String, BinaryAttributes] =
+    for
+      _ <- BinaryAttributes.validateRecord("advertised", advertised)
+      _ <- BinaryAttributes.validateRecord("confirmed", confirmed)
+      _ <- BinaryAttributes.validateSizeAndChunkCount("merged", size, chunkCount)
+    yield this
 
   def diff: DiffRecord =
     BinaryAttrDiff.compute(advertised, confirmed)

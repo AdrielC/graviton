@@ -69,14 +69,15 @@ exists in `graviton-streams`. The AGENTS.md is stale.
 **Plan**:
 - [x] Mark this as done in AGENTS.md (Chunker exists, configurable via FiberRef).
 
-### 5. BinaryAttributes Validate is Trivially Total
-**Problem**: `BinaryAttributes.validate` returns `Either[Nothing, BinaryAttributes]` and
-always returns `Right(this)`. The advertised/confirmed split isn't enforced.
+### 5. BinaryAttributes Validation Needs Policy Follow-up
+**Status**: `BinaryAttributes.validate` now enforces algorithm-aware digest lengths,
+basic MIME structure, and impossible size/chunk-count combinations across advertised,
+confirmed, and merged views.
 
-**Plan**:
-- [ ] Implement real validation: check that confirmed values are consistent with
-  advertised values (e.g., confirmed size matches advertised size if both present).
-- [ ] Add a `BinaryAttributeKey`-keyed validation map.
+**Follow-up**:
+- [ ] Decide whether advertised-vs-confirmed equality belongs in core validation or
+  a higher-level request policy.
+- [ ] Add a `BinaryAttributeKey`-keyed validation map if attribute-specific rules grow.
 
 ### 6. Server Composition is Minimal
 **Problem**: `Composition.scala` just provides a noop `BlobStore`. The real wiring
