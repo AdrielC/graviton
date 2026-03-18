@@ -1,6 +1,5 @@
 package graviton.runtime.stores
 
-import graviton.core.keys.BinaryKey
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey}
 import zio.*
 import zio.stream.ZStream

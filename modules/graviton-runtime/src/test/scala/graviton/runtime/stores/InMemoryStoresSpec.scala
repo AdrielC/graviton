@@ -3,6 +3,7 @@ package graviton.runtime.stores
 import graviton.core.attributes.*
 import graviton.core.bytes.*
 import graviton.core.keys.*
+import graviton.core.types.*
 import graviton.runtime.model.*
 import zio.*
 import zio.stream.*
@@ -42,6 +43,24 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
           statBefore.exists(_.digest != Digest.empty),
           statAfter.isEmpty,
           result.locator.bucket.value == "test-bucket",
+        )
+      },
+      test("blob store rejects invalid BlobWritePlan attributes") {
+        val data  = Chunk.fromArray("invalid-attrs".getBytes(StandardCharsets.UTF_8))
+        val attrs =
+          BinaryAttributes.empty
+            .advertiseDigest(Algo.applyUnsafe("sha-256"), HexLower.applyUnsafe("a" * 40))
+        for
+          store <- InMemoryBlobStore.make("test-bucket")
+          exit  <- ZStream
+                     .fromChunk(data)
+                     .run(store.put(BlobWritePlan(attributes = attrs)))
+                     .exit
+        yield assertTrue(
+          exit match
+            case Exit.Failure(cause) =>
+              cause.failureOption.exists(_.getMessage.contains("Invalid binary attributes in BlobWritePlan"))
+            case Exit.Success(_)     => false
         )
       },
     )

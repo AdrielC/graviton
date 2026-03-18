@@ -53,32 +53,38 @@ final class InMemoryBlobStore private (
 
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
-      _      <- ZIO
-                  .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
-                  .when(bytes.isEmpty)
-      hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-      algo    = hasher.algo
-      _       = hasher.update(bytes.toArray)
-      digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-      bits   <- ZIO
-                  .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      key    <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
-      size   <- ZIO
-                  .fromEither(FileSize.either(bytes.length.toLong))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      count  <- ZIO
-                  .fromEither(ChunkCount.either(deriveChunkCount(bytes.length)))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      attrs   = plan.attributes
-                  .confirmSize(size)
-                  .confirmChunkCount(count)
-      locator = plan.locatorHint.getOrElse(defaultLocator(key))
-      now    <- Clock.currentTime(TimeUnit.MILLISECONDS)
-      stat    = BlobStat(size, digest, Instant.ofEpochMilli(now))
-      stored  = StoredBlob(bytes, locator, attrs, stat)
-      _      <- blobs.update(_.updated(key, stored))
-    yield BlobWriteResult(key, locator, attrs)
+      _              <- ZIO
+                          .fromEither(plan.attributes.validate)
+                          .mapError(msg => new IllegalArgumentException(s"Invalid binary attributes in BlobWritePlan: $msg"))
+      _              <- ZIO
+                          .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
+                          .when(bytes.isEmpty)
+      hasher         <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
+      algo            = hasher.algo
+      _               = hasher.update(bytes.toArray)
+      digest         <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+      bits           <- ZIO
+                          .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                          .mapError(msg => new IllegalArgumentException(msg))
+      key            <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
+      size           <- ZIO
+                          .fromEither(FileSize.either(bytes.length.toLong))
+                          .mapError(msg => new IllegalArgumentException(msg))
+      count          <- ZIO
+                          .fromEither(ChunkCount.either(deriveChunkCount(bytes.length)))
+                          .mapError(msg => new IllegalArgumentException(msg))
+      attrs           = plan.attributes
+                          .confirmSize(size)
+                          .confirmChunkCount(count)
+      validatedAttrs <- ZIO
+                          .fromEither(attrs.validate)
+                          .mapError(msg => new IllegalStateException(s"Generated invalid confirmed attributes: $msg"))
+      locator         = plan.locatorHint.getOrElse(defaultLocator(key))
+      now            <- Clock.currentTime(TimeUnit.MILLISECONDS)
+      stat            = BlobStat(size, digest, Instant.ofEpochMilli(now))
+      stored          = StoredBlob(bytes, locator, validatedAttrs, stat)
+      _              <- blobs.update(_.updated(key, stored))
+    yield BlobWriteResult(key, locator, validatedAttrs)
 
   private def deriveChunkCount(length: Int): Long =
     if length <= 0 then 0L

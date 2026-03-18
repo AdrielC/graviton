@@ -1,8 +1,8 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult}
+import graviton.runtime.metrics.MetricsRegistry
+import graviton.runtime.model.{BlobStat, BlobWritePlan}
 import zio.*
 import zio.stream.*
 
