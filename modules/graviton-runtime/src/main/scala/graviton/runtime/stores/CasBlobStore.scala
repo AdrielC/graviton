@@ -211,7 +211,6 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
 
-            // Build confirmed attributes from the ingest summary (Phase B.3).
             confirmedAttrs = {
               val algoName  = Algo.applyUnsafe(blobHasher.algo.primaryName)
               val hexDigest = HexLower.applyUnsafe(digest.hex.value)

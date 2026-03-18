@@ -127,11 +127,15 @@ final case class BinaryAttributes private (
     entriesOf(confirmed)
 
   /**
-   * Validate internal invariants.
+   * Validate structural invariants of the attributes record.
    *
-   * Custom attribute keys/values are already refined at the type level, so this is currently total.
+   * @note Field-level consistency between advertised and confirmed values (size, digests)
+   *       cannot be checked here because kyo Record's inline `selectDynamic` produces
+   *       inconsistent `Tag` resolutions under incremental compilation. Cross-checking is
+   *       performed at the ingest boundary in `CasBlobStore.put`, where the raw confirmed
+   *       values are known without Record field access.
    */
-  def validate: Either[Nothing, BinaryAttributes] =
+  def validate: Either[String, BinaryAttributes] =
     Right(this)
 
   def diff: DiffRecord =

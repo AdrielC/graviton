@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.GravitonError
 import graviton.core.keys.BinaryKey
-import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
+import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult}
 import zio.*
 import zio.stream.*
 
@@ -75,6 +75,12 @@ object StoreOps:
      */
     def getTyped(key: BinaryKey): ZStream[Any, GravitonError, Byte] =
       store.get(key).mapError(GravitonError.fromThrowable)
+
+    /**
+     * Query blob metadata with errors mapped to `GravitonError`.
+     */
+    def statTyped(key: BinaryKey): ZIO[Any, GravitonError, Option[BlobStat]] =
+      store.stat(key).mapError(GravitonError.fromThrowable)
 
     /**
      * Delete a blob with errors mapped to `GravitonError`.
