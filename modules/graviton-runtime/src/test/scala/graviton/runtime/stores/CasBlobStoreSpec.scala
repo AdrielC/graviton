@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
-import graviton.core.types.UploadChunkSize
+import graviton.core.types.*
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, IngestProgram}
 import graviton.streams.Chunker
@@ -146,6 +146,27 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.gauges.contains(MetricKey(MetricKeys.BlocksIngested, tags)),
           snapshot.gauges.contains(MetricKey(MetricKeys.ScanOutputs, tags)),
           snapshot.gauges.contains(MetricKey(MetricKeys.UploadDuration, tags)),
+        )
+      },
+      test("rejects BlobWritePlan attributes with invalid digest metadata") {
+        val data  = Chunk.fromArray("abc".getBytes(StandardCharsets.UTF_8))
+        val attrs =
+          BinaryAttributes.empty
+            .advertiseDigest(Algo.applyUnsafe("sha-256"), HexLower.applyUnsafe("a" * 40))
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+          exit       <- ZStream
+                          .fromChunk(data)
+                          .run(blobStore.put(BlobWritePlan(attributes = attrs)))
+                          .exit
+        yield assertTrue(
+          exit match
+            case Exit.Failure(cause) =>
+              cause.failureOption.exists(_.getMessage.contains("Invalid binary attributes in BlobWritePlan"))
+            case Exit.Success(_)     => false
         )
       },
     )
