@@ -26,18 +26,18 @@ final class CircuitBreaker private (
 
   def protect[R, E, A](zio: ZIO[R, E, A]): ZIO[R & Clock, E | CircuitBreakerRejected, A] =
     for
-      now  <- Clock.instant
-      gate <- state.get.flatMap {
-                case CircuitState.Open(until) if now.isBefore(until) =>
-                  ZIO.fail(CircuitBreakerRejected(s"circuit breaker open until $until"))
-                case CircuitState.Open(_)                            =>
-                  state.set(CircuitState.HalfOpen) *> ZIO.succeed(())
-                case CircuitState.HalfOpen                           =>
-                  ZIO.succeed(())
-                case CircuitState.Closed(_)                          =>
-                  ZIO.succeed(())
-              }
-      out  <- zio.tapError(_ => onFailure).tap(_ => onSuccess)
+      now <- Clock.instant
+      _   <- state.modifyZIO {
+               case CircuitState.Open(until) if now.isBefore(until) =>
+                 ZIO.fail(CircuitBreakerRejected(s"circuit breaker open until $until"))
+               case CircuitState.Open(_)                            =>
+                 ZIO.succeed(() -> CircuitState.HalfOpen)
+               case CircuitState.HalfOpen                           =>
+                 ZIO.succeed(() -> CircuitState.HalfOpen)
+               case c @ CircuitState.Closed(_)                      =>
+                 ZIO.succeed(() -> c)
+             }
+      out <- zio.tapError(_ => onFailure).tap(_ => onSuccess)
     yield out
 
   private def onSuccess: URIO[Clock, Unit] =
