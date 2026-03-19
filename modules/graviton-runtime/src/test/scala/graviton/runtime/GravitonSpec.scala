@@ -1,6 +1,5 @@
 package graviton.runtime
 
-import graviton.core.keys.BinaryKey
 import zio.*
 import zio.test.*
 

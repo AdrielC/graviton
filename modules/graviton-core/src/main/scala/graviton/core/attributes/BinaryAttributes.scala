@@ -128,11 +128,10 @@ final case class BinaryAttributes private (
 
   /**
    * Validate internal invariants.
-   *
-   * Custom attribute keys/values are already refined at the type level, so this is currently total.
    */
-  def validate: Either[Nothing, BinaryAttributes] =
-    Right(this)
+  def validate: Either[String, BinaryAttributes] =
+    val errors = advertisedDigestErrors ++ confirmedDigestErrors
+    Either.cond(errors.isEmpty, this, errors.mkString("; "))
 
   def diff: DiffRecord =
     BinaryAttrDiff.compute(advertised, confirmed)
@@ -145,4 +144,17 @@ final case class BinaryAttributes private (
 
   private def modifyConfirmed(f: BinaryAttr.Partial => BinaryAttr.Partial): BinaryAttributes =
     copy(confirmed = f(confirmed))
+
+  private def advertisedDigestErrors: List[String] =
+    digestErrors("advertised", advertised.digestsOrEmpty)
+
+  private def confirmedDigestErrors: List[String] =
+    digestErrors("confirmed", confirmed.digestsOrEmpty)
+
+  private def digestErrors(stage: String, digests: Map[Algo, HexLower]): List[String] =
+    digests.toList.flatMap { case (algo, digest) =>
+      graviton.core.types.validateDigest(algo, digest).left.toOption.map { reason =>
+        s"$stage digest ${algo.value} invalid: $reason"
+      }
+    }
 end BinaryAttributes

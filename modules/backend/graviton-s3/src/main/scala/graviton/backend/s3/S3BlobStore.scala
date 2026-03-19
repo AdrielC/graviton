@@ -32,6 +32,10 @@ final class S3BlobStore(
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
       for
+        _      <-
+          ZIO
+            .fromEither(plan.attributes.validate)
+            .mapError(msg => new IllegalArgumentException(s"Invalid binary attributes in BlobWritePlan: $msg"))
         hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
         state   = PutState.initial(hasher, config)
       yield ZSink
@@ -205,81 +209,84 @@ private final case class PutState(
 
   def finish(client: S3Client, plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
-      _       <- ZIO.fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)")).when(totalBytes <= 0L)
-      digest  <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-      bits    <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, totalBytes)).mapError(msg => new IllegalArgumentException(msg))
-      key     <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
-      size    <- ZIO.fromEither(FileSize.either(totalBytes)).mapError(msg => new IllegalArgumentException(msg))
-      count   <- ZIO.fromEither(ChunkCount.either(deriveChunkCount(totalBytes))).mapError(msg => new IllegalArgumentException(msg))
-      attrs    = plan.attributes.confirmSize(size).confirmChunkCount(count)
-      _       <- multipart match
-                   case None     =>
-                     // Small object: upload directly to final key (buffer is bounded by partSize).
-                     val req =
-                       PutObjectRequest
-                         .builder()
-                         .bucket(config.blobs.bucket)
-                         .key(finalObjectKeyFor(key))
-                         .build()
-                     ZIO.attemptBlocking(client.putObject(req, RequestBody.fromBytes(buffer.toByteArray))).unit
-                   case Some(mp) =>
-                     // Upload last part (may be < 5MiB), complete multipart, then copy into final CAS key.
-                     val lastBytes = buffer.toByteArray
-                     for
-                       _ <-
-                         ZIO.attemptBlocking {
-                           val req  =
-                             UploadPartRequest
-                               .builder()
-                               .bucket(config.tmp.bucket)
-                               .key(mp.key)
-                               .uploadId(mp.uploadId)
-                               .partNumber(mp.nextPartNumber)
-                               .contentLength(lastBytes.length.toLong)
-                               .build()
-                           val resp = client.uploadPart(req, RequestBody.fromBytes(lastBytes))
-                           val last = CompletedPart.builder().partNumber(mp.nextPartNumber).eTag(resp.eTag()).build()
-                           val all  = (mp.parts :+ last).asJava
+      _              <- ZIO.fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)")).when(totalBytes <= 0L)
+      digest         <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+      bits           <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, totalBytes)).mapError(msg => new IllegalArgumentException(msg))
+      key            <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
+      size           <- ZIO.fromEither(FileSize.either(totalBytes)).mapError(msg => new IllegalArgumentException(msg))
+      count          <- ZIO.fromEither(ChunkCount.either(deriveChunkCount(totalBytes))).mapError(msg => new IllegalArgumentException(msg))
+      attrs           = plan.attributes.confirmSize(size).confirmChunkCount(count)
+      validatedAttrs <- ZIO
+                          .fromEither(attrs.validate)
+                          .mapError(msg => new IllegalStateException(s"Generated invalid confirmed attributes: $msg"))
+      _              <- multipart match
+                          case None     =>
+                            // Small object: upload directly to final key (buffer is bounded by partSize).
+                            val req =
+                              PutObjectRequest
+                                .builder()
+                                .bucket(config.blobs.bucket)
+                                .key(finalObjectKeyFor(key))
+                                .build()
+                            ZIO.attemptBlocking(client.putObject(req, RequestBody.fromBytes(buffer.toByteArray))).unit
+                          case Some(mp) =>
+                            // Upload last part (may be < 5MiB), complete multipart, then copy into final CAS key.
+                            val lastBytes = buffer.toByteArray
+                            for
+                              _ <-
+                                ZIO.attemptBlocking {
+                                  val req  =
+                                    UploadPartRequest
+                                      .builder()
+                                      .bucket(config.tmp.bucket)
+                                      .key(mp.key)
+                                      .uploadId(mp.uploadId)
+                                      .partNumber(mp.nextPartNumber)
+                                      .contentLength(lastBytes.length.toLong)
+                                      .build()
+                                  val resp = client.uploadPart(req, RequestBody.fromBytes(lastBytes))
+                                  val last = CompletedPart.builder().partNumber(mp.nextPartNumber).eTag(resp.eTag()).build()
+                                  val all  = (mp.parts :+ last).asJava
 
-                           val completed =
-                             CompletedMultipartUpload
-                               .builder()
-                               .parts(all)
-                               .build()
+                                  val completed =
+                                    CompletedMultipartUpload
+                                      .builder()
+                                      .parts(all)
+                                      .build()
 
-                           client.completeMultipartUpload(
-                             CompleteMultipartUploadRequest
-                               .builder()
-                               .bucket(config.tmp.bucket)
-                               .key(mp.key)
-                               .uploadId(mp.uploadId)
-                               .multipartUpload(completed)
-                               .build()
-                           )
-                         }.unit
-                       _ <- ZIO.attemptBlocking {
-                              val copyReq =
-                                CopyObjectRequest
-                                  .builder()
-                                  .sourceBucket(config.tmp.bucket)
-                                  .sourceKey(mp.key)
-                                  .destinationBucket(config.blobs.bucket)
-                                  .destinationKey(finalObjectKeyFor(key))
-                                  .build()
-                              client.copyObject(copyReq)
-                            }.unit
-                       _ <- ZIO.attemptBlocking {
-                              client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build())
-                            }.unit
-                     yield ()
-      locator <-
+                                  client.completeMultipartUpload(
+                                    CompleteMultipartUploadRequest
+                                      .builder()
+                                      .bucket(config.tmp.bucket)
+                                      .key(mp.key)
+                                      .uploadId(mp.uploadId)
+                                      .multipartUpload(completed)
+                                      .build()
+                                  )
+                                }.unit
+                              _ <- ZIO.attemptBlocking {
+                                     val copyReq =
+                                       CopyObjectRequest
+                                         .builder()
+                                         .sourceBucket(config.tmp.bucket)
+                                         .sourceKey(mp.key)
+                                         .destinationBucket(config.blobs.bucket)
+                                         .destinationKey(finalObjectKeyFor(key))
+                                         .build()
+                                     client.copyObject(copyReq)
+                                   }.unit
+                              _ <- ZIO.attemptBlocking {
+                                     client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build())
+                                   }.unit
+                            yield ()
+      locator        <-
         plan.locatorHint match
           case Some(value) => ZIO.succeed(value)
           case None        =>
             ZIO
               .fromEither(BlobLocator.from(config.scheme, config.blobs.bucket, finalObjectKeyFor(key)))
               .mapError(msg => new IllegalArgumentException(msg))
-    yield BlobWriteResult(key, locator, attrs)
+    yield BlobWriteResult(key, locator, validatedAttrs)
 
   private def deriveChunkCount(length: Long): Long =
     if length <= 0 then 0L
