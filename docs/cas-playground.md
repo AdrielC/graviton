@@ -13,14 +13,11 @@ onMounted(() => {
     if (typeof window !== 'undefined') {
       window.__GRAVITON_DOCS_BASE__ = normalizedBase
     }
+    if (window.location.hash !== '#/playground') {
+      window.location.hash = '#/playground'
+    }
     const jsPath = `${normalizedBase}/js/main.js`
-    import(jsPath).then(() => {
-      setTimeout(() => {
-        if (window.location.hash !== '#/playground') {
-          window.location.hash = '#/playground'
-        }
-      }, 100)
-    }).catch(err => {
+    import(jsPath).catch(err => {
       console.warn('CAS Playground not loaded:', err.message)
     })
   }
@@ -37,12 +34,6 @@ The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
 2. **Hashing** — computes a real SHA-256 digest for each block via `pt.kcry:sha`
 3. **Deduplication** — tracks which block digests have been seen before
 4. **Iron types** — `BlockSize`, `Sha256Hex`, `BlockIndex` enforce invariants at the type level
-:::
-
-::: info Build Checklist
-1. Run `./sbt buildFrontend` from the repo root.
-2. Run `cd docs && npm run docs:dev`.
-3. Navigate to this page.
 :::
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
