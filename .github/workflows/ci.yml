@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   fmt:
     runs-on: ubuntu-latest
@@ -89,10 +93,11 @@ jobs:
         run: ./sbt 'set ThisBuild / Test / testOptions += Tests.Argument("-oD", "-u", "target/test-reports")' test
       - name: Publish test results
         if: always()
-        uses: mikepenz/action-junit-report@v4
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: '**/target/test-reports/**/*.xml'
           check_name: Test Results
+          annotate_only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
       - name: Stop MinIO
         if: always()
         run: docker rm -f minio || true
