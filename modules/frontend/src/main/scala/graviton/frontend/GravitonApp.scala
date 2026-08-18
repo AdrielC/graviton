@@ -45,6 +45,17 @@ object GravitonApp {
   val pipelineRoute   = Route.static(Page.Pipeline, root / "pipeline" / endOfSegments)
   val playgroundRoute = Route.static(Page.Playground, root / "playground" / endOfSegments)
 
+  def pageFromLocation(value: String): Page = value match
+    case s if s.contains("playground") => Page.Playground
+    case s if s.contains("pipeline")   => Page.Pipeline
+    case s if s.contains("explorer")   => Page.Explorer
+    case s if s.contains("upload")     => Page.Upload
+    case s if s.contains("stats")      => Page.Stats
+    case s if s.contains("schema")     => Page.Schema
+    case s if s.contains("updates")    => Page.Updates
+    case s if s.contains("mission")    => Page.Mission
+    case _                             => Page.Dashboard
+
   val router = new Router[Page](
     routes =
       List(dashboardRoute, explorerRoute, uploadRoute, statsRoute, schemaRoute, updatesRoute, missionRoute, pipelineRoute, playgroundRoute),
@@ -70,17 +81,7 @@ object GravitonApp {
       case Page.Pipeline   => "#/pipeline"
       case Page.Playground => "#/playground"
     },
-    deserializePage = {
-      case s if s.contains("playground") => Page.Playground
-      case s if s.contains("pipeline")   => Page.Pipeline
-      case s if s.contains("explorer")   => Page.Explorer
-      case s if s.contains("upload")     => Page.Upload
-      case s if s.contains("stats")      => Page.Stats
-      case s if s.contains("schema")     => Page.Schema
-      case s if s.contains("updates")    => Page.Updates
-      case s if s.contains("mission")    => Page.Mission
-      case _                             => Page.Dashboard
-    },
+    deserializePage = pageFromLocation,
   )(
     popStateEvents = windowEvents(_.onPopState),
     owner = unsafeWindowOwner,

@@ -28,6 +28,7 @@ object Main {
       val container = dom.document.getElementById("graviton-app")
       if container != null then
         val _ = render(container, GravitonApp(baseUrl, docsBase))
+        GravitonApp.router.replaceState(GravitonApp.pageFromLocation(dom.window.location.hash))
         ()
       else dom.console.warn("Graviton demo container not found")
 
