@@ -1,0 +1,172 @@
+package graviton.runtime.stores
+
+import graviton.core.attributes.BinaryAttributes
+import graviton.core.keys.BinaryKey
+import graviton.core.types.*
+import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
+import graviton.runtime.model.{BlobWritePlan, IngestProgram}
+import graviton.streams.Chunker
+import zio.*
+import zio.stream.ZStream
+import zio.test.*
+
+import java.nio.charset.StandardCharsets
+
+object CasBlobStoreSpec extends ZIOSpecDefault:
+
+  override def spec: Spec[TestEnvironment, Any] =
+    suite("CasBlobStore")(
+      test("uses Chunker boundaries for block spans") {
+        val bytes   = "x" * 2500
+        val data    = Chunk.fromArray(bytes.getBytes(StandardCharsets.UTF_8))
+        val chunker = Chunker.fixed(UploadChunkSize(1024))
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+
+          result <- Chunker.locally(chunker) {
+                      ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = BinaryAttributes.empty)))
+                    }
+
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+
+          spans = stored.manifest.entries.map(_.span)
+        yield assertTrue(
+          stored.manifest.entries.length == 3,
+          spans.head.startInclusive.value == 0L,
+          spans.head.endInclusive.value == 1023L,
+          spans(1).startInclusive.value == 1024L,
+          spans(1).endInclusive.value == 2047L,
+          spans(2).startInclusive.value == 2048L,
+          spans(2).endInclusive.value == 2499L,
+        )
+      },
+      test("applies BlobWritePlan.program pipeline before chunking + hashing") {
+        val input   = "a-b-c-d"
+        val data    = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+        val chunker = Chunker.fixed(UploadChunkSize(2))
+
+        val program =
+          IngestProgram.UsePipeline(
+            zio.stream.ZPipeline.filter[Byte](_ != '-'.toByte)
+          )
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+
+          result <- Chunker.locally(chunker) {
+                      ZStream
+                        .fromChunk(data)
+                        .run(
+                          blobStore.put(
+                            BlobWritePlan(
+                              attributes = BinaryAttributes.empty,
+                              program = program,
+                            )
+                          )
+                        )
+                    }
+
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+
+          bytes <- blobStore.get(blobKey).runCollect
+        yield assertTrue(
+          bytes == Chunk.fromArray("abcd".getBytes(StandardCharsets.UTF_8)),
+          stored.manifest.entries.length == 2,
+          stored.manifest.entries.map(_.span.startInclusive) == List(0L, 2L),
+          stored.manifest.entries.map(_.span.endInclusive) == List(1L, 3L),
+        )
+      },
+      test("supports IngestProgram.UseScan without breaking ingest (records metrics)") {
+        val input = "hello"
+        val data  = Chunk.fromArray(input.getBytes(StandardCharsets.UTF_8))
+
+        val program =
+          IngestProgram.UseScan(
+            label = "byte-count",
+            build = () => graviton.core.scan.FS.counter[Byte],
+          )
+
+        for
+          registry <- InMemoryMetricsRegistry.make
+
+          chunker = Chunker.fixed(UploadChunkSize(2))
+
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo, metrics = registry)
+
+          result <- Chunker.locally(chunker) {
+                      ZStream
+                        .fromChunk(data)
+                        .run(blobStore.put(BlobWritePlan(program = program)))
+                    }
+
+          blobKey <- ZIO
+                       .fromEither(
+                         result.key match
+                           case b: BinaryKey.Blob => Right(b)
+                           case other             => Left(s"Expected blob key, got $other")
+                       )
+                       .mapError(msg => new IllegalStateException(msg))
+
+          bytes <- blobStore.get(blobKey).runCollect
+
+          snapshot <- registry.snapshot
+
+          tags =
+            Map(
+              "backend" -> "cas",
+              "store"   -> "blob",
+              "chunker" -> chunker.name,
+              "program" -> "scan",
+              "scan"    -> "byte-count",
+            )
+        yield assertTrue(
+          bytes == data,
+          snapshot.gauges.contains(MetricKey(MetricKeys.BytesIngested, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.BlocksIngested, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.ScanOutputs, tags)),
+          snapshot.gauges.contains(MetricKey(MetricKeys.UploadDuration, tags)),
+        )
+      },
+      test("rejects BlobWritePlan attributes with invalid digest metadata") {
+        val data  = Chunk.fromArray("abc".getBytes(StandardCharsets.UTF_8))
+        val attrs =
+          BinaryAttributes.empty
+            .advertiseDigest(Algo.applyUnsafe("sha-256"), HexLower.applyUnsafe("a" * 40))
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+          exit       <- ZStream
+                          .fromChunk(data)
+                          .run(blobStore.put(BlobWritePlan(attributes = attrs)))
+                          .exit
+        yield assertTrue(
+          exit match
+            case Exit.Failure(cause) =>
+              cause.failureOption.exists(_.getMessage.contains("Invalid binary attributes in BlobWritePlan"))
+            case Exit.Success(_)     => false
+        )
+      },
+    )

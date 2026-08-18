@@ -1,0 +1,23 @@
+# Modules Overview
+
+Graviton is split into focused SBT sub-projects. Each module owns a specific slice of the system so that storage backends, protocol surfaces, and UI experiences can evolve independently. Use this page as a map before diving into the detailed module guides.
+
+## High-level Layout
+
+- **Core** (documented separately): pure data types, codecs, algebraic structures, and the [Transducer algebra](../core/transducers.md) for composable pipeline stages.
+- **Runtime**: storage ports, policies, and operational concerns that wire pure logic to effectful infrastructure.
+- **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives — designed to compose with Transducers.
+- **Protocol**: shared API models and transport-specific servers (gRPC + HTTP).
+- **Backend adapters**: concrete integrations (PostgreSQL, S3, RocksDB) that satisfy runtime ports.
+- **Frontend**: Scala.js dashboard used in the interactive documentation demo.
+
+## Quick Links
+
+- [Backend adapters](./backend.md)
+- [Runtime module](./runtime.md)
+- [Streams utilities](./streams.md)
+- [Protocol stack](./protocol.md)
+- [Scala.js frontend](../modules/frontend.md)
+- [Apache Tika module](./tika.md)
+
+Each page outlines the responsibilities, current implementation status, and follow-up tasks needed for v0.1.0. See the repository `ROADMAP.md` for current engineering priorities.

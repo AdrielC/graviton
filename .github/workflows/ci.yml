@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Scalafmt check
+        run: ./sbt scalafmtCheckAll
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TESTCONTAINERS: '1'
+      GRAVITON_IT: '1'
+      GRAVITON_MINIO_IT: '1'
+      PG_JDBC_URL: 'jdbc:postgresql://127.0.0.1:5432/postgres'
+      PG_USERNAME: 'postgres'
+      PG_PASSWORD: 'postgres'
+      QUASAR_MINIO_URL: 'http://127.0.0.1:9000'
+      MINIO_ROOT_USER: 'minio'
+      MINIO_ROOT_PASSWORD: 'minioadmin'
+      GRAVITON_S3_BLOCK_BUCKET: 'graviton-blocks'
+      GRAVITON_S3_BLOCK_PREFIX: 'cas/blocks'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Wait for Postgres + apply schema
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client curl
+          for i in {1..60}; do
+            if command -v psql >/dev/null 2>&1; then
+              PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -c "select 1" >/dev/null 2>&1 && break
+            fi
+            sleep 1
+          done
+          PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
+      - name: Start MinIO + create bucket
+        run: |
+          set -euo pipefail
+          docker pull minio/minio:latest
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER="${MINIO_ROOT_USER}" \
+            -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}" \
+            minio/minio:latest server /data --console-address ":9001"
+          for i in {1..60}; do
+            curl -sf "http://127.0.0.1:9000/minio/health/ready" >/dev/null && break
+            sleep 1
+          done
+          MC=/tmp/mc
+          curl -fsSL -o "$MC" https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x "$MC"
+          "$MC" alias set local "${QUASAR_MINIO_URL}" "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+          "$MC" mb --ignore-existing "local/${GRAVITON_S3_BLOCK_BUCKET}"
+      - name: Test
+        run: ./sbt 'set ThisBuild / Test / testOptions += Tests.Argument("-oD", "-u", "target/test-reports")' test
+      - name: Publish test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: '**/target/test-reports/**/*.xml'
+          check_name: Test Results
+      - name: Stop MinIO
+        if: always()
+        run: docker rm -f minio || true
+
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Build Scala.js Frontend
+        run: ./sbt buildFrontend
+      - name: Verify docs snippets
+        run: ./sbt docs/mdoc checkDocSnippets
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install docs dependencies
+        run: npm install --prefix docs
+      - name: Build docs (verification only)
+        run: npm run docs:build --prefix docs
