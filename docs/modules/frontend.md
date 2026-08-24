@@ -36,7 +36,7 @@ flowchart LR
   sharedJVM["Shared Models (JVM)"]:::shared
   app["GravitonApp"]:::layer
   router["Laminar Router<br/>(Waypoint)"]:::layer
-  pages["Bundled Views:<br/>Dashboard · Explorer · Upload · Stats · Schema"]:::layer
+  pages["Bundled Views:<br/>Dashboard · Explorer · Analyze · Stats · Schema · Capacity Lab"]:::layer
   api["GravitonApi<br/>(ZIO HTTP client)"]:::runtime
 
   sharedJS --> app
@@ -50,12 +50,12 @@ flowchart LR
 
 ### Bundled Views
 
-- **Dashboard** - Animated overview with quick links into each tool.
-- **Explorer** - Blob metadata and manifest inspector with demo fallback data.
-- **Upload** - Client-side chunking sandbox visualising FastCDC behaviour.
-- **Stats** - Aggregated counters pulled through ZIO calls to the API.
-- **Schema** - Schema explorer that renders shared models and sample JSON directly in Scala.js.
-- **Demo Boost Lab** - New control surface that lets you simulate ingest bursts, tune concurrency, and watch live activity events without running a real cluster.
+- **Dashboard**: Capability overview with quick links into each tool.
+- **Explorer**: Reference blob metadata and manifest inspector, explicitly labeled as demo data when offline.
+- **Analyze**: Client-side file chunking sandbox that does not upload the selected file.
+- **Stats**: Process-lifetime ingest counters from the API, with an explicitly labeled offline fallback.
+- **Schema**: Schema explorer that renders shared models and sample JSON directly in Scala.js.
+- **Capacity Lab**: Assumption-driven storage arithmetic with commands supported by the current CLI.
 
 ### Entry Points
 
@@ -66,7 +66,7 @@ flowchart LR
 
 - **Signals**: Laminar `Signal`/`EventStream` instances drive reactive updates; each component is a pure `HtmlElement` factory.
 - **API**: `GravitonApi` wraps `BrowserHttpClient` (Fetch) and exposes an `offlineSignal` used to toggle demo mode badges.
-- **Demo data**: `DemoData` mirrors real API payloads and keeps the UI functional without a server. HTTP failures transparently swap to the canned dataset.
+- **Demo data**: `DemoDataset` mirrors API payloads and keeps the UI useful without a server. The app displays a persistent demo-mode banner after it switches to canned data.
 
 ## Styling & Assets
 
@@ -85,7 +85,7 @@ flowchart LR
 ## Interop with the Docs Site
 
 - The `/demo` markdown page injects the bundle and hosts the Laminar root node (`#graviton-app`).
-- Vue components under `.vitepress/theme/components/` (e.g., `NeonHud`, `QuantumConsole`) can coexist with Scala.js output - they live outside the Laminar mount point.
+- Vue components under `.vitepress/theme/components/` can coexist with Scala.js output because they live outside the Laminar mount point.
 - When adjusting the documentation layout, prefer editing CSS in `custom.css` to keep the Scala.js DOM stable.
 
 ## Testing & Quality

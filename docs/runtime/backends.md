@@ -1,56 +1,55 @@
-# Storage Backends (Current Status)
+# Storage Backends
 
-Graviton’s runtime is built around small “ports” (interfaces) such as `BlobStore`, `BlockStore`, `ImmutableObjectStore`, and `MutableObjectStore`. Backend modules implement those ports.
+Graviton keeps storage contracts in `graviton-runtime` and vendor code in backend modules. This table distinguishes an operational path from a useful adapter and from a scaffold.
 
-This page describes **what exists in the repository today**, and what is still scaffolded.
-
-## Summary
-
-| Module | Implements | Status |
+| Module | Current capability | Status |
 | --- | --- | --- |
-| `modules/graviton-runtime` | `InMemoryBlockStore` (main); `InMemoryBlobStore` (test sources only) | ✅ block store + `Graviton.inMemory()` for full CAS in demos/tests |
-| `modules/backend/graviton-pg` | `PgBlobManifestRepo`, object-store ports, indexes | ✅ `PgBlobManifestRepo` is used by the server; other ports are still stubbed/placeholder |
-| `modules/backend/graviton-s3` | `S3BlockStore`, object-store ports | ✅ `S3BlockStore` supports put/get/exists (used by the server); other ports are still evolving |
-| `modules/backend/graviton-rocks` | `RocksKeyValueStore` | ⚠️ currently stubbed / placeholder behaviors |
+| `graviton-runtime` | In-memory CAS plus filesystem blocks and versioned filesystem manifests | Operational and covered by restart tests |
+| `backend/graviton-pg` | Transactional PostgreSQL blob manifests | Operational S3/MinIO server manifest path; several generic ports remain scaffolds |
+| `backend/graviton-s3` | S3/MinIO content-addressed block `put/get/exists` | Operational server block path with integration coverage |
+| `backend/graviton-rocks` | Scoped RocksDB `put/get/delete` | Durable KV adapter with reopen coverage; not a CAS backend |
 
-## In-memory reference stores
+## Local filesystem CAS
 
-- **Block store**: `graviton.runtime.stores.InMemoryBlockStore` implements `BlockStore.putBlocks`, deduplicates blocks, and can synthesize `BlockFrame` values when framing plans are supported.
-- **Blob store (tests)**: `InMemoryBlobStore` in **`src/test`** implements `BlobStore` for unit tests (streaming `put` / `get`).
-- **Full stack without DB**: `Graviton.inMemory()` composes `CasBlobStore` + in-memory manifests — the usual choice for examples and integration tests that need `BlobStore` from main sources.
+`Graviton.fs(root)` composes:
 
-Start with **`Graviton.inMemory()`** or **`Graviton.fs(...)`** when you want an end-to-end blob API; use **`InMemoryBlockStore`** when you are testing block-level behavior directly.
+- `FsBlockStore`, which writes blocks below `cas/blocks/<algorithm>/...`
+- `FsBlobManifestRepo`, which writes bounded, versioned `FramedManifest` files below `cas/manifests/<algorithm>/...`
+- `CasBlobStore`, which streams ingestion, retrieval, metadata, verification, and manifest deletion
 
-## PostgreSQL backend module (`graviton-pg`)
+Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/demo-local.sh` to exercise that behavior through separate CLI JVMs.
 
-The Postgres module currently provides both real, server-used components and scaffolding:
+Deleting a blob removes its manifest. Shared content-addressed blocks remain available for other manifests. Garbage collection is a separate concern and is not implemented yet.
 
-- **Manifest storage (used by the server)**:
-  - `PgBlobManifestRepo` persists blob manifests (the server composes it with a `BlockStore` into `CasBlobStore`).
-- **Object-store + index ports (scaffolding)**:
-  - `PgImmutableObjectStore`, `PgMutableObjectStore`, `PgReplicaIndex`, `PgKeyValueStore`, `PgRangeTracker` are present primarily as wiring points and will be filled in as the storage APIs stabilize.
+## PostgreSQL manifests
 
-If you are looking for the *actual* database schema used by Graviton’s evolving data model, see:
-- **[Postgres schema notes](../ops/postgres-schema.md)**
+`PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. The server combines it with `S3BlockStore` for the S3/MinIO deployment path. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
 
-## S3 backend module (`graviton-s3`)
+These PostgreSQL types are not production storage implementations yet:
 
-The S3 module contains a functional `BlockStore` plus additional ports that are still evolving:
+- `PgImmutableObjectStore`
+- `PgMutableObjectStore`
+- `PgKeyValueStore`
+- `PgReplicaIndex`
 
-- **Block storage (used by the server)**:
-  - `S3BlockStore` supports `putBlocks`, `get`, and `exists` and is designed to work against MinIO/S3-compatible endpoints.
-- **Object-store ports (scaffolding)**:
-  - `S3ImmutableObjectStore` / `S3MutableObjectStore` exist but are not the primary “happy path” today.
+`PgRangeTracker` does implement in-process range merging with a pluggable KV persistence hook, but its durability depends on the supplied `KeyValueStore`.
 
-The server currently uses **PostgreSQL for manifests** plus **S3/MinIO for blocks**, composed via `CasBlobStore`.
+See [Postgres schema notes](../ops/postgres-schema.md) for the database layout.
 
-## Rocks backend module (`graviton-rocks`)
+## S3 and MinIO
 
-The Rocks module currently exposes a stub `RocksKeyValueStore` implementing `KeyValueStore`. It’s a wiring point for later work; it should not be treated as a durable backend yet.
+`S3BlockStore` implements content-addressed block writes, reads, existence checks, and duplicate detection. The server uses it with `PgBlobManifestRepo` for the S3/MinIO deployment path.
 
-## See also
+`S3BlobStore` is a separate full-object adapter. It implements multipart upload, retrieval, and deletion, but `stat` is not implemented. `S3ImmutableObjectStore` and `S3MutableObjectStore` remain interface scaffolds. Those types are not part of the server's CAS path.
 
-- **[Runtime ports](./ports.md)** — the interfaces backends implement
-- **[Replication](./replication.md)** — current replica index capabilities and roadmap
-- **[Architecture](../architecture.md)** — where runtime vs backends fit in the module graph
+## RocksDB
 
+`RocksKeyValueStore` is a real embedded KV adapter backed by RocksDB. Its layer owns and closes both the database and native options, and tests prove values survive closing and reopening the database.
+
+It implements `KeyValueStore`, not `BlobStore`, `BlockStore`, or `BlobManifestRepo`. Treat it as a metadata primitive until a CAS-specific composition is added.
+
+## Capability rule
+
+A type existing in the repository does not make a backend operational. Graviton labels a path operational only when its methods perform real I/O, its resources have explicit lifecycles, and tests exercise the intended behavior.
+
+See also [runtime ports](./ports.md), [replication](./replication.md), and [architecture](../architecture.md).

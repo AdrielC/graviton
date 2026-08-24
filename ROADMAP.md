@@ -1,34 +1,46 @@
 # Roadmap
 
-## 0.1 Foundations
+Graviton is pre-1.0. This roadmap distinguishes working foundations from the remaining release and distributed-systems work.
 
-- Adopt Iron refined opaque types across the pure `core` module and expose
-  `refineEither` smart constructors for all external inputs.
-- Collapse binary identifiers under the sealed `BinaryKey` hierarchy with
-  deterministic `ViewKey` scopes (`ListMap[String, DynamicValue]`).
-- Replace ad-hoc range tuples with the existing `ByteRange` type in every I/O
-  API.
-- Split the pure object store API into `Immutable` and `Mutable` traits with
-  refined types and effectful error channels.
-- Depend on `dev.zio %% zio-blocks-schema` (Maven Central) for Merkle /
-  framing helpers and register-backed schemas; pull in sibling codec
-  artifacts (`zio-blocks-schema-avro`, `-messagepack`, etc.) per-module
-  as needed.
-- Restructure modules as:
-  - `core`, `streams`, and `runtime` for pure types, streaming utilities, and
-    effectful algebras respectively.
-  - `protocol/` for `graviton-http` and `graviton-grpc` front-doors.
-  - `backends/` for filesystem, S3, Postgres KV, RocksDB cache, and Tika.
-  - `server/` for application wiring and Shardcake-backed upload orchestration.
-  - `metrics/` for Prometheus adapters layered on runtime algebras.
-- Maintain no-throw guarantees across boundaries, returning `Either`/`ZIO`
-  errors instead of throwing exceptions.
-- Run `TESTCONTAINERS=0 ./sbt scalafmtAll test` before merging.
+## Operational now
 
-## Beyond 0.1
+- Typed blob, block, manifest, range, and attribute models
+- Fixed, FastCDC, and delimiter chunkers over bounded ZIO Streams pipelines
+- Content-key derivation, block deduplication, framed manifests, retrieval, stat, verification, and manifest deletion
+- In-memory and restart-safe filesystem CAS compositions
+- S3-compatible block storage and PostgreSQL manifest storage with integration coverage
+- CLI lifecycle and pre-1.0 HTTP object lifecycle
+- Prometheus text metrics, structured logging, docs snippets, Scala.js demos, and GitHub Pages delivery
 
-- Expand view tooling and scope-aware helpers layered on `DynamicValue`.
-- Build replica repair and range-planning jobs that reuse the retained range
-  algebra in `modules/core/ranges`.
-- Add optional SDKs, CLI enhancements, and additional backends once the refined
-  layout stabilises.
+## 0.1 release gates
+
+- Stabilize public runtime package names and document source and binary compatibility expectations
+- Publish signed artifacts and verify consumption from a clean external sbt project
+- Version the HTTP API and finalize structured error codes
+- Complete authentication and authorization wiring for non-development deployments
+- Add an upgrade policy for framed manifests and PostgreSQL schema migrations
+- Publish a reproducible benchmark harness before advertising throughput or latency numbers
+- Define support boundaries for JDK, Scala, ZIO, PostgreSQL, and S3-compatible providers
+
+## Storage and reliability
+
+- Promote the durable RocksDB key-value adapter into a complete CAS block backend
+- Add replica-index persistence, repair planning, quarantine, and reconciliation jobs
+- Add range reads and conditional requests to the HTTP surface
+- Add garbage collection for blocks no longer reachable from any manifest
+- Add configurable compression and authenticated encryption to the frame format
+- Exercise power-loss and partial-write recovery for every durable backend
+
+## Protocols and clients
+
+- Bring the runnable gRPC server to feature parity with the HTTP blob lifecycle
+- Publish small Scala client artifacts with compatibility tests
+- Add multipart and resumable upload acceptance suites
+- Define stable pagination, idempotency, and retry contracts
+
+## Showcase and documentation
+
+- Keep capability tables tied to source and executable tests
+- Keep simulated UI scenarios explicitly labeled as simulations
+- Add architecture decision records for persistence, deletion, and compatibility guarantees
+- Publish real benchmark results only with hardware, dataset, configuration, and command provenance

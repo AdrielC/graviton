@@ -6,14 +6,14 @@ This page explains how the current `graviton-server` stores bytes for each backe
 
 - **`BlobStore`**: accepts/returns a full blob stream and yields a `BinaryKey.Blob`.
 - **`BlockStore`**: stores and retrieves **canonical blocks** (`BinaryKey.Block`) that make up a blob.
-- The current server wires a CAS blob store (`CasBlobStore`) over:
-  - a **block backend** (filesystem or S3/MinIO), and
-  - a **manifest repository** (Postgres).
+- The current server wires a CAS blob store (`CasBlobStore`) over a block backend and a manifest repository.
 
 This means:
 
-- Blocks live in filesystem/S3.
-- Manifests (block references) live in Postgres.
+- Default `fs` mode stores blocks and framed manifests under the same filesystem root.
+- `s3` and `minio` modes store blocks in S3-compatible object storage and manifests in PostgreSQL.
+
+Embedded applications and the CLI use the same `Graviton.fs(root)` composition as default server mode.
 
 ## Filesystem blocks (`GRAVITON_BLOB_BACKEND=fs`)
 
@@ -37,8 +37,17 @@ Example:
 
 ### Operational notes
 
-- Writes are **atomic** per block file (`ATOMIC_MOVE`).
-- Duplicate blocks are detected by checking for file existence and treating a “file already exists” race as `Duplicate`.
+- Writes use a temporary file plus an atomic move where the filesystem supports it.
+- Existing content-key paths are accepted as duplicates only after their bytes match the incoming block.
+- Reads and existence checks reject a symbolic link or other non-regular entry at the final block path.
+
+## Filesystem manifests (`Graviton.fs`, CLI, and default server)
+
+`FsBlobManifestRepo` stores manifests under:
+
+- `<root>/cas/manifests/<algo>/<hex>-<size>.manifest`
+
+Writes use a temporary file plus atomic replacement. Reads enforce a maximum encoded size and fail closed if the versioned `FramedManifest` payload is corrupt.
 
 ## S3 / MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
@@ -71,19 +80,20 @@ Example:
 - Puts use `PutObject` with `contentLength` set from the block bytes.
 - Credentials are static (access key id + secret access key).
 
-## What is (and isn’t) persisted today
+## What is persisted today
 
 ### Persisted
 
 - **Block bytes** in the chosen block store
-- **Manifest references** in Postgres
+- **Manifest references** in Postgres for the S3/MinIO server paths
+- **Framed manifest files** for `Graviton.fs`, `graviton-cli`, and default server mode
 - **BlobId** returned from the HTTP API is derived from the blob hash + total byte length
 
-### Not yet stable / evolving
+### Deletion and metadata semantics
 
-- Deletion semantics (`CasBlobStore.delete` is not implemented)
-- Blob “stat” API (`stat` returns `None` today)
-- A stable HTTP error model (many failures surface as 500 with plain text)
+- `stat` returns manifest-derived size, digest, and ingestion timestamp.
+- `delete` removes the blob manifest and retains shared content-addressed blocks.
+- The pre-1.0 HTTP surface returns structured errors for invalid IDs, missing blobs, and storage failures.
 
 ## Related docs
 

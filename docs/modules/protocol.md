@@ -1,40 +1,47 @@
 # Protocol Stack
 
-The protocol modules expose Graviton’s functionality over HTTP, gRPC, and shared JSON models. They sit on top of the runtime ports and can be consumed by the Scala.js frontend, CLI clients, or external integrations.
+The protocol modules expose Graviton through shared JSON models, HTTP, and an evolving gRPC surface.
 
-| Module | Description | Notes |
+| Module | Implemented surface | Status |
 | --- | --- | --- |
-| `protocol/graviton-shared` | Cross-platform data models (`ApiModels`) and a minimal `HttpClient` interface used by Scala.js. | JSON codecs derive from zio-json so they can compile to both JVM and JS targets. |
-| `protocol/graviton-proto` | Protobuf contracts for the gRPC services. | The `.proto` files live under `src/main/protobuf/graviton`; sbt-scalaPB + zio-grpc generate `io.graviton.blobstore.v1` stubs. |
-| `protocol/graviton-grpc` | zio-grpc clients and service shells for blob ingest and catalog access. | Ships `GravitonUploadGatewayClientZIO`, `GravitonCatalogClientZIO`, and placeholder runtime bindings. |
-| `protocol/graviton-http` | zio-http clients, routes, and JSON codecs for REST-style access. | The demo server exposes `/api/blobs` + dashboard routes today; a versioned “upload node” API client exists but the server-side multipart endpoints are still evolving. |
+| `protocol/graviton-shared` | Cross-platform API and dashboard models | Used by JVM and Scala.js |
+| `protocol/graviton-http` | Blob lifecycle routes, metrics, dashboard snapshot/SSE, JWT middleware | Blob route contract is tested |
+| `protocol/graviton-proto` | Protobuf definitions and generated types | Generated during the build |
+| `protocol/graviton-grpc` | Typed clients and service shells | Partial; not the primary operational path |
 
-## Shared models (`graviton-shared`)
+## HTTP blob lifecycle
 
-- `ApiModels` contains the types exchanged between the frontend and HTTP API: blob metadata, manifests, health responses, and upload requests.
-- `HttpClient` defines the minimal HTTP surface needed by Scala.js. `BrowserHttpClient` in the frontend implements it using the Fetch API.
+`HttpApi` exposes:
 
-## gRPC services (`graviton-grpc`)
+- `POST /api/blobs` for streaming ingestion
+- `GET /api/blobs/:id` for streaming retrieval
+- `HEAD /api/blobs/:id` for metadata without a body
+- `DELETE /api/blobs/:id` for manifest deletion
 
-- `GravitonUploadGatewayClientZIO` wraps the generated `UploadGateway`/`UploadService` stubs, enforces ack ordering, detects TTL expiry, and exposes classic multipart helpers.
-- `GravitonCatalogClientZIO` layers ergonomic ZIO APIs over the Catalog service (search, dedupe, export, subscribe).
-- Service shells (`BlobServiceImpl`, `UploadServiceImpl`, `AdminServiceImpl`) still delegate to `BlobStore`; wiring to the new upload model remains pending.
-- Code generation is managed via sbt-scalaPB with zio-grpc targets baked into the `graviton-proto` project.
+Uploads return `201 Created`, a stable `<algorithm>:<hex-digest>:<byte-length>` content ID, `Location`, and `ETag`. Reads return content length, ETag, last-modified time, and immutable cache headers. Invalid IDs produce a structured `400`, missing blobs produce `404`, and unexpected storage errors do not expose exception details.
 
-## HTTP surface (`graviton-http`)
+The contract suite performs a complete POST, GET, HEAD, and DELETE lifecycle against the in-memory CAS. See [HTTP API](../api/http.md) for examples.
 
-- `HttpApi` constructs a zio-http `Routes` graph. Today it supports:
-  - `POST /api/blobs` (stream upload)
-  - `GET /api/blobs/:id` (stream download)
-  - `GET /api/datalake/dashboard` and `/api/datalake/dashboard/stream` (SSE)
-  - `GET /api/health` and `GET /metrics`
-- `UploadNodeHttpClient` is a higher-level client for a versioned multipart surface under `/api/v1/...`. The client exists, but the corresponding server endpoints are not yet considered stable.
-- `AuthMiddleware.optional` is a placeholder that simply returns the wrapped handler. Replace it with token validation once authn/authz is designed.
-- `JsonCodecs` demonstrates how zio-schema will be leveraged for automatic schema derivation and request validation.
+## Authentication
 
-## Protocol roadmap
+`AuthMiddleware.required` validates bearer tokens through the configured `JwtVerifier`, records failed authentication, and installs `CallerContext` for downstream authorization and audit work. `AuthMiddleware.optional` validates a token when one is present.
 
-1. Finalise the `.proto` definitions and generate strongly-typed Scala services with zio-grpc.
-2. Replace HTTP stubs with proper routing, JSON encoders/decoders, and error handling.
-3. Add acceptance tests that exercise both HTTP and gRPC transports against in-memory backends.
-4. Document versioning and backwards compatibility guarantees for public API shapes.
+Security-disabled mode leaves blob routes open for local development. Security-enabled mode without a configured verifier fails closed through `JwtVerifier.denyAll`; it is not an OIDC implementation by itself.
+
+## Dashboard and metrics
+
+The HTTP module also serves:
+
+- `GET /api/datalake/dashboard`
+- `GET /api/datalake/dashboard/stream`
+- `GET /metrics`
+
+Dashboard data is a source-backed capability snapshot. The service does not manufacture traffic or health events. Metrics are rendered from the configured `MetricsRegistry`.
+
+The server owns `GET /api/health`, `GET /api/stats`, and `GET /api/schema`. Stats are process-lifetime ingest counters, not a durable inventory query. Schema currently returns an empty list until a catalog provider is wired.
+
+## Partial surfaces
+
+`UploadNodeHttpClient` targets an experimental versioned multipart surface under `/api/v1/...`; corresponding stable server routes are not advertised. The gRPC clients and service shells compile and have focused tests, but they are not yet the primary end-to-end deployment path.
+
+The next protocol milestone is a transport-level gRPC acceptance suite and an explicit compatibility policy for public message shapes.

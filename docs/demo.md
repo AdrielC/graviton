@@ -52,16 +52,16 @@ Follow the [Scala.js Playbook](./dev/scalajs.md) for hot reload, bundling tips, 
 
 # Scala.js Dashboard
 
-Experience Graviton's capabilities through this interactive Scala.js application. For a lightweight, always-available demo in the browser, use the [CAS Playground](./cas-playground.md) instead.
+Explore Graviton's models and browser-side tools through this Scala.js application. For a lightweight, always-available CAS demonstration, use the [CAS Playground](./cas-playground.md) instead.
 
 ::: info Build Checklist
 1. Run `./sbt buildFrontend` from the repo root to refresh `docs/public/js/main.js`.
 2. Rebuild the docs (`npm run docs:dev` or `npm run docs:build`).
-3. Reload this page—navigation should stay in-app (no full page flashes) and browser devtools should show the `main.js` chunk loading from `/js/` or your configured base path.
+3. Reload this page. Navigation should stay in-app (no full page flashes), and browser devtools should show the `main.js` chunk loading from `/js/` or your configured base path.
 :::
 
 ::: info Implementation Note
-The chunking algorithms demonstrated here use the **same FastCDC implementation** as the server-side code in `graviton-streams`. Upload multiple files to see real content-defined chunking and block-level deduplication in action!
+The file analyzer uses the same FastCDC implementation as `graviton-streams`, compiled to JavaScript. Selected files remain in the browser; this view does not send them to the server.
 :::
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
@@ -73,17 +73,18 @@ By default the demo looks for a Graviton instance at `http://localhost:8081`. Up
 :::
 
 ::: info Demo Mode
-When this page cannot reach a live server (such as on GitHub Pages), the UI automatically switches to a simulated dataset. You can still explore chunking, manifests, and stats without any backend.
+When this page cannot reach a live server, such as on GitHub Pages, the UI switches to a reference dataset and displays a persistent demo-mode banner. Reference metadata and stats are not live telemetry.
 :::
 
 ## Features
 
 The embedded UI is intended to demonstrate the pieces that exist in this repo today:
 
-- **Blob upload + download** over HTTP (`POST /api/blobs`, `GET /api/blobs/:id`)
-- **Chunking + manifests** (visualization + manifest inspection)
-- **Datalake dashboard** snapshot + stream models
-- **Schema explorer** for the shared API models
+- **Local file analysis** using the shared FastCDC implementation
+- **Reference blob and manifest inspection** with explicit offline labeling
+- **Process ingest counters** when connected to the server
+- **Source-backed capability dashboard** and schema-derived explorer
+- **Capacity Lab** using editable assumptions and runnable CLI commands
 
 ## Try it yourself
 
@@ -92,13 +93,18 @@ The embedded UI is intended to demonstrate the pieces that exist in this repo to
    ./sbt "server/run"
    ```
 
-2. **Upload a blob**:
+2. **Upload a blob and capture its content ID**:
 
    ```bash
-   curl -X POST --data-binary @/path/to/file http://localhost:8081/api/blobs
+   BLOB_ID="$(
+     curl -fsS -X POST --data-binary @/path/to/file \
+       http://localhost:8081/api/blobs | jq -r .
+   )"
    ```
 
-3. **Explore** the blob using the interactive UI above (or fetch it back from `GET /api/blobs/:id`).
+3. **Retrieve** it with `curl http://localhost:8081/api/blobs/$BLOB_ID --output retrieved.bin`.
+
+The current browser explorer is a reference-data teaching surface; it does not parse the raw blob response into metadata. Use the HTTP API directly for the live blob lifecycle.
 
 ## Architecture
 

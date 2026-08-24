@@ -1,16 +1,16 @@
 # Getting Started
 
-Welcome to Graviton — a modular, content-addressable storage runtime built on ZIO.
+Welcome to Graviton, a modular, content-addressable storage runtime built on ZIO.
 
 ## What is Graviton?
 
-Graviton provides a stable ingest and retrieval pipeline for large binary payloads. The system is designed with modularity at its core, allowing hashing, chunking, persistence, replication, and protocol concerns to evolve independently.
+Graviton provides an ingest and retrieval pipeline for large binary payloads. The system keeps hashing, chunking, persistence, and protocol concerns in separate modules; replica coordination remains roadmap work.
 
 ## Key Features
 
-- **Content-Addressable Storage**: Automatic deduplication through content-defined chunking
+- **Content-Addressable Storage**: Cryptographic keys and automatic block deduplication across fixed or content-defined chunks
 - **Modular Architecture**: Pure domain logic separated from effectful runtime code
-- **Multiple Backends**: Filesystem and S3-compatible block stores with Postgres manifest repos in `graviton-server`; in-memory helpers (`Graviton.inMemory`, test kits) for libraries and tests
+- **Multiple Backends**: Restart-safe filesystem blocks and manifests, S3-compatible blocks, PostgreSQL manifests, and in-memory helpers
 - **ZIO-Powered**: Built on ZIO for composable, type-safe effects
 - **Protocol Flexibility**: HTTP blob API today; gRPC contracts and libraries exist, but the main server entrypoint is HTTP (see [HTTP API](../api/http.md) and [gRPC](../api/grpc.md))
 - **Observable**: Prometheus-style metrics and structured logging (distributed tracing is not wired as a first-class feature yet)
@@ -20,7 +20,7 @@ Graviton provides a stable ingest and retrieval pipeline for large binary payloa
 ### Prerequisites
 
 - Java 21 or higher
-- sbt 1.11+
+- The repository's included sbt launcher
 - Node.js 20+ (for documentation and the interactive demo)
 - Docker (optional, for TestContainers-driven integration tests)
 
@@ -38,8 +38,32 @@ cd graviton
 TESTCONTAINERS=0 ./sbt scalafmtAll test
 
 # (Optional) Exercise container-backed integration tests
-TESTCONTAINERS=1 ./sbt test
+TESTCONTAINERS=1 GRAVITON_IT=1 GRAVITON_MINIO_IT=1 ./sbt test
 ```
+
+### Prove the local lifecycle
+
+```bash
+./scripts/demo-local.sh
+```
+
+This runs ingest, stat, get, and verify through separate CLI JVMs, then compares the retrieved file byte-for-byte.
+
+### Run the local HTTP API
+
+The default server is self-contained and persists blocks plus manifests below `.graviton/`:
+
+```bash
+./sbt "server/run"
+
+# In another terminal
+BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs | jq -r .)"
+curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
+cmp README.md /tmp/graviton-readme.md
+```
+
+Use the S3 or MinIO backend when you want S3-compatible blocks with PostgreSQL manifests.
 
 ### Run the documentation site
 
@@ -50,19 +74,19 @@ The published docs include a **[CAS Playground](https://adrielc.github.io/gravit
 ./sbt buildFrontend       # copies Scala.js output into docs/public/js/
 
 cd docs
-npm install               # first run only
+npm ci
 npm run docs:dev
 ```
 
-Once VitePress boots at `http://localhost:5173`, open **CAS Playground** or **Scala.js Dashboard** in the nav and confirm interactive content loads. If you deploy the docs somewhere with a sub-path (for example GitHub Pages), the loader picks up the correct base URL automatically—no manual tweaks required.
+Once VitePress boots at `http://localhost:5173`, open **CAS Playground** or **Scala.js Dashboard** in the nav and confirm interactive content loads. If you deploy the docs somewhere with a sub-path (for example GitHub Pages), the loader picks up the correct base URL automatically, with no manual tweaks required.
 
 ::: tip No Scala.js bundle?
-If the dashboard reports _“Interactive Demo Not Available”_, rebuild it with `./sbt buildFrontend` and refresh the page. The bundle is committed for convenience, but rebuilding ensures it tracks your local Scala sources.
+If the dashboard reports _“Interactive Demo Not Available”_, rebuild it with `./sbt buildFrontend` and refresh the page.
 :::
 
 ## Your First Upload
 
-Here's a minimal example using the `Graviton` facade with an in-memory block store and inline manifest repo (no external services required). `InMemoryBlobStore` lives under **test** sources only; prefer `Graviton.inMemory` for quick experiments.
+Here's a minimal example using the `Graviton` facade with an in-memory block store and inline manifest repo (no external services required). Use `Graviton.fs(path)` when the data must survive a new process.
 
 ```scala
 import graviton.runtime.Graviton
@@ -82,20 +106,20 @@ object Demo extends ZIOAppDefault:
 
 ## What's Next?
 
-- **[Pipeline Explorer](../pipeline-explorer.md)** — Compose transducer stages interactively in the browser
-- **[Installation Guide](./installation.md)** — Set up Graviton in your environment
-- **[Configuration Reference](./configuration-reference.md)** — Every env var the current server reads (with defaults)
-- **[CLI & Server Usage](./cli.md)** — Run the server and interact via curl
-- **[Binary Streaming Guide](./binary-streaming.md)** — Learn how blocks, manifests, and chunkers fit together
-- **[Transducer Algebra](../core/transducers.md)** — Typed, composable pipeline stages with Record summaries
-- **[Architecture Overview](../architecture.md)** — Understand the module structure
-- **[Core Concepts](../core/schema.md)** — Deep dive into schemas, ranges, and scans
-- **[API Reference](../api.md)** — Explore gRPC and HTTP endpoints
+- **[Pipeline Explorer](../pipeline-explorer.md)**: Compose transducer stages interactively in the browser
+- **[Installation Guide](./installation.md)**: Set up Graviton in your environment
+- **[Configuration Reference](./configuration-reference.md)**: Every env var the current server reads (with defaults)
+- **[CLI & Server Usage](./cli.md)**: Run the server and interact via curl
+- **[Binary Streaming Guide](./binary-streaming.md)**: Learn how blocks, manifests, and chunkers fit together
+- **[Transducer Algebra](../core/transducers.md)**: Typed, composable pipeline stages with Record summaries
+- **[Architecture Overview](../architecture.md)**: Understand the module structure
+- **[Core Concepts](../core/schema.md)**: Deep dive into schemas, ranges, and scans
+- **[API Reference](../api.md)**: Explore gRPC and HTTP endpoints
 
 ## Need Help?
 
-- [GitHub Issues](https://github.com/AdrielC/graviton/issues) — Report bugs or request features
-- [Contributing Guide](../dev/contributing.md) — Learn how to contribute
+- [GitHub Issues](https://github.com/AdrielC/graviton/issues): Report bugs or request features
+- [Contributing Guide](../dev/contributing.md): Learn how to contribute
 
 ::: tip
 Start with the [Architecture Guide](../architecture.md) to understand how Graviton's modules fit together.

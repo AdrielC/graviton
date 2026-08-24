@@ -26,14 +26,16 @@ onMounted(() => {
 
 # CAS Playground
 
-Experience content-addressed storage hands-on. Type text, paste content, or generate random data — watch Graviton's chunking, hashing, and deduplication algorithms work in real time.
+Experience content-addressed storage hands-on. Type text, paste content, or generate random data, then inspect a deterministic browser model of chunking, hashing, and deduplication.
 
 ::: tip How it works
-The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
-1. **Chunking** — splits input into fixed-size blocks (configurable 8–256 bytes for demo)
-2. **Hashing** — computes a real SHA-256 digest for each block via `pt.kcry:sha`
-3. **Deduplication** — tracks which block digests have been seen before
-4. **Iron types** — `BlockSize`, `Sha256Hex`, `BlockIndex` enforce invariants at the type level
+The playground uses shared CAS model code compiled to JavaScript:
+1. **Chunking**: splits input into fixed-size blocks (configurable 8 to 256 bytes for the demo)
+2. **Hashing**: computes a real SHA-256 digest for each block via `pt.kcry:sha`
+3. **Deduplication**: tracks which block digests have been seen in the current browser session
+4. **Iron types**: `BlockSize`, `Sha256Hex`, and `BlockIndex` enforce model invariants
+
+It is a learning surface, not a benchmark or a connection to the durable server-side store.
 :::
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
@@ -45,7 +47,7 @@ The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
 ### 1. Duplicate Detection
 1. Type "hello world" and click **Ingest**
 2. Type "hello world" again and click **Ingest** again
-3. Watch the second ingest show **100% dedup ratio** — all blocks are duplicates!
+3. Watch the second ingest show **100% dedup ratio** because all modeled blocks are duplicates.
 
 ### 2. Partial Overlap
 1. Type "AAAA BBBB CCCC DDDD" with block size 4
@@ -60,11 +62,11 @@ The playground uses the **same algorithms** as the JVM-side `CasBlobStore`:
 ### 4. Random Data
 1. Switch to **Random Data** mode
 2. Generate 512 bytes and ingest
-3. Generate another 512 bytes — since random data rarely repeats, expect 0% dedup
+3. Generate another 512 bytes. Since random data rarely repeats, expect close to 0% dedup.
 
 ## Architecture
 
-The CAS Playground mirrors the production pipeline:
+The CAS Playground models the core fixed-chunk steps in memory:
 
 ```
 Input Bytes → Fixed-Size Chunker → Per-Block SHA-256 → Dedup Check → Block Map

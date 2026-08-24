@@ -31,12 +31,12 @@ ThisBuild / libraryDependencySchemes ++= Seq(
   "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
 )
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
-ThisBuild / licenses := List("MIT" -> url("https://github.com/AdrielC/graviton/blob/main/LICENSE"))
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
   Developer(
     "AdrielC",
-    "Adriel Cafiero",
-    "adriel.cafiero@gmail.com",
+    "Adriel Casellas",
+    "adrielcasellas@gmail.com",
     url("https://github.com/AdrielC")
   )
 )

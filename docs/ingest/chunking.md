@@ -137,7 +137,7 @@ ZStream.fromFileName("data.bin")
 
 | Property | Value |
 |----------|-------|
-| Speed | Fast (2-3 GB/s) |
+| Measured speed | Not benchmarked in this repository |
 | Deduplication | Very Good |
 | Chunk size variance | Low |
 | Best for | General-purpose storage |
@@ -271,20 +271,22 @@ object BuzHash:
 
 | Property | Value |
 |----------|-------|
-| Speed | Moderate (1-2 GB/s) |
+| Measured speed | Not benchmarked in this repository |
 | Deduplication | Good |
 | Chunk size variance | Moderate |
 | Best for | Legacy compatibility |
 
 ## Comparison Matrix
 
-| Algorithm | Speed | Dedup Quality | Variance | Memory |
-|-----------|-------|---------------|----------|--------|
-| Fixed | ⭐⭐⭐⭐⭐ | ⭐ | None | Minimal |
-| FastCDC | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Low | Low |
-| Anchored | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Medium | Medium |
-| BuzHash | ⭐⭐⭐ | ⭐⭐⭐ | Medium | Low |
-| Rabin | ⭐⭐ | ⭐⭐⭐⭐⭐ | High | Medium |
+| Algorithm | Boundary behavior | Chunk variance | Repository status |
+|-----------|-------------------|----------------|-------------------|
+| Fixed | Position-based | None except final block | Implemented |
+| FastCDC | Content-defined | Bounded by min/max | Implemented and property-tested |
+| Anchored | Format-aware anchors | Input-dependent | Planned |
+| BuzHash | Rolling-hash boundaries | Input-dependent | Design reference only |
+| Rabin | Rolling-fingerprint boundaries | Input-dependent | Design reference only |
+
+Graviton does not publish throughput rankings for these algorithms yet. Benchmark them on representative data and target hardware before selecting a production configuration.
 
 ## Choosing an Algorithm
 
@@ -416,21 +418,19 @@ def smartCompression(
     }
 ```
 
-## Performance Tuning
+## Chunk-size tradeoffs to measure
 
 ### Chunk Size Impact
 
-**Small chunks (64-256 KB):**
-- ✅ Better deduplication
-- ✅ Finer-grained retrieval
-- ❌ More metadata overhead
-- ❌ More index lookups
+**Small chunks (64-256 KB) may provide:**
+- finer-grained deduplication and retrieval
+- more manifest entries and storage lookups
 
-**Large chunks (2-8 MB):**
-- ✅ Less metadata
-- ✅ Faster streaming
-- ❌ Worse deduplication
-- ❌ Larger retrieval granularity
+**Large chunks (2-8 MB) may provide:**
+- fewer manifest entries and storage lookups
+- coarser deduplication and retrieval granularity
+
+These are workload-dependent tradeoffs, not measured Graviton results. Use representative data and record the environment and raw samples.
 
 ### Parallelization
 
@@ -490,8 +490,8 @@ test("chunk sizes respect bounds") {
 
 - **[Scans & Events](../core/scans.md)** — Boundary detection
 - **[End-to-end Upload](../end-to-end-upload.md)** — Complete ingest pipeline
-- **[Performance Tuning](../ops/performance.md)** — Optimization strategies
+- **[Performance Measurement](../ops/performance.md)**: measurement protocol and evidence requirements
 
 ::: tip
-Start with FastCDC Level2 for most use cases. Profile with your actual data before optimizing!
+Choose a chunker from your data shape and test it with representative fixtures before changing production data formats.
 :::

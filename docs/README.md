@@ -6,7 +6,7 @@ This directory contains the Graviton documentation site, built with VitePress. I
 
 ```bash
 cd docs
-npm install
+npm ci
 
 # Start dev server (hot reload)
 npm run docs:dev

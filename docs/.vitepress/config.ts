@@ -40,7 +40,7 @@ export default withMermaid(defineConfig({
     }
   },
   title: 'Graviton',
-  description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
+  description: 'Typed, streaming content-addressable storage for Scala and ZIO',
   base,
   cleanUrls: true,
   head: [
@@ -48,7 +48,7 @@ export default withMermaid(defineConfig({
     ['meta', { name: 'theme-color', content: '#00ff41' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:title', content: 'Graviton • Content-Addressable Storage' }],
-    ['meta', { name: 'og:description', content: 'Modular storage runtime with deduplication, streaming, and ZIO power' }],
+    ['meta', { name: 'og:description', content: 'Durable local CAS, streaming APIs, typed manifests, and pluggable backends for Scala' }],
     ['meta', { name: 'og:image', content: withBase('/logo.svg') }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'Graviton • Content-Addressable Storage' }],
@@ -172,7 +172,7 @@ export default withMermaid(defineConfig({
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Postgres Schema (Alpha Overhaul)', link: '/ops/postgres-schema' },
           { text: 'Deployment', link: '/ops/deployment' },
-          { text: 'Performance Tuning', link: '/ops/performance' }
+          { text: 'Performance Measurement', link: '/ops/performance' }
         ]
       },
       {

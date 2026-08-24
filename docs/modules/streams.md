@@ -29,7 +29,7 @@ These types are pure and can be shared between JVM services and Scala.js visuali
 - `once` / `many`: strict decoders that fail fast on errors.
 - `tryOnce` / `tryMany`: lenient variants that swallow recoverable errors and continue streaming.
 
-The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is already production-ready and covered by unit tests in `modules/graviton-streams/src/test`.
+The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is implemented and covered by unit tests in `modules/graviton-streams/src/test`.
 
 ## Transducer integration
 

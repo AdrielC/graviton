@@ -9,72 +9,55 @@ import PipelinePlayground from './.vitepress/theme/components/PipelinePlayground
 
 # Pipeline Explorer
 
-Graviton's Transducer algebra lets you compose pipeline stages with `>>>` (sequential) and `&&&` (fanout). This interactive explorer shows how data flows through each stage, what summary fields are produced, and how composition works in practice.
+Graviton's `Transducer` algebra composes typed stream stages with `>>>` for sequential composition and `&&&` for fanout. The explorer renders a source-maintained catalog and a deterministic worksheet. It does not execute the JVM runtime and does not display runtime telemetry.
 
-::: warning Illustrative vs production ingest
-The playground uses a **fixed catalog** of stages (`PipelineCatalog` in `graviton-shared`). Some combinations (for example **compress** or **manifest builder**) are **visual / roadmap** — they are not all implemented as runnable `Transducer` instances yet. **`CasBlobStore`** ingest uses a **chunker** plus **`CasIngest.blockKeyDeriver`** and an incremental blob hasher; it does not necessarily match every expression shown here line-for-line. See [Transducer Algebra](./core/transducers.md) for the accurate implemented list.
-:::
-
-::: tip How it works
-Each box below is a **Transducer** — a typed, composable pipeline stage. Toggle stages on and off to see how the composition expression and summary record change. Hit **Run Pipeline** to watch animated data flow through.
-:::
+:::: warning Evidence boundary
+`PipelineCatalog` lives in the cross-compiled shared module, but it is maintained by source rather than generated from running transducers. Implemented and descriptor-only stages are labeled separately. `CasBlobStore` uses the real chunker, block-key derivation, stores, manifest repository, and incremental blob hasher; it does not execute every catalog expression line for line.
+::::
 
 <PipelinePlayground />
 
-## What you are seeing
+## Worksheet rules
 
-### Composition Expression
+The Run Model control advances fixed rules that are stated in the interface:
 
-The code shown above each pipeline is the **symbolic** Scala you would write when every selected stage has a matching `Transducer` value in scope (see `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `BlockVerify`):
+- each model step adds 64 KiB
+- a modeled block boundary occurs every 2 MiB
+- when dedup is selected, every fourth modeled block is classified as a duplicate
+- tick rate changes animation speed, not a claimed throughput
+- digests, compression ratios, guard decisions, and verification results display `not computed`
+
+These values explain how summary fields accumulate. They are not benchmark results or proof of stored data.
+
+## Implemented foundation
+
+The repository contains executable transducers for byte counting, incremental hashing, fixed-size rechunking, block-key derivation, generic deduplication, bomb guarding, and block verification. Their exact definitions and tests are linked from [Transducer Algebra](./core/transducers.md).
+
+Compression remains a descriptor-only stage in the shared catalog. The explorer keeps it visible to explain intended composition, but labels it as not wired and refuses to invent a ratio.
+
+## Composition and summaries
+
+For implemented stages, sequential composition merges named summary fields:
 
 ```scala
-// Basic ingest
-val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize)
-
-// Full CAS with dedup
-val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize) >>> blockKeyDeriver >>> dedup
-
-// Verification with fanout
-val check = countBytes &&& hashBytes &&& blockVerifier(manifest)
-```
-
-### Summary Record
-
-When you compose transducers with `>>>`, their state types merge into a single `Record`:
-
-```scala
-val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize)
-// Record[("totalBytes" ~ Long) & ("digestHex" ~ String) & ("hashBytes" ~ Long) & ("blockCount" ~ Long) & ("rechunkFill" ~ Int)]
+val pipeline = countBytes >>> hashBytes() >>> rechunk(blockSize)
 
 val (summary, blocks) = stream.run(pipeline.toSink)
-summary.totalBytes   // Long — named field access, no casts
-summary.digestHex    // String
-summary.blockCount   // Long
+summary.totalBytes
+summary.digestHex
+summary.blockCount
 ```
 
-### Data Packets
+The catalog scenarios are teaching aids. For operational proof, run:
 
-The animated particles represent different data types flowing through the pipeline:
-
-| Packet | Meaning |
-|--------|---------|
-| **Raw Bytes** | Incoming `Chunk[Byte]` elements |
-| **Block** | Rechunked `CanonicalBlock` after boundary detection |
-| **Hash** | Content hash being computed (BLAKE3 / SHA-256) |
-| **Manifest** | `ManifestEntry` emitted for the block manifest |
-
-## Try the scenarios
-
-| Scenario | Expression | Use Case |
-|----------|-----------|----------|
-| **Basic Ingest** | `countBytes >>> hashBytes >>> rechunk` | Minimum viable CAS ingest |
-| **Full CAS Pipeline** | `count >>> hash >>> rechunk >>> key >>> dedup` | Production ingest with deduplication |
-| **Safe Ingest** | `guard >>> count >>> hash >>> rechunk >>> compress` | Upload bomb protection + compression |
-| **Verify + Hash** | `count &&& hash &&& verify` | Integrity check with fanout |
+```bash
+./scripts/demo-local.sh
+TESTCONTAINERS=0 ./sbt test
+```
 
 ## Learn more
 
-- **[Transducer Algebra](./core/transducers.md)** — Full documentation of the algebra, composition, and compilation targets
-- **[Binary Streaming Guide](./guide/binary-streaming.md)** — How blocks, manifests, and chunkers fit together
-- **[Architecture](./architecture.md)** — System-level module view
-- **[Chunking Strategies](./ingest/chunking.md)** — FastCDC, fixed, delimiter, and anchored CDC
+- [Transducer Algebra](./core/transducers.md)
+- [Binary Streaming](./guide/binary-streaming.md)
+- [CAS Playground](./cas-playground.md)
+- [Architecture](./architecture.md)

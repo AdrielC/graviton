@@ -21,44 +21,37 @@ hero:
 
 features:
   - title: Verified Content Keys
-    details: Content-defined chunking and cryptographic hashing ensure every blob is stored and addressed by its bytes.
+    details: Bounded chunking and cryptographic hashing ensure every stored blob is addressed by its bytes.
   - title: Composable Transducer Pipelines
-    details: The Transducer algebra lets you compose ingest stages with >>> and &&& — typed summaries, automatic state merging, zero boilerplate.
+    details: The Transducer algebra lets you compose ingest stages with >>> and &&&, with typed summaries, automatic state merging, and zero boilerplate.
   - title: Stream-First Runtime
-    details: ZIO Streams power ingestion, hashing, and replication so large payloads flow without buffering.
+    details: ZIO Streams power ingestion, hashing, block persistence, and retrieval without buffering complete payloads.
   - title: Modular Backends
-    details: Start with in-memory stores, then move to filesystem or S3/MinIO block storage plus PostgreSQL metadata as your deployment matures.
+    details: Run the restart-safe filesystem composition with no external services, or select S3/MinIO blocks with PostgreSQL manifests.
   - title: Strong Typing
     details: Scala 3, refined types, and schema derivation guard invariants across transports and storage boundaries.
   - title: Built-In Observability
-    details: Structured logging, Prometheus metrics, and correlation IDs surface ingestion and retrieval behaviour.
+    details: Structured logging, in-process counters, and Prometheus text export surface runtime behavior.
 ---
 
-## Operations Snapshot
+## Operational Proof
 
-Track ingest throughput, deduplication ratios, replica health, and runtime events directly in the docs. The live HUD mirrors the data surfaced by the runtime's Prometheus exporters so you can see what operators monitor day to day.
+Graviton does not need fictional throughput numbers to look capable. These claims map to executable tests, durable formats, and CI gates in the repository.
 
 <NeonHud />
 
 ## Quick Start
 
 ```bash
-# Build all modules
-./sbt compile
-
-# Optional: build the Scala.js dashboard for the /demo route (CAS Playground needs no build)
-./sbt buildFrontend
-
-# Run the full test suite  
-TESTCONTAINERS=0 ./sbt scalafmtAll test
-
-# Launch this documentation site
-cd docs && npm ci && npm run docs:dev
+# Ingest, restart the CLI, retrieve, verify, and compare bytes
+./scripts/demo-local.sh
 ```
+
+The script prints a stable blob ID in the form `sha-256:<digest>:<size>` and leaves its temporary store path available for inspection.
 
 ## Why Graviton?
 
-Graviton is a **content-addressable storage runtime** that coordinates chunking, hashing, replication, and retrieval for large binary payloads. Each concern lives in an isolated module so hashing algorithms, network protocols, and storage backends can evolve independently.
+Graviton is a **content-addressable storage runtime** that coordinates chunking, hashing, manifest persistence, and retrieval for large binary payloads. Each concern lives in an isolated module so hashing algorithms, network protocols, and storage backends can evolve independently.
 
 ::: info Visualize the pipelines
 Architecture, manifests, and operations pages include interactive Mermaid diagrams rendered client-side in VitePress. Follow ingest, replication, and backend selection without leaving the browser.
@@ -66,18 +59,28 @@ Architecture, manifests, and operations pages include interactive Mermaid diagra
 
 ### Key Features
 
-- **Composable Transducer pipelines** — build ingest, verify, and retrieval paths from typed stages with `>>>` and `&&&`
-- **Streaming ingest and retrieval** with ZIO Streams and zero-copy pipelines
+- **Composable Transducer pipelines**: build ingest, verify, and retrieval paths from typed stages with `>>>` and `&&&`
+- **Streaming ingest and retrieval** with bounded ZIO Stream pipelines
 - **Content-defined chunking** via FastCDC and multi-hash verification
-- **Pluggable storage backends** for S3, PostgreSQL, RocksDB, and future targets
+- **Pluggable storage** with working filesystem and S3 block stores plus filesystem and PostgreSQL manifests
 - **Strongly-typed schemas** shared across HTTP, gRPC, and Scala.js clients
 - **Integrated observability** with Prometheus metrics and structured logging
-- **Replica coordination** through policies that balance durability and latency
-- **Interactive Pipeline Explorer** — compose and visualize transducer stages in the browser
+- **Interactive Pipeline Explorer**: compose and visualize transducer stages in the browser
+
+### Capability Status
+
+| Path | Status | Proof |
+| --- | --- | --- |
+| Filesystem blocks + manifests | **Operational** | Restart-safe round-trip in `FsBlobManifestRepoSpec` |
+| CLI ingest / stat / get / verify / delete | **Operational** | `scripts/demo-local.sh` exercises separate JVM invocations |
+| HTTP POST / GET / HEAD / DELETE | **Operational, pre-1.0** | Contract coverage in `HttpApiSpec` |
+| S3 blocks + PostgreSQL manifests | **Integration-tested** | Container-gated suites in CI |
+| RocksDB | **Partial** | Durable key-value adapter works; CAS block-store wiring remains roadmap |
+| Replica repair and placement | **Planned** | Runtime ports exist; coordinator is not complete |
 
 ## Pipeline Explorer
 
-Compose transducer stages interactively — toggle stages on and off, see the composition expression update in real time, and watch animated data flow through the pipeline.
+Compose transducer stages interactively. Toggle stages on and off, inspect the resulting expression, and run a deterministic browser visualization of the modeled pipeline.
 
 <PipelinePlayground />
 
@@ -92,12 +95,12 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
 <div class="grid-container">
   <a href="cas-playground" class="feature-card">
     <h3>CAS Playground</h3>
-    <p>Type text and watch it get chunked, hashed, and deduplicated in real time</p>
+    <p>Inspect a deterministic browser model of chunking, hashing, and deduplication</p>
   </a>
 
   <a href="pipeline-explorer" class="feature-card">
     <h3>Pipeline Explorer</h3>
-    <p>Compose transducer stages interactively and watch data flow in real time</p>
+    <p>Compose transducer stages and run a clearly labeled browser visualization</p>
   </a>
 
   <a href="architecture" class="feature-card">

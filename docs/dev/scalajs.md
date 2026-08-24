@@ -36,7 +36,7 @@ tree modules/frontend/src/main/scala/graviton/frontend -L 1
 
 ```bash
 cd docs
-npm install  # first time only
+npm ci  # first time or whenever package-lock.json changes
 npm run docs:dev
 ```
 
@@ -54,7 +54,7 @@ The Quasar demo route (`/quasar-demo`) dynamically imports `/quasar/js/main.js`.
 <meta name="graviton-api-url" content="http://localhost:8081" />
 ```
 
-When the API cannot be reached the UI falls back to simulated demo data, so you can develop offline and still showcase features.
+When the API cannot be reached the UI falls back to reference data and displays a demo-mode banner. Keep features that require a live API visibly distinct from browser-only teaching tools.
 
 ## Quality Gates
 
@@ -81,5 +81,5 @@ When the API cannot be reached the UI falls back to simulated demo data, so you 
 
 - Extend `modules/frontend` with new Laminar components (see the refreshed [Scala.js Frontend module doc](../modules/frontend.md)).
 - Try the [CAS Playground](../cas-playground.md) for the browser-only pipeline view, or the [Scala.js Dashboard](../demo.md) for the full Laminar app; shared demo styles live in `docs/.vitepress/theme/custom.css`.
-- Wire live metrics into the docs via the Vue components under `.vitepress/theme/components/`.
+- Keep browser models explicitly labeled. If live metrics are added later, show their endpoint, connection state, and process-local reset boundary in the UI.
 - Use the Schema Explorer route (`#/schema`) to validate shared models and view sample payloads served entirely from Scala.js + ZIO.
