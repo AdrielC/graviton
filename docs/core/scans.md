@@ -290,7 +290,7 @@ val unfused =
 ## See Also
 
 - **[Transducer Algebra](./transducers.md)**: The runtime pipeline algebra built on top of Scan concepts
-- **[Pipeline Explorer](../pipeline-explorer.md)** — Interactive transducer composition visualizer
+- **[Transducer Algebra](./transducers.md)** for implemented composition APIs
 - **[Schema & Types](./schema.md)** — type-level programming
 - **[Ranges & Boundaries](./ranges.md)** — Span operations
 - **[Chunking Strategies](../ingest/chunking.md)** — CDC algorithms

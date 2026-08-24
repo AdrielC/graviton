@@ -156,6 +156,10 @@ object Graviton:
           ref.update(_.updated(blob, stores.StoredManifest(manifest, ingestedAt))).unit
         override def get(blob: BinaryKey.Blob)                                                                           =
           ref.get.map(_.get(blob))
+        override def list                                                                                                =
+          ref.get.map { manifests =>
+            Chunk.fromIterable(manifests.toList.sortWith { case ((_, left), (_, right)) => left.ingestedAt.isAfter(right.ingestedAt) })
+          }
         override def streamBlockRefs(blob: BinaryKey.Blob)                                                               =
           ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
             case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest"))

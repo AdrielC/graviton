@@ -1,88 +1,49 @@
 package graviton.frontend
 
-import com.raquo.laminar.api.L.{Signal, Var}
 import graviton.shared.*
 import graviton.shared.ApiModels.*
 import org.scalajs.dom
 import zio.*
+import zio.json.*
+import scala.scalajs.js
 
-/** High-level API client for Graviton with offline/demo fallbacks. */
+/** High-level API client for the live Graviton service. */
 final case class GravitonApi(
   baseUrl: String,
-  client: HttpClient,
-  demoData: DemoDataset = DemoDataset.default,
+  client: BrowserHttpClient,
 ) {
-
-  private val offlineVar = Var(false)
-
-  def offlineSignal: Signal[Boolean] = offlineVar.signal
-
-  def isOffline: Boolean = offlineVar.now()
-
-  def sampleBlobIds: List[BlobId] = demoData.sampleBlobIds
-
   def getHealth: Task[HealthResponse] =
-    withFallback(
-      HttpClient.getJson[HealthResponse]("/api/health").provideEnvironment(ZEnvironment(client)),
-      Some(demoData.health),
-    )
+    getJson[HealthResponse]("/api/health")
 
   def getStats: Task[SystemStats] =
-    withFallback(
-      HttpClient.getJson[SystemStats]("/api/stats").provideEnvironment(ZEnvironment(client)),
-      Some(demoData.stats),
-    )
+    getJson[SystemStats]("/api/stats")
 
-  def referenceMetadataFor(blobId: BlobId): Option[BlobMetadata] =
-    demoData.metadataFor(blobId)
+  def listBlobs: Task[BlobListResponse] =
+    getJson[BlobListResponse]("/api/blobs")
 
-  def referenceManifestFor(blobId: BlobId): Option[BlobManifest] =
-    demoData.manifestFor(blobId)
+  def inspectBlob(blobId: String): Task[BlobDetails] =
+    getJson[BlobDetails](s"/api/blobs/${encode(blobId)}/metadata")
 
-  def listSchemas: Task[List[ObjectSchema]] =
-    withFallback(
-      HttpClient
-        .getJson[List[ObjectSchema]]("/api/schema")
-        .provideEnvironment(ZEnvironment(client)),
-      Some(demoData.schemaCatalog),
-    )
+  def uploadFile(file: dom.File): Task[BlobUploadResult] =
+    decode[BlobUploadResult](client.uploadFile("/api/blobs", file))
 
-  def dashboardStreamUrl: Option[String] =
-    val trimmed = baseUrl.trim
-    if trimmed.isEmpty then None
-    else Some(s"${trimmed.stripSuffix("/")}/api/datalake/dashboard/stream")
+  def verifyBlob(blobId: String): Task[BlobVerificationResult] =
+    decode[BlobVerificationResult](client.post(s"/api/blobs/${encode(blobId)}/verify", ""))
 
-  def getDatalakeDashboard: Task[DatalakeDashboardEnvelope] =
-    withFallback(
-      HttpClient
-        .getJson[DatalakeDashboardEnvelope]("/api/datalake/dashboard")
-        .provideEnvironment(ZEnvironment(client)),
-      Some(DatalakeDashboardEnvelope(demoData.datalakeDashboard, demoData.datalakeMetaschema, demoData.datalakeSchemaExplorer)),
-    )
+  def deleteBlob(blobId: String): Task[Unit] =
+    client.delete(s"/api/blobs/${encode(blobId)}").unit
 
-  private def withFallback[A](
-    effect: Task[A],
-    fallback: => Option[A],
-    onFallbackMissing: Option[String] = None,
-  ): Task[A] =
-    effect.catchAll { err =>
-      fallback match {
-        case Some(value) =>
-          markOffline(err)
-          ZIO.succeed(value)
-        case None        =>
-          onFallbackMissing match {
-            case Some(message) => ZIO.fail(new Exception(message, err))
-            case None          => ZIO.fail(err)
-          }
-      }
-    }
+  def downloadUrl(blobId: String): String =
+    s"$baseUrl/api/blobs/${encode(blobId)}"
 
-  private def markOffline(cause: Throwable): Unit =
-    if (!offlineVar.now()) {
-      offlineVar.set(true)
-      dom.console.warn("Switching Graviton demo to offline mode", cause.getMessage)
-    }
+  private def getJson[A: JsonDecoder](path: String): Task[A] =
+    decode[A](client.get(path))
+
+  private def decode[A: JsonDecoder](effect: Task[String]): Task[A] =
+    effect.flatMap(json => ZIO.fromEither(json.fromJson[A]).mapError(message => new Exception(s"JSON decode error: $message")))
+
+  private def encode(value: String): String =
+    js.URIUtils.encodeURIComponent(value)
 }
 
 object GravitonApi {

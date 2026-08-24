@@ -94,7 +94,7 @@ These transducers are implemented in `graviton.core.scan` (primarily `IngestPipe
 
 ### Planned (roadmap)
 
-These appear in design docs or the [Pipeline Explorer](../pipeline-explorer.md) catalog but are **not** full production transducers yet (or not wired into default ingest):
+These appear in design documents but are **not** full production transducers yet, or are not wired into default ingest:
 
 | Transducer / stage | Description |
 |-----------|------------|
@@ -141,7 +141,7 @@ summary.blockCount   // Long
 
 ### Full CAS ingest (library vs `CasBlobStore`)
 
-`CasIngest.pipeline` composes count/hash/rechunk/block-key stages for **library and test** use. **`CasBlobStore.put`** uses a **chunker** (`Chunker` / `FiberRef`) plus **`CasIngest.blockKeyDeriver`** as a `ZPipeline` after chunking, and computes the **blob-level** digest incrementally alongside the stream — so the exact `>>>` chain in your app may differ from the demo expression while still producing the same CAS semantics.
+`CasIngest.pipeline` composes count/hash/rechunk/block-key stages for **library and test** use. **`CasBlobStore.put`** uses a **chunker** (`Chunker` / `FiberRef`) plus **`CasIngest.blockKeyDeriver`** as a `ZPipeline` after chunking, and computes the **blob-level** digest incrementally alongside the stream, so an application's exact `>>>` chain may differ while producing the same CAS semantics.
 
 ```scala
 val casIngest = CasIngest.pipeline(blockSize, algo)
@@ -242,4 +242,4 @@ The Transducer algebra is the foundation for upcoming pipeline phases:
 - **[Scans & Events](./scans.md)** — The Scan algebra that inspired Transducers
 - **[Binary Streaming Guide](../guide/binary-streaming.md)** — End-to-end ingest walkthrough
 - **[Architecture](../architecture.md)** — System-level view
-- **[Pipeline Explorer](../pipeline-explorer.md)** — Interactive transducer visualization
+- **[Live Operations Console](../demo.md)** for the implemented HTTP storage lifecycle

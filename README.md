@@ -14,7 +14,7 @@ It is a working pre-1.0 library, not a finished distributed storage product. The
 | Filesystem blocks and manifests | Operational | Atomic writes and restart-safe round-trip tests |
 | CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, and `delete` across JVM invocations |
 | Default HTTP server | Operational, pre-1.0 | Self-contained filesystem CAS plus live process counters |
-| HTTP blob lifecycle | Operational, pre-1.0 | `POST`, `GET`, `HEAD`, and `DELETE` contract tests |
+| HTTP blob lifecycle | Operational, pre-1.0 | Upload, durable inventory, manifest inspection, server-side verification, retrieval, and deletion contract tests |
 | S3 blocks and PostgreSQL manifests | Integration-tested | Container-gated CI suites |
 | gRPC server parity | Partial | Contracts, generated code, clients, and service implementations exist |
 | RocksDB | Partial | Durable key-value adapter works; it is not wired as a CAS block backend |
@@ -26,10 +26,10 @@ Prerequisite: JDK 21 or newer.
 ```bash
 git clone https://github.com/AdrielC/graviton.git
 cd graviton
-./scripts/demo-local.sh
+./scripts/verify-local-lifecycle.sh
 ```
 
-The demo performs an ingest, starts fresh CLI JVMs for stat, retrieval, and verification, then compares the retrieved file byte-for-byte. It prints the stable blob ID and the generated store path so you can inspect the blocks and framed manifest.
+The verification script performs an ingest, starts fresh CLI JVMs for stat, retrieval, and verification, then compares the retrieved file byte-for-byte. It prints the stable blob ID and the generated store path so you can inspect the blocks and framed manifest.
 
 The HTTP server also runs with no external services by default:
 
@@ -98,7 +98,7 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands and container-backed integration setup. The [documentation site](https://adrielc.github.io/graviton/) includes a browser CAS playground, pipeline explorer, architecture guide, HTTP reference, and generated Scaladoc.
+See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands and container-backed integration setup. The [documentation site](https://adrielc.github.io/graviton/) includes a live operations console, architecture guide, HTTP reference, and generated Scaladoc.
 
 ## Project direction
 

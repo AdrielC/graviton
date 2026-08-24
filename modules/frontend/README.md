@@ -1,22 +1,17 @@
 # Graviton Frontend
 
-The frontend is a Scala.js and Laminar application embedded in the VitePress documentation site. It combines API-backed status views with clearly labeled browser-only learning tools.
+The frontend is a Scala.js and Laminar operations console embedded in the VitePress documentation site. Every value in the console comes from the configured Graviton HTTP server. Connection failures remain visible and are never replaced with bundled data.
 
-## Current views
+## Operational views
 
-| View | Data boundary |
+| View | Server-backed behavior |
 | --- | --- |
-| Dashboard | Static capability overview |
-| Blob Explorer | Bundled reference metadata with structurally valid SHA-256 content IDs |
-| Analyze | Local browser file analysis; selected bytes are not uploaded |
-| Stats | `/api/stats` process counters with a labeled reference fallback |
-| Schema | `/api/schema` or the bundled reference catalog when offline |
-| Updates | Source-backed dashboard snapshot plus optional SSE updates |
-| Pipeline | Explicit visualization of implemented and roadmap stages |
-| CAS Lab | Browser-side CAS simulation using real SHA-256 |
-| Capacity Lab | Deterministic storage arithmetic from editable assumptions |
+| Operations | Health, durable inventory totals, process counters, and direct workflow links |
+| Upload | Sends the selected file bytes to `POST /api/blobs` and displays the committed result |
+| Inventory | Lists persisted manifests, inspects real block layouts, verifies bytes, downloads blobs, and deletes manifests |
+| Counters | Displays the current server process counters with their reset boundary |
 
-The raw blob API returns bytes from `GET /api/blobs/:id`. The browser Blob Explorer does not pretend that response is a JSON metadata endpoint. Use the [HTTP guide](../../docs/api/http.md) for the live blob lifecycle.
+The console accepts an API endpoint in the connection bar. It stores the endpoint in browser local storage and reloads against that server.
 
 ## Build
 
@@ -36,7 +31,13 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-## Local development
+## Local operation
+
+Run the backend and docs server in separate terminals:
+
+```bash
+./sbt 'server/run'
+```
 
 ```bash
 ./sbt buildFrontend
@@ -44,27 +45,29 @@ npm ci --prefix docs
 npm run docs:dev --prefix docs
 ```
 
-Open `http://localhost:5173/demo`. The page currently sets the API URL to `http://localhost:8081` through:
+Open `http://localhost:5173/demo`. The endpoint is resolved in this order:
 
-```html
-<meta name="graviton-api-url" content="http://localhost:8081" />
-```
-
-When the API is unavailable, API-backed views switch to reference data and the application displays a persistent demo-mode banner.
+1. `?api=http://host:port`
+2. the endpoint saved by the connection bar
+3. `<meta name="graviton-api-url">`
+4. `http://localhost:8081`
 
 ## Structure
 
 ```text
 modules/frontend/src/main/scala/graviton/frontend/
 ├── BrowserHttpClient.scala
-├── DemoDataset.scala
 ├── GravitonApi.scala
 ├── GravitonApp.scala
 ├── Main.scala
 └── components/
+    ├── BlobExplorer.scala
+    ├── FileUpload.scala
+    ├── HealthCheck.scala
+    └── StatsPanel.scala
 ```
 
-Shared JSON and dashboard models live in `modules/protocol/graviton-shared`. Styles live in `docs/.vitepress/theme/custom.css`.
+Shared response models live in `modules/protocol/graviton-shared`. Styles live in `docs/.vitepress/theme/custom.css`.
 
 ## Validation
 
@@ -75,4 +78,4 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-For visual QA, inspect at least the dashboard, CAS Lab, Capacity Lab, and a narrow mobile viewport. Confirm the demo-mode banner appears when no API is running and that the browser console has no uncaught errors.
+For runtime and visual QA, start the server, run `./scripts/verify-http-lifecycle.sh`, and inspect upload, inventory, manifest, verification, retrieval, and deletion in the browser at desktop and mobile widths.

@@ -17,7 +17,7 @@ Graviton keeps storage contracts in `graviton-runtime` and vendor code in backen
 - `FsBlobManifestRepo`, which writes bounded, versioned `FramedManifest` files below `cas/manifests/<algorithm>/...`
 - `CasBlobStore`, which streams ingestion, retrieval, metadata, verification, and manifest deletion
 
-Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/demo-local.sh` to exercise that behavior through separate CLI JVMs.
+Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/verify-local-lifecycle.sh` to exercise that behavior through separate CLI JVMs.
 
 Deleting a blob removes its manifest. Shared content-addressed blocks remain available for other manifests. Garbage collection is a separate concern and is not implemented yet.
 

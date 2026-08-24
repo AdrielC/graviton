@@ -48,7 +48,7 @@ npm run docs:build --prefix docs
 ```
 https://your-username.github.io/graviton/
 ├── index.html              # Home page
-├── demo.html               # Interactive Scala.js demo
+├── demo.html               # Live Scala.js operations console
 ├── js/                     # Scala.js modules
 │   ├── main.js             # Main entry (1.3MB, code-split)
 │   ├── graviton.frontend.-Main.js
@@ -59,23 +59,19 @@ https://your-username.github.io/graviton/
 │   └── index.html
 └── assets/                 # VitePress bundles
     ├── app.*.js
-    └── demo.md.*.js        # Loads Scala.js dynamically
+    └── demo.md.*.js        # Installs the Scala.js module script
 ```
 
-## What Happens on Demo Page Load
+## What Happens on Console Page Load
 
 1. User navigates to `/graviton/demo`
 2. VitePress loads `demo.html`
 3. Page includes `<div id="graviton-app"></div>`
 4. Vue component's `onMounted` hook executes
-5. Dynamically imports `/graviton/js/main.js`
+5. Adds `/graviton/js/main.js` as a module script
 6. Scala.js `Main.main()` executes
 7. Laminar renders the interactive app
-8. User interacts with:
-   - File upload with FastCDC chunking
-   - Blob explorer
-   - Statistics dashboard
-   - Health checks
+8. The user uploads bytes, lists persisted manifests, inspects block layouts, verifies and downloads stored bytes, or deletes a manifest through the live HTTP API.
 
 ## Verification
 
@@ -85,7 +81,7 @@ After deployment, check these URLs:
 # Main site
 https://your-username.github.io/graviton/
 
-# Interactive demo
+# Live operations console
 https://your-username.github.io/graviton/demo
 
 # Scala.js main module

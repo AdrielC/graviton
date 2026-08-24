@@ -1,14 +1,10 @@
 package graviton.protocol.http
 
 import graviton.runtime.Graviton
-import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.shared.ApiModels.*
-import graviton.shared.dashboard.DashboardSamples
-import graviton.shared.schema.SchemaExplorer
 import zio.*
 import zio.http.*
 import zio.json.*
-import zio.stream.ZStream
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
@@ -23,7 +19,8 @@ object HttpApiSpec extends ZIOSpecDefault:
           api          <- makeApi
           upload       <- call(api, Method.POST, "/api/blobs", Body.fromString(text))
           uploadBody   <- upload.body.asString
-          blobId       <- ZIO.fromEither(uploadBody.fromJson[BlobId]).mapError(new IllegalArgumentException(_))
+          uploadResult <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          blobId        = uploadResult.blob.id
           downloaded   <- call(api, Method.GET, s"/api/blobs/${blobId.value}")
           downloadBody <- downloaded.body.asString
           head         <- call(api, Method.HEAD, s"/api/blobs/${blobId.value}")
@@ -37,6 +34,38 @@ object HttpApiSpec extends ZIOSpecDefault:
           downloadBody == text,
           head.status == Status.Ok,
           headBody.isEmpty,
+        )
+      },
+      test("inventory, manifest inspection, and server verification report persisted bytes") {
+        val text = "inspect and verify over http"
+        for
+          api              <- makeApi
+          upload           <- call(api, Method.POST, "/api/blobs", Body.fromString(text))
+          uploadBody       <- upload.body.asString
+          uploadResult     <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          blobId            = uploadResult.blob.id
+          encodedId         = blobId.value.replace(":", "%3A")
+          inventory        <- call(api, Method.GET, "/api/blobs")
+          inventoryBody    <- inventory.body.asString
+          inventoryResult  <- ZIO.fromEither(inventoryBody.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
+          metadata         <- call(api, Method.GET, s"/api/blobs/$encodedId/metadata")
+          metadataBody     <- metadata.body.asString
+          details          <- ZIO.fromEither(metadataBody.fromJson[BlobDetails]).mapError(new IllegalArgumentException(_))
+          verification     <- call(api, Method.POST, s"/api/blobs/$encodedId/verify")
+          verificationBody <- verification.body.asString
+          verified         <- ZIO
+                                .fromEither(verificationBody.fromJson[BlobVerificationResult])
+                                .mapError(new IllegalArgumentException(_))
+        yield assertTrue(
+          inventory.status == Status.Ok,
+          inventoryResult.blobs.map(_.id).contains(blobId),
+          details.summary.id == blobId,
+          details.summary.size.value == text.getBytes(StandardCharsets.UTF_8).length.toLong,
+          details.blocks.nonEmpty,
+          details.blocks.map(_.size.value).sum == details.summary.size.value,
+          verification.status == Status.Ok,
+          verified.verified,
+          verified.bytesChecked == details.summary.size,
         )
       },
       test("invalid IDs return a structured 400 response") {
@@ -66,7 +95,8 @@ object HttpApiSpec extends ZIOSpecDefault:
           api        <- makeApi
           upload     <- call(api, Method.POST, "/api/blobs", Body.fromString("delete over http"))
           uploadBody <- upload.body.asString
-          blobId     <- ZIO.fromEither(uploadBody.fromJson[BlobId]).mapError(new IllegalArgumentException(_))
+          result     <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          blobId      = result.blob.id
           deleted    <- call(api, Method.DELETE, s"/api/blobs/${blobId.value}")
           missing    <- call(api, Method.GET, s"/api/blobs/${blobId.value}")
         yield assertTrue(
@@ -88,7 +118,7 @@ object HttpApiSpec extends ZIOSpecDefault:
 
   private def makeApi: UIO[HttpApi] =
     for graviton <- Graviton.inMemory(chunkSize = 64)
-    yield HttpApi(graviton.blobStore, dashboard)
+    yield HttpApi(graviton.blobStore)
 
   private def call(
     api: HttpApi,
@@ -100,15 +130,3 @@ object HttpApiSpec extends ZIOSpecDefault:
       url      <- ZIO.fromEither(URL.decode(s"http://localhost$path"))
       response <- ZIO.scoped(api.app(Request(method = method, url = url, body = body)))
     yield response
-
-  private val dashboard: DatalakeDashboardService = new DatalakeDashboardService:
-    override def snapshot = ZIO.succeed(DashboardSamples.snapshot)
-
-    override def metaschema = ZIO.succeed(DashboardSamples.metaschema)
-
-    override def explorer: UIO[SchemaExplorer.Graph] =
-      ZIO.succeed(DashboardSamples.schemaExplorer)
-
-    override def updates = ZStream.empty
-
-    override def publish(update: DatalakeDashboard) = ZIO.unit

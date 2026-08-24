@@ -50,6 +50,26 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
           )
         }
       },
+      test("lists persisted manifests and exposes their real block layouts") {
+        withTempDir { root =>
+          val first  = Chunk.fromArray("first inventory blob".getBytes(StandardCharsets.UTF_8))
+          val second = Chunk.fromArray(Array.tabulate(9000)(index => (index % 127).toByte))
+
+          for
+            store        <- makeStore(root)
+            firstResult  <- ZStream.fromChunk(first).run(store.put())
+            secondResult <- ZStream.fromChunk(second).run(store.put())
+            listed       <- store.list
+            inspected    <- store.inspect(secondResult.key).someOrFail(new NoSuchElementException("blob missing from inventory"))
+          yield assertTrue(
+            listed.map(_.key).toSet == Set(firstResult.key, secondResult.key),
+            inspected.listing.key == secondResult.key,
+            inspected.listing.stat.size.value == second.length.toLong,
+            inspected.blocks.nonEmpty,
+            inspected.blocks.map(_.size).sum == second.length.toLong,
+          )
+        }
+      },
       test("delete removes the manifest but retains deduplicated blocks") {
         withTempDir { root =>
           val data = Chunk.fromArray("manifest-only-delete".getBytes(StandardCharsets.UTF_8))

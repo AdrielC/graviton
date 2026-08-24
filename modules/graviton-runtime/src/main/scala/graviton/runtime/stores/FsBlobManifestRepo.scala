@@ -1,6 +1,7 @@
 package graviton.runtime.stores
 
-import graviton.core.keys.BinaryKey
+import graviton.core.bytes.{Digest, HashAlgo}
+import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{FramedManifest, Manifest}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
@@ -9,6 +10,7 @@ import zio.stream.ZStream
 import java.nio.file.attribute.FileTime
 import java.nio.file.{AtomicMoveNotSupportedException, Files, LinkOption, Path, StandardCopyOption}
 import java.time.Instant
+import scala.jdk.CollectionConverters.*
 
 /**
  * Durable, filesystem-backed manifest repository.
@@ -41,21 +43,32 @@ final class FsBlobManifestRepo(
     val path = pathFor(blob)
     ZIO.attemptBlocking {
       if !Files.exists(path, LinkOption.NOFOLLOW_LINKS) then None
-      else if !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then
-        throw new IllegalStateException(s"Manifest path is not a regular file: $path")
-      else
-        val size = Files.size(path)
-        if size > FsBlobManifestRepo.MaxManifestBytes then
-          throw new IllegalArgumentException(
-            s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
-          )
+      else Some(readManifest(path))
+    }
 
-        val frame      = FramedManifest.Frame(Files.readAllBytes(path))
-        val manifest   = FramedManifest
-          .decode(frame)
-          .fold(message => throw new IllegalArgumentException(s"Invalid manifest at $path: $message"), identity)
-        val ingestedAt = Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant
-        Some(StoredManifest(manifest, ingestedAt))
+  override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
+    ZIO.attemptBlocking {
+      val manifestsRoot = root.resolve(prefix)
+      if !Files.exists(manifestsRoot, LinkOption.NOFOLLOW_LINKS) then Chunk.empty
+      else if !Files.isDirectory(manifestsRoot, LinkOption.NOFOLLOW_LINKS) then
+        throw new IllegalStateException(s"Manifest root is not a directory: $manifestsRoot")
+      else
+        val paths = Files.walk(manifestsRoot)
+        try
+          val entries = paths
+            .iterator()
+            .asScala
+            .filter(path => path.getFileName.toString.endsWith(".manifest"))
+            .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+            .map { path =>
+              val key    = keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity)
+              val stored = readManifest(path)
+              key -> stored
+            }
+            .toVector
+            .sortBy { case (_, stored) => stored.ingestedAt }(using Ordering[Instant].reverse)
+          Chunk.fromIterable(entries)
+        finally paths.close()
     }
 
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
@@ -86,6 +99,39 @@ final class FsBlobManifestRepo(
     val algo = blob.bits.algo.primaryName.toLowerCase.replace("-", "")
     val name = s"${blob.bits.digest.hex.value}-${blob.bits.size}.manifest"
     root.resolve(prefix).resolve(algo).resolve(name)
+
+  private def readManifest(path: Path): StoredManifest =
+    if !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then
+      throw new IllegalStateException(s"Manifest path is not a regular file: $path")
+
+    val size = Files.size(path)
+    if size > FsBlobManifestRepo.MaxManifestBytes then
+      throw new IllegalArgumentException(
+        s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
+      )
+
+    val frame      = FramedManifest.Frame(Files.readAllBytes(path))
+    val manifest   = FramedManifest
+      .decode(frame)
+      .fold(message => throw new IllegalArgumentException(s"Invalid manifest at $path: $message"), identity)
+    val ingestedAt = Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant
+    StoredManifest(manifest, ingestedAt)
+
+  private def keyFromPath(path: Path): Either[String, BinaryKey.Blob] =
+    val algorithmDirectory = Option(path.getParent).flatMap(parent => Option(parent.getFileName)).map(_.toString).getOrElse("")
+    val fileName           = path.getFileName.toString.stripSuffix(".manifest")
+    val sizeSeparator      = fileName.lastIndexOf('-')
+
+    for
+      _      <- Either.cond(sizeSeparator > 0, (), s"Invalid manifest filename: $path")
+      digest <- Digest.fromString(fileName.substring(0, sizeSeparator))
+      size   <- fileName.substring(sizeSeparator + 1).toLongOption.toRight(s"Invalid manifest byte length: $path")
+      algo   <- HashAlgo.values
+                  .find(_.primaryName.toLowerCase.replace("-", "") == algorithmDirectory.toLowerCase)
+                  .toRight(s"Unsupported manifest algorithm directory: $algorithmDirectory")
+      bits   <- KeyBits.create(algo, digest, size)
+      blob   <- BinaryKey.blob(bits)
+    yield blob
 
   private def writeAtomically(path: Path, bytes: Array[Byte], ingestedAt: Instant): Task[Unit] =
     ZIO.attemptBlocking {

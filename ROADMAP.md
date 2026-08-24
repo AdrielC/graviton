@@ -10,7 +10,7 @@ Graviton is pre-1.0. This roadmap distinguishes working foundations from the rem
 - In-memory and restart-safe filesystem CAS compositions
 - S3-compatible block storage and PostgreSQL manifest storage with integration coverage
 - CLI lifecycle and pre-1.0 HTTP object lifecycle
-- Prometheus text metrics, structured logging, docs snippets, Scala.js demos, and GitHub Pages delivery
+- Prometheus text metrics, structured logging, docs snippets, a live Scala.js operations console, and GitHub Pages delivery
 
 ## 0.1 release gates
 
@@ -41,6 +41,6 @@ Graviton is pre-1.0. This roadmap distinguishes working foundations from the rem
 ## Showcase and documentation
 
 - Keep capability tables tied to source and executable tests
-- Keep simulated UI scenarios explicitly labeled as simulations
+- Keep the public UI tied to operational endpoints and surface connection or storage failures directly
 - Add architecture decision records for persistence, deletion, and compatibility guarantees
 - Publish real benchmark results only with hardware, dataset, configuration, and command provenance

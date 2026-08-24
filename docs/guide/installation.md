@@ -26,7 +26,7 @@ Use the checked-in sbt launcher so the repository controls the sbt version.
 ## Prove the local CLI lifecycle
 
 ```bash
-./scripts/demo-local.sh
+./scripts/verify-local-lifecycle.sh
 ```
 
 The script creates an isolated temporary store, ingests a fixture, starts a fresh JVM for each later command, retrieves the bytes, verifies the digest, and compares the output with the original file.
@@ -54,7 +54,7 @@ blob_id="$(
   | curl --fail --silent --show-error \
       --data-binary @- \
       http://localhost:8081/api/blobs \
-  | jq -r .
+  | jq -r '.blob.id'
 )"
 
 curl --fail --silent --show-error \

@@ -1,13 +1,31 @@
 # API Surface
 
-Graviton ships **HTTP** endpoints for blob ingest/retrieve in `graviton-server`, backed by the `graviton-http` library. **gRPC** `.proto` contracts and generated stubs exist in `graviton-grpc`, but the primary runnable server today is HTTP-only — see [gRPC](./api/grpc.md) for intended shape vs current wiring.
+Graviton exposes its operational content-addressable store through the embedded `BlobStore` API, the CLI, and an HTTP server. gRPC contracts and clients also exist, but they are not yet served by the default process.
 
-## gRPC
+## Runtime API
 
-`upload.proto` defines a bidirectional streaming RPC that multiplexes control, credits, and data chunks over a single stream. `blob_service.proto` and related definitions describe unary-style blob access. **Server-side exposure** of these RPCs from the same process as `server/run` is still **in progress**; prefer HTTP or embedding `BlobStore` until that work lands.
+`BlobStore` is the compatibility anchor for Scala applications. It supports streaming writes and reads, durable inventory, persisted manifest inspection, stat, verification by reading stored bytes, and logical deletion.
+
+`Graviton.fs(root)` assembles filesystem blocks and manifests. `Graviton.inMemory` is intended for tests and short-lived processes.
 
 ## HTTP
 
-`graviton-http` exposes a small, demo-focused HTTP surface using zio-http: streaming blob upload/download, dashboard snapshot/stream helpers, and health/stats/schema routes. See [HTTP API](./api/http.md) for the live list.
+`graviton-http` exposes the same real lifecycle:
 
-**Authentication:** JWT/OIDC integration via `AuthMiddleware` is **planned** for production gateways; the default local server does not enforce auth.
+- `POST /api/blobs`
+- `GET /api/blobs`
+- `GET /api/blobs/:id/metadata`
+- `POST /api/blobs/:id/verify`
+- `GET /api/blobs/:id`
+- `HEAD /api/blobs/:id`
+- `DELETE /api/blobs/:id`
+
+The default server uses durable filesystem storage. See the [HTTP API](./api/http.md) for response models and executable examples.
+
+## gRPC
+
+`upload.proto` defines a bidirectional streaming RPC that multiplexes control, credits, and data chunks. `blob_service.proto` and related definitions describe blob access. Server-side exposure from the default `server/run` process is still in progress, so use HTTP or embed `BlobStore` for operational deployments today.
+
+## Security boundary
+
+The default local server does not enforce authentication. `AuthMiddleware` and verifier ports exist, but production OIDC assembly and TLS termination are deployment work. Bind the unauthenticated server only to a trusted environment.

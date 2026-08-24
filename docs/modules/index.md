@@ -9,7 +9,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives — designed to compose with Transducers.
 - **Protocol**: shared API models and transport-specific servers (gRPC + HTTP).
 - **Backend adapters**: concrete integrations (PostgreSQL, S3, RocksDB) that satisfy runtime ports.
-- **Frontend**: Scala.js dashboard used in the interactive documentation demo.
+- **Frontend**: Scala.js operations console for the live HTTP service.
 
 ## Quick Links
 

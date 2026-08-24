@@ -17,7 +17,7 @@ Every result should include:
 - whether clients and storage ran on the same host
 - raw timing output and the script used to produce it
 
-Report throughput from measured bytes and elapsed time. Report latency as a distribution, including at least p50, p95, and p99. Do not infer either value from the Capacity Lab or Pipeline Explorer. Those interfaces are deterministic browser models, not benchmark tools.
+Report throughput from measured bytes and elapsed time. Report latency as a distribution, including at least p50, p95, and p99. Do not infer either value from block sizes, deduplication ratios, or a single HTTP request.
 
 ## Reproducible local smoke measurement
 

@@ -4,10 +4,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_BASE="${TMPDIR:-/tmp}"
-DEMO_ROOT="${GRAVITON_DEMO_DIR:-$(mktemp -d "${TMP_BASE%/}/graviton-demo.XXXXXX")}"
-DATA_DIR="${DEMO_ROOT}/store"
-INPUT_FILE="${DEMO_ROOT}/source.txt"
-OUTPUT_FILE="${DEMO_ROOT}/retrieved.txt"
+VERIFY_ROOT="${GRAVITON_VERIFY_DIR:-$(mktemp -d "${TMP_BASE%/}/graviton-verify.XXXXXX")}"
+DATA_DIR="${VERIFY_ROOT}/store"
+INPUT_FILE="${VERIFY_ROOT}/source.txt"
+OUTPUT_FILE="${VERIFY_ROOT}/retrieved.txt"
 
 mkdir -p "${DATA_DIR}"
 printf '%s\n' \
@@ -35,4 +35,4 @@ cmp "${INPUT_FILE}" "${OUTPUT_FILE}"
 
 printf '\nRound-trip verified byte-for-byte.\n'
 printf 'Blob ID: %s\n' "${BLOB_ID}"
-printf 'Demo data: %s\n' "${DEMO_ROOT}"
+printf 'Verification data: %s\n' "${VERIFY_ROOT}"

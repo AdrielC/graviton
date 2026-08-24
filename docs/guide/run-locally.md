@@ -31,9 +31,12 @@ BLOB_ID="$(
     -H "Content-Type: application/octet-stream" \
     -X POST --data-binary @sample.txt \
     "http://localhost:8081/api/blobs" \
-  | jq -r .
+  | jq -r '.blob.id'
 )"
 
+curl -fsS "http://localhost:8081/api/blobs" | jq .
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
 curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
 curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output downloaded.txt
 cmp sample.txt downloaded.txt
@@ -111,14 +114,13 @@ export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 
 Run the same curl lifecycle from step 2. The CI workflow exercises this composition with PostgreSQL and MinIO services.
 
-## Dashboard reference data
+## 5. Run the executable HTTP proof
 
 ```bash
-curl -fsS "http://localhost:8081/api/datalake/dashboard" | jq .
-curl -N "http://localhost:8081/api/datalake/dashboard/stream"
+./scripts/verify-http-lifecycle.sh
 ```
 
-The initial dashboard payload is a source-backed capability snapshot. The SSE route emits only updates explicitly published by application code.
+This creates unique input, uploads it, asserts durable inventory and block metadata, requests a server-side rehash, compares downloaded bytes, deletes the manifest, and confirms the resource is gone.
 
 ## Next steps
 

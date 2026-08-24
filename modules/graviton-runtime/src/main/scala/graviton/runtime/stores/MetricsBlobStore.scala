@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.runtime.metrics.MetricsRegistry
-import graviton.runtime.model.{BlobStat, BlobWritePlan}
+import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
 import zio.*
 import zio.stream.*
 
@@ -46,6 +46,12 @@ final class MetricsBlobStore(
     val tags = baseTags + ("op" -> "stat")
     metrics.counter("graviton.blob.stat.count", tags) *>
       underlying.stat(key)
+
+  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
+    underlying.list
+
+  override def inspect(key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
+    underlying.inspect(key)
 
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
     val tags = baseTags + ("op" -> "delete")

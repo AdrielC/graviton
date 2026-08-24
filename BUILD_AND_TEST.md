@@ -45,7 +45,7 @@ If a checked snippet intentionally changes:
 ## Documentation site
 
 ```bash
-# Build Scala.js demos and generated Scaladoc
+# Build Scala.js consoles and generated Scaladoc
 ./sbt buildDocsAssets
 
 # Install the locked dependency graph and build VitePress
@@ -68,7 +68,7 @@ npm run docs:dev --prefix docs
 ## One-command CAS smoke test
 
 ```bash
-./scripts/demo-local.sh
+./scripts/verify-local-lifecycle.sh
 ```
 
 This check uses separate CLI runs to prove that filesystem manifests survive process restarts. It prints the temporary directory instead of deleting it so the resulting layout remains inspectable.
@@ -79,13 +79,17 @@ This check uses separate CLI runs to prove that filesystem manifests survive pro
 ./sbt "server/run"
 
 # In another terminal
-BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs | jq -r .)"
+BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs | jq -r '.blob.id')"
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
 curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
 curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
 cmp README.md /tmp/graviton-readme.md
 ```
 
 The default path uses filesystem blocks and filesystem manifests below `.graviton/`; PostgreSQL and MinIO are not required.
+
+Run `./scripts/verify-http-lifecycle.sh` against the running server to assert inventory, inspection, verification, retrieval, and deletion.
 
 ## Container-backed integration tests
 

@@ -1,6 +1,6 @@
 # Streams Utilities
 
-`graviton-streams` supplies reusable ZIO Stream components that power chunking, hashing, and framing inside the runtime and demo.
+`graviton-streams` supplies reusable ZIO Stream components that power chunking, hashing, and framing inside the runtime.
 
 ## Chunking & hashing
 
@@ -39,7 +39,7 @@ The streaming utilities are designed to compose with the [Transducer algebra](..
 - `HashingZ.pipeline` corresponds to `IngestPipeline.hashBytes()`
 - The `toSink` / `toPipeline` compilation targets bridge transducers back into ZIO Streams
 
-See the [Pipeline Explorer](../pipeline-explorer.md) for an interactive visualization of how these stages compose.
+See [Transducer Algebra](../core/transducers.md) for the implemented composition rules and current limitations.
 
 ## Roadmap
 

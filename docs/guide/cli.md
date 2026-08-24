@@ -3,7 +3,7 @@
 ## One-command local proof
 
 ```bash
-./scripts/demo-local.sh
+./scripts/verify-local-lifecycle.sh
 ```
 
 The script ingests a file, starts fresh CLI JVMs for metadata, retrieval, and verification, and compares the result byte-for-byte. It prints the generated data directory for inspection.
@@ -66,14 +66,17 @@ BLOB_ID="$(
     -H "Content-Type: application/octet-stream" \
     -X POST --data-binary @/path/to/file \
     "http://localhost:8081/api/blobs" \
-  | jq -r .
+  | jq -r '.blob.id'
 )"
 
+curl -fsS "http://localhost:8081/api/blobs" | jq .
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
 curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
 curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/retrieved.bin
 ```
 
-The API also supports `DELETE /api/blobs/:id`. See [HTTP API](../api/http.md) for status codes and response headers.
+Run `./scripts/verify-http-lifecycle.sh` against a running server for an executable assertion of the complete API contract. See [HTTP API](../api/http.md) for status codes and response models.
 
 ## Failure behavior
 

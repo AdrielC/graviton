@@ -1,11 +1,10 @@
 package graviton.shared
 
-import graviton.shared.schema.SchemaExplorer
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.zioJson.given
 import zio.json.*
-import zio.schema.{DeriveSchema, Schema}
+import zio.schema.Schema
 
 /**
  * Shared API models for the Graviton HTTP API.
@@ -50,46 +49,6 @@ object ApiModels {
     given JsonCodec[Ratio] =
       JsonCodec(summon[JsonEncoder[Ratio]], summon[JsonDecoder[Ratio]])
 
-  /** Blob metadata */
-  final case class BlobMetadata(
-    id: BlobId,
-    size: SizeBytes,
-    contentType: Option[String],
-    createdAt: Long,
-    checksums: Map[String, String],
-  ) derives JsonCodec
-
-  /** Blob upload request */
-  final case class UploadRequest(
-    contentType: Option[String],
-    expectedSize: Option[SizeBytes],
-  ) derives JsonCodec
-
-  /** Upload response with blob ID */
-  final case class UploadResponse(
-    blobId: BlobId,
-    uploadUrl: String,
-  ) derives JsonCodec
-
-  /** Blob retrieval request */
-  final case class GetBlobRequest(
-    blobId: BlobId
-  ) derives JsonCodec
-
-  /** Chunk information for streaming */
-  final case class ChunkInfo(
-    offset: SizeBytes,
-    size: SizeBytes,
-    hash: String :| MinLength[1],
-  ) derives JsonCodec
-
-  /** Manifest for a blob */
-  final case class BlobManifest(
-    blobId: BlobId,
-    totalSize: SizeBytes,
-    chunks: List[ChunkInfo],
-  ) derives JsonCodec
-
   /** System stats */
   final case class SystemStats(
     totalBlobs: Count,
@@ -105,98 +64,47 @@ object ApiModels {
     uptime: Long,
   ) derives JsonCodec
 
-  /** Field definition inside a schema */
-  final case class SchemaField(
-    name: String,
-    dataType: String,
-    cardinality: String,
-    nullable: Boolean,
-    description: Option[String],
+  /** One blob currently persisted by the configured manifest repository. */
+  final case class BlobSummary(
+    id: BlobId,
+    size: SizeBytes,
+    createdAt: Long,
+    digest: String,
+    blockCount: Count,
   ) derives JsonCodec
 
-  /** Schema descriptor for an entity exposed by Graviton */
-  final case class ObjectSchema(
-    name: String,
-    category: String,
-    version: String,
-    summary: Option[String],
-    fields: List[SchemaField],
-    sampleJson: Option[String],
+  /** One real block reference from a persisted manifest. */
+  final case class BlobBlock(
+    index: Count,
+    contentId: String,
+    offset: SizeBytes,
+    size: SizeBytes,
   ) derives JsonCodec
 
-  /** Executive summary item for the datalake dashboard. */
-  final case class DatalakePillar(
-    title: String,
-    status: String,
-    evidence: String,
-    impact: String,
+  /** Persisted blob metadata and block layout. */
+  final case class BlobDetails(
+    summary: BlobSummary,
+    blocks: List[BlobBlock],
   ) derives JsonCodec
 
-  /** Highlight section aggregating recent wins per area. */
-  final case class DatalakeHighlight(
-    category: String,
-    bullets: List[String],
+  /** Current durable blob inventory. */
+  final case class BlobListResponse(
+    blobs: List[BlobSummary]
   ) derives JsonCodec
 
-  /** Individual change stream entry (timeline row). */
-  final case class DatalakeChangeEntry(
-    date: String,
-    area: String,
-    update: String,
-    impact: String,
-    source: String,
+  /** Result returned after the server has fully persisted an upload. */
+  final case class BlobUploadResult(
+    blob: BlobSummary,
+    freshBlocks: Count,
+    duplicateBlocks: Count,
+    durationSeconds: Double,
   ) derives JsonCodec
 
-  /** Health check or verification command relevant to the datalake. */
-  final case class DatalakeHealthCheck(
-    label: String,
-    command: String,
-    expectation: String,
+  /** Result of reading and hashing a persisted blob on the server. */
+  final case class BlobVerificationResult(
+    id: BlobId,
+    verified: Boolean,
+    bytesChecked: SizeBytes,
   ) derives JsonCodec
 
-  /** Operational note describing readiness or context. */
-  final case class DatalakeOperationalNote(
-    label: String,
-    description: String,
-  ) derives JsonCodec
-
-  /** Source link for additional reading. */
-  final case class DatalakeSourceLink(
-    label: String,
-    path: String,
-  ) derives JsonCodec
-
-  /** Aggregated view that powers the datalake change dashboard. */
-  final case class DatalakeDashboard(
-    lastUpdated: String,
-    branch: String,
-    pillars: List[DatalakePillar],
-    highlights: List[DatalakeHighlight],
-    changeStream: List[DatalakeChangeEntry],
-    healthChecks: List[DatalakeHealthCheck],
-    operationalConfidence: List[DatalakeOperationalNote],
-    upcomingFocus: List[String],
-    sources: List[DatalakeSourceLink],
-  ) derives JsonCodec
-
-  /** Serializable metaschema for the datalake dashboard payload. */
-  final case class DatalakeMetaschema(
-    format: String,
-    astJson: String,
-  ) derives JsonCodec
-
-  /** Response envelope combining the snapshot data with its metaschema. */
-  final case class DatalakeDashboardEnvelope(
-    snapshot: DatalakeDashboard,
-    metaschema: DatalakeMetaschema,
-    schemaExplorer: SchemaExplorer.Graph,
-  ) derives JsonCodec
-
-  given Schema[DatalakeDashboard]       = DeriveSchema.gen[DatalakeDashboard]
-  given Schema[DatalakePillar]          = DeriveSchema.gen[DatalakePillar]
-  given Schema[DatalakeHighlight]       = DeriveSchema.gen[DatalakeHighlight]
-  given Schema[DatalakeChangeEntry]     = DeriveSchema.gen[DatalakeChangeEntry]
-  given Schema[DatalakeHealthCheck]     = DeriveSchema.gen[DatalakeHealthCheck]
-  given Schema[DatalakeOperationalNote] = DeriveSchema.gen[DatalakeOperationalNote]
-  given Schema[DatalakeSourceLink]      = DeriveSchema.gen[DatalakeSourceLink]
 }

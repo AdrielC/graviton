@@ -3,129 +3,99 @@ layout: home
 
 hero:
   name: "Graviton"
-  text: "Content-Addressable Storage Runtime"
-  tagline: "Built on ZIO • Streaming ingest • Backend agnostic"
+  text: "Operational Content-Addressed Storage"
+  tagline: "Persist bytes, inspect manifests, verify content, and retrieve it after restart"
   image:
     src: /logo.svg
     alt: Graviton Logo
   actions:
     - theme: brand
-      text: Get Started
-      link: guide/getting-started
+      text: Run Graviton
+      link: guide/run-locally
     - theme: alt
-      text: Architecture
-      link: architecture
+      text: Open Live Console
+      link: demo
     - theme: alt
       text: GitHub
       link: https://github.com/AdrielC/graviton
 
 features:
-  - title: Verified Content Keys
-    details: Bounded chunking and cryptographic hashing ensure every stored blob is addressed by its bytes.
-  - title: Composable Transducer Pipelines
-    details: The Transducer algebra lets you compose ingest stages with >>> and &&&, with typed summaries, automatic state merging, and zero boilerplate.
-  - title: Stream-First Runtime
-    details: ZIO Streams power ingestion, hashing, block persistence, and retrieval without buffering complete payloads.
-  - title: Modular Backends
-    details: Run the restart-safe filesystem composition with no external services, or select S3/MinIO blocks with PostgreSQL manifests.
-  - title: Strong Typing
-    details: Scala 3, refined types, and schema derivation guard invariants across transports and storage boundaries.
-  - title: Built-In Observability
-    details: Structured logging, in-process counters, and Prometheus text export surface runtime behavior.
+  - title: Restart-safe filesystem CAS
+    details: Blocks and versioned manifests survive fresh CLI and server processes.
+  - title: Real HTTP lifecycle
+    details: Upload, inventory, manifest inspection, verification, download, HEAD, and delete operate on the configured store.
+  - title: Streaming runtime
+    details: ZIO Streams bound ingestion and retrieval without buffering complete payloads.
+  - title: External backend proof
+    details: CI exercises S3-compatible blocks with PostgreSQL manifests using MinIO and Postgres.
 ---
 
-## Operational Proof
-
-Graviton does not need fictional throughput numbers to look capable. These claims map to executable tests, durable formats, and CI gates in the repository.
-
-<NeonHud />
-
-## Quick Start
+## Run the complete lifecycle
 
 ```bash
-# Ingest, restart the CLI, retrieve, verify, and compare bytes
-./scripts/demo-local.sh
+./scripts/verify-local-lifecycle.sh
 ```
 
-The script prints a stable blob ID in the form `sha-256:<digest>:<size>` and leaves its temporary store path available for inspection.
+The verification script ingests a file, starts fresh CLI JVMs for metadata, retrieval, and verification, and compares the retrieved bytes with the original. It prints the stable content ID and filesystem root for inspection.
 
-## Why Graviton?
+For the HTTP service:
 
-Graviton is a **content-addressable storage runtime** that coordinates chunking, hashing, manifest persistence, and retrieval for large binary payloads. Each concern lives in an isolated module so hashing algorithms, network protocols, and storage backends can evolve independently.
+```bash
+GRAVITON_BLOB_BACKEND=fs \
+GRAVITON_FS_ROOT=/tmp/graviton-data \
+GRAVITON_HTTP_PORT=8081 \
+./sbt "server/run"
+```
 
-::: info Visualize the pipelines
-Architecture, manifests, and operations pages include interactive Mermaid diagrams rendered client-side in VitePress. Follow ingest, replication, and backend selection without leaving the browser.
-:::
+Then open the [Live Operations Console](./demo.md). The console does not contain a sample dataset or a browser simulation. If it cannot reach the configured server, it shows the connection failure.
 
-### Key Features
+## What is operational
 
-- **Composable Transducer pipelines**: build ingest, verify, and retrieval paths from typed stages with `>>>` and `&&&`
-- **Streaming ingest and retrieval** with bounded ZIO Stream pipelines
-- **Content-defined chunking** via FastCDC and multi-hash verification
-- **Pluggable storage** with working filesystem and S3 block stores plus filesystem and PostgreSQL manifests
-- **Strongly-typed schemas** shared across HTTP, gRPC, and Scala.js clients
-- **Integrated observability** with Prometheus metrics and structured logging
-- **Interactive Pipeline Explorer**: compose and visualize transducer stages in the browser
+| Path | Proof |
+| --- | --- |
+| Filesystem blocks and manifests | Restart-safe round-trip and inventory tests in `FsBlobManifestRepoSpec` |
+| CLI ingest, stat, get, verify, and delete | `scripts/verify-local-lifecycle.sh` uses separate JVM invocations |
+| HTTP upload, inventory, manifest, verify, download, HEAD, and delete | Contract coverage in `HttpApiSpec` |
+| Browser operations console | Compiled Scala.js client calls the same HTTP routes directly |
+| S3-compatible blocks and PostgreSQL manifests | Container-backed integration suites in CI |
+| RocksDB key-value adapter | Close and reopen persistence test |
 
-### Capability Status
+## Storage flow
 
-| Path | Status | Proof |
-| --- | --- | --- |
-| Filesystem blocks + manifests | **Operational** | Restart-safe round-trip in `FsBlobManifestRepoSpec` |
-| CLI ingest / stat / get / verify / delete | **Operational** | `scripts/demo-local.sh` exercises separate JVM invocations |
-| HTTP POST / GET / HEAD / DELETE | **Operational, pre-1.0** | Contract coverage in `HttpApiSpec` |
-| S3 blocks + PostgreSQL manifests | **Integration-tested** | Container-gated suites in CI |
-| RocksDB | **Partial** | Durable key-value adapter works; CAS block-store wiring remains roadmap |
-| Replica repair and placement | **Planned** | Runtime ports exist; coordinator is not complete |
+```mermaid
+flowchart LR
+  Client[Client bytes] --> HTTP[HTTP or CLI]
+  HTTP --> Chunker[Bounded chunker]
+  Chunker --> Hash[Cryptographic block keys]
+  Hash --> Blocks[Filesystem or S3 blocks]
+  Hash --> Manifest[Versioned manifest]
+  Manifest --> ManifestStore[Filesystem or PostgreSQL]
+  ManifestStore --> Read[Retrieve and verify]
+  Blocks --> Read
+```
 
-## Pipeline Explorer
+## Explicit limits
 
-Compose transducer stages interactively. Toggle stages on and off, inspect the resulting expression, and run a deterministic browser visualization of the modeled pipeline.
+Graviton is pre-1.0. Authentication assembly, range reads, distributed placement and repair, retention and garbage collection, and published benchmark envelopes remain open work. The documentation does not replace those gaps with modeled numbers or fictional status data.
 
-<PipelinePlayground />
-
-[Open full Pipeline Explorer](pipeline-explorer.md) for detailed explanations and scenarios.
-
-## Next Steps
-
-:::tip New to Graviton?
-Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on introduction!
-:::
+## Continue
 
 <div class="grid-container">
-  <a href="cas-playground" class="feature-card">
-    <h3>CAS Playground</h3>
-    <p>Inspect a deterministic browser model of chunking, hashing, and deduplication</p>
+  <a href="guide/run-locally" class="feature-card">
+    <h3>Run locally</h3>
+    <p>Start the filesystem server and exercise every live endpoint.</p>
   </a>
-
-  <a href="pipeline-explorer" class="feature-card">
-    <h3>Pipeline Explorer</h3>
-    <p>Compose transducer stages and run a clearly labeled browser visualization</p>
+  <a href="demo" class="feature-card">
+    <h3>Live operations console</h3>
+    <p>Upload, inspect, verify, download, and delete against a running server.</p>
   </a>
-
+  <a href="api/http" class="feature-card">
+    <h3>HTTP contract</h3>
+    <p>Use the operational blob API from curl or another client.</p>
+  </a>
   <a href="architecture" class="feature-card">
     <h3>Architecture</h3>
-    <p>Understand the module-by-module breakdown and system design</p>
-  </a>
-  
-  <a href="end-to-end-upload" class="feature-card">
-    <h3>Upload Flow</h3>
-    <p>Follow a binary blob through the entire ingest pipeline</p>
-  </a>
-  
-  <a href="core/transducers" class="feature-card">
-    <h3>Transducer Algebra</h3>
-    <p>Typed, composable pipeline stages with Record summaries</p>
-  </a>
-  
-  <a href="api" class="feature-card">
-    <h3>API Reference</h3>
-    <p>Explore gRPC and HTTP endpoints with examples</p>
-  </a>
-  
-  <a href="dev/contributing" class="feature-card">
-    <h3>Contributing</h3>
-    <p>Join the community and help build the future of storage</p>
+    <p>Understand storage, streaming, and backend boundaries.</p>
   </a>
 </div>
 
@@ -142,25 +112,17 @@ Start with the [Getting Started Guide](guide/getting-started.md) for a hands-on 
   border: 1px solid var(--vp-c-brand-soft);
   border-radius: 12px;
   background: rgba(0, 255, 65, 0.03);
-  transition: all 0.3s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease;
   text-decoration: none !important;
 }
 
 .feature-card:hover {
   border-color: var(--vp-c-brand-1);
-  background: rgba(0, 255, 65, 0.08);
-  transform: translateY(-4px);
-  box-shadow: 0 10px 30px rgba(0, 255, 65, 0.2);
+  transform: translateY(-2px);
 }
 
 .feature-card h3 {
   color: var(--vp-c-brand-1);
   margin-top: 0;
-  margin-bottom: 0.5rem;
-}
-
-.feature-card p {
-  color: var(--vp-c-text-2);
-  margin: 0;
 }
 </style>

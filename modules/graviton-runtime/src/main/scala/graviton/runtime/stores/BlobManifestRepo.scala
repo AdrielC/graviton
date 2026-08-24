@@ -4,6 +4,7 @@ import graviton.core.keys.BinaryKey
 import graviton.core.manifest.Manifest
 import graviton.runtime.streaming.BlobStreamer
 import zio.ZIO
+import zio.Chunk
 import zio.stream.ZStream
 
 import java.time.Instant
@@ -27,6 +28,10 @@ trait BlobManifestRepo:
 
   /** Retrieve the manifest and its ingestion timestamp for a blob, if it exists. */
   def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]]
+
+  /** List every persisted blob manifest, newest first. */
+  def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
+    ZIO.fail(new UnsupportedOperationException("BlobManifestRepo.list is not implemented"))
 
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]

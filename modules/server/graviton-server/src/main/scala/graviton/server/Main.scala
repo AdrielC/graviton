@@ -4,7 +4,6 @@ import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, MetricsHttpApi}
 import graviton.runtime.config.GravitonConfig
-import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
 import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore, FsBlobManifestRepo, FsBlockStore}
 import graviton.security.*
@@ -32,49 +31,46 @@ object Main extends ZIOAppDefault:
       program                                       =
         for
           routes <- ZIO.serviceWithZIO[BlobStore] { blobStore =>
-                      ZIO.serviceWithZIO[DatalakeDashboardService] { dashboard =>
-                        ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
-                          ZIO.serviceWithZIO[AuditSink] { auditSink =>
-                            val api = HttpApi(
-                              blobStore = blobStore,
-                              dashboard = dashboard,
-                              metrics = Some(MetricsHttpApi(metrics)),
+                      ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
+                        ZIO.serviceWithZIO[AuditSink] { auditSink =>
+                          val api = HttpApi(
+                            blobStore = blobStore,
+                            metrics = Some(MetricsHttpApi(metrics)),
+                          )
+
+                          val publicRoutes: Routes[Any, Nothing] =
+                            Routes(
+                              Method.GET / "api" / "health" -> Handler.fromZIO {
+                                for
+                                  now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                  up   = (now - started).max(0L)
+                                yield Response.json(HealthResponse(status = "ok", version = BuildInfo.version, uptime = up).toJson)
+                              },
+                              Method.GET / "api" / "stats"  -> Handler.fromZIO(
+                                metrics.snapshot.map { snapshot =>
+                                  Response.json(RuntimeStats.from(snapshot).toJson)
+                                }
+                              ),
                             )
 
-                            val publicRoutes: Routes[Any, Nothing] =
-                              Routes(
-                                Method.GET / "api" / "health" -> Handler.fromZIO {
-                                  for
-                                    now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                    up   = (now - started).max(0L)
-                                  yield Response.json(HealthResponse(status = "ok", version = "dev", uptime = up).toJson)
-                                },
-                                Method.GET / "api" / "stats"  -> Handler.fromZIO(
-                                  metrics.snapshot.map { snapshot =>
-                                    Response.json(RuntimeStats.from(snapshot).toJson)
-                                  }
-                                ),
-                                Method.GET / "api" / "schema" -> Handler.succeed(Response.json(List.empty[ObjectSchema].toJson)),
-                              )
+                          val appRoutes: Routes[Any, Nothing] =
+                            verifierOpt match
+                              case Some(verifier) =>
+                                api.routes @@ AuthMiddleware.required(verifier, auditSink)
+                              case None           =>
+                                api.routes
 
-                            val appRoutes: Routes[Any, Nothing] =
-                              verifierOpt match
-                                case Some(verifier) =>
-                                  api.routes @@ AuthMiddleware.required(verifier, auditSink)
-                                case None           =>
-                                  api.routes
+                          val devRoutes: Routes[Any, Nothing] =
+                            sec.devSharedSecret match
+                              case Some(secret) if sec.enabled =>
+                                DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
+                              case _                           =>
+                                Routes.empty
 
-                            val devRoutes: Routes[Any, Nothing] =
-                              sec.devSharedSecret match
-                                case Some(secret) if sec.enabled =>
-                                  DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
-                                case _                           =>
-                                  Routes.empty
+                          val baseRoutes = publicRoutes ++ appRoutes ++ devRoutes
+                          val routes     = if sec.enabled then baseRoutes else Middleware.cors(baseRoutes)
 
-                            val routes = publicRoutes ++ appRoutes ++ devRoutes
-
-                            ZIO.succeed(routes)
-                          }
+                          ZIO.succeed(routes)
                         }
                       }
                     }
@@ -97,9 +93,7 @@ object Main extends ZIOAppDefault:
              Server.defaultWithPort(port),
              blobLayer(cfg),
              auditLayer,
-             DatalakeDashboardService.live,
              InMemoryMetricsRegistry.layer,
-             ZLayer.succeed[Clock](Clock.ClockLive),
            )
     yield ()
 

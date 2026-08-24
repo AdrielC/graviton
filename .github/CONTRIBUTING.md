@@ -46,7 +46,7 @@ graviton/
 │   │   └── graviton-rocks/   # RocksDB backend
 │   ├── server/
 │   │   └── graviton-server/  # Application wiring
-│   └── frontend/             # Scala.js interactive demo
+│   └── frontend/             # Scala.js operations console
 └── docs/                     # VitePress documentation
 ```
 
