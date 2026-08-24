@@ -6,7 +6,6 @@ import graviton.shared.schema.SchemaExplorer
 import zio.*
 import zio.stream.*
 
-import java.time.Instant
 import java.time.format.DateTimeFormatter
 
 trait DatalakeDashboardService {
@@ -19,14 +18,23 @@ trait DatalakeDashboardService {
 
 object DatalakeDashboardService {
 
-  val live: ZLayer[Clock & Random, Nothing, DatalakeDashboardService] =
+  /**
+   * Dashboard state with an honest reference snapshot.
+   *
+   * Runtime updates are emitted only when a caller invokes `publish`; the
+   * service never synthesizes throughput, ingest, or health events.
+   */
+  val live: ZLayer[Clock, Nothing, DatalakeDashboardService] =
     ZLayer.scoped {
       for {
-        hub    <- Hub.unbounded[DatalakeDashboard]
-        state  <- Ref.make(DashboardSamples.snapshot)
-        _      <- hub.publish(DashboardSamples.snapshot)
+        hub    <- Hub.sliding[DatalakeDashboard](64)
+        now    <- Clock.instant
+        initial = DashboardSamples.snapshot.copy(
+                    lastUpdated = DateTimeFormatter.ISO_INSTANT.format(now),
+                    branch = "runtime-reference",
+                  )
+        state  <- Ref.make(initial)
         service = new Live(state, hub, DashboardSamples.metaschema, DashboardSamples.schemaExplorer)
-        _      <- DashboardSeeder.run(service).forkScoped
       } yield service
     }
 
@@ -47,39 +55,5 @@ object DatalakeDashboardService {
 
     def publish(update: DatalakeDashboard): UIO[Unit] =
       state.set(update) *> hub.publish(update).unit
-  }
-}
-
-private object DashboardSeeder {
-  private val formatter = DateTimeFormatter.ISO_INSTANT
-
-  def run(service: DatalakeDashboardService): URIO[Clock & Random, Unit] =
-    ZStream
-      .repeatZIO {
-        for {
-          base   <- service.snapshot
-          now    <- Clock.instant
-          jitter <- Random.nextIntBetween(50, 7500)
-        } yield synthesize(base, now, jitter)
-      }
-      .schedule(Schedule.spaced(30.seconds))
-      .mapZIO(service.publish)
-      .runDrain
-
-  private def synthesize(base: DatalakeDashboard, now: Instant, jitter: Int): DatalakeDashboard = {
-    val isoNow   = formatter.format(now)
-    val newEntry = DatalakeChangeEntry(
-      date = isoNow,
-      area = "Telemetry",
-      update = s"Ingested $jitter new objects via streaming dashboard",
-      impact = "Streaming pipeline verified end-to-end.",
-      source = "DatalakeDashboardSeeder",
-    )
-
-    base.copy(
-      lastUpdated = isoNow,
-      branch = s"${base.branch.split('@').headOption.getOrElse(base.branch)}@$isoNow",
-      changeStream = (newEntry :: base.changeStream).take(20),
-    )
   }
 }

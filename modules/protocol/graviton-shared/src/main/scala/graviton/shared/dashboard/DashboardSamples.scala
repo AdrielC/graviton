@@ -4,159 +4,152 @@ import graviton.shared.ApiModels.*
 import graviton.shared.schema.SchemaExplorer
 import zio.schema.DeriveSchema
 
-/** Centralized fixtures for the datalake dashboard so JVM + JS stay in sync. */
-object DashboardSamples {
+/** Source-backed reference data for the optional dashboard UI. */
+object DashboardSamples:
 
   private val dashboardSchema = DeriveSchema.gen[DatalakeDashboard]
 
   private val schemaAstJson: String =
     dashboardSchema.ast.toString
 
-  /** Reference metaschema describing the dashboard payload (generated via zio-schema AST). */
+  /** Reference metaschema describing the dashboard payload. */
   val metaschema: DatalakeMetaschema =
     DatalakeMetaschema(
       format = "zio-schema-ast@1",
       astJson = schemaAstJson,
     )
 
-  /** Normalized accessor graph derived from Schema.makeAccessors and MetaSchema. */
-  val schemaExplorer = SchemaExplorer.describe(dashboardSchema)
+  /** Normalized accessor graph derived from the public dashboard schema. */
+  val schemaExplorer: SchemaExplorer.Graph =
+    SchemaExplorer.describe(dashboardSchema)
 
-  /** Reference snapshot mirroring the docs/ops/datalake-dashboard.md content. */
+  /**
+   * Honest reference snapshot used before an operator publishes runtime data.
+   *
+   * Every claim points to a source file or executable check in this repository.
+   * This value is intentionally static; it is not presented as live telemetry.
+   */
   val snapshot: DatalakeDashboard = DatalakeDashboard(
-    lastUpdated = "2025-11-28",
-    branch = "cursor/datalake-recent-changes-dashboard-gpt-5.1-codex-78c7",
+    lastUpdated = "reference snapshot",
+    branch = "repository",
     pillars = List(
       DatalakePillar(
-        title = "Baseline health",
-        status = "✅ Green",
-        evidence = "Phase 0 log shows clean TESTCONTAINERS=0 ./sbt scalafmtAll test + npm run docs:build",
-        impact = "Guarantees reproducible CI baseline before new ingest work.",
+        title = "Streaming CAS path",
+        status = "Implemented",
+        evidence = "CasRoundTripSpec exercises ingest, manifest persistence, retrieval, stats, and integrity.",
+        impact = "The core object path is executable rather than architectural scaffolding.",
       ),
       DatalakePillar(
-        title = "Type & attribute foundations",
-        status = "🚧 In progress",
-        evidence = "Phase 1 added Iron ByteConstraints, Block wrappers, and specs.",
-        impact = "Enforces per-block limits before BlockStore/BlobStore integration.",
+        title = "Durable local mode",
+        status = "Implemented",
+        evidence = "FsBlobManifestRepoSpec recreates the store between write and read.",
+        impact = "CLI and embedded filesystem workflows survive process restarts.",
       ),
       DatalakePillar(
-        title = "Reliability & observability",
-        status = "✅ Hardened",
-        evidence = "CHANGES_SUMMARY.md calls out JVM caps, forked suites, digest fixes.",
-        impact = "Long ingest runs no longer OOM; 118/118 tests pass reliably.",
+        title = "HTTP object API",
+        status = "Implemented",
+        evidence = "HttpApiSpec covers POST, GET, HEAD, DELETE, validation, and not-found behavior.",
+        impact = "Clients receive stable content IDs and explicit HTTP semantics.",
       ),
       DatalakePillar(
-        title = "Experience & surfacing",
-        status = "✅ Live",
-        evidence = "FINAL_STATUS.md documents the Laminar dashboard and CI wiring.",
-        impact = "Stakeholders can demo Stats, Blob Explorer, and Health checks directly.",
+        title = "Advanced backends",
+        status = "Mixed",
+        evidence = "Filesystem, S3 block storage, and Postgres manifests are implemented; the RocksDB KV adapter is not yet a CAS backend.",
+        impact = "Capability tables distinguish working paths from extension points.",
       ),
     ),
     highlights = List(
       DatalakeHighlight(
-        category = "Ingest & Type Safety",
+        category = "Content integrity",
         bullets = List(
-          "Restored Byte/Chunk refinements and manifest-safe BlockBuilder helpers.",
-          "Added ByteConstraintsSpec + BlockSpec to guard size regressions.",
-          "Extended docs/ingest/chunking.md with opaque wrapper guidance.",
+          "Blob and block keys encode hash algorithm, digest, and byte length.",
+          "Framed manifests validate ordering, bounds, and entry structure during decode.",
+          "Verification streams bytes through a fresh hasher without buffering the full blob.",
         ),
       ),
       DatalakeHighlight(
-        category = "Runtime Reliability & Tests",
+        category = "Operational behavior",
         bullets = List(
-          "Locked JVM heap (2 GiB / 512 MiB) with G1 + per-suite forks.",
-          "Trimmed property sample counts + payload sizes for realistic stress.",
-          "Patched digest handling so SHA-256 + BLAKE3 verification stops leaking buffers.",
+          "Filesystem blocks and manifests use temporary files plus atomic rename.",
+          "HTTP retrieval checks manifest existence before returning a streaming 200 response.",
+          "Metrics and structured logging are available without fabricated production values.",
         ),
       ),
       DatalakeHighlight(
-        category = "Experience & Insight Surfaces",
+        category = "Contributor experience",
         bullets = List(
-          "Scala.js frontend ships Stats Panel, Blob Explorer, and Health Check.",
-          "Matrix neon docs theme keeps Guide/Architecture/API/Scala.js/Demo prominent.",
-          "DOCUMENTATION_STATUS.md details build + deployment commands for previewing the dashboard.",
+          "The sbt build loads from standard Git linked worktrees.",
+          "Required unit, docs-snippet, frontend, and VitePress checks are documented and automated.",
+          "The public site separates implemented, partial, and planned capabilities.",
         ),
       ),
     ),
     changeStream = List(
       DatalakeChangeEntry(
-        date = "2025-11-06",
-        area = "Tooling baseline",
-        update = "Phase 0 confirmed clean repo, sbt scalafmtAll test, npm docs build.",
-        impact = "Future datalake patches start from a reproducible baseline.",
-        source = "docs/logs/2025-11-06.md",
+        date = "current",
+        area = "Local storage",
+        update = "Added durable framed manifests for filesystem-backed Graviton instances.",
+        impact = "Ingest, stat, get, verify, and delete work across separate processes.",
+        source = "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FsBlobManifestRepo.scala",
       ),
       DatalakeChangeEntry(
-        date = "2025-11-06",
-        area = "Ingest types",
-        update = "Phase 1 shipped Iron ByteConstraints, opaque Block/UploadChunk, updated docs.",
-        impact = "Block safety enforced before hitting storage adapters.",
-        source = "docs/logs/2025-11-06.md",
+        date = "current",
+        area = "Protocol",
+        update = "Hardened content ID parsing and blob HTTP lifecycle semantics.",
+        impact = "Returned IDs round-trip and missing objects return 404 before body streaming starts.",
+        source = "modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/HttpApi.scala",
       ),
       DatalakeChangeEntry(
-        date = "2025-10-30",
-        area = "Docs infrastructure",
-        update = "Verified sbt + VitePress builds and documented commands/endpoints.",
-        impact = "Contributors can reliably regenerate the dashboard + docs.",
-        source = "DOCUMENTATION_STATUS.md",
-      ),
-      DatalakeChangeEntry(
-        date = "—",
-        area = "Reliability fixes",
-        update = "Introduced JVM tuning, digest leak fix, forked suites, neon docs theme.",
-        impact = "118/118 suites pass without OOM; ingest simulations stay healthy.",
-        source = "CHANGES_SUMMARY.md",
-      ),
-      DatalakeChangeEntry(
-        date = "—",
-        area = "Experience layer",
-        update = "Delivered Laminar/Airstream dashboard modules + CI wiring for GitHub Pages.",
-        impact = "Live cockpit (Stats, Blob Explorer, Health) tied to docs deployments.",
-        source = "FINAL_STATUS.md",
+        date = "current",
+        area = "Documentation",
+        update = "Replaced simulated telemetry and stale status prose with source-backed proof.",
+        impact = "The showcase remains credible without presenting random data as operational evidence.",
+        source = "docs/index.md",
       ),
     ),
     healthChecks = List(
       DatalakeHealthCheck(
-        label = "Format + unit/integration suites",
+        label = "Scala format and tests",
         command = "TESTCONTAINERS=0 ./sbt scalafmtAll test",
-        expectation = "All suites green (~75s) with bounded heap.",
+        expectation = "All non-container suites pass.",
       ),
       DatalakeHealthCheck(
-        label = "Docs site",
-        command = "cd docs && npm install && npm run docs:build",
-        expectation = "Build succeeds without dead-link warnings.",
+        label = "Executable documentation",
+        command = "./sbt docs/mdoc checkDocSnippets",
+        expectation = "All checked Scala snippets compile and generated Markdown is current.",
       ),
       DatalakeHealthCheck(
-        label = "Frontend artifacts",
-        command = "./sbt buildFrontend && cd docs && npm run docs:dev",
-        expectation = "Scala.js bundle compiles; /demo renders dashboard.",
+        label = "Public site",
+        command = "./sbt buildDocsAssets && npm ci --prefix docs && npm run docs:build --prefix docs",
+        expectation = "Scala.js, Scaladoc, and VitePress assets build without broken links.",
       ),
     ),
     operationalConfidence = List(
       DatalakeOperationalNote(
-        label = "Metrics Surface",
-        description = "Stats Panel reveals blob counts, storage usage, dedupe ratio, and health badges.",
+        label = "Evidence policy",
+        description = "Static examples are labeled as reference data; only externally published updates appear as runtime events.",
       ),
       DatalakeOperationalNote(
-        label = "Docs Accuracy",
-        description = "Schema, chunking, ranges, and ingest guides kept in sync via DOCUMENTATION_STATUS.md.",
+        label = "Durability boundary",
+        description = "Manifest deletion intentionally retains shared content-addressed blocks for deduplication.",
       ),
       DatalakeOperationalNote(
-        label = "Navigation",
-        description = "Guide → Streaming → Architecture → API → Scala.js → Demo remain one click away via VitePress config.",
+        label = "API stability",
+        description = "Runtime interfaces are the integration anchor; the HTTP surface remains pre-1.0 and explicitly documented.",
       ),
     ),
     upcomingFocus = List(
-      "Finish Phase 1 helper docs + BinaryAttribute interop wiring.",
-      "Kick off Phase 2 FastCDC + rolling hash chunker extraction.",
-      "Draft Phase 3 mime sniffer design so ingest metrics surface hints.",
-      "Sketch Phase 7 mdoc plan to keep dashboard snippets executable.",
+      "Promote the RocksDB key-value adapter into a CAS backend and complete replica-index coordination.",
+      "Add authenticated, versioned HTTP contracts before a stable REST release.",
+      "Publish benchmark methodology before making performance claims.",
     ),
     sources = List(
-      DatalakeSourceLink("docs/logs/2025-11-06.md", "docs/logs/2025-11-06.md"),
-      DatalakeSourceLink("CHANGES_SUMMARY.md", "CHANGES_SUMMARY.md"),
-      DatalakeSourceLink("DOCUMENTATION_STATUS.md", "DOCUMENTATION_STATUS.md"),
-      DatalakeSourceLink("FINAL_STATUS.md", "FINAL_STATUS.md"),
+      DatalakeSourceLink("CAS round-trip tests", "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/CasRoundTripSpec.scala"),
+      DatalakeSourceLink(
+        "Filesystem manifest tests",
+        "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/FsBlobManifestRepoSpec.scala",
+      ),
+      DatalakeSourceLink("HTTP contract tests", "modules/protocol/graviton-http/src/test/scala/graviton/protocol/http/HttpApiSpec.scala"),
+      DatalakeSourceLink("CI workflows", ".github/workflows/ci.yml"),
     ),
   )
-}

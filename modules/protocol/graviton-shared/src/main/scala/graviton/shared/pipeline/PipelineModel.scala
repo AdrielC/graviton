@@ -5,12 +5,10 @@ import zio.json.*
 /**
  * Shared, cross-compiled model of the Transducer pipeline.
  *
- * This module mirrors the JVM-only `graviton.core.scan.Transducer` algebra as
- * serializable descriptors so the Scala.js frontend can visualize real pipeline
- * stages without duplicating domain knowledge.
- *
- * The JVM side populates these descriptors from the actual `IngestPipeline` /
- * `TransducerKit` definitions; the JS side renders them.
+ * This module maintains serializable descriptors beside the JVM-only
+ * `graviton.core.scan.Transducer` algebra so Scala.js can explain pipeline
+ * composition. It is a source-maintained catalog, not generated runtime
+ * telemetry. Descriptions identify descriptor-only stages explicitly.
  */
 
 /** A single named field in a transducer summary Record. */
@@ -51,10 +49,9 @@ final case class PipelineDescriptor(
 /**
  * Pre-built pipeline descriptors corresponding to Graviton transducers.
  *
- * Stages marked `implemented = true` in their description exist as production
- * `Transducer` instances in `graviton.core.scan.IngestPipeline` and
- * `graviton.core.scan.Transducers`. Stages marked as roadmap items are
- * described here for visualization but not yet wired into the `>>>` chain.
+ * Implemented stages have corresponding `Transducer` definitions in
+ * `graviton.core.scan`. Descriptor-only stages are retained to show intended
+ * composition but are not presented as runnable runtime paths.
  */
 object PipelineCatalog:
 
@@ -142,7 +139,7 @@ object PipelineCatalog:
       SummaryField("compressedBytes", "Long", "Total bytes after compression"),
       SummaryField("ratio", "Double", "Compression ratio (original / compressed)"),
     ),
-    description = "Zstd compression per block. Tracks compression ratio in summary.",
+    description = "Descriptor only: proposed per-block compression and summary fields. It is not wired into the runtime.",
     hotStateDescription = "Hot = (Long, Long) — compressedTotal, originalTotal",
   )
 
@@ -211,7 +208,7 @@ object PipelineCatalog:
 
   val fullCasIngest: PipelineDescriptor = PipelineDescriptor(
     name = "Full CAS Pipeline",
-    description = "Production ingest with block keying and deduplication.",
+    description = "Modeled CAS stage sequence with block keying and deduplication.",
     stages = List(countBytes, hashBytes, rechunk, blockKeyDeriver, dedup),
     operators = List(
       CompositionOp.Sequential,
@@ -224,7 +221,7 @@ object PipelineCatalog:
 
   val safeIngest: PipelineDescriptor = PipelineDescriptor(
     name = "Safe Ingest",
-    description = "Upload bomb protection followed by ingest with compression.",
+    description = "Modeled safe-ingest sequence. BombGuard is implemented; compression remains descriptor-only.",
     stages = List(bombGuard, countBytes, hashBytes, rechunk, compress),
     operators = List(
       CompositionOp.Sequential,

@@ -16,7 +16,7 @@ object Main {
     val baseUrl = if (metaTag != null) {
       metaTag.asInstanceOf[dom.html.Meta].content
     } else {
-      "http://localhost:8080"
+      "http://localhost:8081"
     }
 
     val docsBaseDynamic = dom.window.asInstanceOf[js.Dynamic].selectDynamic("__GRAVITON_DOCS_BASE__")

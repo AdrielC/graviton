@@ -3,21 +3,16 @@ package graviton.frontend.components
 import com.raquo.laminar.api.L.*
 import graviton.shared.ApiModels.*
 import graviton.frontend.GravitonApi
-import zio.*
-import scala.concurrent.ExecutionContext.Implicits.global
 
-/** Interactive blob explorer to view blob metadata and manifests */
+/** Interactive explorer for the validated reference metadata shipped with the docs. */
 object BlobExplorer {
 
   def apply(api: GravitonApi): HtmlElement = {
     val blobIdVar       = Var("")
     val metadataVar     = Var[Option[BlobMetadata]](None)
     val manifestVar     = Var[Option[BlobManifest]](None)
-    val loadingVar      = Var(false)
     val errorVar        = Var[Option[String]](None)
     val showManifestVar = Var(false)
-
-    val runtime = Runtime.default
 
     def loadSample(blobId: BlobId): Unit = {
       blobIdVar.set(blobId.value)
@@ -30,51 +25,37 @@ object BlobExplorer {
         return
       }
 
-      loadingVar.set(true)
       errorVar.set(None)
       metadataVar.set(None)
       manifestVar.set(None)
       showManifestVar.set(false)
 
       val blobId = BlobId.applyUnsafe(blobIdStr)
-
-      Unsafe.unsafe { implicit unsafe =>
-        runtime.unsafe.runToFuture(api.getBlobMetadata(blobId)).onComplete {
-          case scala.util.Success(metadata) =>
-            metadataVar.set(Some(metadata))
-            loadingVar.set(false)
-          case scala.util.Failure(error)    =>
-            errorVar.set(Some(error.getMessage))
-            loadingVar.set(false)
-        }
-      }
+      api.referenceMetadataFor(blobId) match
+        case Some(metadata) => metadataVar.set(Some(metadata))
+        case None           => errorVar.set(Some("That ID is not in the bundled reference dataset."))
     }
 
-    def loadManifest(blobId: BlobId): Unit = {
-      loadingVar.set(true)
-
-      Unsafe.unsafe { implicit unsafe =>
-        runtime.unsafe.runToFuture(api.getBlobManifest(blobId)).onComplete {
-          case scala.util.Success(manifest) =>
-            manifestVar.set(Some(manifest))
-            showManifestVar.set(true)
-            loadingVar.set(false)
-          case scala.util.Failure(error)    =>
-            errorVar.set(Some(s"Error loading manifest: ${error.getMessage}"))
-            loadingVar.set(false)
-        }
-      }
-    }
+    def loadManifest(blobId: BlobId): Unit =
+      api.referenceManifestFor(blobId) match
+        case Some(manifest) =>
+          manifestVar.set(Some(manifest))
+          showManifestVar.set(true)
+        case None           => errorVar.set(Some("No reference manifest exists for that ID."))
 
     div(
       cls := "blob-explorer",
       h2("🔍 Blob Explorer"),
+      p(
+        cls := "page-intro",
+        "Inspect the bundled reference manifests below. Live blob retrieval uses the raw streaming HTTP endpoint and is demonstrated in the HTTP guide.",
+      ),
       div(
         cls := "search-box",
         input(
           cls         := "blob-id-input",
           tpe         := "text",
-          placeholder := "Enter blob ID (e.g., sha256:abc123...)",
+          placeholder := "Enter a reference content ID",
           controlled(
             value <-- blobIdVar.signal,
             onInput.mapToValue --> blobIdVar.writer,
@@ -87,32 +68,23 @@ object BlobExplorer {
           cls         := "btn-primary",
           "🔍 Load Blob",
           onClick --> { _ => loadBlob(blobIdVar.now()) },
-          disabled <-- loadingVar.signal,
         ),
       ),
-      child <-- api.offlineSignal.map { offline =>
-        if (!offline) emptyNode
-        else {
-          div(
-            cls := "demo-hint",
-            p(
-              "Running in demo mode. Try one of the sample blob IDs below or start a local Graviton server to explore your own data."
-            ),
-            div(
-              cls := "sample-id-list",
-              api.sampleBlobIds.map { blobId =>
-                button(
-                  cls    := "sample-id-btn",
-                  `type` := "button",
-                  blobId.value,
-                  onClick --> { _ => loadSample(blobId) },
-                  disabled <-- loadingVar.signal,
-                )
-              },
-            ),
-          )
-        }
-      },
+      div(
+        cls := "demo-hint",
+        p("Bundled reference IDs:"),
+        div(
+          cls := "sample-id-list",
+          api.sampleBlobIds.map { blobId =>
+            button(
+              cls    := "sample-id-btn",
+              `type` := "button",
+              blobId.value,
+              onClick --> { _ => loadSample(blobId) },
+            )
+          },
+        ),
+      ),
       child <-- metadataVar.signal.map {
         case None           => emptyNode
         case Some(metadata) =>
@@ -153,7 +125,6 @@ object BlobExplorer {
               cls := "btn-secondary",
               "📄 View Manifest",
               onClick --> { _ => loadManifest(metadata.id) },
-              disabled <-- loadingVar.signal,
             ),
           )
       },
@@ -195,10 +166,6 @@ object BlobExplorer {
         case None        => emptyNode
         case Some(error) =>
           div(cls := "error-message", s"⚠️ $error")
-      },
-      child <-- loadingVar.signal.map { loading =>
-        if (loading) div(cls := "loading-spinner", "⏳ Loading...")
-        else emptyNode
       },
     )
   }

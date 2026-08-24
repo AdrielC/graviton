@@ -33,23 +33,11 @@ final case class GravitonApi(
       Some(demoData.stats),
     )
 
-  def getBlobMetadata(blobId: BlobId): Task[BlobMetadata] =
-    withFallback(
-      HttpClient
-        .getJson[BlobMetadata](s"/api/blobs/${blobId.value}")
-        .provideEnvironment(ZEnvironment(client)),
-      demoData.metadataFor(blobId),
-      onFallbackMissing = Some(s"Demo dataset does not include blob ${blobId.value}."),
-    )
+  def referenceMetadataFor(blobId: BlobId): Option[BlobMetadata] =
+    demoData.metadataFor(blobId)
 
-  def getBlobManifest(blobId: BlobId): Task[BlobManifest] =
-    withFallback(
-      HttpClient
-        .getJson[BlobManifest](s"/api/blobs/${blobId.value}/manifest")
-        .provideEnvironment(ZEnvironment(client)),
-      demoData.manifestFor(blobId),
-      onFallbackMissing = Some(s"Demo dataset does not include a manifest for ${blobId.value}."),
-    )
+  def referenceManifestFor(blobId: BlobId): Option[BlobManifest] =
+    demoData.manifestFor(blobId)
 
   def listSchemas: Task[List[ObjectSchema]] =
     withFallback(
@@ -70,15 +58,6 @@ final case class GravitonApi(
         .getJson[DatalakeDashboardEnvelope]("/api/datalake/dashboard")
         .provideEnvironment(ZEnvironment(client)),
       Some(DatalakeDashboardEnvelope(demoData.datalakeDashboard, demoData.datalakeMetaschema, demoData.datalakeSchemaExplorer)),
-    )
-
-  def initiateUpload(request: UploadRequest): Task[UploadResponse] =
-    withFallback(
-      HttpClient
-        .postJson[UploadRequest, UploadResponse]("/api/upload", request)
-        .provideEnvironment(ZEnvironment(client)),
-      Some(demoData.simulateUpload(request)),
-      onFallbackMissing = Some(s"Demo dataset does not include a upload response for ${request.contentType}."),
     )
 
   private def withFallback[A](

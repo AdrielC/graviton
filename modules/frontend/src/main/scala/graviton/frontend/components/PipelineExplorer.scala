@@ -14,7 +14,7 @@ import org.scalajs.dom
  * the actual `Transducer` algebra code.
  *
  * The Vue `PipelinePlayground` component in the docs theme provides the same experience
- * for visitors who haven't built the Scala.js bundle; this Scala.js version is the
+ * for visitors who haven't built the Scala.js bundle. This Scala.js version is the
  * "source of truth" because it imports the cross-compiled pipeline descriptors directly.
  */
 object PipelineExplorer:
@@ -28,58 +28,54 @@ object PipelineExplorer:
     val tickVar             = Var(0)
     val speedVar            = Var(3)
 
-    // Simulated metrics state
-    val totalBytesVar     = Var(0L)
-    val blockCountVar     = Var(0L)
-    val uniqueCountVar    = Var(0L)
-    val duplicateCountVar = Var(0L)
-    val digestProgressVar = Var(0L)
-
+    // Deterministic model counters. These are never presented as runtime telemetry.
+    val totalBytesVar           = Var(0L)
+    val blockCountVar           = Var(0L)
+    val uniqueCountVar          = Var(0L)
+    val duplicateCountVar       = Var(0L)
     var animHandle: Option[Int] = None
 
-    def startSim(): Unit =
-      stopSim()
+    def startModel(): Unit =
+      stopModel()
       runningVar.set(true)
       val handle = dom.window.setInterval(
         () => {
           val spd       = speedVar.now()
           val chunkSize = 65536L * spd
           totalBytesVar.update(_ + chunkSize)
-          digestProgressVar.update(_ + chunkSize)
           tickVar.update(_ + 1)
 
           if totalBytesVar.now() % (2L * 1048576L) < chunkSize then
             blockCountVar.update(_ + 1)
-            if enabledStageIds.now().contains("dedup") then
-              if scala.util.Random.nextDouble() > 0.25 then uniqueCountVar.update(_ + 1)
-              else duplicateCountVar.update(_ + 1)
+            val blockNumber = blockCountVar.now()
+            if enabledStageIds.now().contains("dedup") && blockNumber % 4 == 0 then duplicateCountVar.update(_ + 1)
+            else uniqueCountVar.update(_ + 1)
         },
         80,
       )
       animHandle = Some(handle)
 
-    def stopSim(): Unit =
+    def stopModel(): Unit =
       animHandle.foreach(dom.window.clearInterval)
       animHandle = None
       runningVar.set(false)
 
-    def resetSim(): Unit =
-      stopSim()
+    def resetModel(): Unit =
+      stopModel()
       totalBytesVar.set(0L)
       blockCountVar.set(0L)
       uniqueCountVar.set(0L)
       duplicateCountVar.set(0L)
-      digestProgressVar.set(0L)
       tickVar.set(0)
 
     def selectPipeline(p: PipelineDescriptor): Unit =
-      resetSim()
+      resetModel()
       selectedPipelineVar.set(p)
       enabledStageIds.set(p.stages.map(_.id).toSet)
 
     div(
       cls := "pipeline-playground",
-      onUnmountCallback(_ => stopSim()),
+      onUnmountCallback(_ => stopModel()),
 
       // Header
       HtmlTag("header")(
@@ -91,20 +87,24 @@ object PipelineExplorer:
             cls  := "pp-header__subtitle",
             "Powered by ",
             code("graviton.shared.pipeline.PipelineCatalog"),
-            " — the same model used by the JVM runtime",
+            ". Catalog definitions are shared with the JVM runtime.",
+          ),
+          p(
+            cls  := "pp-header__subtitle",
+            "DETERMINISTIC BROWSER MODEL • NO RUNTIME TELEMETRY",
           ),
         ),
         div(
           cls := "pp-header__controls",
           button(
             cls <-- runningVar.signal.map(r => if r then "pp-btn active" else "pp-btn"),
-            child.text <-- runningVar.signal.map(r => if r then "PAUSE" else "RUN PIPELINE"),
-            onClick --> { _ => if runningVar.now() then stopSim() else startSim() },
+            child.text <-- runningVar.signal.map(r => if r then "PAUSE MODEL" else "RUN MODEL"),
+            onClick --> { _ => if runningVar.now() then stopModel() else startModel() },
           ),
           button(
             cls := "pp-btn pp-btn--ghost",
             "RESET",
-            onClick --> { _ => resetSim() },
+            onClick --> { _ => resetModel() },
           ),
         ),
       ),
@@ -176,7 +176,7 @@ object PipelineExplorer:
                     styleAttr := "margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--vp-c-text-3, #808080);",
                     stage.hotStateDescription,
                   ),
-                  // Live metrics
+                  // Model counters derived from the documented worksheet rules.
                   div(
                     cls       := "pp-stage__metrics",
                     stage.summaryFields.map { f =>
@@ -191,13 +191,12 @@ object PipelineExplorer:
                             blockCountVar,
                             uniqueCountVar,
                             duplicateCountVar,
-                            digestProgressVar,
                           ),
                         ),
                       )
                     },
                   ),
-                  // Throughput bar
+                  // Deterministic activity indicator. It is not a throughput measurement.
                   div(
                     cls       := "pp-stage__throughput",
                     div(
@@ -205,14 +204,14 @@ object PipelineExplorer:
                       div(
                         cls := "pp-stage__throughput-fill",
                         width <-- tickVar.signal.map { t =>
-                          val pct = 40 + Math.sin(t * 0.1 + idx) * 30 + Math.random() * 20
-                          s"${Math.min(100, Math.max(0, pct)).toInt}%"
+                          val pct = (t * 7 + idx * 19) % 101
+                          s"$pct%"
                         },
                       ),
                     ),
                     span(
                       cls := "pp-stage__throughput-label",
-                      child.text <-- runningVar.signal.map(r => if r then "streaming" else "idle"),
+                      child.text <-- runningVar.signal.map(r => if r then "model active" else "model idle"),
                     ),
                   ),
                 ),
@@ -228,7 +227,7 @@ object PipelineExplorer:
       div(
         cls       := "pp-output",
         styleAttr := "margin-top: 1rem;",
-        div(cls := "pp-output__icon", "RECORD SUMMARY"),
+        div(cls := "pp-output__icon", "MODELED RECORD SUMMARY"),
         div(
           cls   := "pp-output__fields",
           children <-- selectedPipelineVar.signal.map { pipeline =>
@@ -238,7 +237,7 @@ object PipelineExplorer:
                 span(cls := "pp-output__field-name", f.name),
                 span(
                   cls    := "pp-output__field-value",
-                  child.text <-- metricSignal(f.name, totalBytesVar, blockCountVar, uniqueCountVar, duplicateCountVar, digestProgressVar),
+                  child.text <-- metricSignal(f.name, totalBytesVar, blockCountVar, uniqueCountVar, duplicateCountVar),
                 ),
                 span(cls := "pp-output__field-type", f.scalaType),
               )
@@ -266,7 +265,7 @@ object PipelineExplorer:
       div(
         cls       := "pp-dataflow__speed",
         styleAttr := "margin-top: 1rem;",
-        label("Speed: "),
+        label("Model tick rate: "),
         input(
           typ     := "range",
           minAttr := "1",
@@ -288,7 +287,6 @@ object PipelineExplorer:
     blockCountVar: Var[Long],
     uniqueCountVar: Var[Long],
     duplicateCountVar: Var[Long],
-    digestProgressVar: Var[Long],
   ): Signal[String] =
     fieldName match
       case "totalBytes" | "hashBytes" | "totalSeen" | "compressedBytes" =>
@@ -301,18 +299,8 @@ object PipelineExplorer:
         uniqueCountVar.signal.map(_.toString)
       case "duplicateCount" | "failed"                                  =>
         duplicateCountVar.signal.map(_.toString)
-      case "digestHex"                                                  =>
-        digestProgressVar.signal.map { p =>
-          if p > 0 then hashHexS(p).take(16) + "..." else "---"
-        }
-      case "ratio"                                                      =>
-        totalBytesVar.signal.map { tb =>
-          if tb > 0 then f"${tb.toDouble / Math.max(1, (tb * 0.62).toLong).toDouble}%.2f" else "---"
-        }
-      case "rejected"                                                   =>
-        totalBytesVar.signal.map(tb => if tb > 10_000_000_000L then "true" else "false")
-      case "manifestSize"                                               =>
-        blockCountVar.signal.map(c => formatBytesS(c * 48))
+      case "digestHex" | "ratio" | "rejected" | "manifestSize"          =>
+        Val("not computed")
       case _                                                            =>
         Val("---")
 
@@ -321,14 +309,5 @@ object PipelineExplorer:
     else if n < 1048576L then f"${n / 1024.0}%.1f KB"
     else if n < 1073741824L then f"${n / 1048576.0}%.1f MB"
     else f"${n / 1073741824.0}%.2f GB"
-
-  private def hashHexS(seed: Long): String =
-    var h  = (seed & 0xffffffffL).toInt
-    val sb = new StringBuilder(32)
-    (0 until 32).foreach { i =>
-      h = ((h << 5) - h + (i * 7 + 13))
-      sb.append(Integer.toHexString((h >>> 0) & 0xf))
-    }
-    sb.result()
 
 end PipelineExplorer

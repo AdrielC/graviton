@@ -66,7 +66,7 @@ object GravitonApp {
       case Page.Stats      => "Graviton - Statistics"
       case Page.Schema     => "Graviton - Schema Viewer"
       case Page.Updates    => "Graviton - Datalake Updates"
-      case Page.Mission    => "Graviton - Mission Control"
+      case Page.Mission    => "Graviton - Capacity Lab"
       case Page.Pipeline   => "Graviton - Pipeline Explorer"
       case Page.Playground => "Graviton - CAS Playground"
     },
@@ -116,7 +116,7 @@ object GravitonApp {
           navLink(Page.Pipeline, "⚡ Pipeline"),
           navLink(Page.Playground, "🧪 CAS Lab"),
           navLink(Page.Updates, "🛰️ Updates"),
-          navLink(Page.Mission, "🛠️ Mission Control"),
+          navLink(Page.Mission, "🧮 Capacity Lab"),
         ),
 
         // Health indicator
@@ -130,7 +130,7 @@ object GravitonApp {
                 span(cls := "demo-icon", "🛰️"),
                 span(
                   cls    := "demo-text",
-                  "Demo mode: responses are simulated. Start a Graviton server at http://localhost:8080 to connect to a live API.",
+                  "Demo mode: API-backed views are using reference data. Start a Graviton server at http://localhost:8081 to connect live.",
                 ),
               )
             else emptyNode
@@ -181,7 +181,7 @@ object GravitonApp {
       div(
         cls := "page-dashboard",
         h1("🏠 Dashboard"),
-        p(cls := "page-intro", "Welcome to Graviton! Explore the interactive components below to learn about content-addressable storage."),
+        p(cls := "page-intro", "Explore the working CAS model, current capability boundaries, and browser-side learning tools."),
         div(
           cls := "dashboard-grid",
           div(
@@ -193,10 +193,11 @@ object GravitonApp {
             """),
             ul(
               li("🎯 Content-defined chunking with FastCDC"),
-              li("💾 Multiple storage backends (S3, PostgreSQL, RocksDB)"),
+              li("💾 Filesystem CAS plus S3 blocks and PostgreSQL manifests"),
+              li("🧱 A durable RocksDB key-value adapter with CAS wiring still planned"),
               li("🔐 Cryptographic hashing and verification"),
               li("📊 Observable with Prometheus metrics"),
-              li("⚡ Zero-copy streaming with ZIO"),
+              li("⚡ Bounded streaming with ZIO"),
             ),
           ),
           div(
@@ -213,7 +214,7 @@ object GravitonApp {
               div(
                 cls := "feature-card",
                 "🔍 Explore Blobs",
-                p("Search and inspect blob metadata and manifests"),
+                p("Inspect the clearly labeled reference blob dataset"),
               ),
             ),
             a(
@@ -227,7 +228,7 @@ object GravitonApp {
               div(
                 cls := "feature-card",
                 "📤 Upload Files",
-                p("See chunking in action and explore deduplication"),
+                p("Analyze local files in the browser without uploading them"),
               ),
             ),
             a(
@@ -241,7 +242,7 @@ object GravitonApp {
               div(
                 cls := "feature-card",
                 "📊 View Statistics",
-                p("Monitor system metrics and deduplication ratios"),
+                p("Inspect process counters or a clearly labeled demo fallback"),
               ),
             ),
             a(
@@ -255,13 +256,11 @@ object GravitonApp {
               div(
                 cls := "feature-card",
                 "🧬 Browse Schemas",
-                p("Inspect shared data models straight from Scala.js + ZIO"),
+                p("Inspect shared data models from Scala.js and ZIO Schema"),
               ),
             ),
           ),
         ),
-        DemoBoostPanel(api),
-        PipelineTimeline(),
       )
 
     case Page.Explorer =>
@@ -306,7 +305,7 @@ object GravitonApp {
         h1("⚡ Pipeline Explorer"),
         p(
           cls := "page-intro",
-          "Compose transducer stages interactively. This component uses the shared PipelineCatalog — the same model the JVM runtime uses.",
+          "Compose transducer stages interactively. This component uses the shared PipelineCatalog, the same model the JVM runtime uses.",
         ),
         PipelineExplorer(),
       )
