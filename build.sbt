@@ -189,8 +189,41 @@ lazy val commonSettings = Seq(
 )
 
 lazy val root = (project in file("."))
-  .aggregate(core, db, fs, s3, tika, metrics, pg, docs)
+  .aggregate(core, db, fs, s3, tika, metrics, pg, `scan-v3`, docs)
   .settings(name := "graviton")
+
+// Experimental scan algebra (parallel design sketch – see modules/scan-v3/DESIGN_NOTES.md).
+// Kept independent: depends on no other graviton module. Uses Kyo for effect-row
+// tracking but compiles down to ZPipeline for integration with the rest of the stack.
+lazy val `scan-v3` = project
+  .in(file("modules/scan-v3"))
+  .settings(
+    name := "graviton-scan-v3",
+    // Override the global 3.7.3 pin: this module needs Scala 3.8.x for
+    // capture-checking (`^` on type aliases) to flow through Kyo's effect
+    // rows. The graviton-wide pin to 3.7.3 exists to avoid a `kyo.Record`
+    // regression on 3.8.x; this sketch deliberately doesn't use `Record`.
+    scalaVersion := "3.8.3",
+    libraryDependencies ++= Seq(
+      "io.getkyo"          %% "kyo-prelude" % "1.0-RC1",
+      "io.getkyo"          %% "kyo-core"    % "1.0-RC1",
+      "io.getkyo"          %% "kyo-zio"     % "1.0-RC1",
+      "dev.zio"            %% "zio"         % zioV,
+      "dev.zio"            %% "zio-streams" % zioV,
+      "io.github.iltotore" %% "iron"        % ironV,
+      "dev.zio"            %% "zio-test"     % zioV % Test,
+      "dev.zio"            %% "zio-test-sbt" % zioV % Test,
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    scalacOptions ++= Seq(
+      "-source:future",
+    ),
+    // sbt-tpolecat injects -Xfatal-warnings (and friends) globally; this is
+    // an exploratory sketch so we don't want warnings to block iteration.
+    scalacOptions := scalacOptions.value.filterNot(opt =>
+      opt == "-Xfatal-warnings" || opt == "-Werror"
+    ),
+  )
 
 lazy val core = project
   .in(file("modules/core"))
