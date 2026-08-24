@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-echo "🔍 Quick Verification - Will Scala.js work on GitHub Pages?"
+echo "Quick verification: docs console production assets"
 echo "=============================================================="
 echo ""
 
 # Check build outputs exist
-echo "✅ Step 1: Checking built files..."
+echo "Step 1: checking generated assets..."
 if [ -f "docs/public/js/main.js" ]; then
     SIZE=$(du -h docs/public/js/main.js | cut -f1)
     echo "   ✓ main.js exists ($SIZE)"
@@ -24,7 +24,7 @@ fi
 
 # Check dist outputs exist
 echo ""
-echo "✅ Step 2: Checking dist files..."
+echo "Step 2: checking production site output..."
 if [ -f "docs/.vitepress/dist/js/main.js" ]; then
     SIZE=$(du -h docs/.vitepress/dist/js/main.js | cut -f1)
     echo "   ✓ main.js in dist ($SIZE)"
@@ -41,38 +41,31 @@ else
 fi
 
 if [ -f "docs/.vitepress/dist/demo.html" ]; then
-    echo "   ✓ Demo page exists"
+    echo "   ✓ Live console page exists"
 else
-    echo "   ✗ Demo page missing"
+    echo "   ✗ Live console page missing"
     exit 1
 fi
 
-# Check demo page structure
+# Check live console page structure
 echo ""
-echo "✅ Step 3: Checking demo page structure..."
+echo "Step 3: checking live console bootstrap..."
 if grep -q "graviton-app" docs/.vitepress/dist/demo.html; then
-    echo "   ✓ Demo has graviton-app div"
+    echo "   ✓ Live console has graviton-app div"
 else
-    echo "   ✗ Demo missing graviton-app div"
+    echo "   ✗ Live console missing graviton-app div"
     exit 1
 fi
 
-if grep -q "/graviton/js/main.js" docs/.vitepress/dist/assets/demo.*.js; then
-    echo "   ✓ Demo loads main.js"
+if grep -q "js/main.js" docs/.vitepress/dist/assets/demo.*.js \
+    && grep -q "graviton-console-bundle" docs/.vitepress/dist/assets/demo.*.js; then
+    echo "   ✓ Live console installs the main.js module script"
 else
-    echo "   ✗ Demo doesn't load main.js"
+    echo "   ✗ Live console doesn't install the main.js module script"
     exit 1
 fi
 
 echo ""
-echo "🎉 SUCCESS! Everything is ready!"
-echo ""
-echo "📋 What to do next:"
-echo "   1. Test locally: npx serve docs/.vitepress/dist"
-echo "   2. Open: http://localhost:3000/graviton/cas-playground (or /graviton/demo for Scala.js dashboard)"
-echo "   3. Verify interactive components work"
-echo "   4. Push to main to deploy!"
-echo ""
-echo "🌐 After deployment, visit:"
-echo "   https://your-username.github.io/graviton/cas-playground"
+echo "PASS: production docs include the compiled console and Scaladoc."
+echo "This check does not prove a deployed backend. Run scripts/verify-http-lifecycle.sh against a Graviton server for that proof."
 echo ""

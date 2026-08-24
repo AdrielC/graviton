@@ -4,9 +4,8 @@ import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, MetricsHttpApi}
 import graviton.runtime.config.GravitonConfig
-import graviton.runtime.dashboard.DatalakeDashboardService
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
-import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore, FsBlockStore}
+import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore, FsBlobManifestRepo, FsBlockStore}
 import graviton.security.*
 import graviton.security.jwt.HmacJwtVerifier
 import graviton.shared.ApiModels.*
@@ -21,96 +20,62 @@ object Main extends ZIOAppDefault:
 
   override def run: ZIO[Any, Any, Any] =
     for
-      cfg        <- ZIO.config(GravitonConfig.config).orElseSucceed(GravitonConfig())
-      sec        <- ZIO.config(SecurityConfig.config).orElseSucceed(SecurityConfig.Default)
-      _          <- validateSecurityOrFail(sec)
-      _          <- logSecurityPosture(sec)
-      port        = cfg.httpPort
-      started    <- Clock.currentTime(TimeUnit.MILLISECONDS)
-      _          <- ZIO.logInfo(s"Starting Graviton server on :$port")
-      verifierOpt = buildVerifier(sec)
-      program     =
+      cfg                                          <- ZIO.config(GravitonConfig.config)
+      sec                                          <- ZIO.config(SecurityConfig.config)
+      _                                            <- validateSecurityOrFail(sec)
+      _                                            <- logSecurityPosture(sec)
+      port                                          = cfg.httpPort
+      started                                      <- Clock.currentTime(TimeUnit.MILLISECONDS)
+      _                                            <- ZIO.logInfo(s"Starting Graviton server on :$port")
+      verifierOpt                                   = buildVerifier(sec)
+      program                                       =
         for
           routes <- ZIO.serviceWithZIO[BlobStore] { blobStore =>
-                      ZIO.serviceWithZIO[DatalakeDashboardService] { dashboard =>
-                        ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
-                          ZIO.serviceWithZIO[AuditSink] { auditSink =>
-                            val api = HttpApi(
-                              blobStore = blobStore,
-                              dashboard = dashboard,
-                              metrics = Some(MetricsHttpApi(metrics)),
+                      ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
+                        ZIO.serviceWithZIO[AuditSink] { auditSink =>
+                          val api = HttpApi(
+                            blobStore = blobStore,
+                            metrics = Some(MetricsHttpApi(metrics)),
+                          )
+
+                          val publicRoutes: Routes[Any, Nothing] =
+                            Routes(
+                              Method.GET / "api" / "health" -> Handler.fromZIO {
+                                for
+                                  now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                  up   = (now - started).max(0L)
+                                yield Response.json(HealthResponse(status = "ok", version = BuildInfo.version, uptime = up).toJson)
+                              },
+                              Method.GET / "api" / "stats"  -> Handler.fromZIO(
+                                metrics.snapshot.map { snapshot =>
+                                  Response.json(RuntimeStats.from(snapshot).toJson)
+                                }
+                              ),
                             )
 
-                            val publicRoutes: Routes[Any, Nothing] =
-                              Routes(
-                                Method.GET / "api" / "health" -> Handler.fromZIO {
-                                  for
-                                    now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                    up   = (now - started).max(0L)
-                                  yield Response.json(HealthResponse(status = "ok", version = "dev", uptime = up).toJson)
-                                },
-                                Method.GET / "api" / "stats"  -> Handler.succeed(
-                                  Response.json(
-                                    SystemStats(
-                                      totalBlobs = Count.applyUnsafe(0L),
-                                      totalBytes = SizeBytes.applyUnsafe(0L),
-                                      uniqueChunks = Count.applyUnsafe(0L),
-                                      deduplicationRatio = Ratio.applyUnsafe(1.0),
-                                    ).toJson
-                                  )
-                                ),
-                                Method.GET / "api" / "schema" -> Handler.succeed(Response.json(List.empty[ObjectSchema].toJson)),
-                              )
+                          val appRoutes: Routes[Any, Nothing] =
+                            verifierOpt match
+                              case Some(verifier) =>
+                                api.routes @@ AuthMiddleware.required(verifier, auditSink)
+                              case None           =>
+                                api.routes
 
-                            val appRoutes: Routes[Any, Nothing] =
-                              verifierOpt match
-                                case Some(verifier) =>
-                                  api.routes @@ AuthMiddleware.required(verifier, auditSink)
-                                case None           =>
-                                  api.routes
+                          val devRoutes: Routes[Any, Nothing] =
+                            sec.devSharedSecret match
+                              case Some(secret) if sec.enabled =>
+                                DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
+                              case _                           =>
+                                Routes.empty
 
-                            val devRoutes: Routes[Any, Nothing] =
-                              sec.devSharedSecret match
-                                case Some(secret) if sec.enabled =>
-                                  DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
-                                case _                           =>
-                                  Routes.empty
+                          val baseRoutes = publicRoutes ++ appRoutes ++ devRoutes
+                          val routes     = if sec.enabled then baseRoutes else Middleware.cors(baseRoutes)
 
-                            val routes = publicRoutes ++ appRoutes ++ devRoutes
-
-                            ZIO.succeed(routes)
-                          }
+                          ZIO.succeed(routes)
                         }
                       }
                     }
           _      <- Server.serve(routes)
         yield ()
-
-      blobBackend                                   = cfg.blobBackend.toLowerCase
-      blobLayer                                     =
-        blobBackend match
-          case "s3" | "minio" =>
-            ZLayer.make[BlobStore](
-              PgDataSource.layerFromEnv,
-              PgBlobManifestRepo.layer,
-              S3BlockStore.layerFromEnv,
-              CasBlobStore.layer,
-            )
-          case "fs"           =>
-            val root   = Path.of(cfg.fs.root)
-            val prefix = cfg.fs.blockPrefix
-            ZLayer.make[BlobStore](
-              PgDataSource.layerFromEnv,
-              PgBlobManifestRepo.layer,
-              ZLayer.succeed[BlockStore](new FsBlockStore(root, prefix)),
-              CasBlobStore.layer,
-            )
-          case other          =>
-            ZLayer.fail(
-              new IllegalArgumentException(
-                s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
-              )
-            )
 
       auditLayer: ZLayer[Any, Throwable, AuditSink] = sec.auditBackend match
                                                         case "jdbc"   =>
@@ -126,26 +91,48 @@ object Main extends ZIOAppDefault:
 
       _ <- program.provide(
              Server.defaultWithPort(port),
-             blobLayer,
+             blobLayer(cfg),
              auditLayer,
-             DatalakeDashboardService.live,
              InMemoryMetricsRegistry.layer,
-             ZLayer.succeed[Clock](Clock.ClockLive),
-             ZLayer.succeed[Random](Random.RandomLive),
            )
     yield ()
+
+  private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
+    val storageLayer =
+      cfg.blobBackend.toLowerCase match
+        case "s3" | "minio" =>
+          ZLayer.make[BlockStore & BlobManifestRepo](
+            PgDataSource.layerFromEnv,
+            PgBlobManifestRepo.layer,
+            S3BlockStore.layerFromEnv,
+          )
+        case "fs"           =>
+          val root   = Path.of(cfg.fs.root)
+          val prefix = cfg.fs.blockPrefix
+          ZLayer.make[BlockStore & BlobManifestRepo](
+            ZLayer.succeed[BlockStore](new FsBlockStore(root, prefix)),
+            ZLayer.succeed[BlobManifestRepo](new FsBlobManifestRepo(root)),
+          )
+        case other          =>
+          ZLayer.fail(
+            new IllegalArgumentException(
+              s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
+            )
+          )
+
+    (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.layerWithMetrics
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
     ZIO
       .fromEither(sec.validate)
-      .mapError(msg => new IllegalStateException(s"invalid GRAVITON_SEC_* config: $msg"))
+      .mapError(msg => new IllegalStateException(s"invalid GRAVITON_SECURITY_* config: $msg"))
       .unit
 
   private def logSecurityPosture(sec: SecurityConfig): UIO[Unit] =
     if sec.enabled then
       val mode = sec.devSharedSecret match
         case Some(_) => "HS256 dev shared-secret"
-        case None    => "OIDC (RS256) — wire JwtVerifier at assembly"
+        case None    => "OIDC (RS256); wire JwtVerifier at assembly"
       ZIO.logInfo(
         s"Security: ENABLED | mode=$mode audit=${sec.auditBackend} " +
           s"issuer=${sec.oidcIssuer.getOrElse("?")} audience=${sec.oidcAudience.getOrElse("?")} " +
@@ -164,7 +151,7 @@ object Main extends ZIOAppDefault:
    * - Security enabled + dev shared secret: HS256 verifier and `/dev/token`
    *   mint endpoint are available so local clients can curl the API.
    * - Security enabled + no dev secret: [[JwtVerifier.denyAll]] is
-   *   installed so every request is rejected — operators MUST bind a real
+   *   installed so every request is rejected; operators MUST bind a real
    *   verifier (e.g. zio-jwt's JwtValidator) at assembly time.
    */
   private def buildVerifier(sec: SecurityConfig): Option[JwtVerifier] =

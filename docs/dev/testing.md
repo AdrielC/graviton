@@ -197,7 +197,7 @@ object PostgresBlobStoreSpec extends ZIOSpecDefault {
   val containerLayer = ZLayer.scoped {
     ZIO.acquireRelease(
       ZIO.attempt {
-        val container = PostgreSQLContainer("postgres:18")
+        val container = PostgreSQLContainer("postgres:16")
         container.start()
         container
       }
@@ -347,53 +347,9 @@ val blobStoreLayer: ULayer[BlobStore]   = ZLayer.fromZIO(Graviton.inMemory().map
 
 ## Performance Tests
 
-### Benchmarking
+The repository does not yet have a controlled performance harness. Do not put arbitrary throughput thresholds in the correctness suite or hide unstable measurements behind `flaky`.
 
-```scala
-import graviton.runtime.Graviton
-import graviton.runtime.stores.BlobStore
-import zio.*
-import zio.stream.*
-import zio.test.TestAspect.*
-
-test("upload throughput") {
-  val data = Chunk.fromArray(Random.nextBytes(10 * 1024 * 1024))  // 10 MB
-  val iterations = 100
-  for
-    store <- ZIO.service[BlobStore]
-    start <- Clock.instant
-    _     <- ZIO.foreachPar(1 to iterations) { _ =>
-               ZStream.fromChunk(data).run(store.put()).unit
-             }
-    end      <- Clock.instant
-    duration  = Duration.between(start, end)
-    throughput = (data.size * iterations) / duration.getSeconds.max(1L)
-    _        <- ZIO.logInfo(s"Throughput: ${throughput / 1024 / 1024} MB/s")
-  yield assertTrue(throughput > 100 * 1024 * 1024) // illustrative threshold
-}.provide(ZLayer.fromZIO(Graviton.inMemory().map(_.blobStore))) @@ timeout(60.seconds) @@ flaky
-```
-
-### Load Testing
-
-```scala
-import graviton.runtime.Graviton
-import graviton.runtime.stores.BlobStore
-import zio.*
-import zio.stream.*
-
-test("concurrent uploads") {
-  val concurrency = 100
-  val data        = Chunk.fromArray("test".getBytes("UTF-8"))
-  for
-    store   <- ZIO.service[BlobStore]
-    results <- ZIO.foreachPar(1 to concurrency) { _ =>
-                 ZStream.fromChunk(data).run(store.put()).either
-               }
-    successful = results.count(_.isRight)
-    _         <- ZIO.logInfo(s"$successful/$concurrency succeeded")
-  yield assertTrue(successful >= concurrency * 0.95)
-}.provide(ZLayer.fromZIO(Graviton.inMemory().map(_.blobStore))) @@ timeout(30.seconds)
-```
+Use [Performance Measurement](../ops/performance.md) for the required provenance and comparison protocol. Keep correctness, concurrency, and recovery tests deterministic; publish benchmark results only after the benchmark harness and environment record are checked in.
 
 ## Test Aspects
 

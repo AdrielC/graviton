@@ -8,19 +8,13 @@ This is the **current** server configuration contract. Other modules may expose 
 
 ## TL;DR: pick a backend and set the env vars
 
-### Option A: filesystem blocks (simplest local dev)
+### Option A: filesystem CAS (default, no external services)
 
 ```bash
-export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
-export PG_USERNAME="postgres"
-export PG_PASSWORD="postgres"
-
-export GRAVITON_BLOB_BACKEND="fs"
-export GRAVITON_FS_ROOT="./.graviton"
-export GRAVITON_FS_BLOCK_PREFIX="cas/blocks"
-
 ./sbt "server/run"
 ```
+
+The defaults persist blocks and framed manifests below `.graviton/`. Set `GRAVITON_FS_ROOT` or `GRAVITON_FS_BLOCK_PREFIX` only when you need a different layout.
 
 ### Option B: MinIO / S3-compatible blocks
 
@@ -48,8 +42,10 @@ export GRAVITON_S3_REGION="us-east-1"
 | --- | --- | --- |
 | `GET /api/health` | health check | Always available when server is up |
 | `GET /metrics` | Prometheus scrape | Exposes `text/plain; version=0.0.4` (metric names are evolving) |
-| `POST /api/blobs` | upload | Requires Postgres + chosen block backend to be correctly configured |
-| `GET /api/blobs/:id` | download | Requires Postgres + chosen block backend to be correctly configured |
+| `POST /api/blobs` | upload | Uses the selected storage composition |
+| `GET /api/blobs/:id` | download | Uses the selected storage composition |
+| `HEAD /api/blobs/:id` | metadata headers | Checks existence without a response body |
+| `DELETE /api/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
 
 ## Environment variables
 
@@ -59,9 +55,9 @@ export GRAVITON_S3_REGION="us-east-1"
 | --- | --- | --- | --- |
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
 
-### Postgres (required)
+### PostgreSQL (required for S3/MinIO or JDBC audit mode)
 
-The current server uses Postgres for manifest metadata via `PgDataSource.layerFromEnv`.
+S3/MinIO mode uses PostgreSQL for manifest metadata via `PgDataSource.layerFromEnv`. Filesystem mode does not construct a data source. A JDBC audit sink also requires these variables.
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
@@ -79,14 +75,14 @@ psql -U postgres -d graviton -f modules/pg/ddl.sql
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
-| `GRAVITON_BLOB_BACKEND` | `s3` | no | Which block store implementation to use: `fs`, `minio`, or `s3`. |
+| `GRAVITON_BLOB_BACKEND` | `fs` | no | Which storage composition to use: `fs`, `minio`, or `s3`. |
 
 Notes:
 
 - `minio` and `s3` currently share the **same env contract** (endpoint + access keys), and are best understood as “S3-compatible via MinIO-style credentials”.
-- Filesystem mode is the simplest local dev setup.
+- Filesystem mode stores blocks and manifests locally and is the zero-service default.
 
-### Filesystem blocks (`GRAVITON_BLOB_BACKEND=fs`)
+### Filesystem blocks and manifests (`GRAVITON_BLOB_BACKEND=fs`)
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
@@ -95,13 +91,17 @@ Notes:
 
 #### Filesystem layout (exact)
 
-From `FsBlockStore`, block files are stored under:
+Block files are stored under:
 
 - `<GRAVITON_FS_ROOT>/<GRAVITON_FS_BLOCK_PREFIX>/<algo>/<hex>-<size>`
 
 Example:
 
 - `./.graviton/cas/blocks/blake3/0123abcd...-1048576`
+
+`FsBlobManifestRepo` stores versioned manifest files under:
+
+- `<GRAVITON_FS_ROOT>/cas/manifests/<algo>/<hex>-<size>.manifest`
 
 ### S3/MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
@@ -160,28 +160,29 @@ The HTTP API uses a string `BlobId` rendered as:
 
 This is produced on upload by `HttpApi` from the `BinaryKey.Blob`:
 
-- `algo`: `result.key.bits.algo.primaryName` (e.g. `blake3`, `sha256`)
+- `algo`: `result.key.bits.algo.primaryName` (for example, `blake3` or `sha-256`)
 - `digestHex`: `result.key.bits.digest.hex.value`
 - `byteLength`: `result.key.bits.size`
 
 ### Validation behavior
 
 - `GET /api/blobs/:id` validates the id and returns **400** if it cannot be parsed.
-- Upload failures currently return **500** with a plain-text message (this is not yet a stable error model).
+- Invalid ingest input returns **400** with a JSON error envelope; unexpected storage failures return a generic **500** without exposing arbitrary exception messages.
 
 ## How configuration is read (source pointers)
 
 - **Server port / backend selection**: `modules/server/graviton-server/src/main/scala/graviton/server/Main.scala`
-- **Postgres env vars**: `modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgDataSource.scala`
+- **PostgreSQL env vars for S3/MinIO**: `modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgDataSource.scala`
+- **Filesystem manifest layout**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FsBlobManifestRepo.scala`
 - **Filesystem block layout**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FsBlockStore.scala`
 - **S3 block layout**: `modules/backend/graviton-s3/src/main/scala/graviton/backend/s3/S3BlockStore.scala`
 - **Metrics endpoint**: `modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/MetricsHttpApi.scala`
 
 ## Common misconfigurations (symptoms → fix)
 
-### Missing Postgres schema
+### Missing PostgreSQL schema in S3/MinIO mode
 
-Symptoms: server starts, but uploads fail (500), or Postgres errors about missing relations.
+Symptoms: S3/MinIO server startup or uploads fail, or PostgreSQL reports missing relations.
 
 Fix:
 
@@ -200,4 +201,3 @@ Fix: set `QUASAR_MINIO_URL`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, or switch
 Symptoms: first upload fails with S3 errors.
 
 Fix: create the bucket (see “Bucket creation (MinIO)” above).
-

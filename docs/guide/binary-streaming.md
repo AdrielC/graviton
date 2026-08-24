@@ -169,12 +169,12 @@ val (summary, blocks) = byteStream.run(pipeline.toSink)
 // summary.totalBytes, summary.digestHex, summary.blockCount — all named fields
 ```
 
-This approach is testable in isolation (no ZIO needed for unit tests), produces typed Record summaries, and composes with verification and deduplication stages via `>>>` and `&&&`. See the [Pipeline Explorer](../pipeline-explorer.md) to experiment interactively.
+This approach is testable in isolation (no ZIO needed for unit tests), produces typed Record summaries, and composes with verification and deduplication stages via `>>>` and `&&&`. See [Transducer Algebra](../core/transducers.md) for the supported operations.
 
 ## Next steps
 
 - Start from [`guide/getting-started`](./getting-started.md) to build and run the project locally.
-- Try the [Pipeline Explorer](../pipeline-explorer.md) to compose transducer stages interactively.
+- Operate the implemented storage lifecycle in the [Live Operations Console](../demo.md).
 - Dive into [`ingest/chunking`](../ingest/chunking.md) for algorithm-level tuning.
 - Read the [Transducer Algebra](../core/transducers.md) for the full composition API.
 - Explore [`runtime/ports`](../runtime/ports.md) to see how stores, protocols, and schedulers compose inside the runtime.

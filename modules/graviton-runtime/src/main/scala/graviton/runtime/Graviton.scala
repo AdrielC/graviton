@@ -14,7 +14,7 @@ import zio.stream.*
 import java.nio.file.Path
 
 /**
- * Graviton — the single entry point for content-addressed storage operations.
+ * Graviton is the single entry point for content-addressed storage operations.
  *
  * This facade provides a clean, discoverable API over the lower-level store
  * services. It is the recommended way to interact with Graviton from
@@ -36,11 +36,11 @@ import java.nio.file.Path
  * == Design ==
  *
  * Graviton is composed of orthogonal services:
- *   - `BlockStore` — physical block persistence (FS, S3, in-memory)
- *   - `BlobManifestRepo` — manifest persistence (Postgres, in-memory)
- *   - `BlobStore` — logical blob API (CasBlobStore orchestrates the above)
- *   - `Chunker` — configurable block sizing (fixed, FastCDC, delimiter)
- *   - `MetricsRegistry` — observable counters and gauges
+ *   - `BlockStore`: physical block persistence (FS, S3, in-memory)
+ *   - `BlobManifestRepo`: manifest persistence (filesystem, Postgres, in-memory)
+ *   - `BlobStore`: logical blob API (CasBlobStore orchestrates the above)
+ *   - `Chunker`: configurable block sizing (fixed, FastCDC, delimiter)
+ *   - `MetricsRegistry`: observable counters and gauges
  *
  * Each concern is independent and swappable. The `Graviton` facade
  * wires them together for the common case.
@@ -100,11 +100,15 @@ final class Graviton private (
     key match
       case blob: BinaryKey.Blob =>
         for
-          bytes  <- blobStore.get(blob).runCollect
-          hasher <- ZIO.fromEither(graviton.core.bytes.Hasher.systemDefault).mapError(msg => new IllegalStateException(msg))
-          _       = hasher.update(bytes.toArray)
+          hasher <- ZIO
+                      .fromEither(graviton.core.bytes.Hasher.hasher(blob.bits.algo))
+                      .mapError(msg => new IllegalStateException(msg))
+          bytes  <- blobStore
+                      .get(blob)
+                      .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
+                      .runCount
           digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-        yield digest.hex.value == blob.bits.digest.hex.value
+        yield digest.hex.value == blob.bits.digest.hex.value && bytes == blob.bits.size
       case _                    =>
         ZIO.succeed(false)
 
@@ -114,19 +118,22 @@ object Graviton:
    * Create a filesystem-backed Graviton instance.
    *
    * Blocks are stored under `root/cas/blocks/<algo>/<hex>-<size>`.
-   * Manifests are kept in memory (for production, use Postgres via `pg()`).
+   * Manifests are stored atomically under
+   * `root/cas/manifests/<algo>/<hex>-<size>.manifest`, so a fresh process can
+   * retrieve, inspect, verify, or delete previously ingested blobs.
    */
   def fs(
     root: Path,
     chunkSize: Int = 1024 * 1024,
     metrics: MetricsRegistry = MetricsRegistry.noop,
   ): ZIO[Any, Nothing, Graviton] =
-    for
-      manifestRepo <- makeInlineManifestRepo
-      blockStore    = new FsBlockStore(root)
-      blobStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
-      chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
-    yield new Graviton(blobStore, blockStore, manifestRepo, chunker)
+    ZIO.succeed {
+      val manifestRepo = new FsBlobManifestRepo(root)
+      val blockStore   = new FsBlockStore(root)
+      val blobStore    = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      val chunker      = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
+      new Graviton(blobStore, blockStore, manifestRepo, chunker)
+    }
 
   /**
    * Create an in-memory Graviton instance (useful for tests).
@@ -149,6 +156,10 @@ object Graviton:
           ref.update(_.updated(blob, stores.StoredManifest(manifest, ingestedAt))).unit
         override def get(blob: BinaryKey.Blob)                                                                           =
           ref.get.map(_.get(blob))
+        override def list                                                                                                =
+          ref.get.map { manifests =>
+            Chunk.fromIterable(manifests.toList.sortWith { case ((_, left), (_, right)) => left.ingestedAt.isAfter(right.ingestedAt) })
+          }
         override def streamBlockRefs(blob: BinaryKey.Blob)                                                               =
           ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
             case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest"))

@@ -6,15 +6,9 @@ This page is a symptom-driven checklist for the current server (`./sbt "server/r
 
 ### “Missing env 'PG_JDBC_URL' / 'PG_USERNAME' / 'PG_PASSWORD'”
 
-Cause: the server always requires Postgres credentials.
+Cause: `GRAVITON_BLOB_BACKEND` is set to `s3` or `minio`, which uses PostgreSQL manifests.
 
-Fix:
-
-```bash
-export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
-export PG_USERNAME="postgres"
-export PG_PASSWORD="postgres"
-```
+Fix: supply the PostgreSQL settings for that deployment, or set `GRAVITON_BLOB_BACKEND=fs` for the self-contained filesystem server.
 
 ### “Unsupported GRAVITON_BLOB_BACKEND='…'”
 
@@ -85,9 +79,9 @@ Example:
 
 - `blake3:7b1d...:12`
 
-### Download returns 500 for “not found”
+### Download returns 404
 
-Current behavior is not yet a stable contract: missing blobs may surface as 5xx depending on backend and where the error occurs in streaming.
+The content ID is valid, but its manifest is not present in the configured repository. This is expected after `DELETE`, which removes the logical manifest while retaining shared blocks.
 
 If you suspect a config issue, validate:
 
@@ -106,15 +100,15 @@ The current server mounts metrics at:
 
 - `GET /metrics`
 
-## Demo UI can’t reach your server
+## Operations console can’t reach your server
 
-The docs demo defaults to `http://localhost:8081` via:
+The console defaults to `http://localhost:8081`. You can set the endpoint with the connection bar or an `api` query parameter:
 
-```html
-<meta name="graviton-api-url" content="http://localhost:8081" />
+```text
+http://localhost:5173/demo?api=http://localhost:18081
 ```
 
-Fix: update that meta tag in `docs/demo.md` if you changed ports, or run the server on 8081.
+If the API is running on another origin, use the default security-disabled local mode, which installs CORS headers. The console reports request failures directly and does not load substitute data.
 
 ## Still stuck?
 

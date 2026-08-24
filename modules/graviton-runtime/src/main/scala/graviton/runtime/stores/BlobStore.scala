@@ -1,7 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult}
+import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, BlobWriteResult}
 import zio.*
 import zio.stream.*
 
@@ -19,6 +19,14 @@ trait BlobStore:
 
   /** Return metadata (size, etag, timestamps) when supported by the backend. */
   def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]]
+
+  /** List persisted logical blobs, newest first. */
+  def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
+    ZIO.fail(new UnsupportedOperationException("BlobStore.list is not implemented"))
+
+  /** Inspect the persisted manifest for a logical blob. */
+  def inspect(_key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
+    ZIO.fail(new UnsupportedOperationException("BlobStore.inspect is not implemented"))
 
   /** Remove the blob and any associated manifest/attribute entries. */
   def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]

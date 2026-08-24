@@ -3,7 +3,10 @@ package graviton.runtime.metrics
 import zio.*
 
 trait MetricsRegistry:
-  def counter(name: String, tags: Map[String, String]): UIO[Unit]
+  def counter(name: String, tags: Map[String, String]): UIO[Unit] =
+    counterBy(name, 1L, tags)
+
+  def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit]
   def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit]
 
   /**
@@ -33,5 +36,5 @@ object MetricsRegistry:
    */
   val noop: MetricsRegistry =
     new MetricsRegistry:
-      override def counter(name: String, tags: Map[String, String]): UIO[Unit]              = ZIO.unit
-      override def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit] = ZIO.unit
+      override def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit] = ZIO.unit
+      override def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit]   = ZIO.unit

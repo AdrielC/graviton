@@ -157,9 +157,9 @@ The **Transducer algebra** is the composable pipeline engine that sits between t
 bytes → countBytes >>> hashBytes >>> rechunk(blockSize) → CanonicalBlock
 ```
 
-Each transducer produces a typed Record summary. After composition, the summary contains **all** named fields from **all** stages — accessible by name, never by index. Production stages live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)); **compression and aggregate framing** in the explorer UI are **roadmap** visuals, not fully implemented transducer chains yet. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`.
+Each transducer produces a typed Record summary. After composition, the summary contains **all** named fields from **all** stages, accessible by name rather than by index. Implemented stages live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)). Compression and aggregate framing remain roadmap work and are not presented as operational features. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`.
 
-See the [Transducer Algebra](./core/transducers.md) page for the full API, or try the [Pipeline Explorer](./pipeline-explorer.md) to compose stages interactively.
+See the [Transducer Algebra](./core/transducers.md) page for the full API and implemented-stage boundaries.
 
 ## Core
 
@@ -196,4 +196,4 @@ Each backend implements the runtime ports using specific technologies:
 
 ## Server
 
-`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects block storage (`fs` or S3-compatible) with Postgres-backed manifests, starts the **HTTP** server (`/api/blobs`, health, metrics), and registers an in-memory metrics registry. **gRPC**, **Shardcake**, and **multipart entity coordination** are **planned or partial** — they are not the primary path for local demos today.
+`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects block storage (`fs` or S3-compatible) with Postgres-backed manifests, starts the **HTTP** server (`/api/blobs`, health, metrics), and registers an in-memory metrics registry. **gRPC**, **Shardcake**, and **multipart entity coordination** are **planned or partial** and are not the primary operational path today.

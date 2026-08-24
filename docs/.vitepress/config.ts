@@ -40,7 +40,7 @@ export default withMermaid(defineConfig({
     }
   },
   title: 'Graviton',
-  description: 'Content-addressable storage runtime built on ZIO • Modular • Blazingly Fast',
+  description: 'Typed, streaming content-addressable storage for Scala and ZIO',
   base,
   cleanUrls: true,
   head: [
@@ -48,7 +48,7 @@ export default withMermaid(defineConfig({
     ['meta', { name: 'theme-color', content: '#00ff41' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:title', content: 'Graviton • Content-Addressable Storage' }],
-    ['meta', { name: 'og:description', content: 'Modular storage runtime with deduplication, streaming, and ZIO power' }],
+    ['meta', { name: 'og:description', content: 'Durable local CAS, streaming APIs, typed manifests, and pluggable backends for Scala' }],
     ['meta', { name: 'og:image', content: withBase('/logo.svg') }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:title', content: 'Graviton • Content-Addressable Storage' }],
@@ -103,10 +103,8 @@ export default withMermaid(defineConfig({
       { text: 'Streaming', link: '/guide/binary-streaming' },
       { text: 'Architecture', link: '/architecture' },
       { text: 'API', link: '/api' },
-      { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
-      { text: 'CAS Playground', link: '/cas-playground' },
       { text: 'Scala.js', link: '/dev/scalajs' },
-      { text: 'Scala.js Dashboard', link: '/demo' },
+      { text: 'Live Console', link: '/demo' },
       { text: 'Quasar Demo', link: '/quasar-demo' },
       // Note: VitePress automatically prefixes `base` for internal links.
       // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
@@ -168,11 +166,10 @@ export default withMermaid(defineConfig({
       {
         text: 'Operations',
         items: [
-          { text: 'Datalake Dashboard', link: '/ops/datalake-dashboard' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Postgres Schema (Alpha Overhaul)', link: '/ops/postgres-schema' },
           { text: 'Deployment', link: '/ops/deployment' },
-          { text: 'Performance Tuning', link: '/ops/performance' }
+          { text: 'Performance Measurement', link: '/ops/performance' }
         ]
       },
       {
@@ -202,9 +199,7 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
-          { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
-          { text: 'CAS Playground', link: '/cas-playground' },
-          { text: 'Scala.js Dashboard', link: '/demo' },
+          { text: 'Live Operations Console', link: '/demo' },
           { text: 'Quasar Demo', link: '/quasar-demo' }
         ]
       }

@@ -31,12 +31,12 @@ ThisBuild / libraryDependencySchemes ++= Seq(
   "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
 )
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
-ThisBuild / licenses := List("MIT" -> url("https://github.com/AdrielC/graviton/blob/main/LICENSE"))
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
   Developer(
     "AdrielC",
-    "Adriel Cafiero",
-    "adriel.cafiero@gmail.com",
+    "Adriel Casellas",
+    "adrielcasellas@gmail.com",
     url("https://github.com/AdrielC")
   )
 )
@@ -431,6 +431,19 @@ lazy val server = (project in file("modules/server/graviton-server"))
   .settings(
     baseSettings,
     name := "graviton-server",
+    Compile / sourceGenerators += Def.task {
+      val output = (Compile / sourceManaged).value / "graviton" / "server" / "BuildInfo.scala"
+      val currentVersion = version.value.replace("\\", "\\\\").replace("\"", "\\\"")
+      IO.write(
+        output,
+        s"""package graviton.server
+           |
+           |private[server] object BuildInfo:
+           |  val version: String = "$currentVersion"
+           |""".stripMargin,
+      )
+      Seq(output)
+    }.taskValue,
     libraryDependencies ++= Seq(
       // Route all SLF4J logs (including dependencies) through Log4j2.
       "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
@@ -494,7 +507,6 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
       "io.github.iltotore" %%% "iron"           % V.iron,
       "io.github.iltotore" %%% "iron-zio-json" % V.iron,
-      "pt.kcry"            %%% "sha"           % "2.0.2",
     )
   )
   .jsSettings(
@@ -518,7 +530,6 @@ lazy val frontend = (project in file("modules/frontend"))
       "dev.zio"         %%% "zio"          % V.zio,
       "dev.zio"         %%% "zio-schema-json"     % V.zioSchema,
       "com.raquo"       %%% "laminar"      % V.laminar,
-      "com.raquo"       %%% "waypoint"     % V.waypoint,
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
   )

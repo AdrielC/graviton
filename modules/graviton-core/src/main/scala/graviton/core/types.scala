@@ -19,18 +19,18 @@ import scala.compiletime
 case class RefinedTypeExtMessage(message: String)
 
 trait RefinedSubtypeExt[A, C] extends RefinedSubtype[A, C]:
-  given (Schema[A]) => Schema[T] =
-    Schema[A]
+  given schema(using underlying: Schema[A]): Schema[T] =
+    underlying
       .transformOrFail(either(_), r => Right(r.value))
       .annotate(RefinedTypeExtMessage(rtc.message))
 
 trait RefinedTypeExt[A, C] extends RefinedType[A, C]:
-  given (Schema[A]) => Schema[T] =
-    Schema[A]
+  given schema(using underlying: Schema[A]): Schema[T] =
+    underlying
       .transformOrFail(either(_), r => Right(r.value))
       .annotate(RefinedTypeExtMessage(rtc.message))
 
-transparent inline given [A, B](using rtc: Constraint[A, B], schema: Schema[A]): Schema[IronType[A, B]] =
+transparent inline given ironSchema[A, B](using rtc: Constraint[A, B], schema: Schema[A]): Schema[IronType[A, B]] =
   schema
     .transformOrFail(
       value => value.refineEither[B].left.map(_ => rtc.message),
@@ -38,7 +38,7 @@ transparent inline given [A, B](using rtc: Constraint[A, B], schema: Schema[A]):
     )
     .annotate(RefinedTypeExtMessage(rtc.message))
 
-given [K: Schema, V: Schema]: Schema[ListMap[K, V]] =
+given listMapSchema[K: Schema, V: Schema]: Schema[ListMap[K, V]] =
   Schema
     .map[K, V]
     .transform(m => ListMap.from(m), lm => lm.toMap)

@@ -120,6 +120,21 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             stored.manifest.size == data.length.toLong,
           )
         },
+        test("Postgres inventory and manifest inspection return persisted blobs") {
+          val data = Chunk.fromArray(("inventory-test-" * 500).getBytes(StandardCharsets.UTF_8))
+
+          for
+            store     <- ZIO.service[BlobStore]
+            written   <- ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+            inventory <- store.list
+            details   <- store.inspect(written.key).someOrFail(new NoSuchElementException("manifest not found"))
+          yield assertTrue(
+            inventory.exists(_.key == written.key),
+            details.listing.stat.size.value == data.length.toLong,
+            details.blocks.nonEmpty,
+            details.blocks.map(_.size).sum == data.length.toLong,
+          )
+        },
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
   private val ddlRelPath: Path =

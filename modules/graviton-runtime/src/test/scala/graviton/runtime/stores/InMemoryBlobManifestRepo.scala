@@ -23,6 +23,11 @@ final class InMemoryBlobManifestRepo private (
   override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
     ref.get.map(_.get(blob))
 
+  override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
+    ref.get.map { manifests =>
+      Chunk.fromIterable(manifests.toList.sortWith { case ((_, left), (_, right)) => left.ingestedAt.isAfter(right.ingestedAt) })
+    }
+
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
     ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
       case None         =>

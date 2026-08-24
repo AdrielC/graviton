@@ -124,6 +124,48 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
           }
       }
 
+  override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
+    val keys = ZIO.attemptBlocking {
+      val conn = ds.getConnection()
+      try
+        val ps = conn.prepareStatement(
+          """SELECT alg, hash_bytes, byte_length
+            |FROM graviton.blob
+            |ORDER BY created_at DESC, byte_length DESC""".stripMargin
+        )
+        try
+          val rs     = ps.executeQuery()
+          val result = ChunkBuilder.make[BinaryKey.Blob]()
+          while rs.next() do
+            val algorithmText = rs.getString(1)
+            val digestBytes   = rs.getBytes(2)
+            val byteLength    = rs.getLong(3)
+            val algorithm     = parseDbAlg(algorithmText).getOrElse(
+              throw new IllegalArgumentException(s"Unsupported hash algorithm '$algorithmText'")
+            )
+            val digest        = Digest
+              .fromBytes(digestBytes)
+              .fold(message => throw new IllegalArgumentException(message), identity)
+            val bits          = KeyBits
+              .create(algorithm, digest, byteLength)
+              .fold(message => throw new IllegalArgumentException(message), identity)
+            val blob          = BinaryKey
+              .blob(bits)
+              .fold(message => throw new IllegalArgumentException(message), identity)
+            result += blob
+          result.result()
+        finally ps.close()
+      finally conn.close()
+    }
+
+    keys.flatMap { blobs =>
+      ZIO
+        .foreach(blobs) { blob =>
+          get(blob).map(_.map(stored => blob -> stored))
+        }
+        .map(entries => Chunk.fromIterable(entries.flatten))
+    }
+
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
     val sql =
       """

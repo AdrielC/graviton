@@ -1,122 +1,164 @@
-# HTTP API (Current Status)
+# HTTP Blob API
 
-Graviton’s HTTP layer is implemented in `modules/protocol/graviton-http` and wired by the server in `modules/server/graviton-server`.
+The HTTP surface performs the real content-addressable storage lifecycle against the server's configured backends. It remains pre-1.0, so applications that need a stable compatibility boundary should embed the runtime API.
 
-## Current status
+Default base URL: `http://localhost:8081`.
 
-- The HTTP surface is **usable for demos and local development**, but it is not yet a versioned/stable API.
-- The server currently exposes **blob upload/download**, a **dashboard snapshot + SSE stream**, plus **health/stats/schema** helpers.
+## Content IDs
 
-If you are integrating today, prefer the runtime APIs (`BlobStore`, `BlockStore`). The REST surface will likely evolve as auth, routing, and error models firm up.
+Every blob ID is explicit and round-trippable:
 
-## Endpoints (as implemented today)
-
-All paths below are relative to the server base URL (default: `http://localhost:8081`).
-
-### Health + metrics
-
-```http
-GET /api/health
-GET /metrics
+```text
+<algorithm>:<hex-digest>:<byte-length>
 ```
 
-#### Example: health
+Example:
 
-```bash
-curl -fsS "http://localhost:8081/api/health" | jq .
+```text
+sha-256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb:1
 ```
 
-Example response:
+The digest length must match the selected algorithm and the byte length must be positive.
 
-```json
-{"status":"ok","version":"dev","uptime":12345}
-```
-
-### Blob upload (single stream)
+## Upload
 
 ```http
 POST /api/blobs
 Content-Type: application/octet-stream
 ```
 
-Response body: JSON `BlobId` string in the format:
-
-- `<algo>:<digestHex>:<byteLength>`
-
-#### Example: upload
-
 ```bash
-BLOB_ID="$(
+UPLOAD_JSON="$(
   curl -fsS \
-    -H "Content-Type: application/octet-stream" \
-    -X POST --data-binary @/path/to/file \
-    "http://localhost:8081/api/blobs" \
-  | jq -r .
+    -H 'Content-Type: application/octet-stream' \
+    -X POST --data-binary @sample.bin \
+    'http://localhost:8081/api/blobs'
 )"
-
-echo "$BLOB_ID"
+BLOB_ID="$(jq -r '.blob.id' <<<"$UPLOAD_JSON")"
 ```
 
-### Blob download
+Success returns `201 Created` after the manifest has been persisted. The JSON body reports durable blob metadata, real block counts from the write, and measured ingest duration:
+
+```json
+{
+  "blob": {
+    "id": "sha-256:...:42",
+    "size": 42,
+    "createdAt": 1787558400000,
+    "digest": "...",
+    "blockCount": 1
+  },
+  "freshBlocks": 1,
+  "duplicateBlocks": 0,
+  "durationSeconds": 0.012
+}
+```
+
+The response also includes `Location` and `ETag` headers. Empty bodies return `400 Bad Request`.
+
+## Durable inventory
+
+```http
+GET /api/blobs
+```
+
+The response is built from persisted manifests, not process counters. Restarting the filesystem server retains this inventory.
+
+```bash
+curl -fsS 'http://localhost:8081/api/blobs' | jq .
+```
+
+## Inspect a manifest
+
+```http
+GET /api/blobs/:id/metadata
+```
+
+This returns the blob summary and the exact persisted block references, including each block's content ID, byte offset, and size.
+
+```bash
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
+```
+
+## Verify persisted bytes
+
+```http
+POST /api/blobs/:id/verify
+```
+
+The server streams the stored blob through the hash implementation and compares the digest and byte count with the requested content ID.
+
+```bash
+curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
+```
+
+## Retrieve
 
 ```http
 GET /api/blobs/:id
-Accept: application/octet-stream
 ```
-
-#### Example: download
 
 ```bash
-curl -fsS -L "http://localhost:8081/api/blobs/$BLOB_ID" --output downloaded.bin
+curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output retrieved.bin
 ```
 
-#### Expected error modes (current behavior)
+Success returns `200 OK` with `Content-Type`, `Content-Length`, `ETag`, `Last-Modified`, and immutable `Cache-Control` headers. A valid but unknown ID returns `404` before a body stream begins.
 
-Because this API is not yet stabilized, error bodies are not a firm contract. In general:
-
-- **404**: unknown blob id / not found
-- **500**: server misconfiguration (most often missing Postgres schema or S3/MinIO bucket)
-
-### Dashboard snapshot + event stream
+## Inspect without a body
 
 ```http
-GET /api/datalake/dashboard
-GET /api/datalake/dashboard/stream
+HEAD /api/blobs/:id
 ```
 
-#### Example: snapshot
+HEAD returns the same status and metadata headers as GET with an empty body.
 
-```bash
-curl -fsS "http://localhost:8081/api/datalake/dashboard" | jq .
-```
-
-#### Example: stream (SSE)
-
-```bash
-curl -N "http://localhost:8081/api/datalake/dashboard/stream"
-```
-
-### Convenience endpoints
+## Delete
 
 ```http
+DELETE /api/blobs/:id
+```
+
+Success returns `204 No Content`. Deletion removes the logical manifest. Shared content-addressed blocks are retained until a garbage collector is implemented.
+
+## Health, counters, and metrics
+
+```http
+GET /api/health
 GET /api/stats
-GET /api/schema
+GET /metrics
 ```
 
-#### Example: stats
+Health reports the running build version and process uptime. Stats and Prometheus metrics are process-lifetime observations. Use `GET /api/blobs` for durable inventory.
+
+## Error envelope
+
+Errors use JSON:
+
+```json
+{
+  "error": "blob_not_found",
+  "message": "Blob not found: sha-256:...:42"
+}
+```
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_blob_id` | The path ID is not a valid content key |
+| 400 | `invalid_blob` | The upload violates an ingest constraint |
+| 404 | `blob_not_found` | The ID is valid but no manifest exists |
+| 500 | `inventory_failure` | Durable inventory could not be read |
+| 500 | `storage_failure` | Metadata lookup, retrieval, or deletion failed |
+| 500 | `verification_failure` | Persisted bytes could not be read and hashed |
+| 500 | `ingest_failed` | The backing store could not complete the write |
+
+Unexpected server errors do not expose arbitrary exception messages.
+
+## Executable proof
+
+With the server running, execute the entire API lifecycle:
 
 ```bash
-curl -fsS "http://localhost:8081/api/stats" | jq .
+./scripts/verify-http-lifecycle.sh
 ```
 
-#### Example: schema
-
-```bash
-curl -fsS "http://localhost:8081/api/schema" | jq .
-```
-
-## See also
-
-- **[Protocol stack](../modules/protocol.md)** — modules and wiring points
-- **[Runtime ports](../runtime/ports.md)** — stable interfaces used by the protocol layers
-
+Authentication, route versioning, conditional requests, range reads, and idempotency keys remain release work. They are tracked in `ROADMAP.md`.

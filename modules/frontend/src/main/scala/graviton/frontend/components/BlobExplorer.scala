@@ -1,221 +1,206 @@
 package graviton.frontend.components
 
 import com.raquo.laminar.api.L.*
-import graviton.shared.ApiModels.*
 import graviton.frontend.GravitonApi
+import graviton.shared.ApiModels.*
+import org.scalajs.dom
 import zio.*
+
 import scala.concurrent.ExecutionContext.Implicits.global
 
-/** Interactive blob explorer to view blob metadata and manifests */
-object BlobExplorer {
+/** Durable inventory and manifest inspector backed entirely by the server API. */
+object BlobExplorer:
 
-  def apply(api: GravitonApi): HtmlElement = {
+  def apply(api: GravitonApi): HtmlElement =
+    val inventoryVar    = Var[List[BlobSummary]](Nil)
+    val detailsVar      = Var[Option[BlobDetails]](None)
+    val verificationVar = Var[Option[BlobVerificationResult]](None)
     val blobIdVar       = Var("")
-    val metadataVar     = Var[Option[BlobMetadata]](None)
-    val manifestVar     = Var[Option[BlobManifest]](None)
     val loadingVar      = Var(false)
     val errorVar        = Var[Option[String]](None)
-    val showManifestVar = Var(false)
+    val runtime         = Runtime.default
 
-    val runtime = Runtime.default
-
-    def loadSample(blobId: BlobId): Unit = {
-      blobIdVar.set(blobId.value)
-      loadBlob(blobId.value)
-    }
-
-    def loadBlob(blobIdStr: String): Unit = {
-      if (blobIdStr.isEmpty) {
-        errorVar.set(Some("Please enter a blob ID"))
-        return
-      }
-
+    def refreshInventory(): Unit =
       loadingVar.set(true)
       errorVar.set(None)
-      metadataVar.set(None)
-      manifestVar.set(None)
-      showManifestVar.set(false)
-
-      val blobId = BlobId.applyUnsafe(blobIdStr)
-
       Unsafe.unsafe { implicit unsafe =>
-        runtime.unsafe.runToFuture(api.getBlobMetadata(blobId)).onComplete {
-          case scala.util.Success(metadata) =>
-            metadataVar.set(Some(metadata))
+        runtime.unsafe.runToFuture(api.listBlobs).onComplete {
+          case scala.util.Success(response) =>
+            inventoryVar.set(response.blobs)
             loadingVar.set(false)
           case scala.util.Failure(error)    =>
+            inventoryVar.set(Nil)
             errorVar.set(Some(error.getMessage))
             loadingVar.set(false)
         }
       }
-    }
 
-    def loadManifest(blobId: BlobId): Unit = {
+    def inspect(blobId: String): Unit =
+      val trimmed = blobId.trim
+      if trimmed.isEmpty then errorVar.set(Some("Enter a complete content ID."))
+      else
+        loadingVar.set(true)
+        detailsVar.set(None)
+        verificationVar.set(None)
+        errorVar.set(None)
+        Unsafe.unsafe { implicit unsafe =>
+          runtime.unsafe.runToFuture(api.inspectBlob(trimmed)).onComplete {
+            case scala.util.Success(details) =>
+              blobIdVar.set(details.summary.id.value)
+              detailsVar.set(Some(details))
+              loadingVar.set(false)
+            case scala.util.Failure(error)   =>
+              errorVar.set(Some(error.getMessage))
+              loadingVar.set(false)
+          }
+        }
+
+    def verify(blobId: String): Unit =
       loadingVar.set(true)
-
+      verificationVar.set(None)
+      errorVar.set(None)
       Unsafe.unsafe { implicit unsafe =>
-        runtime.unsafe.runToFuture(api.getBlobManifest(blobId)).onComplete {
-          case scala.util.Success(manifest) =>
-            manifestVar.set(Some(manifest))
-            showManifestVar.set(true)
+        runtime.unsafe.runToFuture(api.verifyBlob(blobId)).onComplete {
+          case scala.util.Success(result) =>
+            verificationVar.set(Some(result))
             loadingVar.set(false)
-          case scala.util.Failure(error)    =>
-            errorVar.set(Some(s"Error loading manifest: ${error.getMessage}"))
+          case scala.util.Failure(error)  =>
+            errorVar.set(Some(error.getMessage))
             loadingVar.set(false)
         }
       }
-    }
+
+    def delete(blobId: String): Unit =
+      if dom.window.confirm("Delete this blob manifest? Shared content-addressed blocks are retained.") then
+        loadingVar.set(true)
+        errorVar.set(None)
+        Unsafe.unsafe { implicit unsafe =>
+          runtime.unsafe.runToFuture(api.deleteBlob(blobId)).onComplete {
+            case scala.util.Success(_)     =>
+              detailsVar.set(None)
+              verificationVar.set(None)
+              blobIdVar.set("")
+              refreshInventory()
+            case scala.util.Failure(error) =>
+              errorVar.set(Some(error.getMessage))
+              loadingVar.set(false)
+          }
+        }
 
     div(
       cls := "blob-explorer",
-      h2("🔍 Blob Explorer"),
+      onMountCallback(_ => refreshInventory()),
+      h2("Persisted blob inventory"),
+      p(
+        cls   := "page-intro",
+        "This inventory is read from the configured manifest repository. Select a row to inspect the exact persisted block layout.",
+      ),
+      div(cls := "connection-target", span("Server"), code(api.baseUrl)),
       div(
-        cls := "search-box",
+        cls   := "search-box",
         input(
           cls         := "blob-id-input",
           tpe         := "text",
-          placeholder := "Enter blob ID (e.g., sha256:abc123...)",
-          controlled(
-            value <-- blobIdVar.signal,
-            onInput.mapToValue --> blobIdVar.writer,
-          ),
-          onKeyPress --> { ev =>
-            if (ev.key == "Enter") loadBlob(blobIdVar.now())
-          },
+          placeholder := "sha-256:<digest>:<bytes>",
+          controlled(value <-- blobIdVar.signal, onInput.mapToValue --> blobIdVar.writer),
+          onKeyPress --> { event => if event.key == "Enter" then inspect(blobIdVar.now()) },
         ),
-        button(
-          cls         := "btn-primary",
-          "🔍 Load Blob",
-          onClick --> { _ => loadBlob(blobIdVar.now()) },
-          disabled <-- loadingVar.signal,
-        ),
+        button(cls    := "btn-primary", "Inspect", onClick --> { _ => inspect(blobIdVar.now()) }),
+        button(cls    := "btn-secondary", "Refresh inventory", onClick --> { _ => refreshInventory() }),
       ),
-      child <-- api.offlineSignal.map { offline =>
-        if (!offline) emptyNode
-        else {
+      child <-- inventoryVar.signal.combineWith(loadingVar.signal).map { case (blobs, loading) =>
+        if loading && blobs.isEmpty then div(cls := "loading-spinner", "Loading persisted manifests...")
+        else if blobs.isEmpty then div(cls := "stats-empty", "The connected store has no blob manifests.")
+        else
           div(
-            cls := "demo-hint",
-            p(
-              "Running in demo mode. Try one of the sample blob IDs below or start a local Graviton server to explore your own data."
-            ),
-            div(
-              cls := "sample-id-list",
-              api.sampleBlobIds.map { blobId =>
-                button(
-                  cls    := "sample-id-btn",
-                  `type` := "button",
-                  blobId.value,
-                  onClick --> { _ => loadSample(blobId) },
-                  disabled <-- loadingVar.signal,
-                )
-              },
-            ),
-          )
-        }
-      },
-      child <-- metadataVar.signal.map {
-        case None           => emptyNode
-        case Some(metadata) =>
-          div(
-            cls := "blob-details",
-            h3("📦 Blob Metadata"),
-            div(
-              cls := "metadata-grid",
-              div(cls := "metadata-row", span(cls := "metadata-label", "ID:"), code(cls := "metadata-value", metadata.id.value)),
-              div(
-                cls   := "metadata-row",
-                span(cls := "metadata-label", "Size:"),
-                span(cls := "metadata-value", s"${formatBytes(metadata.size)}"),
-              ),
-              div(
-                cls   := "metadata-row",
-                span(cls := "metadata-label", "Content Type:"),
-                span(cls := "metadata-value", metadata.contentType.getOrElse("unknown")),
-              ),
-              div(
-                cls   := "metadata-row",
-                span(cls := "metadata-label", "Created:"),
-                span(cls := "metadata-value", formatTimestamp(metadata.createdAt)),
-              ),
-              div(
-                cls   := "metadata-checksums",
-                h4("🔐 Checksums"),
-                metadata.checksums.toList.map { case (algo, hash) =>
-                  div(
-                    cls := "checksum-row",
-                    span(cls := "checksum-algo", s"$algo:"),
-                    code(cls := "checksum-value", hash),
+            cls                            := "table-scroll inventory-table-wrapper",
+            table(
+              thead(tr(th("Content ID"), th("Size"), th("Blocks"), th("Persisted"))),
+              tbody(
+                blobs.map { blob =>
+                  tr(
+                    td(button(cls := "inventory-id", blob.id.value, onClick --> { _ => inspect(blob.id.value) })),
+                    td(formatBytes(blob.size)),
+                    td(blob.blockCount.toString),
+                    td(formatTimestamp(blob.createdAt)),
                   )
-                },
+                }
               ),
-            ),
-            button(
-              cls := "btn-secondary",
-              "📄 View Manifest",
-              onClick --> { _ => loadManifest(metadata.id) },
-              disabled <-- loadingVar.signal,
             ),
           )
       },
-      child <-- manifestVar.signal.combineWith(showManifestVar.signal).map {
-        case (Some(manifest), true) =>
+      child <-- detailsVar.signal.map {
+        case None          => emptyNode
+        case Some(details) => renderDetails(api, details, loadingVar, verify, delete)
+      },
+      child <-- verificationVar.signal.map {
+        case None         => emptyNode
+        case Some(result) =>
           div(
-            cls := "manifest-view",
-            h3("📄 Blob Manifest"),
-            div(cls := "manifest-summary", p(s"Total size: ${formatBytes(manifest.totalSize)}"), p(s"Chunks: ${manifest.chunks.length}")),
-            div(
-              cls   := "chunks-list",
-              h4("🧩 Chunks"),
-              div(
-                cls := "table-scroll manifest-table-wrapper",
-                table(
-                  thead(
-                    tr(
-                      th("Offset"),
-                      th("Size"),
-                      th("Hash"),
-                    )
-                  ),
-                  tbody(
-                    manifest.chunks.map { chunk =>
-                      tr(
-                        td(formatBytes(chunk.offset)),
-                        td(formatBytes(chunk.size)),
-                        td(code(chunk.hash.take(16) + "...")),
-                      )
-                    }
-                  ),
-                ),
-              ),
-            ),
+            cls := (if result.verified then "success-message" else "error-message"),
+            if result.verified then s"Server verification passed after reading ${formatBytes(result.bytesChecked)}."
+            else s"Server verification failed after reading ${formatBytes(result.bytesChecked)}.",
           )
-        case _                      => emptyNode
       },
       child <-- errorVar.signal.map {
         case None        => emptyNode
-        case Some(error) =>
-          div(cls := "error-message", s"⚠️ $error")
-      },
-      child <-- loadingVar.signal.map { loading =>
-        if (loading) div(cls := "loading-spinner", "⏳ Loading...")
-        else emptyNode
+        case Some(error) => div(cls := "error-message", error)
       },
     )
-  }
 
-  private def formatBytes(bytes: Long): String = {
-    val kb = bytes / 1024.0
-    val mb = kb / 1024.0
-    val gb = mb / 1024.0
+  private def renderDetails(
+    api: GravitonApi,
+    details: BlobDetails,
+    loading: Var[Boolean],
+    verify: String => Unit,
+    delete: String => Unit,
+  ): HtmlElement =
+    val summary = details.summary
+    val id      = summary.id.value
+    div(
+      cls := "blob-details",
+      h3("Persisted manifest"),
+      div(cls := "metadata-row", span(cls := "metadata-label", "Content ID"), code(cls := "metadata-value", id)),
+      div(cls := "metadata-row", span(cls := "metadata-label", "Digest"), code(cls := "metadata-value", summary.digest)),
+      div(cls := "metadata-row", span(cls := "metadata-label", "Size"), span(cls := "metadata-value", formatBytes(summary.size))),
+      div(
+        cls   := "metadata-row",
+        span(cls := "metadata-label", "Persisted"),
+        span(cls := "metadata-value", formatTimestamp(summary.createdAt)),
+      ),
+      div(
+        cls   := "operation-actions",
+        a(cls      := "btn-secondary", href := api.downloadUrl(id), download := "", "Download"),
+        button(cls := "btn-primary", "Verify bytes", disabled <-- loading.signal, onClick --> { _ => verify(id) }),
+        button(cls := "btn-danger", "Delete manifest", disabled <-- loading.signal, onClick --> { _ => delete(id) }),
+      ),
+      h4(s"Block layout (${details.blocks.length})"),
+      div(
+        cls   := "table-scroll manifest-table-wrapper",
+        table(
+          thead(tr(th("#"), th("Offset"), th("Size"), th("Block content ID"))),
+          tbody(
+            details.blocks.map { block =>
+              tr(
+                td(block.index.toString),
+                td(formatBytes(block.offset)),
+                td(formatBytes(block.size)),
+                td(code(block.contentId)),
+              )
+            }
+          ),
+        ),
+      ),
+    )
 
-    if (gb >= 1) f"$gb%.2f GB"
-    else if (mb >= 1) f"$mb%.2f MB"
-    else if (kb >= 1) f"$kb%.2f KB"
+  private def formatBytes(bytes: Long): String =
+    val kib = bytes / 1024.0
+    val mib = kib / 1024.0
+    val gib = mib / 1024.0
+    if gib >= 1 then f"$gib%.2f GiB"
+    else if mib >= 1 then f"$mib%.2f MiB"
+    else if kib >= 1 then f"$kib%.2f KiB"
     else s"$bytes B"
-  }
 
-  private def formatTimestamp(ts: Long): String = {
-    val date = new scala.scalajs.js.Date(ts.toDouble)
-    date.toLocaleString()
-  }
-}
+  private def formatTimestamp(timestamp: Long): String =
+    new scala.scalajs.js.Date(timestamp.toDouble).toLocaleString()

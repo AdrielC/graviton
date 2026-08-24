@@ -1,5 +1,14 @@
 // Version is computed from git tags by sbt-dynver
 // To release: git tag -a v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0
+// Use the Git CLI for read-only metadata. JGit treats linked worktrees as bare
+// repositories and can fail project loading before any task is evaluated.
+useReadableConsoleGit
+
+// zio-sbt-ecosystem also enables sbt-git's version probe. Dynver below is the
+// single version source, so avoid a redundant `git describe` that logs a fatal
+// message in repositories with no release tags.
+ThisBuild / git.gitDescribedVersion := None
+
 ThisBuild / version := dynverGitDescribeOutput.value
   .mkVersion(versionFmt, fallbackVersion(dynverCurrentDate.value))
 

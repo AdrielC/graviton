@@ -112,6 +112,33 @@ object FsBlockStoreSpec extends ZIOSpecDefault:
           yield assertTrue(roundTripped.forall(identity))
         }
       },
+      test("rejects an existing block whose bytes do not match its content key") {
+        withTempDir { root =>
+          for
+            store    <- ZIO.succeed(new FsBlockStore(root))
+            block    <- canonical("integrity-check")
+            _        <- ZStream(block).run(store.putBlocks())
+            _        <- ZIO.attemptBlocking(Files.write(store.pathFor(block.key), "tampered-block".getBytes(StandardCharsets.UTF_8)))
+            repeated <- ZStream(block).run(store.putBlocks()).exit
+          yield assertTrue(repeated.isFailure)
+        }
+      },
+      test("does not follow a symbolic link at a content-addressed block path") {
+        withTempDir { root =>
+          for
+            store     <- ZIO.succeed(new FsBlockStore(root))
+            block     <- canonical("symlink-check")
+            path       = store.pathFor(block.key)
+            target    <- ZIO.attemptBlocking(Files.createTempFile(root, "outside-block-", ".txt"))
+            _         <- ZIO.attemptBlocking {
+                           Files.createDirectories(path.getParent)
+                           Files.createSymbolicLink(path, target)
+                         }
+            existence <- store.exists(block.key).exit
+            retrieval <- store.get(block.key).runCollect.exit
+          yield assertTrue(existence.isFailure, retrieval.isFailure)
+        }
+      },
     )
 
   private def canonical(text: String): IO[Throwable, CanonicalBlock] =

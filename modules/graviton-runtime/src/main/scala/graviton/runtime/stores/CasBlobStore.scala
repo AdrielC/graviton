@@ -9,7 +9,7 @@ import graviton.core.model.Block as GBlock
 import graviton.core.scan.FS.toPipeline
 import graviton.core.types.*
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.model.{BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
+import graviton.runtime.model.{BlobBlockDescription, BlobDescription, BlobListing, BlobStat, BlobWritePlan, BlobWriteResult, CanonicalBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.*
@@ -214,6 +214,10 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
+            _ <- metrics.counter(MetricKeys.BlobIngestsTotal, tags)
+            _ <- metrics.counterBy(MetricKeys.BytesIngestedTotal, size, tags)
+            _ <- metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags)
+            _ <- metrics.counterBy(MetricKeys.DuplicateBlocksTotal, dupBlocks.toLong, tags)
 
             // Build confirmed attributes from the ingest summary (Phase B.3).
             confirmedAttrs  = {
@@ -258,12 +262,45 @@ final class CasBlobStore(
         }
       case _                    => ZIO.succeed(None)
 
+  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
+    manifests.list.map(_.map { case (key, stored) => listing(key, stored) })
+
+  override def inspect(key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
+    key match
+      case blob: BinaryKey.Blob =>
+        manifests.get(blob).map(_.map(stored => description(blob, stored)))
+      case _                    => ZIO.succeed(None)
+
   override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
     key match
       case blob: BinaryKey.Blob =>
         manifests.delete(blob).unit
       case other                =>
         ZIO.fail(new UnsupportedOperationException(s"CasBlobStore.delete only supports blob keys, got $other"))
+
+  private def listing(blob: BinaryKey.Blob, stored: StoredManifest): BlobListing =
+    val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, entry) =>
+      acc + (entry.span.endInclusive.value - entry.span.startInclusive.value + 1L)
+    }
+    BlobListing(
+      key = blob,
+      stat = BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, stored.ingestedAt),
+      blockCount = stored.manifest.entries.length,
+    )
+
+  private def description(blob: BinaryKey.Blob, stored: StoredManifest): BlobDescription =
+    val blocks = Chunk.fromIterable(
+      stored.manifest.entries.zipWithIndex.map { case (entry, index) =>
+        entry.key match
+          case block: BinaryKey.Block =>
+            val offset = entry.span.startInclusive.value
+            val size   = entry.span.endInclusive.value - offset + 1L
+            BlobBlockDescription(index.toLong, block, offset, size)
+          case other                  =>
+            throw new IllegalStateException(s"Blob manifest contains non-block key: $other")
+      }
+    )
+    BlobDescription(listing(blob, stored), blocks)
 
 object CasBlobStore:
   val layer: ZLayer[BlockStore & BlobManifestRepo, Nothing, BlobStore] =

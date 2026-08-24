@@ -50,11 +50,11 @@ summary.blockCount   // Long
 summary.blocksKeyed  // Long
 ```
 
-Every field in the summary is accessed by name (not index), and the composition merges Record states automatically via `StateMerge`. See the [Pipeline Explorer](./pipeline-explorer.md) to experiment with different stage combinations interactively.
+Every field in the summary is accessed by name (not index), and the composition merges Record states automatically via `StateMerge`. See [Transducer Algebra](./core/transducers.md) for supported stage combinations.
 
 ## See also
 
 - [Binary Streaming Guide](./guide/binary-streaming.md) — detailed walkthrough of blocks, manifests, and attributes
 - [Transducer Algebra](./core/transducers.md) — the composable pipeline engine
-- [Pipeline Explorer](./pipeline-explorer.md) — interactive transducer visualization
+- [Live Operations Console](./demo.md) for the implemented HTTP storage lifecycle
 - [Chunking Strategies](./ingest/chunking.md) — FastCDC, fixed, and delimiter algorithms

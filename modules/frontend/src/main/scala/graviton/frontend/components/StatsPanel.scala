@@ -6,7 +6,7 @@ import graviton.frontend.GravitonApi
 import zio.*
 import scala.concurrent.ExecutionContext.Implicits.global
 
-/** Interactive stats panel showing system metrics */
+/** Interactive stats panel showing process-lifetime ingest counters. */
 object StatsPanel {
 
   private def formatBytes(bytes: Long): String = {
@@ -27,9 +27,6 @@ object StatsPanel {
 
     val runtime = Runtime.default
 
-    // Load once on mount so demo data is visible without a manual refresh
-    loadStats()
-
     def loadStats(): Unit = {
       loadingVar.set(true)
       errorVar.set(None)
@@ -48,9 +45,12 @@ object StatsPanel {
 
     div(
       cls := "stats-panel",
-      h2("📊 System Statistics"),
+      onMountCallback(_ => loadStats()),
+      h2("📊 Process Ingest Counters"),
+      p(cls   := "page-intro", "Live values reset when the server process restarts; they are not a durable storage inventory."),
+      div(cls := "connection-target", span("Server"), code(api.baseUrl)),
       div(
-        cls := "stats-controls",
+        cls   := "stats-controls",
         button(
           cls := "btn-primary",
           "🔄 Refresh Stats",
@@ -58,14 +58,6 @@ object StatsPanel {
           disabled <-- loadingVar.signal,
         ),
       ),
-      child <-- api.offlineSignal.map { offline =>
-        if (offline)
-          div(
-            cls := "demo-hint",
-            "Showing simulated metrics. Connect a live server to inspect real-time statistics.",
-          )
-        else emptyNode
-      },
       child <-- statsVar.signal.map {
         case None =>
           div(cls := "stats-empty", "Click refresh to load statistics")
@@ -75,26 +67,26 @@ object StatsPanel {
             cls := "stats-grid",
             div(
               cls := "stat-card",
-              div(cls := "stat-label", "Total Blobs"),
+              div(cls := "stat-label", "Blob Ingests"),
               div(cls := "stat-value", stats.totalBlobs.toString),
               div(cls := "stat-icon", "📦"),
             ),
             div(
               cls := "stat-card",
-              div(cls := "stat-label", "Total Storage"),
+              div(cls := "stat-label", "Bytes Ingested"),
               div(cls := "stat-value", formatBytes(stats.totalBytes)),
               div(cls := "stat-icon", "💾"),
             ),
             div(
               cls := "stat-card",
-              div(cls := "stat-label", "Unique Chunks"),
+              div(cls := "stat-label", "Fresh Blocks"),
               div(cls := "stat-value", stats.uniqueChunks.toString),
               div(cls := "stat-icon", "🧩"),
             ),
             div(
               cls := "stat-card",
-              div(cls := "stat-label", "Dedup Ratio"),
-              div(cls := "stat-value", f"${stats.deduplicationRatio}%.2f:1"),
+              div(cls := "stat-label", "Duplicate Share"),
+              div(cls := "stat-value", f"${stats.deduplicationRatio * 100}%.1f%%"),
               div(cls := "stat-icon", "📈"),
             ),
           )

@@ -13,8 +13,8 @@ Be respectful, collaborative, and professional. We're building something great t
 - **JDK 21+**: OpenJDK or Oracle JDK
 - **sbt 1.11+**: Scala build tool
 - **Git**: Version control
-- **PostgreSQL 18+** (optional): For integration tests
-- **Node.js 20+**: For documentation and the Scala.js demo bundle
+- **PostgreSQL 16+** (optional): For integration tests
+- **Node.js 20+**: For documentation and the Scala.js console bundle
 
 ### Clone and Build
 
@@ -35,7 +35,7 @@ TESTCONTAINERS=0 ./sbt scalafmtAll test
 # (Optional) Exercise TestContainers-backed suites
 TESTCONTAINERS=1 ./sbt test
 
-# (Optional) Rebuild the documentation demo assets after frontend changes
+# (Optional) Rebuild the documentation console assets after frontend changes
 ./sbt buildFrontend
 ```
 
@@ -362,7 +362,7 @@ git commit -m "schema: add tiering metadata columns"
 
 ```bash
 cd docs
-npm install
+npm ci
 npm run docs:build
 
 # Or preview locally

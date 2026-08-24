@@ -48,6 +48,32 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
   def put(path: String, body: String): Task[String] = fetch(path, "PUT", Some(body))
 
   def delete(path: String): Task[String] = fetch(path, "DELETE")
+
+  /** Stream the selected browser file directly to the real blob endpoint. */
+  def uploadFile(path: String, file: dom.File): Task[String] = {
+    val url = s"$baseUrl$path"
+
+    ZIO.fromPromiseJS {
+      val init = new dom.RequestInit {}
+      init.method = dom.HttpMethod.POST
+      init.headers = js.Dictionary(
+        "Content-Type" -> Option(file.`type`).filter(_.nonEmpty).getOrElse("application/octet-stream"),
+        "Accept"       -> "application/json",
+      )
+      init.body = file
+
+      dom
+        .fetch(url, init)
+        .toFuture
+        .flatMap { response =>
+          response.text().toFuture.map { text =>
+            if response.ok then text
+            else throw new Exception(s"HTTP ${response.status}: $text")
+          }
+        }
+        .toJSPromise
+    }
+  }
 }
 
 object BrowserHttpClient {

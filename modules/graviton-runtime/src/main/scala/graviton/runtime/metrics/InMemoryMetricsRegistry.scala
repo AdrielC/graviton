@@ -7,11 +7,11 @@ final class InMemoryMetricsRegistry private (
   gaugesRef: Ref[Map[MetricKey, Double]],
 ) extends MetricsRegistry:
 
-  override def counter(name: String, tags: Map[String, String]): UIO[Unit] =
+  override def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit] =
     countersRef.update { m =>
       val key = MetricKey(name, tags)
       val n   = m.getOrElse(key, 0L)
-      m.updated(key, n + 1L)
+      m.updated(key, n + delta)
     }.unit
 
   override def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit] =

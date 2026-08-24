@@ -31,8 +31,8 @@ final case class SecurityConfig(
     if !enabled then Right(this)
     else
       for
-        issuer <- oidcIssuer.toRight("GRAVITON_SEC_OIDC_ISSUER is required when security is enabled")
-        _      <- oidcAudience.toRight("GRAVITON_SEC_OIDC_AUDIENCE is required when security is enabled")
+        issuer <- oidcIssuer.toRight("GRAVITON_SECURITY_OIDC_ISSUER is required when security is enabled")
+        _      <- oidcAudience.toRight("GRAVITON_SECURITY_OIDC_AUDIENCE is required when security is enabled")
       yield this
 
 object SecurityConfig:

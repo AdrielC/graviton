@@ -40,15 +40,11 @@ object HealthCheck {
       child <-- healthVar.signal.map {
         case None         => emptyNode
         case Some(health) =>
-          val statusLabel =
-            if (health.status.equalsIgnoreCase("demo")) "Demo Mode"
-            else health.status
-
           div(
             cls := "health-status",
             div(
               cls   := s"status-badge status-${health.status.toLowerCase}",
-              s"${statusEmoji(health.status)} $statusLabel",
+              s"${statusEmoji(health.status)} ${health.status}",
             ),
             div(cls := "health-details", p(s"Version: ${health.version}"), p(s"Uptime: ${formatUptime(health.uptime)}")),
           )
@@ -71,7 +67,6 @@ object HealthCheck {
   private def statusEmoji(status: String): String = status.toLowerCase match {
     case "healthy" | "ok" => "✅"
     case "degraded"       => "⚠️"
-    case "demo"           => "🛰️"
     case _                => "❌"
   }
 

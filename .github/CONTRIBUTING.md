@@ -46,7 +46,7 @@ graviton/
 │   │   └── graviton-rocks/   # RocksDB backend
 │   ├── server/
 │   │   └── graviton-server/  # Application wiring
-│   └── frontend/             # Scala.js interactive demo
+│   └── frontend/             # Scala.js operations console
 └── docs/                     # VitePress documentation
 ```
 
@@ -206,7 +206,7 @@ Be respectful, inclusive, and constructive. We're all here to build something gr
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
 
 ---
 

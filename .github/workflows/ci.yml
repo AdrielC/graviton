@@ -111,8 +111,8 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
-      - name: Build Scala.js Frontend
-        run: ./sbt buildFrontend
+      - name: Build docs assets
+        run: ./sbt buildDocsAssets
       - name: Verify docs snippets
         run: ./sbt docs/mdoc checkDocSnippets
       - uses: actions/setup-node@v6
@@ -121,6 +121,6 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
       - name: Install docs dependencies
-        run: npm install --prefix docs
+        run: npm ci --prefix docs
       - name: Build docs (verification only)
         run: npm run docs:build --prefix docs

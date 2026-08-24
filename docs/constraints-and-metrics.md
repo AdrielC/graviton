@@ -11,4 +11,6 @@ Graviton enforces ingest limits and exposes observability data through the runti
 
 ## Metrics
 
-All components register metrics through `MetricsRegistry` and publish canonical keys defined in `MetricKeys`. The server exposes `/metrics` for Prometheus scrapes while backends contribute driver-specific gauges (e.g., RocksDB compaction stats or S3 request latency histograms).
+Runtime components register metrics through `MetricsRegistry` and publish canonical keys defined in `MetricKeys`. The server exposes process-local ingest counters through `/api/stats` and Prometheus text through `/metrics`.
+
+The implemented counters cover successful ingests, ingested bytes, fresh blocks, and duplicate blocks. They reset when the server restarts. Backend latency histograms, durable aggregation, RocksDB compaction gauges, and S3 health measurements remain roadmap work.

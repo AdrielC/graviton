@@ -1,6 +1,6 @@
 # Streams Utilities
 
-`graviton-streams` supplies reusable ZIO Stream components that power chunking, hashing, and framing inside the runtime and demo.
+`graviton-streams` supplies reusable ZIO Stream components that power chunking, hashing, and framing inside the runtime.
 
 ## Chunking & hashing
 
@@ -29,7 +29,7 @@ These types are pure and can be shared between JVM services and Scala.js visuali
 - `once` / `many`: strict decoders that fail fast on errors.
 - `tryOnce` / `tryMany`: lenient variants that swallow recoverable errors and continue streaming.
 
-The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is already production-ready and covered by unit tests in `modules/graviton-streams/src/test`.
+The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is implemented and covered by unit tests in `modules/graviton-streams/src/test`.
 
 ## Transducer integration
 
@@ -39,7 +39,7 @@ The streaming utilities are designed to compose with the [Transducer algebra](..
 - `HashingZ.pipeline` corresponds to `IngestPipeline.hashBytes()`
 - The `toSink` / `toPipeline` compilation targets bridge transducers back into ZIO Streams
 
-See the [Pipeline Explorer](../pipeline-explorer.md) for an interactive visualization of how these stages compose.
+See [Transducer Algebra](../core/transducers.md) for the implemented composition rules and current limitations.
 
 ## Roadmap
 
