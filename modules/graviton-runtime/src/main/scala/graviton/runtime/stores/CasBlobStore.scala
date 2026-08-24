@@ -214,6 +214,10 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
+            _ <- metrics.counter(MetricKeys.BlobIngestsTotal, tags)
+            _ <- metrics.counterBy(MetricKeys.BytesIngestedTotal, size, tags)
+            _ <- metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags)
+            _ <- metrics.counterBy(MetricKeys.DuplicateBlocksTotal, dupBlocks.toLong, tags)
 
             // Build confirmed attributes from the ingest summary (Phase B.3).
             confirmedAttrs  = {
