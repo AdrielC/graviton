@@ -4,6 +4,7 @@ import zio.*
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
 
 object GravitonSpec extends ZIOSpecDefault:
 
@@ -77,4 +78,31 @@ object GravitonSpec extends ZIOSpecDefault:
           fetched  <- g.retrieve(result.key)
         yield assertTrue(streamed == fetched)
       },
+      test("filesystem facade survives a fresh instance") {
+        withTempDir { root =>
+          val data = Chunk.fromArray("persistent facade".getBytes(StandardCharsets.UTF_8))
+          for
+            writer   <- Graviton.fs(root, chunkSize = 64)
+            result   <- writer.ingestBytes(data)
+            reader   <- Graviton.fs(root, chunkSize = 64)
+            readBack <- reader.retrieve(result.key)
+            verified <- reader.verify(result.key)
+          yield assertTrue(readBack == data, verified)
+        }
+      },
     )
+
+  private def withTempDir[A](f: Path => ZIO[Any, Throwable, A]): ZIO[Any, Throwable, A] =
+    ZIO.acquireReleaseWith(
+      ZIO.attemptBlocking(Files.createTempDirectory("graviton-facade-test-"))
+    )(dir =>
+      ZIO.attemptBlocking {
+        Files
+          .walk(dir)
+          .sorted(java.util.Comparator.reverseOrder())
+          .forEach { path =>
+            val _ = Files.deleteIfExists(path)
+            ()
+          }
+      }.orDie
+    )(f)

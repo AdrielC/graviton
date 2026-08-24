@@ -32,14 +32,21 @@ object RocksKeyValueStoreSpec extends ZIOSpecDefault:
       test("layer wires KeyValueStore service") {
         val value = "layer-value".getBytes(StandardCharsets.UTF_8)
         withTempDir { dir =>
-          ZIO.scoped {
-            (for
-              store <- ZIO.service[KeyValueStore]
-              _     <- store.put("k2", value)
-              got   <- store.get("k2")
-            yield assertTrue(got.exists(bytes => java.util.Arrays.equals(bytes, value))))
-              .provideSomeLayer[Scope](RocksLayers.live(dir))
-          }
+          (for
+            store <- ZIO.service[KeyValueStore]
+            _     <- store.put("k2", value)
+            got   <- store.get("k2")
+          yield assertTrue(got.exists(bytes => java.util.Arrays.equals(bytes, value))))
+            .provideLayer(RocksLayers.live(dir))
+        }
+      },
+      test("data survives closing and reopening the database") {
+        val value = "restart-safe".getBytes(StandardCharsets.UTF_8)
+        withTempDir { dir =>
+          for
+            _   <- ZIO.scoped(RocksKeyValueStore.open(dir).flatMap(_.put("durable", value)))
+            got <- ZIO.scoped(RocksKeyValueStore.open(dir).flatMap(_.get("durable")))
+          yield assertTrue(got.exists(bytes => java.util.Arrays.equals(bytes, value)))
         }
       },
     )
