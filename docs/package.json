@@ -12,5 +12,8 @@
     "mermaid": "^11.17.0",
     "vitepress": "^1.2.2",
     "vitepress-plugin-mermaid": "^2.0.16"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   }
 }
