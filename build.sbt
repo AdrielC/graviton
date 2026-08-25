@@ -83,10 +83,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.3 removes aspirational transport and framing APIs that could not execute,
-// narrows keys to their semantic variants, and makes every published backend
-// operation real. This is an intentional early-semver compatibility boundary.
-ThisBuild / versionPolicyIntention := Compatibility.None
+// v0.3 established the first fully operational compatibility boundary. Changes
+// after that release must preserve backward binary compatibility within the
+// current early-semver minor line while still allowing additive public APIs.
+ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -215,6 +215,26 @@ buildFrontend := {
   log.info(s"Frontend built and copied to $targetDir")
 }
 
+// Link the bounded graviton-shared content-addressing API as a standalone ES module
+// for the documentation playground. The JVM and Scala.js artifacts compile the
+// same analyzer while delegating SHA-256 to their native platform primitive.
+lazy val buildContentLab = taskKey[Unit]("Build the shared Scala.js content lab and copy it to docs")
+buildContentLab := {
+  val log = Keys.streams.value.log
+  log.info("Building shared Scala.js content lab...")
+
+  val _         = (sharedProtocol.js / Compile / fullLinkJS).value
+  val sourceDir = (sharedProtocol.js / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/public/content-lab")
+
+  log.info(s"Copying shared Scala.js output from $sourceDir to $targetDir")
+  IO.delete(targetDir)
+  IO.createDirectory(targetDir)
+  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+
+  log.info(s"Shared content lab built and copied to $targetDir")
+}
+
 // Task to build Quasar frontend and copy to docs
 lazy val buildQuasarFrontend = taskKey[Unit]("Build Quasar Scala.js frontend and copy to docs")
 buildQuasarFrontend := {
@@ -237,6 +257,7 @@ buildQuasarFrontend := {
 lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
 buildDocsAssets := Def.sequential(
   generateDocs,
+  buildContentLab,
   buildFrontend,
   buildQuasarFrontend
 ).value
@@ -337,6 +358,7 @@ lazy val root = (project in file(".")).aggregate(
 )
 
 lazy val core = (project in file("modules/graviton-core"))
+  .dependsOn(sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-core",
     libraryDependencies ++= Seq(
@@ -594,7 +616,7 @@ lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
 
 // Shared protocol models for JVM and JS
 lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
-  .crossType(CrossType.Pure)
+  .crossType(CrossType.Full)
   .in(file("modules/protocol/graviton-shared"))
   .settings(
     baseSettings,
@@ -605,10 +627,13 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
       "io.github.iltotore" %%% "iron"        % V.iron,
+      "dev.zio" %%% "zio-test"              % V.zio % Test,
+      "dev.zio" %%% "zio-test-sbt"          % V.zio % Test,
     )
   )
   .jsSettings(
-    Test / fork := false  // Scala.js tests cannot be forked
+    Test / fork := false, // Scala.js tests cannot be forked
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
   )
 
 // Frontend module with Scala.js

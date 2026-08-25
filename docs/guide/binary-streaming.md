@@ -47,6 +47,7 @@ sequenceDiagram
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.model.Block
 import graviton.core.model.Block.*
 import graviton.core.types.{ChunkCount, FileSize, UploadChunkSize}
 import graviton.runtime.model.{BlockBatchResult, CanonicalBlock}
@@ -60,11 +61,11 @@ extension [E, A](either: Either[E, A])
 
 final case class Ingest(blockStore: BlockStore):
 
-  private def canonicalBlock(block: Chunk[Byte], attrs: BinaryAttributes): Either[String, CanonicalBlock] =
+  private def canonicalBlock(block: Block, attrs: BinaryAttributes): Either[String, CanonicalBlock] =
     for
       hasher     <- Hasher.systemDefault
       algo        = hasher.algo
-      _           = hasher.update(block.toArray)
+      _           = hasher.update(block.bytes)
       digest     <- hasher.digest
       bits       <- KeyBits.create(algo, digest, block.length.toLong)
       key        <- BinaryKey.block(bits)
@@ -73,7 +74,7 @@ final case class Ingest(blockStore: BlockStore):
       confirmed   = attrs
                       .confirmSize(size)
                       .confirmChunkCount(chunkCount)
-      canonical  <- CanonicalBlock.make(key, block, confirmed)
+      canonical  <- CanonicalBlock.make(key, block.bytes, confirmed)
     yield canonical
 
   def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
@@ -83,7 +84,7 @@ final case class Ingest(blockStore: BlockStore):
 
     for result <- bytes
                     .via(Chunker.fixed(chunkSize).pipeline.mapError(Chunker.toThrowable))
-                    .mapZIO(block => canonicalBlock(block.bytes, attrs).toTask)
+                    .mapZIO(block => canonicalBlock(block, attrs).toTask)
                     .run(sink)
     yield result
 ```
@@ -94,7 +95,7 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 - **Blob size bound**: `FileSize` is an Iron-refined positive `Long` capped at 1 TiB. Backends may enforce a lower operational quota with `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)`.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Incremental chunking core**: `graviton.streams.Chunker` is backed by a small, bounded incremental cutter and can also be used as a plain state machine via `graviton.streams.ChunkerCore` (useful for tests/benchmarks or lifting into non-ZIO runtimes).
-- **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` (currently BLAKE3) is the runtime’s default, but you can still opt into SHA-256 for FIPS-bound workflows.
+- **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` is currently SHA-256. SHA-1 remains a legacy key option; BLAKE3 execution requires an installed provider and is never substituted silently.
 - **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
 
 ## Attribute lifecycle

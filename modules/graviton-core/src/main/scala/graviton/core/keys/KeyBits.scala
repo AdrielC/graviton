@@ -1,12 +1,13 @@
 package graviton.core.keys
 
 import graviton.core.bytes.{Digest, HashAlgo}
+import graviton.shared.cas.ContentKeyText
 import zio.schema.{DeriveSchema, Schema}
 
 final case class KeyBits(algo: HashAlgo, digest: Digest, size: Long):
   /** Stable, round-trippable text form used by the CLI and HTTP API. */
   def render: String =
-    s"${algo.primaryName}:${digest.hex.value}:$size"
+    ContentKeyText.render(algo.primaryName, digest.hex.value, size)
 
 object KeyBits:
 
@@ -38,15 +39,11 @@ object KeyBits:
     else Right(KeyBits(algo, digest, size))
 
   def fromString(value: String): Either[String, KeyBits] =
-    value.split(":", -1).toList match
-      case algoText :: digestText :: sizeText :: Nil =>
-        for {
-          algo    <- HashAlgo.fromString(algoText).toRight(s"Unsupported hash algorithm '$algoText'")
-          digest  <- Digest.fromString(digestText)
-          size    <- scala.util.Try(sizeText.toLong).toEither.left.map(_ => s"Invalid byte length '$sizeText'")
-          keyBits <- KeyBits.create(algo, digest, size)
-        } yield keyBits
-      case _                                         =>
-        Left("Expected a content key in the form <algorithm>:<hex-digest>:<byte-length>")
+    for
+      parts   <- ContentKeyText.parse(value)
+      algo    <- HashAlgo.fromString(parts.algorithm).toRight(s"Unsupported hash algorithm '${parts.algorithm}'")
+      digest  <- Digest.fromString(parts.digestHex)
+      keyBits <- KeyBits.create(algo, digest, parts.size)
+    yield keyBits
 
   inline given Schema[KeyBits] = DeriveSchema.gen[KeyBits]

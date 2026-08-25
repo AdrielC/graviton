@@ -5,10 +5,13 @@
         <p class="pp-eyebrow">LOCAL CONTENT LAB</p>
         <h2 id="pipeline-playground-title">Bytes become content IDs here</h2>
         <p>
-          Edit the payload and block size. Your browser computes every SHA-256 digest shown below.
+          Edit the payload and block size. The linked graviton-shared Scala.js module computes every result.
         </p>
       </div>
-      <span class="pp-boundary">Real hashes, browser memory only</span>
+      <div class="pp-runtime-stack">
+        <span :class="['pp-runtime', runtimeState]">{{ runtimeLabel }}</span>
+        <span class="pp-boundary">8 KiB refined boundary</span>
+      </div>
     </header>
 
     <div class="pp-workbench">
@@ -19,8 +22,14 @@
           v-model="payload"
           rows="8"
           spellcheck="false"
+          maxlength="2048"
           :aria-invalid="Boolean(error)"
         />
+
+        <div class="pp-input-meter">
+          <span>UTF-16 input</span>
+          <strong>{{ payload.length }} / 2,048 code units</strong>
+        </div>
 
         <div class="pp-presets">
           <button type="button" @click="loadRepeated">Load repeated blocks</button>
@@ -36,8 +45,8 @@
 
         <p v-if="error" class="pp-error" role="alert">{{ error }}</p>
         <p v-else class="pp-note">
-          This worksheet uses fixed boundaries for clarity. A configured Graviton server may use Fixed,
-          FastCDC, or delimiter chunking.
+          The lab uses fixed boundaries for clarity. Server ingest remains streaming and may use Fixed,
+          FastCDC, or delimiter chunking without this interactive memory limit.
         </p>
       </div>
 
@@ -55,7 +64,7 @@
         <dl class="pp-summary">
           <div>
             <dt>Blob content ID</dt>
-            <dd><code>{{ result.blobId || 'sha-256 of empty input' }}</code></dd>
+            <dd><code>{{ result.blobId || 'Loading Scala.js content lab…' }}</code></dd>
           </div>
           <div>
             <dt>Unique blocks</dt>
@@ -66,7 +75,7 @@
             <dd>{{ result.duplicateCount }}</dd>
           </div>
           <div>
-            <dt>Manifest bytes</dt>
+            <dt>Payload bytes</dt>
             <dd>{{ result.byteCount }}</dd>
           </div>
         </dl>
@@ -119,9 +128,13 @@ type PlaygroundResult = {
   blocks: BlockResult[]
   uniqueCount: number
   duplicateCount: number
+  engine: string
 }
 
-const MAX_BYTES = 8192
+type ContentLabModule = {
+  analyzeGravitonContent(value: string, blockSize: number): Promise<PlaygroundResult>
+}
+
 const repeatedPayload = [
   'GRAVITON-BLOCK!!',
   'GRAVITON-BLOCK!!',
@@ -134,15 +147,19 @@ const blockSize = ref(16)
 const processing = ref(false)
 const error = ref('')
 const mounted = ref(false)
+const runtimeState = ref<'loading' | 'ready' | 'error'>('loading')
+const runtimeLabel = ref('Loading Scala.js')
 const result = ref<PlaygroundResult>({
   byteCount: 0,
   blobId: '',
   blocks: [],
   uniqueCount: 0,
-  duplicateCount: 0
+  duplicateCount: 0,
+  engine: ''
 })
 
 let revision = 0
+let modulePromise: Promise<ContentLabModule> | undefined
 
 function loadRepeated() {
   payload.value = repeatedPayload
@@ -154,72 +171,35 @@ function loadAvalanche() {
   blockSize.value = 16
 }
 
-function toHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, '0')).join('')
-}
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return toHex(digest)
+function loadContentLab(): Promise<ContentLabModule> {
+  if (!modulePromise) {
+    const base = import.meta.env.BASE_URL.endsWith('/')
+      ? import.meta.env.BASE_URL
+      : `${import.meta.env.BASE_URL}/`
+    modulePromise = import(/* @vite-ignore */ `${base}content-lab/main.js`) as Promise<ContentLabModule>
+  }
+  return modulePromise
 }
 
 async function recompute() {
   if (!mounted.value) return
 
   const currentRevision = ++revision
-  const bytes = new TextEncoder().encode(payload.value)
   processing.value = true
   error.value = ''
 
-  if (!globalThis.crypto?.subtle) {
-    error.value = 'This browser does not expose the Web Crypto SHA-256 API.'
-    processing.value = false
-    return
-  }
-
-  if (bytes.length > MAX_BYTES) {
-    error.value = `Keep the worksheet payload at or below ${MAX_BYTES} UTF-8 bytes.`
-    processing.value = false
-    return
-  }
-
   try {
-    const slices: Array<{ index: number; offset: number; bytes: Uint8Array }> = []
-    for (let offset = 0, index = 0; offset < bytes.length; offset += blockSize.value, index += 1) {
-      slices.push({ index, offset, bytes: bytes.slice(offset, offset + blockSize.value) })
-    }
-
-    const [blobDigest, blockDigests] = await Promise.all([
-      sha256(bytes),
-      Promise.all(slices.map(slice => sha256(slice.bytes)))
-    ])
+    const contentLab = await loadContentLab()
+    const nextResult = await contentLab.analyzeGravitonContent(payload.value, blockSize.value)
 
     if (currentRevision !== revision) return
-
-    const seen = new Set<string>()
-    const blocks = slices.map((slice, index) => {
-      const contentId = `sha-256:${blockDigests[index]}:${slice.bytes.length}`
-      const duplicate = seen.has(contentId)
-      seen.add(contentId)
-      return {
-        index: slice.index,
-        offset: slice.offset,
-        size: slice.bytes.length,
-        contentId,
-        duplicate
-      }
-    })
-
-    const duplicateCount = blocks.filter(block => block.duplicate).length
-    result.value = {
-      byteCount: bytes.length,
-      blobId: `sha-256:${blobDigest}:${bytes.length}`,
-      blocks,
-      uniqueCount: blocks.length - duplicateCount,
-      duplicateCount
-    }
+    result.value = nextResult
+    runtimeState.value = 'ready'
+    runtimeLabel.value = nextResult.engine
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : String(cause)
+    runtimeState.value = 'error'
+    runtimeLabel.value = 'Scala.js unavailable'
   } finally {
     if (currentRevision === revision) processing.value = false
   }

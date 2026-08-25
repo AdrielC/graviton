@@ -35,8 +35,8 @@ TESTCONTAINERS=0 ./sbt scalafmtAll test
 # (Optional) Exercise TestContainers-backed suites
 TESTCONTAINERS=1 ./sbt test
 
-# (Optional) Rebuild the documentation console assets after frontend changes
-./sbt buildFrontend
+# (Optional) Rebuild the shared lab and operations console after Scala.js changes
+./sbt buildContentLab buildFrontend
 ```
 
 ## Coding Standards
@@ -165,6 +165,7 @@ object BinaryKeySpec extends ZIOSpecDefault {
 ```scala
 import graviton.runtime.Graviton
 import graviton.runtime.stores.BlobStore
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -179,8 +180,8 @@ object BlobStoreIntegrationSpec extends ZIOSpecDefault:
         store <- ZIO.service[BlobStore]
         data   = Chunk.fromArray("test data".getBytes("UTF-8"))
         write  <- ZStream.fromChunk(data).run(store.put())
-        out    <- store.get(write.key).runCollect
-      yield assertTrue(out == data)
+        out    <- BoundedByteStream.collectInMemory(store.get(write.key))
+      yield assertTrue(out.chunk == data)
     },
   ).provide(blobStore) @@ TestAspect.withLiveEnvironment
 ```
