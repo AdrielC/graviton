@@ -51,7 +51,9 @@ export function mountPageIdentity(initialPath: string): PageIdentity {
   const updateRoute = (routePath: string) => {
     const routeHash = hashPath(routePath)
     const hue = 120 + (Math.abs(routeHash) % 201)
+    const isHome = routePath === '/' || routePath === '/index.html'
     document.documentElement.style.setProperty('--graviton-accent-hue', hue.toString())
+    document.body.classList.toggle('graviton-home', isHome)
     hash.textContent = (routeHash >>> 0).toString(16).padStart(8, '0')
     path.textContent = routePath.length > 40 ? `${routePath.slice(0, 37)}…` : routePath
   }
@@ -68,6 +70,7 @@ export function mountPageIdentity(initialPath: string): PageIdentity {
       window.removeEventListener('scroll', requestProgressPaint)
       window.removeEventListener('resize', requestProgressPaint)
       document.documentElement.style.removeProperty('--graviton-accent-hue')
+      document.body.classList.remove('graviton-home')
       progress.remove()
       sigil.remove()
     }

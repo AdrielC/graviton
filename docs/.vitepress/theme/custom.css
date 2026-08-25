@@ -839,6 +839,14 @@
   mix-blend-mode: screen;
 }
 
+.graviton-home .graviton-matrix-rain {
+  --graviton-matrix-opacity: 0.32;
+}
+
+.dark .graviton-home .graviton-matrix-rain {
+  --graviton-matrix-opacity: 0.4;
+}
+
 .graviton-hyperspace .graviton-matrix-rain {
   opacity: 0.38;
 }
@@ -1544,6 +1552,14 @@
 
   .dark .graviton-matrix-rain {
     --graviton-matrix-opacity: 0.22;
+  }
+
+  .graviton-home .graviton-matrix-rain {
+    --graviton-matrix-opacity: 0.24;
+  }
+
+  .dark .graviton-home .graviton-matrix-rain {
+    --graviton-matrix-opacity: 0.3;
   }
 
   .evidence-hud,
