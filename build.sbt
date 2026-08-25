@@ -264,7 +264,13 @@ lazy val docs = (project in file("docs-mdoc"))
       "public"
     ),
     mdocVariables += "version" -> version.value,
-    Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "docs/snippets/src/main/scala"
+    Compile / unmanagedSourceDirectories += (ThisBuild / baseDirectory).value / "docs/snippets/src/main/scala",
+    // mdoc 2.9.1 still pins vulnerable documentation-server/parser releases.
+    // These dependencies are build-only and remain API compatible for our mdoc use.
+    libraryDependencies ++= Seq(
+      "io.undertow" % "undertow-core" % "2.4.2.Final",
+      "org.jsoup" % "jsoup" % "1.23.1",
+    ),
   )
 
 lazy val cli = (project in file("modules/graviton-cli"))

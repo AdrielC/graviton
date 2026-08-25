@@ -1,6 +1,6 @@
 val zioSbtVersion = "0.4.0-alpha.32"
 
-addSbtPlugin("org.scalameta" % "sbt-mdoc" % "2.5.2")
+addSbtPlugin("org.scalameta" % "sbt-mdoc" % "2.9.1")
 // addSbtPlugin("com.github.cornerman" % "sbt-db-codegen" % "0.5.2")
 
 addSbtPlugin("dev.zio" % "zio-sbt-ecosystem" % zioSbtVersion)
