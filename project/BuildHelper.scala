@@ -39,6 +39,19 @@ object BuildHelper {
       if (sys.env.getOrElse("GRAVITON_WERROR", "0") == "1") opts :+ "-Werror"
       else opts
     },
+    Compile / doc / scalacOptions ++= Seq(
+      "-project", "Graviton",
+      "-project-version", version.value,
+      "-project-logo", "docs/public/logo.svg",
+      "-social-links:github::https://github.com/AdrielC/graviton",
+      "-source-links:github://AdrielC/graviton",
+      "-revision", "main",
+      "-doc-root-content", "docs/scaladoc-root.md",
+      // Scala 3.8.2 Scaladoc crashes while rendering FS's deeply inferred
+      // higher-kinded signatures. Keep the API compiled and tested, but omit
+      // only that generated page until the upstream renderer is fixed.
+      "-skip-by-id:graviton.core.scan.FS",
+    ),
   ) ++ testSettings
 
   val isTestContainers: SettingKey[Boolean] = settingKey[Boolean]("Whether to run tests with TestContainers")

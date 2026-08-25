@@ -54,17 +54,6 @@ ThisBuild / developers := List(
   )
 )
 
-// Scaladoc settings
-ThisBuild / Compile / doc / scalacOptions ++= Seq(
-  "-project", "Graviton",
-  "-project-version", version.value,
-  "-project-logo", "docs/public/logo.svg",
-  "-social-links:github::https://github.com/AdrielC/graviton",
-  "-source-links:github://AdrielC/graviton",
-  "-revision", "main",
-  "-doc-root-content", "docs/scaladoc-root.md"
-)
-
 // Task to generate and copy scaladoc to docs
 lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
 generateDocs := {
