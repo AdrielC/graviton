@@ -17,5 +17,8 @@ trait BlockStore:
   /** Return whether a canonical block already exists in the configured store. */
   def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean]
 
+  /** Verify that the backing block service is reachable and writable/readable. */
+  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+
 object BlockStore:
   val service: ZIO[BlockStore, Nothing, BlockStore] = ZIO.service[BlockStore]

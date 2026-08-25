@@ -1,13 +1,17 @@
 package graviton.runtime.stores
 
 import graviton.core.bytes.HashAlgo
+import graviton.core.bytes.Digest
 import graviton.core.keys.BinaryKey
+import graviton.core.keys.KeyBits
 import graviton.runtime.model.*
 import zio.*
 import zio.stream.*
 
-import java.nio.channels.Channels
+import java.nio.channels.{Channels, FileChannel}
 import java.nio.file.{Files, LinkOption, Path, StandardCopyOption, StandardOpenOption}
+import java.util.UUID
+import scala.jdk.CollectionConverters.*
 
 /**
  * Filesystem-backed block store.
@@ -20,7 +24,8 @@ import java.nio.file.{Files, LinkOption, Path, StandardCopyOption, StandardOpenO
 final class FsBlockStore(
   root: Path,
   prefix: String = "cas/blocks",
-) extends BlockStore:
+) extends BlockStore
+    with BlockMaintenance:
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -55,13 +60,86 @@ final class FsBlockStore(
       else throw new IllegalStateException(s"Block path is not a regular file: $path")
     }
 
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking {
+      val directory = root.resolve(prefix)
+      Files.createDirectories(directory)
+      val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
+      try
+        val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
+        try channel.force(true)
+        finally channel.close()
+      finally
+        val _ = Files.deleteIfExists(probe)
+      ()
+    }
+
+  override def inventory: ZStream[Any, Throwable, BlockInventoryEntry] =
+    ZStream
+      .fromZIO(ZIO.attemptBlocking {
+        val base = root.resolve(prefix)
+        if !Files.exists(base, LinkOption.NOFOLLOW_LINKS) then Chunk.empty
+        else
+          val paths = Files.walk(base)
+          try
+            Chunk.fromIterable(
+              paths
+                .iterator()
+                .asScala
+                .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                .filterNot(_.getFileName.toString.endsWith(".tmp"))
+                .map { path =>
+                  val key = keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity)
+                  BlockInventoryEntry(key, Files.size(path), Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
+                }
+                .toVector
+            )
+          finally paths.close()
+      })
+      .flatMap(ZStream.fromChunk)
+
+  override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
+    Clock.instant.flatMap { now =>
+      ZIO.attemptBlocking {
+        val source      = pathFor(entry.key)
+        val token       = UUID.randomUUID().toString
+        val destination = root.resolve("cas/quarantine").resolve(token).resolve(root.resolve(prefix).relativize(source))
+        Files.createDirectories(destination.getParent)
+        Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
+        fsyncDirectory(source.getParent)
+        fsyncDirectory(destination.getParent)
+        QuarantinedBlock(entry.key, token, entry.size, now)
+      }
+    }
+
+  override def restore(block: QuarantinedBlock): Task[Unit] =
+    ZIO.attemptBlocking {
+      val destination = pathFor(block.key)
+      val source      = quarantinedPath(block)
+      Files.createDirectories(destination.getParent)
+      Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
+      fsyncDirectory(source.getParent)
+      fsyncDirectory(destination.getParent)
+    }
+
+  override def purge(block: QuarantinedBlock): Task[Unit] =
+    ZIO.attemptBlocking {
+      val path = quarantinedPath(block)
+      if !Files.deleteIfExists(path) then throw new NoSuchElementException(s"Quarantined block is missing: ${block.token}")
+      fsyncDirectory(path.getParent)
+    }
+
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
     val dest = pathFor(block.key)
     ZIO.attemptBlocking {
       Files.createDirectories(dest.getParent)
       val tmp = Files.createTempFile(dest.getParent, "blk-", ".tmp")
       try
-        Files.write(tmp, block.bytes.toArray)
+        val channel = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+        try
+          channel.write(java.nio.ByteBuffer.wrap(block.bytes.toArray))
+          channel.force(true)
+        finally channel.close()
 
         def duplicateOrFail(): BlockStoredStatus =
           if !Files.isRegularFile(dest, LinkOption.NOFOLLOW_LINKS) then
@@ -74,6 +152,7 @@ final class FsBlockStore(
         else
           try
             Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE)
+            fsyncDirectory(dest.getParent)
             BlockStoredStatus.Fresh
           catch case _: java.nio.file.FileAlreadyExistsException => duplicateOrFail()
       finally
@@ -88,6 +167,27 @@ final class FsBlockStore(
 
     val base = root.resolve(prefix)
     base.resolve(algo).resolve(name)
+
+  private def quarantinedPath(block: QuarantinedBlock): Path =
+    root.resolve("cas/quarantine").resolve(block.token).resolve(root.resolve(prefix).relativize(pathFor(block.key)))
+
+  private def keyFromPath(path: Path): Either[String, BinaryKey.Block] =
+    val algorithm = Option(path.getParent).flatMap(parent => Option(parent.getFileName)).map(_.toString).getOrElse("")
+    val fileName  = path.getFileName.toString
+    val separator = fileName.lastIndexOf('-')
+    for
+      _      <- Either.cond(separator > 0, (), s"Invalid block filename: $path")
+      digest <- Digest.fromString(fileName.substring(0, separator))
+      size   <- fileName.substring(separator + 1).toLongOption.toRight(s"Invalid block size: $path")
+      algo   <- HashAlgo.values.find(a => algoPathSegment(a) == algorithm).toRight(s"Invalid block algorithm directory: $algorithm")
+      bits   <- KeyBits.create(algo, digest, size)
+      key    <- BinaryKey.block(bits)
+    yield key
+
+  private def fsyncDirectory(directory: Path): Unit =
+    val channel = FileChannel.open(directory, StandardOpenOption.READ)
+    try channel.force(true)
+    finally channel.close()
 
   private def algoPathSegment(algo: HashAlgo): String =
     algo match

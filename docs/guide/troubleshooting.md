@@ -67,7 +67,7 @@ Fix: ensure your client is actually sending bytes (for curl, use `--data-binary 
 
 ## Downloads fail
 
-### `GET /api/blobs/:id` returns 400
+### `GET /api/v1/blobs/:id` returns 400
 
 Cause: the blob id could not be parsed.
 
@@ -108,7 +108,7 @@ The console defaults to `http://localhost:8081`. You can set the endpoint with t
 http://localhost:5173/demo?api=http://localhost:18081
 ```
 
-If the API is running on another origin, use the default security-disabled local mode, which installs CORS headers. The console reports request failures directly and does not load substitute data.
+If the API is running on another origin, use the default security-disabled local mode or add the console's exact origin to `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS`. Security-enabled canonical blob routes validate browser preflights before the console sends its bearer token. A same-origin reverse proxy is also supported. The console reports request failures directly and does not load substitute data.
 
 ## Still stuck?
 

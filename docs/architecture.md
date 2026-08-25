@@ -190,10 +190,10 @@ See the [Transducer Algebra](./core/transducers.md) page for the full API and im
 
 Each backend implements the runtime ports using specific technologies:
 
-- `graviton-s3`: AWS SDK v2 object store with multipart uploads.
-- `graviton-pg`: PostgreSQL based object and metadata stores.
+- `graviton-s3`: AWS SDK v2 block storage with MinIO support, readiness, retries, strict duplicate validation, and quarantine controls.
+- `graviton-pg`: transactional PostgreSQL manifest, audit, ACL, and replica-index persistence.
 - `graviton-rocks`: RocksDB based key-value primitives with metrics integration.
 
 ## Server
 
-`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects block storage (`fs` or S3-compatible) with Postgres-backed manifests, starts the **HTTP** server (`/api/blobs`, health, metrics), and registers an in-memory metrics registry. **gRPC**, **Shardcake**, and **multipart entity coordination** are **planned or partial** and are not the primary operational path today.
+`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects filesystem storage or S3 blocks plus PostgreSQL manifests, starts the versioned HTTP server, enforces optional OIDC and capability policy, exposes backend-aware readiness, and registers process metrics. gRPC, Shardcake, and multipart session coordination are partial and are not mounted in the packaged process.

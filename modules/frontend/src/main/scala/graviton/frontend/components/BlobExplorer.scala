@@ -70,6 +70,18 @@ object BlobExplorer:
         }
       }
 
+    def download(blobId: String): Unit =
+      loadingVar.set(true)
+      errorVar.set(None)
+      Unsafe.unsafe { implicit unsafe =>
+        runtime.unsafe.runToFuture(api.downloadBlob(blobId)).onComplete {
+          case scala.util.Success(_)     => loadingVar.set(false)
+          case scala.util.Failure(error) =>
+            errorVar.set(Some(error.getMessage))
+            loadingVar.set(false)
+        }
+      }
+
     def delete(blobId: String): Unit =
       if dom.window.confirm("Delete this blob manifest? Shared content-addressed blocks are retained.") then
         loadingVar.set(true)
@@ -131,7 +143,7 @@ object BlobExplorer:
       },
       child <-- detailsVar.signal.map {
         case None          => emptyNode
-        case Some(details) => renderDetails(api, details, loadingVar, verify, delete)
+        case Some(details) => renderDetails(details, loadingVar, download, verify, delete)
       },
       child <-- verificationVar.signal.map {
         case None         => emptyNode
@@ -149,9 +161,9 @@ object BlobExplorer:
     )
 
   private def renderDetails(
-    api: GravitonApi,
     details: BlobDetails,
     loading: Var[Boolean],
+    download: String => Unit,
     verify: String => Unit,
     delete: String => Unit,
   ): HtmlElement =
@@ -170,7 +182,7 @@ object BlobExplorer:
       ),
       div(
         cls   := "operation-actions",
-        a(cls      := "btn-secondary", href := api.downloadUrl(id), download := "", "Download"),
+        button(cls := "btn-secondary", "Download", disabled <-- loading.signal, onClick --> { _ => download(id) }),
         button(cls := "btn-primary", "Verify bytes", disabled <-- loading.signal, onClick --> { _ => verify(id) }),
         button(cls := "btn-danger", "Delete manifest", disabled <-- loading.signal, onClick --> { _ => delete(id) }),
       ),

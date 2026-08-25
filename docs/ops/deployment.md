@@ -1,102 +1,129 @@
-# Deployment Readiness
+# Deployment
 
-Graviton is operational for local evaluation, but it is not production-ready. This page documents the two server compositions that exist today and the gates that still prevent a production recommendation.
+Graviton ships a runnable fat JAR, a non-root distroless container definition, and a conservative Kubernetes example. Read [Production Readiness](./production-readiness.md) before selecting a topology.
 
-## Current server compositions
-
-```mermaid
-flowchart LR
-    client[HTTP client] --> server[Graviton server]
-    server --> fsBlocks[Filesystem blocks]
-    server --> fsManifests[Framed filesystem manifests]
-```
-
-The default `fs` composition is self-contained and restart-safe. It is the right path for a local demo, development, and single-host evaluation.
-
-```mermaid
-flowchart LR
-    client[HTTP client] --> server[Graviton server]
-    server --> s3[S3-compatible blocks]
-    server --> pg[PostgreSQL manifests]
-```
-
-The `s3` and `minio` compositions share blocks through object storage and manifests through PostgreSQL. Their adapters have container-gated integration coverage, but that does not establish high availability, safe rolling upgrades, or a production support boundary.
-
-## Start a controlled evaluation
-
-Filesystem mode needs no external service:
+## Build and prove the artifact
 
 ```bash
-export GRAVITON_BLOB_BACKEND="fs"
-export GRAVITON_FS_ROOT="/var/lib/graviton"
-export GRAVITON_FS_BLOCK_PREFIX="cas/blocks"
-export GRAVITON_HTTP_PORT="8081"
-
-./sbt "server/run"
+./sbt server/assembly
+./scripts/smoke-packaged-server.sh
 ```
 
-The process should have read and write access only to its storage root. Back up both `cas/blocks/` and `cas/manifests/` together. Logical deletion removes a manifest but intentionally retains blocks for deduplication, and garbage collection is not implemented yet.
+The smoke script starts the assembled JAR twice. The open server proves upload, byte equality, range reads, ETag preconditions, and verification. The authenticated server proves valid-token operation, anonymous rejection, and capability denial.
 
-For S3/MinIO mode, follow [Run Locally](../guide/run-locally.md) and [Configuration Reference](../guide/configuration-reference.md). PostgreSQL is required only for that composition or for the optional JDBC audit sink.
+## Filesystem service
+
+```bash
+export GRAVITON_HTTP_PORT=8081
+export GRAVITON_BLOB_BACKEND=fs
+export GRAVITON_FS_ROOT=/var/lib/graviton
+export GRAVITON_FS_BLOCK_PREFIX=cas/blocks
+
+java -jar modules/server/graviton-server/target/scala-3.8.2/graviton-server-*.jar
+```
+
+Run only one writer process per filesystem root. Give the process access only to that root and a temporary directory. Use `Recreate` during upgrades, not overlapping replicas.
+
+## Container
+
+Build the JAR first, then the image:
+
+```bash
+./sbt server/assembly
+docker build -t graviton:local .
+docker run --rm \
+  -p 8080:8080 \
+  -v graviton-data:/data \
+  graviton:local
+```
+
+The image runs as uid/gid `65532`, has a read-only application directory, stores filesystem data under `/data`, caps the JVM heap by container memory, and exits on out-of-memory errors.
+
+Release tags publish multi-architecture images to `ghcr.io/adrielc/graviton`. Do not use a release tag until its workflow and attestation are green.
+
+## Kubernetes
+
+`deploy/kubernetes/graviton.yaml` is intentionally a one-replica `ReadWriteOnce` filesystem deployment with `Recreate` rollout. It includes:
+
+- non-root uid/gid and `RuntimeDefault` seccomp
+- dropped Linux capabilities and no privilege escalation
+- read-only root filesystem with explicit `/data` and `/tmp` mounts
+- liveness and backend-aware readiness probes
+- CPU and memory requests and limits
+- no service-account token
+- same-namespace ingress only by default
+- OIDC values from a Kubernetes Secret
+
+Review the storage class, capacity, ingress source, egress policy, resources, image digest, and secret delivery before applying it. The example tag is replaced by the release workflow's published image; pin the resulting digest in a controlled environment.
+
+## Shared S3 plus PostgreSQL
+
+Apply the migration before startup:
+
+```bash
+export GRAVITON_DATABASE_URL=postgresql://user@postgres/graviton
+export PGPASSWORD='from-a-secret-source'
+./scripts/migrate-postgres.sh
+```
+
+Then configure the server:
+
+```bash
+export GRAVITON_BLOB_BACKEND=s3
+export PG_JDBC_URL=jdbc:postgresql://postgres:5432/graviton
+export PG_USERNAME=graviton
+export PG_PASSWORD='use-a-secret-source'
+export GRAVITON_S3_BLOCK_BUCKET=graviton-blocks
+export GRAVITON_S3_BLOCK_PREFIX=cas/blocks
+export GRAVITON_S3_REGION=us-east-1
+
+java -jar graviton-server.jar
+```
+
+With no `QUASAR_MINIO_URL`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md).
+
+## Production OIDC
+
+```bash
+export GRAVITON_SECURITY_ENABLED=true
+export GRAVITON_SECURITY_OIDC_ISSUER=https://id.example.com/
+export GRAVITON_SECURITY_OIDC_AUDIENCE=graviton
+export GRAVITON_SECURITY_OIDC_JWKS_URI=https://id.example.com/.well-known/jwks.json
+export GRAVITON_SECURITY_REQUIRE_TLS=true
+export GRAVITON_SECURITY_TRUST_PROXY_HEADERS=true
+export GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS=https://console.example.com
+export GRAVITON_SECURITY_AUDIT_BACKEND=jdbc
+export GRAVITON_SECURITY_AUTHORIZATION_BACKEND=token
+```
+
+Do not set `GRAVITON_SECURITY_DEV_SHARED_SECRET` in production. Enable trusted proxy headers only when the ingress overwrites client-provided forwarding headers. Use `authorization-backend=jdbc` only after provisioning the ACL data expected by the security module.
 
 ## Health and observability
 
-| Endpoint | Current meaning |
+| Endpoint | Meaning |
 | --- | --- |
-| `GET /api/health` | The HTTP process is running |
-| `GET /api/stats` | Process-local successful-ingest and dedup counters |
-| `GET /metrics` | The same evolving runtime counters in Prometheus text format |
+| `GET /api/health/live` | Process is alive and returns the packaged build version |
+| `GET /api/health/ready` | Active block and manifest backends respond within five seconds |
+| `GET /api/health` | Compatibility alias for liveness |
+| `GET /api/stats` | JSON process counters |
+| `GET /metrics` | Prometheus text including HTTP request, error, and latency observations |
 
-A successful health response does not prove that every object is readable or that a remote backend is healthy. Counters reset on restart and do not include request-latency histograms, durable capacity, replication health, or backend service levels.
+Stats and metrics require `observability.read` when security is enabled. Readiness is necessary for traffic admission but is not a substitute for an end-to-end canary or restore drill.
 
-Implemented ingest counter names include:
+## Upgrade sequence
 
-- `graviton_blob_ingests_total`
-- `graviton_bytes_ingested_total`
-- `graviton_fresh_blocks_total`
-- `graviton_duplicate_blocks_total`
+1. Back up manifests and blocks together, or take coordinated snapshots.
+2. Restore and verify the backup in isolation.
+3. Read the compatibility and migration notes for the target version.
+4. Run `scripts/migrate-postgres.sh` once for shared deployments.
+5. Deploy by immutable image digest.
+6. Wait for readiness, upload a canary, retrieve it, and run server verification.
+7. Retain the prior artifact and data snapshot until the acceptance window closes.
 
-## Security boundary
+For filesystem mode, stop the prior writer before starting the new one. For S3 plus PostgreSQL, do not use rolling replicas until that exact version pair has passed concurrent-process and rollback tests.
 
-Security is disabled by default, and the server logs a warning. Do not expose the default listener to an untrusted network.
+## Backup, GC, and performance
 
-The repository includes authentication middleware, an HS256 development-token flow, audit sinks, and typed security configuration. A live non-development OIDC verifier is not wired into `Main`; when security is enabled without the development secret, the current assembly denies requests. TLS termination, production key management, CORS enforcement, rate-limit enforcement, and a completed threat-model review remain release gates.
-
-## Packaging boundary
-
-The repository does not currently publish a supported container image, Kubernetes manifest, service unit, or stable server artifact. Build and deployment automation must not invent an image tag or jar path.
-
-Before adding packaging, first choose and test:
-
-1. a reproducible server artifact
-2. a non-root runtime user and writable data path
-3. graceful shutdown behavior during in-flight uploads
-4. readiness checks that exercise the selected backend
-5. resource limits derived from measured workloads
-6. secret delivery that does not expose values in logs or process arguments
-7. an upgrade and rollback process for both manifest formats
-
-## Production gates
-
-Do not call a deployment production-ready until these are complete:
-
-- stable, versioned HTTP contracts and error codes
-- real OIDC/JWKS verification and authorization policy
-- TLS and proxy trust boundaries
-- request-size and rate-limit enforcement
-- crash and power-loss testing for durable backends
-- migration and compatibility policies for framed and PostgreSQL manifests
-- external artifact-consumer and packaging checks
-- backup and restore drills with byte-for-byte verification
-- garbage collection with dry-run and recovery controls
-- multi-process and rolling-upgrade acceptance tests
-- a reproducible performance harness with environment provenance
-
-The root `ROADMAP.md` and `TODO.md` files keep these gaps explicit.
-
-## See also
-
-- [Run Locally](../guide/run-locally.md)
-- [Configuration Reference](../guide/configuration-reference.md)
-- [Storage Backends](../guide/storage-backends.md)
+- [Backup, Restore, and Garbage Collection](./backup-restore.md)
 - [Performance Measurement](./performance.md)
+- [Production Readiness](./production-readiness.md)

@@ -2,7 +2,6 @@ package graviton.security
 
 import zio.*
 
-import java.sql.Connection
 import java.util.UUID
 import javax.sql.DataSource
 
@@ -82,23 +81,47 @@ object CapabilityCheck:
           AND resource_id = ?
       """
       val conn = ds.getConnection
+      conn.setAutoCommit(false)
       try
-        val stmt = conn.prepareStatement(sql)
+        val context = conn.prepareStatement(
+          "SELECT set_config('app.org_id', ?, true), set_config('app.principal_id', ?, true)"
+        )
         try
-          stmt.setObject(1, orgId)
-          stmt.setObject(2, principalId)
-          stmt.setString(3, kind)
-          stmt.setObject(4, resourceId)
-          val rs = stmt.executeQuery()
+          context.setString(1, orgId.toString)
+          context.setString(2, principalId.toString)
+          val result = context.executeQuery()
           try
-            var allow = 0L
-            var deny  = 0L
-            while rs.next() do
-              val effect = rs.getString(1)
-              val caps   = rs.getLong(2)
-              if effect == "allow" then allow |= caps
-              else if effect == "deny" then deny |= caps
-            (allow, deny)
-          finally rs.close()
-        finally stmt.close()
-      finally conn.close()
+            val _ = result.next()
+          finally result.close()
+        finally context.close()
+
+        val stmt  = conn.prepareStatement(sql)
+        val masks =
+          try
+            stmt.setObject(1, orgId)
+            stmt.setObject(2, principalId)
+            stmt.setString(3, kind)
+            stmt.setObject(4, resourceId)
+            val rs = stmt.executeQuery()
+            try
+              var allow = 0L
+              var deny  = 0L
+              while rs.next() do
+                val effect = rs.getString(1)
+                val caps   = rs.getLong(2)
+                if effect == "allow" then allow |= caps
+                else if effect == "deny" then deny |= caps
+              (allow, deny)
+            finally rs.close()
+          finally stmt.close()
+        conn.commit()
+        masks
+      catch
+        case error: Throwable =>
+          try conn.rollback()
+          catch case _: Throwable => ()
+          throw error
+      finally
+        try conn.setAutoCommit(true)
+        catch case _: Throwable => ()
+        conn.close()

@@ -1,8 +1,24 @@
 # HTTP Blob API
 
-The HTTP surface performs the real content-addressable storage lifecycle against the server's configured backends. It remains pre-1.0, so applications that need a stable compatibility boundary should embed the runtime API.
+The canonical pre-1.0 surface is `/api/v1`. The legacy `/api/blobs` aliases return `Deprecation: true` and `Link: </api/v1/blobs>; rel=successor-version`.
 
 Default base URL: `http://localhost:8081`.
+
+## Authentication
+
+When security is enabled, send an OIDC bearer token:
+
+```http
+Authorization: Bearer <token>
+```
+
+Blob reads, writes, and deletes require `blob.read`, `blob.write`, and `blob.delete`. Stats and metrics require `observability.read`. Health endpoints remain public for orchestrator probes.
+
+The development shared-secret mode exposes `POST /dev/token` for local testing. It must not be enabled in production.
+
+### Browser origins
+
+Security-enabled deployments answer unauthenticated `OPTIONS` preflights on the canonical blob routes so a browser can subsequently send `Authorization`. The preflight still fails closed unless the `Origin` exactly matches `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS`, the requested method exists on the route, and every requested header is in the API allow list. Actual requests still require a valid bearer token and capability.
 
 ## Content IDs
 
@@ -18,12 +34,10 @@ Example:
 sha-256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb:1
 ```
 
-The digest length must match the selected algorithm and the byte length must be positive.
-
 ## Upload
 
 ```http
-POST /api/blobs
+POST /api/v1/blobs
 Content-Type: application/octet-stream
 ```
 
@@ -32,107 +46,93 @@ UPLOAD_JSON="$(
   curl -fsS \
     -H 'Content-Type: application/octet-stream' \
     -X POST --data-binary @sample.bin \
-    'http://localhost:8081/api/blobs'
+    'http://localhost:8081/api/v1/blobs'
 )"
 BLOB_ID="$(jq -r '.blob.id' <<<"$UPLOAD_JSON")"
 ```
 
-Success returns `201 Created` after the manifest has been persisted. The JSON body reports durable blob metadata, real block counts from the write, and measured ingest duration:
+Success returns `201 Created` only after the manifest is persisted. `Location` points at the canonical blob URL and `ETag` contains the content key digest. Retrying identical bytes naturally returns the same content ID and reuses existing blocks.
 
-```json
-{
-  "blob": {
-    "id": "sha-256:...:42",
-    "size": 42,
-    "createdAt": 1787558400000,
-    "digest": "...",
-    "blockCount": 1
-  },
-  "freshBlocks": 1,
-  "duplicateBlocks": 0,
-  "durationSeconds": 0.012
-}
-```
+Empty bodies return `400`. The configured maximum is enforced while streaming even if `Content-Length` is absent or dishonest. Authenticated uploads also consume a per-principal byte budget.
 
-The response also includes `Location` and `ETag` headers. Empty bodies return `400 Bad Request`.
-
-## Durable inventory
+## Inventory and pagination
 
 ```http
-GET /api/blobs
+GET /api/v1/blobs?limit=100&cursor=<last-id>
 ```
 
-The response is built from persisted manifests, not process counters. Restarting the filesystem server retains this inventory.
+`limit` must be between 1 and 1000. The response contains `blobs` and an optional `nextCursor`. Pass that cursor unchanged to retrieve the next page. Inventory is derived from persisted manifests, not process counters.
 
-```bash
-curl -fsS 'http://localhost:8081/api/blobs' | jq .
-```
-
-## Inspect a manifest
+## Manifest metadata
 
 ```http
-GET /api/blobs/:id/metadata
+GET /api/v1/blobs/:id/metadata
 ```
 
-This returns the blob summary and the exact persisted block references, including each block's content ID, byte offset, and size.
-
-```bash
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
-```
+The response includes the blob summary and exact persisted block references with content IDs, offsets, and sizes.
 
 ## Verify persisted bytes
 
 ```http
-POST /api/blobs/:id/verify
+POST /api/v1/blobs/:id/verify
 ```
 
-The server streams the stored blob through the hash implementation and compares the digest and byte count with the requested content ID.
-
-```bash
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-```
+The server streams the stored blob through the selected hash implementation and compares the digest and byte count with the requested content ID.
 
 ## Retrieve
 
 ```http
-GET /api/blobs/:id
+GET /api/v1/blobs/:id
+HEAD /api/v1/blobs/:id
 ```
+
+A full response includes `Content-Length`, `ETag`, `Last-Modified`, `Accept-Ranges: bytes`, and immutable cache policy. HEAD returns the same status and metadata without a body.
+
+### Byte ranges
+
+One RFC-style byte range is supported:
 
 ```bash
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output retrieved.bin
+curl -fsS \
+  -H 'Range: bytes=1024-2047' \
+  "http://localhost:8081/api/v1/blobs/$BLOB_ID" \
+  --output part.bin
 ```
 
-Success returns `200 OK` with `Content-Type`, `Content-Length`, `ETag`, `Last-Modified`, and immutable `Cache-Control` headers. A valid but unknown ID returns `404` before a body stream begins.
+Open-ended and suffix forms such as `bytes=1024-` and `bytes=-512` are supported. A valid range returns `206` and `Content-Range`. Multiple or unsatisfiable ranges return `416`.
 
-## Inspect without a body
+### Preconditions and caching
 
-```http
-HEAD /api/blobs/:id
-```
+The server evaluates:
 
-HEAD returns the same status and metadata headers as GET with an empty body.
+- `If-Match`
+- `If-None-Match`
+- `If-Modified-Since`
+- `If-Unmodified-Since`
+- `If-Range`
+
+Matching `If-None-Match` returns `304` without a body. Failed write-style preconditions return `412`. Weak ETags are accepted for comparison. Content keys make successful blob representations immutable.
 
 ## Delete
 
 ```http
-DELETE /api/blobs/:id
+DELETE /api/v1/blobs/:id
 ```
 
-Success returns `204 No Content`. Deletion removes the logical manifest. Shared content-addressed blocks are retained until a garbage collector is implemented.
+Success returns `204`. Deletion removes the logical manifest. Shared blocks remain until a separate mark, quarantine, and purge lifecycle determines they are unreachable.
 
-## Health, counters, and metrics
+## Health and metrics
 
 ```http
-GET /api/health
+GET /api/health/live
+GET /api/health/ready
 GET /api/stats
 GET /metrics
 ```
 
-Health reports the running build version and process uptime. Stats and Prometheus metrics are process-lifetime observations. Use `GET /api/blobs` for durable inventory.
+Liveness reports the packaged build version and uptime. Readiness checks active backing services with a five-second timeout. Stats and metrics are process-local observations and are protected by `observability.read` when security is enabled.
 
 ## Error envelope
-
-Errors use JSON:
 
 ```json
 {
@@ -144,21 +144,29 @@ Errors use JSON:
 | Status | Code | Meaning |
 | --- | --- | --- |
 | 400 | `invalid_blob_id` | The path ID is not a valid content key |
-| 400 | `invalid_blob` | The upload violates an ingest constraint |
+| 400 | `invalid_blob` | Upload input violates an ingest constraint |
+| 400 | `invalid_pagination` | `limit` or cursor input is invalid |
+| 401 | `unauthenticated` | A valid bearer identity was not established |
+| 403 | `forbidden` | Transport, origin, or capability policy denied the request |
 | 404 | `blob_not_found` | The ID is valid but no manifest exists |
+| 412 | response without body | A request precondition failed |
+| 413 | `payload_too_large` | The streamed upload exceeded its configured maximum |
+| 416 | `invalid_range` | The requested single range is malformed or unsatisfiable |
+| 429 | `rate_limited` | A per-principal request or byte budget was exhausted |
 | 500 | `inventory_failure` | Durable inventory could not be read |
 | 500 | `storage_failure` | Metadata lookup, retrieval, or deletion failed |
 | 500 | `verification_failure` | Persisted bytes could not be read and hashed |
 | 500 | `ingest_failed` | The backing store could not complete the write |
 
-Unexpected server errors do not expose arbitrary exception messages.
+Unexpected storage errors do not expose arbitrary exception messages.
 
 ## Executable proof
 
-With the server running, execute the entire API lifecycle:
-
 ```bash
-./scripts/verify-http-lifecycle.sh
+./sbt server/assembly
+./scripts/smoke-packaged-server.sh
 ```
 
-Authentication, route versioning, conditional requests, range reads, and idempotency keys remain release work. They are tracked in `ROADMAP.md`.
+Contract tests cover ranges, conditional reads, pagination, deprecation headers, lifecycle behavior, streaming limits, preflights, origins, rate limits, and capability denial. The packaged smoke proves those contracts through a real network listener and fat JAR.
+
+Multipart and resumable session protocols remain future work. They are not simulated by this API.

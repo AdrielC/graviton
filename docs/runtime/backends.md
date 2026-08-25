@@ -19,7 +19,7 @@ Graviton keeps storage contracts in `graviton-runtime` and vendor code in backen
 
 Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/verify-local-lifecycle.sh` to exercise that behavior through separate CLI JVMs.
 
-Deleting a blob removes its manifest. Shared content-addressed blocks remain available for other manifests. Garbage collection is a separate concern and is not implemented yet.
+Deleting a blob removes its manifest. Shared content-addressed blocks remain available for other manifests. Garbage collection is a separate two-pass lifecycle with minimum-age filtering, dry-run, reversible quarantine, restore, and delayed purge. The CLI exposes preview and quarantine for filesystem stores; S3 exposes the maintenance API but not an operator CLI yet.
 
 ## PostgreSQL manifests
 

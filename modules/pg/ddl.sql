@@ -104,6 +104,21 @@ AS $$
   SELECT now();
 $$;
 
+-- Library-level replica catalog. This complements physical block_location
+-- topology and also supports logical blob replicas exposed by ReplicaIndex.
+CREATE TABLE IF NOT EXISTS graviton.replica_index (
+  key_kind   text NOT NULL CHECK (key_kind IN ('blob', 'block', 'chunk', 'manifest', 'view')),
+  alg        core.hash_alg NOT NULL,
+  hash_bytes bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  locator    text NOT NULL CHECK (locator ~ '^[a-z][a-z0-9+.-]*://'),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (key_kind, alg, hash_bytes, byte_length, locator),
+  CHECK (key_kind NOT IN ('blob', 'block') OR byte_length > 0)
+);
+CREATE INDEX IF NOT EXISTS replica_index_key_idx
+  ON graviton.replica_index (key_kind, alg, hash_bytes, byte_length);
+
 -- generic updated_at trigger helper
 CREATE OR REPLACE FUNCTION core.touch_updated_at()
 RETURNS trigger
@@ -893,7 +908,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'quasar' AND t.typname = 'resource_kind'
   ) THEN
-    EXECUTE 'CREATE TYPE quasar.resource_kind AS ENUM (''document'',''folder'',''namespace'',''schema'')';
+    EXECUTE 'CREATE TYPE quasar.resource_kind AS ENUM (''blob'',''document'',''folder'',''namespace'',''schema'')';
   END IF;
 
   IF NOT EXISTS (
@@ -903,6 +918,20 @@ BEGIN
     WHERE n.nspname = 'quasar' AND t.typname = 'effect'
   ) THEN
     EXECUTE 'CREATE TYPE quasar.effect AS ENUM (''allow'',''deny'')';
+  END IF;
+END $$;
+
+ALTER TYPE quasar.resource_kind ADD VALUE IF NOT EXISTS 'blob';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'quasar' AND t.typname = 'audit_outcome'
+  ) THEN
+    EXECUTE 'CREATE TYPE quasar.audit_outcome AS ENUM (''allow'',''deny'',''error'',''auth_fail'')';
   END IF;
 END $$;
 
@@ -932,6 +961,42 @@ END $$;
 
 CREATE INDEX acl_resource_idx ON quasar.acl_entry (org_id, resource_kind, resource_id);
 CREATE INDEX acl_principal_idx ON quasar.acl_entry (org_id, principal_id);
+
+-- Append-only, per-org audit hash chain. JDBC writers serialize each org
+-- with a transaction-scoped advisory lock before selecting the next seq.
+CREATE TABLE quasar.audit_log (
+  org_id        uuid                  NOT NULL REFERENCES quasar.org(org_id),
+  seq           bigint                NOT NULL,
+  ts            timestamptz           NOT NULL DEFAULT core.now_utc(),
+  principal_id  uuid                  NOT NULL,
+  action        core.nonempty_text    NOT NULL,
+  resource_kind quasar.resource_kind  NOT NULL,
+  resource_id   uuid                  NULL,
+  request_id    uuid                  NOT NULL,
+  source_ip     inet                  NULL,
+  user_agent    text                  NULL,
+  outcome       quasar.audit_outcome  NOT NULL,
+  reason        text                  NULL,
+  bytes         bigint                NULL,
+  prev_hash     bytea                 NOT NULL CHECK (octet_length(prev_hash) = 32),
+  row_hash      bytea                 NOT NULL CHECK (octet_length(row_hash) = 32),
+  PRIMARY KEY (org_id, seq)
+) PARTITION BY HASH (org_id);
+
+DO $$
+BEGIN
+  FOR i IN 0..15 LOOP
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS quasar.audit_log_p%1$s PARTITION OF quasar.audit_log FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
+      i
+    );
+  END LOOP;
+END $$;
+
+CREATE INDEX audit_log_ts_idx ON quasar.audit_log (org_id, ts DESC);
+CREATE INDEX audit_log_principal_idx ON quasar.audit_log (org_id, principal_id, ts DESC);
+CREATE INDEX audit_log_resource_idx ON quasar.audit_log (org_id, resource_kind, resource_id)
+  WHERE resource_id IS NOT NULL;
 
 CREATE TABLE quasar.policy (
   org_id uuid NOT NULL REFERENCES quasar.org(org_id),
@@ -1099,6 +1164,12 @@ ALTER TABLE quasar.acl_entry ENABLE ROW LEVEL SECURITY;
 CREATE POLICY quasar_acl_entry_org_isolation
   ON quasar.acl_entry
   USING (org_id = quasar.current_org_id());
+
+ALTER TABLE quasar.audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY quasar_audit_log_org_isolation
+  ON quasar.audit_log
+  USING (org_id = quasar.current_org_id())
+  WITH CHECK (org_id = quasar.current_org_id());
 
 ALTER TABLE quasar.policy ENABLE ROW LEVEL SECURITY;
 CREATE POLICY quasar_policy_org_isolation

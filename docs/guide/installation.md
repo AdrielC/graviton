@@ -1,6 +1,6 @@
 # Installation
 
-Graviton is a pre-1.0 Scala 3 project. The supported path today is to build and run it from source.
+Graviton is a pre-1.0 Scala 3 project. Source builds and tagged GitHub release artifacts are the supported distribution paths for 0.1. Maven Central must not be assumed until a signed publication succeeds.
 
 ## Requirements
 
@@ -53,12 +53,12 @@ blob_id="$(
   printf 'hello graviton\n' \
   | curl --fail --silent --show-error \
       --data-binary @- \
-      http://localhost:8081/api/blobs \
+      http://localhost:8081/api/v1/blobs \
   | jq -r '.blob.id'
 )"
 
 curl --fail --silent --show-error \
-  "http://localhost:8081/api/blobs/$blob_id"
+  "http://localhost:8081/api/v1/blobs/$blob_id"
 ```
 
 Stop and restart the server, then repeat the `GET`. The blob remains available because both blocks and manifests are durable.
@@ -120,7 +120,15 @@ npm run docs:build --prefix docs
 
 ## Artifact availability
 
-The build defines the `io.graviton` module coordinates, but a stable public release has not been proven from a clean external consumer yet. Do not add a guessed version to another build. The release backlog tracks publication and consumer verification as explicit gates.
+Published library coordinates use the `io.github.adrielc` organization. `scripts/verify-external-consumer.sh` publishes the current revision to an isolated local repository, resolves its generated POMs from an unrelated sbt build, runs a real CAS round trip, and fails on dependency metadata conflicts.
+
+Every `v*` tag runs tests and packaged-server proof before creating the JAR, checksum, SPDX SBOM, provenance attestation, GHCR image, and GitHub release. Use only a version shown by the repository's Releases page. Maven Central coordinates become supported only after the release notes confirm a successful signed publication.
+
+To run the same consumer proof locally:
+
+```bash
+./scripts/verify-external-consumer.sh
+```
 
 ## Troubleshooting
 

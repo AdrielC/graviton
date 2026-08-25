@@ -278,6 +278,9 @@ final class CasBlobStore(
       case other                =>
         ZIO.fail(new UnsupportedOperationException(s"CasBlobStore.delete only supports blob keys, got $other"))
 
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    blockStore.healthCheck *> manifests.healthCheck
+
   private def listing(blob: BinaryKey.Blob, stored: StoredManifest): BlobListing =
     val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, entry) =>
       acc + (entry.span.endInclusive.value - entry.span.startInclusive.value + 1L)

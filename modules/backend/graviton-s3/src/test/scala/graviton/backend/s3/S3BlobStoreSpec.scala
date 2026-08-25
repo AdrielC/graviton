@@ -46,8 +46,8 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
         bucket = "graviton-test",
         region = Region.US_EAST_1,
         endpointOverride = Some(URI.create("http://localhost:9000")),
-        accessKeyId = "test",
-        secretAccessKey = "test",
+        accessKeyId = Some("test"),
+        secretAccessKey = Some("test"),
         forcePathStyle = true,
         prefix = "cas/blobs",
       )

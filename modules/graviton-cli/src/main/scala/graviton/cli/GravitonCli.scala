@@ -20,6 +20,8 @@ import java.nio.file.{AtomicMoveNotSupportedException, Files, Path, Paths, Stand
  *   get <blobKey> <out> Retrieve a blob to a local file
  *   verify <blobKey>    Verify blob integrity (read + re-hash)
  *   delete <blobKey>    Delete a blob manifest (deduplicated blocks remain)
+ *   list                List persisted blob manifests
+ *   gc                  Dry-run orphan block collection (`--apply` quarantines)
  *
  * Uses filesystem-backed block store by default.
  * Configure via GRAVITON_DATA_DIR and GRAVITON_CHUNK_SIZE env vars.
@@ -36,6 +38,8 @@ object GravitonCli extends ZIOAppDefault:
                 case "get" :: blobKeyHex :: out :: _ => retrieve(blobKeyHex, Paths.get(out), cfg)
                 case "verify" :: blobKeyHex :: _     => verify(blobKeyHex, cfg)
                 case "delete" :: blobKeyHex :: _     => delete(blobKeyHex, cfg)
+                case "list" :: Nil                   => list(cfg)
+                case "gc" :: rest                    => gc(rest, cfg)
                 case "help" :: _                     => printUsage
                 case other                           =>
                   Console.printLineError(s"Unknown command: ${other.mkString(" ")}") *> printUsage *> ZIO.fail(ExitCode.failure)
@@ -135,6 +139,33 @@ object GravitonCli extends ZIOAppDefault:
                        Console.printLine(s"Deleted manifest for ${blobKey.bits.render}; shared blocks were retained.")
     yield ()
 
+  private def list(cfg: GravitonConfig): ZIO[Any, Any, Unit] =
+    for
+      store <- makeStore(cfg)
+      blobs <- store.list
+      _     <- ZIO.foreachDiscard(blobs) { item =>
+                 Console.printLine(s"${item.key.bits.render}\t${item.stat.size.value}\t${item.stat.lastModified}\t${item.blockCount}")
+               }
+    yield ()
+
+  private def gc(args: List[String], cfg: GravitonConfig): ZIO[Any, Any, Unit] =
+    val applyChanges = args.contains("--apply")
+    val ageHours     = args.sliding(2).collectFirst { case List("--min-age-hours", raw) => raw.toLongOption }.flatten.getOrElse(24L)
+    for
+      _         <- ZIO.fail(new IllegalArgumentException("--min-age-hours must be non-negative")).when(ageHours < 0L)
+      root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
+      blockStore = new FsBlockStore(root)
+      repo       = new FsBlobManifestRepo(root)
+      collector  = new GarbageCollector(repo, blockStore)
+      report    <- collector.collect(ageHours.hours, dryRun = !applyChanges)
+      _         <- Console.printLine(
+                     s"GC ${if report.dryRun then "DRY-RUN" else "QUARANTINED"}: " +
+                       s"scanned=${report.scannedBlocks} referenced=${report.referencedBlocks} " +
+                       s"candidates=${report.candidateBlocks} bytes=${report.candidateBytes}"
+                   )
+      _         <- ZIO.foreachDiscard(report.quarantined)(block => Console.printLine(s"  ${block.key.bits.render}\t${block.token}"))
+    yield ()
+
   private def makeStore(cfg: GravitonConfig): ZIO[Any, Any, BlobStore] =
     for
       root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
@@ -178,6 +209,9 @@ object GravitonCli extends ZIOAppDefault:
         |  graviton get <blobId> <output>      Retrieve a blob to a local file
         |  graviton verify <blobId>            Verify blob integrity
         |  graviton delete <blobId>            Delete its manifest; retain shared blocks
+        |  graviton list                       List durable blob manifests
+        |  graviton gc [--min-age-hours N]     Preview orphan blocks (default age: 24h)
+        |  graviton gc --apply [...]           Move orphan blocks into quarantine
         |  graviton help                       Show this help
         |
         |Blob IDs use: <algorithm>:<hex-digest>:<byte-length>

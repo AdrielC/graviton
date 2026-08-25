@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Validate and assemble
+        run: ./sbt clean scalafmtCheckAll test server/assembly
+      - name: Exercise the packaged open and authenticated servers
+        run: ./scripts/smoke-packaged-server.sh
+      - name: Prove filesystem backup and restore
+        run: ./scripts/verify-backup-restore.sh
+      - name: Prove external consumption
+        run: ./scripts/verify-external-consumer.sh
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd modules/server/graviton-server/target/scala-3.8.2
+          sha256sum graviton-server-*.jar > SHA256SUMS
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: modules/server/graviton-server/target/scala-3.8.2
+          format: spdx-json
+          output-file: modules/server/graviton-server/target/scala-3.8.2/graviton-server.spdx.json
+          upload-artifact: false
+      - name: Attest executable artifact
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: modules/server/graviton-server/target/scala-3.8.2/graviton-server-*.jar
+      - name: Upload release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: graviton-release
+          path: |
+            modules/server/graviton-server/target/scala-3.8.2/graviton-server-*.jar
+            modules/server/graviton-server/target/scala-3.8.2/SHA256SUMS
+            modules/server/graviton-server/target/scala-3.8.2/graviton-server.spdx.json
+          if-no-files-found: error
+
+  container:
+    needs: validate-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: graviton-release
+          path: modules/server/graviton-server/target/scala-3.8.2
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ghcr.io/adrielc/graviton
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+      - name: Attest container image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-name: ghcr.io/adrielc/graviton
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  maven-central:
+    needs: validate-package
+    runs-on: ubuntu-latest
+    env:
+      PGP_SECRET: ${{ secrets.PGP_SECRET }}
+      PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+      SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+      SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Publish signed modules when Central credentials are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SONATYPE_USERNAME}" ] || [ -z "${SONATYPE_PASSWORD}" ] || [ -z "${PGP_SECRET}" ] || [ -z "${PGP_PASSPHRASE}" ]; then
+            echo 'Maven Central credentials are not configured; release artifacts remain available from GitHub.'
+            exit 0
+          fi
+          ./sbt versionCheck ci-release
+
+  github-release:
+    needs: [validate-package, container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: graviton-release
+          path: release
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${GITHUB_REF_NAME}" release/* --repo "${GITHUB_REPOSITORY}" --verify-tag --generate-notes

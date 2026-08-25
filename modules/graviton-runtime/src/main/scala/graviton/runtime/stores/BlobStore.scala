@@ -31,5 +31,8 @@ trait BlobStore:
   /** Remove the blob and any associated manifest/attribute entries. */
   def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]
 
+  /** Readiness probe for every backing service required by this store. */
+  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+
 object BlobStore:
   val service: ZIO[BlobStore, Nothing, BlobStore] = ZIO.service[BlobStore]

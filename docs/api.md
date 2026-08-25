@@ -12,13 +12,13 @@ Graviton exposes its operational content-addressable store through the embedded 
 
 `graviton-http` exposes the same real lifecycle:
 
-- `POST /api/blobs`
-- `GET /api/blobs`
-- `GET /api/blobs/:id/metadata`
-- `POST /api/blobs/:id/verify`
-- `GET /api/blobs/:id`
-- `HEAD /api/blobs/:id`
-- `DELETE /api/blobs/:id`
+- `POST /api/v1/blobs`
+- `GET /api/v1/blobs`
+- `GET /api/v1/blobs/:id/metadata`
+- `POST /api/v1/blobs/:id/verify`
+- `GET /api/v1/blobs/:id`
+- `HEAD /api/v1/blobs/:id`
+- `DELETE /api/v1/blobs/:id`
 
 The default server uses durable filesystem storage. See the [HTTP API](./api/http.md) for response models and executable examples.
 
@@ -28,4 +28,4 @@ The default server uses durable filesystem storage. See the [HTTP API](./api/htt
 
 ## Security boundary
 
-The default local server does not enforce authentication. `AuthMiddleware` and verifier ports exist, but production OIDC assembly and TLS termination are deployment work. Bind the unauthenticated server only to a trusted environment.
+The default local server does not enforce authentication and must remain in a trusted environment. Security-enabled mode wires RS256 OIDC/JWKS verification, capability authorization, CORS and TLS policy, streaming limits, and audit events. TLS termination and the identity-provider configuration remain operator-owned deployment boundaries.

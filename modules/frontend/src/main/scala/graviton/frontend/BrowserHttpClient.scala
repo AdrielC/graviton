@@ -7,8 +7,19 @@ import scala.scalajs.js
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.JSConverters.*
 
-/** Browser-based HTTP client using Fetch API */
-final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
+/** Browser-based HTTP client using Fetch API. Tokens are supplied in memory. */
+final case class BrowserHttpClient(
+  baseUrl: String,
+  bearerToken: () => Option[String] = () => None,
+) extends HttpClient {
+
+  private def headers(contentType: String): js.Dictionary[String] =
+    val values = js.Dictionary(
+      "Content-Type" -> contentType,
+      "Accept"       -> "application/json",
+    )
+    bearerToken().map(_.trim).filter(_.nonEmpty).foreach(token => values.update("Authorization", s"Bearer $token"))
+    values
 
   private def fetch(path: String, method: String, body: Option[String] = None): Task[String] = {
     val url = s"$baseUrl$path"
@@ -22,10 +33,7 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
         case "DELETE" => dom.HttpMethod.DELETE
         case _        => dom.HttpMethod.GET
       }
-      init.headers = js.Dictionary(
-        "Content-Type" -> "application/json",
-        "Accept"       -> "application/json",
-      )
+      init.headers = headers("application/json")
       body.foreach(b => init.body = b)
 
       dom
@@ -49,6 +57,21 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
 
   def delete(path: String): Task[String] = fetch(path, "DELETE")
 
+  def download(path: String): Task[dom.Blob] =
+    ZIO.fromPromiseJS {
+      val init = new dom.RequestInit {}
+      init.method = dom.HttpMethod.GET
+      init.headers = headers("application/octet-stream")
+      dom
+        .fetch(s"$baseUrl$path", init)
+        .toFuture
+        .flatMap { response =>
+          if response.ok then response.blob().toFuture
+          else response.text().toFuture.flatMap(text => scala.concurrent.Future.failed(new Exception(s"HTTP ${response.status}: $text")))
+        }
+        .toJSPromise
+    }
+
   /** Stream the selected browser file directly to the real blob endpoint. */
   def uploadFile(path: String, file: dom.File): Task[String] = {
     val url = s"$baseUrl$path"
@@ -56,10 +79,7 @@ final case class BrowserHttpClient(baseUrl: String) extends HttpClient {
     ZIO.fromPromiseJS {
       val init = new dom.RequestInit {}
       init.method = dom.HttpMethod.POST
-      init.headers = js.Dictionary(
-        "Content-Type" -> Option(file.`type`).filter(_.nonEmpty).getOrElse("application/octet-stream"),
-        "Accept"       -> "application/json",
-      )
+      init.headers = headers(Option(file.`type`).filter(_.nonEmpty).getOrElse("application/octet-stream"))
       init.body = file
 
       dom

@@ -111,10 +111,10 @@ object S3BlobStore:
         blobBucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blobs"))
         tmpBucket  <- ZIO.succeed(sys.env.get("GRAVITON_S3_TMP_BUCKET").filter(_.nonEmpty).getOrElse("graviton-tmp"))
         base       <- ZIO
-                        .fromEither(S3Config.fromEndpointEnv(bucket = blobBucket))
+                        .fromEither(S3Config.fromEnvironment(bucket = blobBucket))
                         .mapError(msg => new IllegalArgumentException(msg))
         tmp        <- ZIO
-                        .fromEither(S3Config.fromEndpointEnv(bucket = tmpBucket))
+                        .fromEither(S3Config.fromEnvironment(bucket = tmpBucket))
                         .mapError(msg => new IllegalArgumentException(msg))
         client     <- S3ClientLayer.make(base)
       yield new S3BlobStore(client, S3BlobStoreConfig(blobs = base, tmp = tmp))

@@ -65,15 +65,15 @@ BLOB_ID="$(
   curl -fsS \
     -H "Content-Type: application/octet-stream" \
     -X POST --data-binary @/path/to/file \
-    "http://localhost:8081/api/blobs" \
+    "http://localhost:8081/api/v1/blobs" \
   | jq -r '.blob.id'
 )"
 
-curl -fsS "http://localhost:8081/api/blobs" | jq .
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/retrieved.bin
+curl -fsS "http://localhost:8081/api/v1/blobs" | jq .
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
+curl -fsSI "http://localhost:8081/api/v1/blobs/$BLOB_ID"
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" --output /tmp/retrieved.bin
 ```
 
 Run `./scripts/verify-http-lifecycle.sh` against a running server for an executable assertion of the complete API contract. See [HTTP API](../api/http.md) for status codes and response models.

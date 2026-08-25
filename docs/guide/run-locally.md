@@ -30,15 +30,15 @@ BLOB_ID="$(
   curl -fsS \
     -H "Content-Type: application/octet-stream" \
     -X POST --data-binary @sample.txt \
-    "http://localhost:8081/api/blobs" \
+    "http://localhost:8081/api/v1/blobs" \
   | jq -r '.blob.id'
 )"
 
-curl -fsS "http://localhost:8081/api/blobs" | jq .
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output downloaded.txt
+curl -fsS "http://localhost:8081/api/v1/blobs" | jq .
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
+curl -fsSI "http://localhost:8081/api/v1/blobs/$BLOB_ID"
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" --output downloaded.txt
 cmp sample.txt downloaded.txt
 curl -fsS "http://localhost:8081/api/stats" | jq .
 ```

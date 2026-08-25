@@ -25,6 +25,7 @@ object RateLimiterSpec extends ZIOSpecDefault:
     oidcAudience = Some("graviton"),
     rateLimitPerPrincipalPerSec = 3L,
     rateLimitUploadBytesPerSec = 1024L,
+    rateLimitDownloadBytesPerSec = 1024L,
   )
 
   def spec: Spec[TestEnvironment & zio.Scope, Any] = suite("RateLimiter")(

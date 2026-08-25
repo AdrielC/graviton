@@ -114,6 +114,69 @@ object HttpApiSpec extends ZIOSpecDefault:
           body.contains("invalid_blob"),
         )
       },
+      test("v1 supports byte ranges and conditional reads") {
+        val text = "0123456789abcdefghij"
+        for
+          api        <- makeApi
+          upload     <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(text))
+          uploadBody <- upload.body.asString
+          result     <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          path        = s"/api/v1/blobs/${result.blob.id.value}"
+          etag       <- ZIO.fromOption(upload.headers.get("ETag")).orElseFail(new IllegalStateException("missing ETag"))
+          head       <- call(api, Method.HEAD, path)
+          modified   <- ZIO.fromOption(head.headers.get("Last-Modified")).orElseFail(new IllegalStateException("missing Last-Modified"))
+          ranged     <- call(api, Method.GET, path, headers = Headers(Header.Custom("Range", "bytes=3-7")))
+          rangeBody  <- ranged.body.asString
+          suffix     <- call(api, Method.GET, path, headers = Headers(Header.Custom("Range", "bytes=-4")))
+          suffixBody <- suffix.body.asString
+          cached     <- call(api, Method.GET, path, headers = Headers(Header.Custom("If-None-Match", etag)))
+          cachedBody <- cached.body.asString
+          dateCached <- call(api, Method.GET, path, headers = Headers(Header.Custom("If-Modified-Since", modified)))
+          rejected   <- call(api, Method.GET, path, headers = Headers(Header.Custom("Range", "bytes=99-100")))
+        yield assertTrue(
+          upload.status == Status.Created,
+          upload.headers.get("Location").contains(path),
+          upload.headers.get("Deprecation").isEmpty,
+          ranged.status == Status.PartialContent,
+          ranged.headers.get("Content-Range").contains(s"bytes 3-7/${text.length}"),
+          rangeBody == "34567",
+          suffix.status == Status.PartialContent,
+          suffixBody == "ghij",
+          cached.status == Status.NotModified,
+          cached.headers.get("Content-Length").isEmpty,
+          cachedBody.isEmpty,
+          dateCached.status == Status.NotModified,
+          rejected.status == Status.RequestedRangeNotSatisfiable,
+          rejected.headers.get("Content-Range").contains(s"bytes */${text.length}"),
+        )
+      },
+      test("cursor pagination is stable and legacy routes advertise their successor") {
+        for
+          api        <- makeApi
+          _          <-
+            ZIO.foreachDiscard(List("page-a", "page-b", "page-c"))(value => call(api, Method.POST, "/api/v1/blobs", Body.fromString(value)))
+          first      <- call(api, Method.GET, "/api/v1/blobs?limit=1")
+          firstBody  <- first.body.asString
+          firstPage  <- ZIO.fromEither(firstBody.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
+          cursor     <- ZIO.fromOption(firstPage.nextCursor).orElseFail(new IllegalStateException("missing next cursor"))
+          second     <- call(api, Method.GET, s"/api/v1/blobs?limit=1&cursor=$cursor")
+          secondBody <- second.body.asString
+          secondPage <- ZIO.fromEither(secondBody.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
+          legacy     <- call(api, Method.GET, "/api/blobs?limit=1")
+          invalid    <- call(api, Method.GET, "/api/v1/blobs?limit=0")
+          badCursor  <- call(api, Method.GET, "/api/v1/blobs?cursor=missing")
+        yield assertTrue(
+          first.status == Status.Ok,
+          firstPage.blobs.size == 1,
+          second.status == Status.Ok,
+          secondPage.blobs.size == 1,
+          secondPage.blobs.head.id != firstPage.blobs.head.id,
+          legacy.headers.get("Deprecation").contains("true"),
+          legacy.headers.get("Link").exists(_.contains("/api/v1/blobs")),
+          invalid.status == Status.BadRequest,
+          badCursor.status == Status.BadRequest,
+        )
+      },
     )
 
   private def makeApi: UIO[HttpApi] =
@@ -125,8 +188,9 @@ object HttpApiSpec extends ZIOSpecDefault:
     method: Method,
     path: String,
     body: Body = Body.empty,
+    headers: Headers = Headers.empty,
   ): Task[Response] =
     for
       url      <- ZIO.fromEither(URL.decode(s"http://localhost$path"))
-      response <- ZIO.scoped(api.app(Request(method = method, url = url, body = body)))
+      response <- ZIO.scoped(api.app(Request(method = method, url = url, headers = headers, body = body)))
     yield response

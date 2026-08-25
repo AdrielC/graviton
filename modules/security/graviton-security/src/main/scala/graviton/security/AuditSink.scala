@@ -18,9 +18,8 @@ import javax.sql.DataSource
  *   prev_hash for seq = 1 is 32 zero bytes
  * }}}
  *
- * Insertion is serialised per-org by a tagged semaphore so `seq` stays
- * monotonic without relying on a DB sequence, and so the chain stays
- * linear even under concurrent writes from the same process.
+ * JDBC insertion is serialized per-org in the process and with a PostgreSQL
+ * transaction advisory lock, so the chain stays linear across server nodes.
  */
 trait AuditSink:
   def record(event: AuditEvent): IO[SecurityError, Unit]
@@ -233,6 +232,18 @@ object AuditSink:
       val conn = ds.getConnection
       conn.setAutoCommit(false)
       try
+        setTenantContext(conn, ctx)
+        // Database-level transaction lock keeps the sequence and hash chain
+        // linear across every server process, not only fibers in this JVM.
+        val lockStmt = conn.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")
+        try
+          lockStmt.setString(1, ctx.orgId.toString)
+          val result = lockStmt.executeQuery()
+          try
+            val _ = result.next()
+          finally result.close()
+        finally lockStmt.close()
+
         val seqStmt         = conn.prepareStatement(
           "SELECT coalesce(max(seq), 0) + 1, coalesce((SELECT row_hash FROM quasar.audit_log WHERE org_id = ? ORDER BY seq DESC LIMIT 1), decode('0000000000000000000000000000000000000000000000000000000000000000','hex')) FROM quasar.audit_log WHERE org_id = ?"
         )
@@ -308,3 +319,16 @@ object AuditSink:
         try conn.setAutoCommit(true)
         catch case _: Throwable => ()
         conn.close()
+
+    private def setTenantContext(conn: java.sql.Connection, ctx: CallerContext): Unit =
+      val statement = conn.prepareStatement(
+        "SELECT set_config('app.org_id', ?, true), set_config('app.principal_id', ?, true)"
+      )
+      try
+        statement.setString(1, ctx.orgId.toString)
+        statement.setString(2, ctx.principalId.toString)
+        val result = statement.executeQuery()
+        try
+          val _ = result.next()
+        finally result.close()
+      finally statement.close()
