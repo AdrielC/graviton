@@ -1,6 +1,6 @@
 ---
 layout: doc
-title: Live Operations Console
+title: Connect Your Server
 ---
 
 <script setup>
@@ -36,9 +36,9 @@ onMounted(() => {
 })
 </script>
 
-# Live Operations Console
+# Connect Your Server
 
-This Scala.js application operates a real Graviton server. It has no offline dataset, modeled chunks, generated metrics, or substitute success state.
+This Scala.js application operates a Graviton server that you provide. GitHub Pages does not host a backend, so this page begins disconnected unless you start a server and configure its endpoint. It has no offline dataset, generated metrics, or substitute success state.
 
 The console supports:
 
@@ -69,7 +69,7 @@ npm ci --prefix docs
 npm run docs:dev --prefix docs
 ```
 
-Use the API endpoint field below to connect. The selected endpoint is stored in browser local storage. Connection failures remain visible and do not trigger a fallback.
+Use the API endpoint field below to connect. The selected endpoint is stored in browser local storage. Connection failures remain visible and do not trigger a fallback. For a self-contained public interaction, use the [CAS Playground](./cas-playground.md).
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
 

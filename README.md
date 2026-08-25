@@ -98,7 +98,7 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands and container-backed integration setup. The [documentation site](https://adrielc.github.io/graviton/) includes a live operations console, architecture guide, HTTP reference, and generated Scaladoc.
+See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands and container-backed integration setup. The [documentation site](https://adrielc.github.io/graviton/) includes a self-contained CAS playground, a console for connecting your own Graviton server, the architecture guide, the HTTP reference, and generated Scaladoc.
 
 ## Project direction
 
