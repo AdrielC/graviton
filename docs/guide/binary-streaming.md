@@ -25,13 +25,13 @@ sequenceDiagram
   participant Blob as BlobStore
 
   Client->>Src: Provide upload stream
-  Src->>Chunker: Stream[Byte]
-  Chunker->>Blocks: CanonicalBlock (dedupe check)
+  Src->>Chunker: Stream of bytes
+  Chunker->>Blocks: Canonical block, dedupe check
   Chunker-->>Manifest: Chunk stats
   Blocks-->>Manifest: StoredBlock + offsets
-  Manifest->>Blob: BlockManifest + confirmed attrs
-  Blob-->>Client: BlobWriteResult (key, locator)
-  note over Client,Blob: Client can now read via BlobStore.get
+  Manifest->>Blob: Manifest + confirmed attributes
+  Blob-->>Client: Write result with key and locator
+  Note over Client,Blob: Read with BlobStore.get
 ```
 
 1. A byte source (`ZStream` from files, HTTP bodies, etc.) feeds a chunker chosen for size vs deduplication trade-offs.

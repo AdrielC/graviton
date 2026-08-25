@@ -835,6 +835,12 @@
   transition: opacity 180ms ease;
 }
 
+/* Do not let an orphaned Mermaid render diagnostic become footer content.
+   This also covers clients running a previously cached Mermaid configuration. */
+body > [id^='dmermaid-'] {
+  display: none !important;
+}
+
 .dark .graviton-matrix-rain {
   mix-blend-mode: screen;
 }
