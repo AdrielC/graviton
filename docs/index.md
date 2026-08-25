@@ -13,8 +13,8 @@ hero:
       text: Run Graviton
       link: guide/run-locally
     - theme: alt
-      text: Open Live Console
-      link: demo
+      text: Open CAS Playground
+      link: cas-playground
     - theme: alt
       text: GitHub
       link: https://github.com/AdrielC/graviton
@@ -47,7 +47,21 @@ GRAVITON_HTTP_PORT=8081 \
 ./sbt "server/run"
 ```
 
-Then open the [Live Operations Console](./demo.md). The console does not contain a sample dataset or a browser simulation. If it cannot reach the configured server, it shows the connection failure.
+Then open [Connect Your Server](./demo.md). The console does not contain a sample dataset or a browser simulation. If it cannot reach the configured server, it shows the connection failure.
+
+## Operational proof
+
+Select a capability to inspect the repository evidence and executable command behind it.
+
+<EvidenceHud />
+
+## Interactive content lab
+
+The public site has no hosted Graviton backend. This worksheet stays useful by performing real UTF-8 encoding, fixed chunking, SHA-256 hashing, content-ID formatting, and repeated-block detection in your browser.
+
+<PipelinePlayground />
+
+[Open the full CAS Playground](./cas-playground.md) for guided experiments and runtime boundaries.
 
 ## What is operational
 
@@ -85,9 +99,17 @@ Graviton is pre-1.0. Authentication assembly, range reads, distributed placement
     <h3>Run locally</h3>
     <p>Start the filesystem server and exercise every live endpoint.</p>
   </a>
+  <a href="cas-playground" class="feature-card">
+    <h3>CAS Playground</h3>
+    <p>Hash and chunk your own bytes locally with real SHA-256 content IDs.</p>
+  </a>
+  <a href="pipeline-explorer" class="feature-card">
+    <h3>Pipeline Explorer</h3>
+    <p>Map the interactive byte flow to Graviton's executable transducers.</p>
+  </a>
   <a href="demo" class="feature-card">
-    <h3>Live operations console</h3>
-    <p>Upload, inspect, verify, download, and delete against a running server.</p>
+    <h3>Connect your server</h3>
+    <p>Operate a Graviton HTTP endpoint that you provide.</p>
   </a>
   <a href="api/http" class="feature-card">
     <h3>HTTP contract</h3>

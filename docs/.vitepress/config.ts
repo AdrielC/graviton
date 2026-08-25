@@ -104,7 +104,7 @@ export default withMermaid(defineConfig({
       { text: 'Architecture', link: '/architecture' },
       { text: 'API', link: '/api' },
       { text: 'Scala.js', link: '/dev/scalajs' },
-      { text: 'Live Console', link: '/demo' },
+      { text: 'CAS Playground', link: '/cas-playground' },
       { text: 'Quasar Demo', link: '/quasar-demo' },
       // Note: VitePress automatically prefixes `base` for internal links.
       // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
@@ -199,7 +199,9 @@ export default withMermaid(defineConfig({
       {
         text: 'Interactive',
         items: [
-          { text: 'Live Operations Console', link: '/demo' },
+          { text: 'CAS Playground', link: '/cas-playground' },
+          { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
+          { text: 'Connect Your Server', link: '/demo' },
           { text: 'Quasar Demo', link: '/quasar-demo' }
         ]
       }

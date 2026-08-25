@@ -68,7 +68,7 @@ Use the S3 or MinIO backend when you want S3-compatible blocks with PostgreSQL m
 
 ### Run the documentation site
 
-The published docs include a Laminar **Live Operations Console** at `/demo`. Build the JS bundle before launching VitePress so that the page can load `main.js`, then run the Graviton server so every view has an operational backend.
+The docs include a Laminar **Connect Your Server** console at `/demo`. Build the JS bundle before launching VitePress so that the page can load `main.js`, then run Graviton locally and connect the console to it. The published GitHub Pages site has no hosted backend and starts disconnected. Its separate [CAS Playground](../cas-playground.md) performs real hashing and chunking entirely in the browser.
 
 ```bash
 # From the project root
@@ -79,7 +79,7 @@ npm ci
 npm run docs:dev
 ```
 
-Once VitePress boots at `http://localhost:5173`, open **Live Console** in the nav. Upload a file, inspect its persisted manifest, verify it on the server, download it, and delete the manifest. If you deploy the docs somewhere with a sub-path, the loader picks up the correct asset base URL automatically.
+Once VitePress boots at `http://localhost:5173`, open **Connect Your Server** in the nav. Upload a file, inspect its persisted manifest, verify it on the server, download it, and delete the manifest. If you deploy the docs somewhere with a sub-path, the loader picks up the correct asset base URL automatically.
 
 ::: tip No Scala.js bundle?
 If the console reports that its bundle is unavailable, rebuild it with `./sbt buildFrontend` and refresh the page.
@@ -107,7 +107,8 @@ object Example extends ZIOAppDefault:
 
 ## What's Next?
 
-- **[Live Operations Console](../demo.md)**: Operate the HTTP lifecycle from the browser
+- **[CAS Playground](../cas-playground.md)**: Compute real content IDs and repeated blocks in the browser
+- **[Connect Your Server](../demo.md)**: Operate the HTTP lifecycle against a Graviton endpoint you provide
 - **[Installation Guide](./installation.md)**: Set up Graviton in your environment
 - **[Configuration Reference](./configuration-reference.md)**: Every env var the current server reads (with defaults)
 - **[CLI & Server Usage](./cli.md)**: Run the server and interact via curl

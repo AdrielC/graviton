@@ -242,4 +242,4 @@ The Transducer algebra is the foundation for upcoming pipeline phases:
 - **[Scans & Events](./scans.md)** — The Scan algebra that inspired Transducers
 - **[Binary Streaming Guide](../guide/binary-streaming.md)** — End-to-end ingest walkthrough
 - **[Architecture](../architecture.md)** — System-level view
-- **[Live Operations Console](../demo.md)** for the implemented HTTP storage lifecycle
+- **[Connect Your Server](../demo.md)** to operate the implemented HTTP storage lifecycle against an endpoint you provide

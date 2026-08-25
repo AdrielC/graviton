@@ -174,7 +174,7 @@ This approach is testable in isolation (no ZIO needed for unit tests), produces 
 ## Next steps
 
 - Start from [`guide/getting-started`](./getting-started.md) to build and run the project locally.
-- Operate the implemented storage lifecycle in the [Live Operations Console](../demo.md).
+- Operate the implemented storage lifecycle through [Connect Your Server](../demo.md) against an endpoint you provide.
 - Dive into [`ingest/chunking`](../ingest/chunking.md) for algorithm-level tuning.
 - Read the [Transducer Algebra](../core/transducers.md) for the full composition API.
 - Explore [`runtime/ports`](../runtime/ports.md) to see how stores, protocols, and schedulers compose inside the runtime.

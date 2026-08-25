@@ -1,6 +1,6 @@
-# Scala.js Operations Console Playbook
+# Scala.js Server Console Playbook
 
-Graviton's Laminar frontend powers the live operations console in the documentation site. It calls a running Graviton server and shares response models with the JVM HTTP implementation.
+Graviton's Laminar frontend powers the **Connect Your Server** console in the documentation site. It calls a running Graviton server supplied by the visitor and shares response models with the JVM HTTP implementation. The published GitHub Pages site has no hosted backend and therefore starts disconnected.
 
 ## Project layout
 
