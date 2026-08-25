@@ -31,7 +31,7 @@ export function mountMatrixRain(): () => void {
   document.body.appendChild(canvas)
   document.body.classList.add('graviton-matrix-active')
 
-  const glyphs = '01λΣ⋈⌁'
+  const glyphs = '01λΣ⋈⌁アイウエオカキクケコサシスセソタチツテト'
   const fontSize = 16
   let width = 0
   let height = 0
@@ -70,11 +70,14 @@ export function mountMatrixRain(): () => void {
 
     const dark = document.documentElement.classList.contains('dark')
     const hyperspace = document.body.classList.contains('graviton-hyperspace')
-    context.fillStyle = dark ? 'rgba(99, 230, 190, 0.78)' : 'rgba(8, 127, 91, 0.58)'
+    const palette = dark
+      ? ['rgba(99, 230, 190, 0.78)', 'rgba(102, 217, 239, 0.74)', 'rgba(177, 151, 252, 0.7)', 'rgba(247, 131, 172, 0.68)']
+      : ['rgba(8, 127, 91, 0.58)', 'rgba(0, 124, 145, 0.54)', 'rgba(112, 72, 232, 0.48)', 'rgba(194, 37, 92, 0.46)']
     context.font = `${fontSize}px var(--vp-font-family-mono, monospace)`
 
     for (let column = 0; column < drops.length; column += 1) {
       const glyph = glyphs[Math.floor(Math.random() * glyphs.length)]
+      context.fillStyle = palette[Math.random() < 0.86 ? 0 : 1 + Math.floor(Math.random() * 3)]
       const x = column * fontSize
       const y = drops[column] * fontSize
       context.fillText(glyph, x, y)

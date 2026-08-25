@@ -121,7 +121,7 @@ npm run docs:build --prefix docs
 
 CI adds real PostgreSQL and MinIO services, the clean external consumer, packaged-server smoke tests, compatibility policy, dependency review, and docs verification. See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands.
 
-The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. Browser-only labs perform real hashing and chunking but never pretend to be a hosted Graviton server.
+The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. The bounded CAS lab runs the same `graviton-shared` analyzer on Scala.js and JVM, using Web Crypto and JCA respectively. It never pretends to be a hosted Graviton server or to persist data.
 
 ## Operations and releases
 

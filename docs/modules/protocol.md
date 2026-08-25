@@ -4,7 +4,7 @@ The protocol modules expose Graviton through shared JSON response models plus op
 
 | Module | Implemented surface | Status |
 | --- | --- | --- |
-| `protocol/graviton-shared` | Cross-platform health, counters, inventory, manifest, upload, and verification models | Used by JVM and Scala.js |
+| `protocol/graviton-shared` | Cross-platform HTTP response models plus bounded content-addressing types and analyzer | Same contract and tests on JVM and Scala.js; native JCA/Web Crypto SHA-256 |
 | `protocol/graviton-http` | Operational blob lifecycle, typed streaming Scala SDK, metrics, and JWT middleware | Contract and socket tested |
 | `protocol/graviton-proto` | Protobuf definitions and generated types | Generated during the build |
 | `protocol/graviton-grpc` | Generated services and typed streaming client | Served by the default process on port 9090 |
@@ -42,3 +42,9 @@ Stats and Prometheus metrics are process-lifetime observations. They reset on re
 ## Transport boundaries
 
 The published HTTP and gRPC clients target routes served by the default process and exercised over real sockets. Graviton 0.3 does not publish clients for proposed resumable or multipart routes. The stable gRPC surface deliberately models a stream as the upload session and exposes the core blob lifecycle. HTTP remains the richer transport for byte ranges, conditional requests, and server-side verification.
+
+## Shared JVM and Scala.js contract
+
+`graviton-shared` is a full cross-project. Common sources own refined interactive byte counts, SHA-256 digest text, fixed-block analysis, content-ID rendering, duplicate detection, and HTTP response models. JVM delegates bounded SHA-256 to JCA; Scala.js delegates it to Web Crypto and exports the docs content lab as an ES module. Server-side `KeyBits` uses the same shared content-key syntax parser and renderer.
+
+The 8 KiB analyzer is intentionally not the server data plane. It permits a complete byte value only behind a named Iron bound. Arbitrary-size server and SDK payloads continue through `ZStream` and scoped response bodies without full collection.

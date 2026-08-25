@@ -59,7 +59,7 @@ Select a capability to inspect the repository evidence and executable command be
 
 ## Interactive content lab
 
-The public site has no hosted Graviton backend. This worksheet stays useful by performing real UTF-8 encoding, fixed chunking, SHA-256 hashing, content-ID formatting, and repeated-block detection in your browser.
+The public site has no hosted Graviton backend. This worksheet links `graviton-shared` for Scala.js and performs real UTF-8 encoding, fixed chunking, Web Crypto SHA-256, content-ID formatting, and repeated-block detection within a refined 8 KiB boundary.
 
 <PipelinePlayground />
 
@@ -74,6 +74,7 @@ The public site has no hosted Graviton backend. This worksheet stays useful by p
 | HTTP v1 lifecycle, pagination, ranges, preconditions, and deprecated aliases | Contract coverage in `HttpApiSpec` |
 | OIDC, capabilities, request controls, and chained audit | Security and packaged-server suites |
 | Browser operations console | Compiled Scala.js client calls the same HTTP routes directly |
+| Shared CAS content lab | The same bounded analyzer and contract tests run on JVM and Scala.js with native JCA/Web Crypto hashing |
 | S3-compatible blocks and PostgreSQL manifests | Container-backed integration suites in CI |
 | Quorum replication, fallback, and repair | `ReplicatedBlockStoreSpec` |
 | Conservative block collection and restore | `GarbageCollectorSpec` plus S3 quarantine integration |

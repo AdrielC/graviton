@@ -16,6 +16,7 @@ docs/node_modules/
 # Generated Scala.js output (built by CI)
 docs/public/js/
 docs/public/quasar/js/
+docs/public/content-lab/
 
 # Generated Scaladoc (built by CI)
 docs/public/scaladoc/

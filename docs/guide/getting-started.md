@@ -34,7 +34,7 @@ cd graviton
 # Compile all modules
 ./sbt compile
 
-# Run formatting + the full JVM/JVM JS test matrix (without TestContainers)
+# Run formatting + the full JVM/Scala.js test matrix (without TestContainers)
 TESTCONTAINERS=0 ./sbt scalafmtAll test
 
 # (Optional) Exercise container-backed integration tests
@@ -70,11 +70,11 @@ Use the S3 or MinIO backend when you want S3-compatible blocks with PostgreSQL m
 
 ### Run the documentation site
 
-The docs include a Laminar **Connect Your Server** console at `/demo`. Build the JS bundle before launching VitePress so that the page can load `main.js`, then run Graviton locally and connect the console to it. The published GitHub Pages site has no hosted backend and starts disconnected. Its separate [CAS Playground](../cas-playground.md) performs real hashing and chunking entirely in the browser.
+The docs include a Laminar **Connect Your Server** console at `/demo` and a separate bounded CAS Playground powered by `graviton-shared`. Build both JS modules before launching VitePress, then run Graviton locally if you want to connect the operations console. The published GitHub Pages site has no hosted backend and starts disconnected; the CAS Playground computes locally through Scala.js and Web Crypto.
 
 ```bash
 # From the project root
-./sbt buildFrontend       # copies Scala.js output into docs/public/js/
+./sbt buildContentLab buildFrontend
 
 cd docs
 npm ci
@@ -84,26 +84,28 @@ npm run docs:dev
 Once VitePress boots at `http://localhost:5173`, open **Connect Your Server** in the nav. Upload a file, inspect its persisted manifest, verify it on the server, download it, and delete the manifest. If you deploy the docs somewhere with a sub-path, the loader picks up the correct asset base URL automatically.
 
 ::: tip No Scala.js bundle?
-If the console reports that its bundle is unavailable, rebuild it with `./sbt buildFrontend` and refresh the page.
+If the console reports that its bundle is unavailable, rebuild it with `./sbt buildFrontend`. If the CAS Playground reports that Scala.js is unavailable, run `./sbt buildContentLab`. Then refresh the page.
 :::
 
 ## Your First Upload
 
-Here's a minimal example using the `Graviton` facade with an in-memory block store and inline manifest repo (no external services required). Use `Graviton.fs(path)` when the data must survive a new process.
+Here's a minimal file-to-file example using the durable `Graviton` facade. Neither ingest nor retrieval collects the file in memory.
 
 ```scala
 import graviton.runtime.Graviton
 import zio.*
 import zio.stream.*
 
+import java.nio.file.{Files, Paths}
+
 object Example extends ZIOAppDefault:
   override def run =
     for
-      g      <- Graviton.inMemory()
-      write  <- ZStream.fromIterable("Hello, Graviton!".getBytes("UTF-8")).run(g.blobStore.put())
-      bytes  <- g.blobStore.get(write.key).runCollect
-      output <- ZIO.attempt(new String(bytes.toArray, "UTF-8"))
-      _      <- Console.printLine(output)
+      g         <- Graviton.fs(Paths.get(".graviton"))
+      write     <- g.ingestFile(Paths.get("README.md"))
+      _         <- g.stream(write.key).run(ZSink.fromFileName("/tmp/graviton-README.md"))
+      identical <- ZIO.attempt(Files.mismatch(Paths.get("README.md"), Paths.get("/tmp/graviton-README.md")) == -1L)
+      _         <- Console.printLine(s"${write.key.bits.render} identical=$identical")
     yield ()
 ```
 

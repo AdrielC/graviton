@@ -117,7 +117,7 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-`buildDocsAssets` generates Scaladoc and rebuilds the Scala.js assets used by the docs.
+`buildDocsAssets` generates Scaladoc, links the shared CAS content lab, and rebuilds both Scala.js console assets used by the docs.
 
 ## Artifact availability
 

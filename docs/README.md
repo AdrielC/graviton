@@ -1,6 +1,6 @@
 # Graviton Docs (VitePress)
 
-This directory contains the Graviton documentation site, built with VitePress. It also hosts compiled Scala.js console bundles under `docs/public/`.
+This directory contains the Graviton documentation site, built with VitePress. It also hosts the compiled Scala.js operations consoles and shared CAS content lab under `docs/public/`.
 
 ## Run locally
 
@@ -21,8 +21,9 @@ npm run docs:preview
 ## Console assets
 
 - `./sbt buildFrontend` writes the Graviton operations console into `docs/public/js/`.
+- `./sbt buildContentLab` links `graviton-shared` into `docs/public/content-lab/` for the bounded CAS Playground.
 - `./sbt buildQuasarFrontend` writes the Quasar console into `docs/public/quasar/js/`.
-- `./sbt buildDocsAssets` builds both console bundles and Scaladoc into `docs/public/`.
+- `./sbt buildDocsAssets` builds the shared content lab, both console bundles, and Scaladoc into `docs/public/`.
 
 ## Snippets (mdoc)
 

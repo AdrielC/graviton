@@ -5,7 +5,7 @@ title: Pipeline Explorer
 
 # Pipeline Explorer
 
-Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and writes a manifest that can reconstruct and verify the original blob. The interactive worksheet executes the first three transformations locally over your exact input.
+Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and writes a manifest that can reconstruct and verify the original blob. The interactive worksheet executes the in-memory portion locally through the compiled `graviton-shared` Scala.js module.
 
 <PipelinePlayground />
 
@@ -13,12 +13,12 @@ Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and
 
 | Browser stage | Runtime counterpart | Boundary |
 | --- | --- | --- |
-| UTF-8 bytes | HTTP or CLI byte stream | The worksheet starts from text; the runtime accepts arbitrary binary bytes. |
-| Fixed chunking | `Chunker.fixed`, `Chunker.fastCdc`, or delimiter chunking | The worksheet intentionally uses fixed boundaries. |
-| SHA-256 | Incremental blob hasher and per-block key derivation | The digest and content-ID format are real. |
+| UTF-8 bytes | HTTP or CLI byte stream | The worksheet accepts at most 2,048 UTF-16 code units and refines the encoded payload to at most 8 KiB; the runtime accepts arbitrary binary streams. |
+| Fixed chunking | `Chunker.fixed`, `Chunker.fastCdc`, or delimiter chunking | The shared lab intentionally uses 16 to 128-byte fixed boundaries for inspection. Runtime block bounds are separately configured. |
+| SHA-256 | Incremental blob hasher and per-block key derivation | The shared analyzer uses Web Crypto on Scala.js and JCA on JVM. Server ingest remains incremental. |
 | Repeated-block detection | `BlockStore.putIfAbsent` and ingest statistics | The worksheet checks repeats within one payload; the server deduplicates against its durable store. |
 
-The browser does not fabricate throughput, compression, server health, or persistence. For the complete operational path, run [Graviton locally](./guide/run-locally.md).
+The browser does not fabricate throughput, compression, server health, or persistence. It demonstrates the content-addressing contract, not the durability path. For the complete operational path, run [Graviton locally](./guide/run-locally.md).
 
 ## Composition
 

@@ -101,5 +101,4 @@ object ApiModels {
     verified: Boolean,
     bytesChecked: SizeBytes,
   ) derives JsonCodec
-
 }
