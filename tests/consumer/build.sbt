@@ -14,6 +14,19 @@ lazy val root = project
   .in(file("."))
   .settings(
     name := "graviton-external-consumer-proof",
+    Compile / run / fork := true,
     resolvers += "graviton-consumer-proof" at file(gravitonRepository).toURI.toString,
-    libraryDependencies += "io.github.adrielc" %% "graviton-http" % gravitonVersion,
+    libraryDependencies ++= Seq(
+      "io.github.adrielc" %% "graviton-core" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-streams" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-shared" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-runtime" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-proto" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-security" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-grpc" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-http" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-s3" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-pg" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-rocks" % gravitonVersion,
+    ),
   )

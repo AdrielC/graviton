@@ -37,12 +37,12 @@ final class MetricsBlobStore(
       yield result
     }
 
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     val tags = baseTags + ("op" -> "get")
     ZStream.fromZIO(metrics.counter("graviton.blob.get.count", tags)).drain ++
       underlying.get(key)
 
-  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
     val tags = baseTags + ("op" -> "stat")
     metrics.counter("graviton.blob.stat.count", tags) *>
       underlying.stat(key)
@@ -50,13 +50,16 @@ final class MetricsBlobStore(
   override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
     underlying.list
 
-  override def inspect(key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
+  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
     underlying.inspect(key)
 
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
+  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
     val tags = baseTags + ("op" -> "delete")
     metrics.counter("graviton.blob.delete.count", tags) *>
       underlying.delete(key)
+
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    underlying.healthCheck
 
 object MetricsBlobStore:
 

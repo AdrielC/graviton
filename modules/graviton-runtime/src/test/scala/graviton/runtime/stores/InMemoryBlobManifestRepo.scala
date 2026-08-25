@@ -46,6 +46,8 @@ final class InMemoryBlobManifestRepo private (
       else (false, map)
     }
 
+  override def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+
   /** List all stored blob keys. */
   def keys: ZIO[Any, Nothing, Set[BinaryKey.Blob]] =
     ref.get.map(_.keySet)

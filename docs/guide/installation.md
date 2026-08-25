@@ -1,6 +1,6 @@
 # Installation
 
-Graviton is a pre-1.0 Scala 3 project. Source builds and tagged GitHub release artifacts are the supported distribution paths for 0.1. Maven Central must not be assumed until a signed publication succeeds.
+Graviton is a pre-1.0 Scala 3 project. Source builds, tagged GitHub release artifacts, and signed modules under `io.github.adrielc` on Maven Central are supported distribution paths.
 
 ## Requirements
 
@@ -40,6 +40,7 @@ The script creates an isolated temporary store, ingests a fixture, starts a fres
 The default configuration uses:
 
 - HTTP port `8081`
+- gRPC port `9090`
 - filesystem blocks below `.graviton/cas/blocks/`
 - framed filesystem manifests below `.graviton/cas/manifests/`
 - security disabled, with a startup warning

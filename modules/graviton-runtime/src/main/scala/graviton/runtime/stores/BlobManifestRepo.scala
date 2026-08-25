@@ -30,18 +30,16 @@ trait BlobManifestRepo:
   def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]]
 
   /** List every persisted blob manifest, newest first. */
-  def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
-    ZIO.fail(new UnsupportedOperationException("BlobManifestRepo.list is not implemented"))
+  def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]]
 
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]
 
   /** Remove the manifest entry for a blob. Returns true if it existed. */
-  def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
-    ZIO.fail(new UnsupportedOperationException(s"BlobManifestRepo.delete is not implemented for blob ${blob.bits.digest.value}"))
+  def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean]
 
   /** Verify that manifest persistence is reachable. */
-  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+  def healthCheck: ZIO[Any, Throwable, Unit]
 
 object BlobManifestRepo:
   val service: ZIO[BlobManifestRepo, Nothing, BlobManifestRepo] = ZIO.service[BlobManifestRepo]

@@ -1,6 +1,5 @@
 package graviton.core.scan
 
-import graviton.core.bytes.*
 import zio.*
 import zio.stream.*
 import zio.test.*

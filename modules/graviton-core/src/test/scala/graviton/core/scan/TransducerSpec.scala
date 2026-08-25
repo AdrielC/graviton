@@ -1,7 +1,5 @@
 package graviton.core.scan
 
-import kyo.Record
-import kyo.Record.`~`
 import zio.*
 import zio.test.*
 

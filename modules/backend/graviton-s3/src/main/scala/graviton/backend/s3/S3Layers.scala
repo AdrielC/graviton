@@ -1,6 +1,8 @@
 package graviton.backend.s3
 
-import zio.{Layer, ZLayer}
+import software.amazon.awssdk.services.s3.S3Client
+import zio.ZLayer
 
 object S3Layers:
-  val live: Layer[Nothing, S3MutableObjectStore] = ZLayer.succeed(new S3MutableObjectStore)
+  def live(config: S3ObjectStoreConfig): ZLayer[S3Client, Nothing, S3MutableObjectStore] =
+    ZLayer.fromFunction((client: S3Client) => new S3MutableObjectStore(client, config))

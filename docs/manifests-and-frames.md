@@ -27,15 +27,13 @@ Writers are expected to append entries in increasing offset order—`BlockManife
 
 ## Framing pipeline
 
-::: warning Current implementation scope
-**Block-per-frame** layout with **compression disabled** and **encryption disabled** is what `BlockFramer.synthesizeBlock` implements today. **`FrameLayout.Aggregate`**, **Zstd** in `CompressionPlan`, and **AEAD** in `EncryptionPlan` return **`Left` errors** (“not implemented yet”) from the framer. The narrative below describes the **target** durability pipeline; treat aggregate layout, compression, and encryption as **planned** until those branches are completed.
-:::
+`BlockFramer.synthesizeBlock` exposes the implemented format only: one canonical block per plain frame. Compression, encryption, and aggregate layouts are not constructible `BlockWritePlan` options. This keeps a public plan from accepting a configuration that cannot execute.
 
 While manifests are pure data, storage backends can wrap them in binary frames generated from `BlockWritePlan` and `FrameSynthesis`:
 
-1. Ingest chooses a `BlockWritePlan` that selects layout (`FrameLayout.BlockPerFrame` vs aggregate), compression, encryption, and whether duplicate blocks should be forwarded downstream.
-2. `BlockFramer.synthesizeBlock` (and eventually a manifest framer) derives a `FrameHeader`, builds Additional Authenticated Data (AAD), applies compression/encryption plans when implemented, and emits a `BlockFrame`.
-3. The resulting frame contains everything needed to replay writes on another backend: header, serialized AAD, ciphertext/plaintext payload, and optional authentication tags.
+1. Ingest chooses a `BlockWritePlan` and whether duplicate blocks should be forwarded downstream.
+2. `BlockFramer.synthesizeBlock` derives a `FrameHeader`, builds structured associated context, and emits a plain `BlockFrame`.
+3. The resulting frame carries the header, encoded context, and bounded canonical block payload.
 
 ### Frame header layout
 
@@ -43,7 +41,7 @@ While manifests are pure data, storage backends can wrap them in binary frames g
 
 - `version`: current format version (defaults to `1` via `BlockFramer.FrameVersion`).
 - `frameType`: one of `Block`, `Manifest`, `Attribute`, or `Index`.
-- `algorithm`: resolved `FrameAlgorithm` enum (`Plain`, `Compressed`, `Encrypted`, or `CompressedThenEncrypted`) derived from the chosen compression/encryption plans.
+- `algorithm`: `Plain` for frames synthesized by this release. Other enum values are reserved for decoding/version evolution and are not write-plan options.
 - `payloadLength`: length of the bytes that follow the header.
 - `aadLength`: length of the serialized AAD blob.
 - `keyId`/`nonce`: optional encryption metadata for AEAD modes.
@@ -55,20 +53,14 @@ Because the header is schema-driven (`zio.schema`), expanding the enum or adding
 Frames capture structured context without leaking it into the payload:
 
 - `FrameContext` provides per-upload inputs such as `orgId`, `blobKey`, `policyTag`, and the running block index.
-- `FrameAadPlan` (embedded inside an `EncryptionPlan.Aead`) toggles which fields should be included and allows arbitrary key/value pairs via `extra`.
-- `BlockFramer` materializes this plan into a `FrameAad`, renders it as a UTF-8 JSON object, and authenticates it alongside the payload so tampering is detectable.
+- `FrameAadPlan` controls which fields are included and allows bounded block context to carry additional key/value pairs.
+- `BlockFramer` materializes this plan into a `FrameAad` and encodes it with the frame codec.
 
-AAD lets deployments prove which blob and organization a block belonged to—even when the payload stays encrypted or deduplicated.
+The context records which blob and organization a block belonged to without changing its content-addressed identity.
 
 ### Algorithms and layouts
 
-`FrameSynthesis` combines three orthogonal decisions:
-
-- **Layout** (`FrameLayout`): block-per-frame is implemented today; aggregate framing will pack multiple blocks once streaming repair needs it.
-- **Compression** (`CompressionPlan`): placeholder for Zstd support; the default keeps payloads verbatim so canonical hashes stay stable.
-- **Encryption** (`EncryptionPlan`): toggles AEAD support and drives the AAD plan, nonce sizing, and key identifiers.
-
-These knobs live entirely in the runtime so storage backends simply persist whatever `BlockFrame` they receive.
+`FrameSynthesis` currently has a single executable layout and transform combination: `BlockPerFrame`, `CompressionPlan.Disabled`, and `EncryptionPlan.Disabled`. Future transforms require both write and read implementations, key-provider boundaries where applicable, and retained compatibility vectors before they become public plan variants.
 
 ## Forward-compatibility (design goals)
 
@@ -80,7 +72,7 @@ The manifest + frame design aims for several durability properties as the format
 - **Optional metadata** – `FrameAad.extra` and manifest attributes can introduce new keys without invalidating older clients. Unknown keys are ignored while still being authenticated.
 - **Strict size accounting** – `BlockManifest.build` refuses to produce manifests where totals drift, so deduped replay remains safe even if new attributes appear later.
 
-Together these rules are the **compatibility contract we are building toward**; until compression, encryption, and aggregate framing are implemented end-to-end, prefer the **documented implemented subset** (plain block-per-frame, manifests as persisted today) when assessing interoperability.
+Together these rules define the current plain-frame compatibility contract. New algorithms are a future versioned format change, not a silently unsupported runtime branch.
 
 ## Validation and decoding flow
 

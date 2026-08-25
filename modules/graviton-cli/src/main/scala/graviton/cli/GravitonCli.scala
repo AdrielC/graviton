@@ -56,9 +56,7 @@ object GravitonCli extends ZIOAppDefault:
       result <- Chunker.locally(Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))) {
                   StoreOps.insertFile(store)(absPath)
                 }
-      blobKey = result.key match
-                  case b: BinaryKey.Blob => b
-                  case other             => other
+      blobKey = result.key
       stats   = result.stats
       _      <- Console.printLine(s"  Blob ID:      ${blobKey.bits.render}")
       _      <- Console.printLine(s"  Locator:      ${result.locator.render}")

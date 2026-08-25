@@ -3,6 +3,7 @@ package graviton.server
 import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
+import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.config.GravitonConfig
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
 import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore, FsBlobManifestRepo, FsBlockStore}
@@ -31,107 +32,137 @@ object Main extends ZIOAppDefault:
       started                                      <- Clock.currentTime(TimeUnit.MILLISECONDS)
       _                                            <- ZIO.logInfo(s"Starting Graviton server on :$port")
       verifierOpt                                  <- buildVerifier(sec)
-      program                                       =
-        for
-          routes <- ZIO.serviceWithZIO[BlobStore] { blobStore =>
-                      ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
-                        ZIO.serviceWithZIO[AuditSink] { auditSink =>
-                          ZIO.serviceWithZIO[CapabilityCheck] { capabilityCheck =>
-                            ZIO.serviceWithZIO[RateLimiter] { rateLimiter =>
-                              val policy = Option.when(sec.enabled)(
-                                HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
-                              )
-                              val api    = HttpApi(
-                                blobStore = blobStore,
-                                metrics = Some(MetricsHttpApi(metrics, policy)),
-                                security = policy,
-                              )
+      program                                       = ZIO.scoped {
+                                                        for
+                                                          blobStore       <- ZIO.service[BlobStore]
+                                                          auditSink       <- ZIO.service[AuditSink]
+                                                          capabilityCheck <- ZIO.service[CapabilityCheck]
+                                                          rateLimiter     <- ZIO.service[RateLimiter]
+                                                          runtime         <- ZIO.runtime[Any]
+                                                          interceptors     = verifierOpt.toList.flatMap { verifier =>
+                                                                               List(
+                                                                                 new AuthInterceptor(verifier, auditSink, runtime),
+                                                                                 new CapabilityInterceptor(capabilityCheck, runtime, Some(auditSink)),
+                                                                                 new RateLimitInterceptor(rateLimiter, runtime),
+                                                                               )
+                                                                             }
+                                                          grpc            <- GravitonGrpcServer.scoped(
+                                                                               blobStore,
+                                                                               GrpcServerConfig(cfg.grpcPort),
+                                                                               interceptors,
+                                                                             )
+                                                          boundPort       <- grpc.port
+                                                          _               <- ZIO.logInfo(s"gRPC API listening on :$boundPort")
+                                                          routes          <- ZIO.serviceWithZIO[BlobStore] { blobStore =>
+                                                                               ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
+                                                                                 ZIO.serviceWithZIO[AuditSink] { auditSink =>
+                                                                                   ZIO.serviceWithZIO[CapabilityCheck] { capabilityCheck =>
+                                                                                     ZIO.serviceWithZIO[RateLimiter] { rateLimiter =>
+                                                                                       val policy = Option.when(sec.enabled)(
+                                                                                         HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
+                                                                                       )
+                                                                                       val api    = HttpApi(
+                                                                                         blobStore = blobStore,
+                                                                                         metrics = Some(MetricsHttpApi(metrics, policy)),
+                                                                                         security = policy,
+                                                                                       )
 
-                              val publicRoutes: Routes[Any, Nothing] =
-                                Routes(
-                                  Method.GET / "api" / "health"           -> Handler.fromZIO {
-                                    for
-                                      now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                      up   = (now - started).max(0L)
-                                    yield Response.json(
-                                      HealthResponse(status = "ok", version = _root_.graviton.server.BuildInfo.version, uptime = up).toJson
-                                    )
-                                  },
-                                  Method.GET / "api" / "health" / "live"  -> Handler.fromZIO {
-                                    for
-                                      now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                      up   = (now - started).max(0L)
-                                    yield Response.json(
-                                      HealthResponse(status = "ok", version = _root_.graviton.server.BuildInfo.version, uptime = up).toJson
-                                    )
-                                  },
-                                  Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
-                                    blobStore.healthCheck.timeout(5.seconds).either.map {
-                                      case Right(Some(_)) =>
-                                        Response.json(
-                                          Json
-                                            .Obj(
-                                              "status"  -> Json.Str("ready"),
-                                              "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
-                                            )
-                                            .toJson
-                                        )
-                                      case _              =>
-                                        Response
-                                          .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
-                                          .copy(status = Status.ServiceUnavailable)
-                                    }
-                                  },
-                                )
+                                                                                       val publicRoutes: Routes[Any, Nothing] =
+                                                                                         Routes(
+                                                                                           Method.GET / "api" / "health"           -> Handler.fromZIO {
+                                                                                             for
+                                                                                               now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                                                                               up   = (now - started).max(0L)
+                                                                                             yield Response.json(
+                                                                                               HealthResponse(
+                                                                                                 status = "ok",
+                                                                                                 version = _root_.graviton.server.BuildInfo.version,
+                                                                                                 uptime = up,
+                                                                                               ).toJson
+                                                                                             )
+                                                                                           },
+                                                                                           Method.GET / "api" / "health" / "live"  -> Handler.fromZIO {
+                                                                                             for
+                                                                                               now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                                                                               up   = (now - started).max(0L)
+                                                                                             yield Response.json(
+                                                                                               HealthResponse(
+                                                                                                 status = "ok",
+                                                                                                 version = _root_.graviton.server.BuildInfo.version,
+                                                                                                 uptime = up,
+                                                                                               ).toJson
+                                                                                             )
+                                                                                           },
+                                                                                           Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
+                                                                                             blobStore.healthCheck.timeout(5.seconds).either.map {
+                                                                                               case Right(Some(_)) =>
+                                                                                                 Response.json(
+                                                                                                   Json
+                                                                                                     .Obj(
+                                                                                                       "status"  -> Json.Str("ready"),
+                                                                                                       "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
+                                                                                                     )
+                                                                                                     .toJson
+                                                                                                 )
+                                                                                               case _              =>
+                                                                                                 Response
+                                                                                                   .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
+                                                                                                   .copy(status = Status.ServiceUnavailable)
+                                                                                             }
+                                                                                           },
+                                                                                         )
 
-                              val statsRoutes: Routes[Any, Nothing] = Routes(
-                                Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
-                                  val resource = ResourceRef(ResourceKind.Namespace, None)
-                                  val response = metrics.snapshot.map(snapshot => Response.json(RuntimeStats.from(snapshot).toJson))
-                                  policy match
-                                    case None         => response
-                                    case Some(active) =>
-                                      active
-                                        .authorize(request, "observability.stats.read", Capability.ObservabilityRead, resource)
-                                        .foldZIO(
-                                          denied => ZIO.succeed(denied),
-                                          _ =>
-                                            response.flatMap(result =>
-                                              active.recordOutcome("observability.stats.read", resource, result).as(result)
-                                            ),
-                                        )
-                                }
-                              )
+                                                                                       val statsRoutes: Routes[Any, Nothing] = Routes(
+                                                                                         Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
+                                                                                           val resource = ResourceRef(ResourceKind.Namespace, None)
+                                                                                           val response =
+                                                                                             metrics.snapshot.map(snapshot => Response.json(RuntimeStats.from(snapshot).toJson))
+                                                                                           policy match
+                                                                                             case None         => response
+                                                                                             case Some(active) =>
+                                                                                               active
+                                                                                                 .authorize(request, "observability.stats.read", Capability.ObservabilityRead, resource)
+                                                                                                 .foldZIO(
+                                                                                                   denied => ZIO.succeed(denied),
+                                                                                                   _ =>
+                                                                                                     response.flatMap(result =>
+                                                                                                       active.recordOutcome("observability.stats.read", resource, result).as(result)
+                                                                                                     ),
+                                                                                                 )
+                                                                                         }
+                                                                                       )
 
-                              val appRoutes: Routes[Any, Nothing] =
-                                verifierOpt match
-                                  case Some(verifier) =>
-                                    val decorateFailure =
-                                      (request: Request, response: Response) => policy.fold(response)(_.addCorsHeaders(request, response))
-                                    (api.routes ++ statsRoutes) @@ AuthMiddleware.required(verifier, auditSink, decorateFailure)
-                                  case None           =>
-                                    api.routes ++ statsRoutes
+                                                                                       val appRoutes: Routes[Any, Nothing] =
+                                                                                         verifierOpt match
+                                                                                           case Some(verifier) =>
+                                                                                             val decorateFailure =
+                                                                                               (request: Request, response: Response) =>
+                                                                                                 policy.fold(response)(_.addCorsHeaders(request, response))
+                                                                                             (api.routes ++ statsRoutes) @@ AuthMiddleware.required(verifier, auditSink, decorateFailure)
+                                                                                           case None           =>
+                                                                                             api.routes ++ statsRoutes
 
-                              val devRoutes: Routes[Any, Nothing] =
-                                sec.devSharedSecret match
-                                  case Some(secret) if sec.enabled =>
-                                    DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
-                                  case _                           =>
-                                    Routes.empty
+                                                                                       val devRoutes: Routes[Any, Nothing] =
+                                                                                         sec.devSharedSecret match
+                                                                                           case Some(secret) if sec.enabled =>
+                                                                                             DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
+                                                                                           case _                           =>
+                                                                                             Routes.empty
 
-                              val preflightRoutes = if sec.enabled then api.preflightRoutes else Routes.empty
-                              val baseRoutes      = publicRoutes ++ preflightRoutes ++ appRoutes ++ devRoutes
-                              val routes          = if sec.enabled then baseRoutes else Middleware.cors(baseRoutes)
+                                                                                       val preflightRoutes = if sec.enabled then api.preflightRoutes else Routes.empty
+                                                                                       val baseRoutes      = publicRoutes ++ preflightRoutes ++ appRoutes ++ devRoutes
+                                                                                       val routes          = if sec.enabled then baseRoutes else Middleware.cors(baseRoutes)
 
-                              ZIO.succeed(routes)
-                            }
-                          }
-                        }
-                      }
-                    }
-          chunker = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
-          _      <- Chunker.locally(chunker)(Server.serve(routes))
-        yield ()
+                                                                                       ZIO.succeed(routes)
+                                                                                     }
+                                                                                   }
+                                                                                 }
+                                                                               }
+                                                                             }
+                                                          chunker          = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
+                                                          _               <- Chunker.locally(chunker)(Server.serve(routes))
+                                                        yield ()
+                                                      }
 
       auditLayer: ZLayer[Any, Throwable, AuditSink] = sec.auditBackend match
                                                         case "jdbc"   =>

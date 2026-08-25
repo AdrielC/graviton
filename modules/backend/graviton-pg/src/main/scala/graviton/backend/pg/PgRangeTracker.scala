@@ -4,12 +4,12 @@ import graviton.core.locator.BlobLocator
 import graviton.core.ranges.{RangeSet, Span}
 import graviton.core.types.BlobOffset
 import graviton.runtime.indexes.RangeTracker
-import graviton.runtime.kv.KeyValueStore
+import graviton.runtime.kv.{KeyValueStore, KvKey, KvValue}
 import zio.{Ref, ZIO, ZLayer}
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
-import java.util.Base64
+import java.security.MessageDigest
 
 /**
  * Range tracking for partial blob materialization.
@@ -34,34 +34,34 @@ final class PgRangeTracker private (
     cache.modifyZIO { m =>
       m.get(locator) match
         case Some(rs) => ZIO.succeed((rs, m))
-        case None     =>
-          load(locator).either.map {
-            case Right(rs) => (rs, m.updated(locator, rs))
-            case Left(_)   => (RangeSet.empty[BlobOffset], m) // don't poison cache on transient KV failure
-          }
+        case None     => load(locator).map(rs => (rs, m.updated(locator, rs)))
     }
 
   override def merge(locator: BlobLocator, span: Span[BlobOffset]): ZIO[Any, Throwable, RangeSet[BlobOffset]] =
-    for
-      // Ensure we try to populate from KV at most once per locator.
-      existing <- current(locator)
-      merged   <- cache.modify { m =>
-                    val next = m.getOrElse(locator, existing).add(span)
-                    (next, m.updated(locator, next))
-                  }
-      // Best-effort persistence: the in-process cache remains correct even if KV is temporarily unavailable.
-      _        <- kv.put(PgRangeTracker.key(locator), PgRangeTracker.encode(merged)).catchAll(_ => ZIO.unit)
-    yield merged
+    cache.modifyZIO { entries =>
+      val existing = entries.get(locator).fold(load(locator))(ZIO.succeed(_))
+      existing.flatMap { ranges =>
+        val merged = ranges.add(span)
+        for
+          encoded <- ZIO
+                       .fromEither(PgRangeTracker.encode(merged))
+                       .mapError(message => new IllegalArgumentException(message))
+          // Keep serialization and persistence inside the synchronized update.
+          // Otherwise two fibers can write their snapshots out of order, or a
+          // failed write can leave the cache claiming durability it never got.
+          _       <- kv.put(PgRangeTracker.key(locator), encoded)
+        yield (merged, entries.updated(locator, merged))
+      }
+    }
 
   private def load(locator: BlobLocator): ZIO[Any, Throwable, RangeSet[BlobOffset]] =
     kv.get(PgRangeTracker.key(locator)).flatMap {
       case None        => ZIO.succeed(RangeSet.empty[BlobOffset])
       case Some(bytes) =>
         PgRangeTracker.decode(bytes) match
-          case Right(rs) => ZIO.succeed(rs)
-          case Left(_)   =>
-            // Corrupt payload: drop it and fail closed to empty.
-            kv.delete(PgRangeTracker.key(locator)).ignore.as(RangeSet.empty[BlobOffset])
+          case Right(rs)     => ZIO.succeed(rs)
+          case Left(message) =>
+            ZIO.fail(new IllegalStateException(s"Corrupt persisted range set for '${locator.render}': $message"))
     }
 
 object PgRangeTracker:
@@ -82,33 +82,38 @@ object PgRangeTracker:
   private val Prefix = "range-tracker/v1/"
   private val Magic  = 0x47525452 // "GRTR"
 
-  private def key(locator: BlobLocator): String =
+  private def key(locator: BlobLocator): KvKey =
     val locBytes = locator.render.getBytes(StandardCharsets.UTF_8)
-    val enc      = Base64.getUrlEncoder.withoutPadding().encodeToString(locBytes)
-    Prefix + enc
+    val digest   = MessageDigest.getInstance("SHA-256").digest(locBytes)
+    val hex      = digest.iterator.map(byte => f"${byte & 0xff}%02x").mkString
+    KvKey.applyUnsafe(Prefix + hex)
 
-  private def encode(set: RangeSet[BlobOffset]): Array[Byte] =
-    val spans = set.spans
-    val n     = spans.length
-    val buf   = ByteBuffer.allocate(4 + 4 + n * 16) // magic + count + spans
-    buf.putInt(Magic)
-    buf.putInt(n)
-    spans.foreach { s =>
-      buf.putLong(s.startInclusive.value)
-      buf.putLong(s.endInclusive.value)
-    }
-    buf.array()
-
-  private def decode(bytes: Array[Byte]): Either[String, RangeSet[BlobOffset]] =
-    if bytes.length < 8 then Left("RangeSet payload too short")
+  private def encode(set: RangeSet[BlobOffset]): Either[String, KvValue] =
+    val spans  = set.spans
+    val n      = spans.length
+    val length = 8L + n.toLong * 16L
+    if length > KvValue.MaxBytes then Left(s"Range set encoding exceeds ${KvValue.MaxBytes} bytes")
     else
-      val buf = ByteBuffer.wrap(bytes)
+      val buf = ByteBuffer.allocate(length.toInt)
+      buf.putInt(Magic)
+      buf.putInt(n)
+      spans.foreach { s =>
+        buf.putLong(s.startInclusive.value)
+        buf.putLong(s.endInclusive.value)
+      }
+      KvValue.fromArray(buf.array())
+
+  private def decode(bytes: KvValue): Either[String, RangeSet[BlobOffset]] =
+    val raw = bytes.toArray
+    if raw.length < 8 then Left("RangeSet payload too short")
+    else
+      val buf = ByteBuffer.wrap(raw)
       val mg  = buf.getInt()
       if mg != Magic then Left("RangeSet payload has invalid magic")
       else
         val n = buf.getInt()
         if n < 0 then Left("RangeSet payload has negative span count")
-        else if bytes.length != 8 + n * 16 then Left("RangeSet payload length mismatch")
+        else if raw.length.toLong != 8L + n.toLong * 16L then Left("RangeSet payload length mismatch")
         else
           val spans =
             (0 until n).iterator.map { _ =>

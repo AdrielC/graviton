@@ -1,9 +1,10 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgReplicaIndex}
+import graviton.backend.pg.{PgBlobManifestRepo, PgKeyValueStore, PgMutableObjectStore, PgReplicaIndex}
 import graviton.core.locator.BlobLocator
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
 import graviton.runtime.model.BlobWritePlan
+import graviton.runtime.kv.{KvKey, KvValue}
 import graviton.runtime.stores.{BlobStore, CasBlobStore, FsBlockStore}
 import graviton.security.*
 import graviton.core.types.UploadChunkSize
@@ -108,9 +109,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             written <- Chunker.locally(chunker) {
                          ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
                        }
-            blobKey  = written.key match
-                         case b: graviton.core.keys.BinaryKey.Blob => b
-                         case _                                    => throw new IllegalStateException("expected blob key")
+            blobKey  = written.key
             ds      <- ZIO.service[javax.sql.DataSource]
             repo     = new PgBlobManifestRepo(ds)
             stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("manifest not found"))
@@ -140,6 +139,20 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             details.blocks.map(_.size).sum == data.length.toLong,
           )
         },
+        test("Postgres manifest deletion removes the logical blob and is idempotent") {
+          val data = Chunk.fromArray(("delete-test-" * 500).getBytes(StandardCharsets.UTF_8))
+
+          for
+            store        <- ZIO.service[BlobStore]
+            ds           <- ZIO.service[javax.sql.DataSource]
+            repo          = new PgBlobManifestRepo(ds)
+            written      <- ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+            before       <- store.stat(written.key)
+            removed      <- repo.delete(written.key)
+            after        <- store.stat(written.key)
+            removedAgain <- repo.delete(written.key)
+          yield assertTrue(before.nonEmpty, removed, after.isEmpty, !removedAgain)
+        },
         test("Postgres replica index persists and replaces locator sets") {
           for
             store    <- ZIO.service[BlobStore]
@@ -153,6 +166,64 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             _        <- index.update(written.key, Set(second))
             replaced <- index.replicas(written.key)
           yield assertTrue(both == Set(first, second), replaced == Set(second))
+        },
+        test("Postgres key/value backend persists typed, bounded values") {
+          val key   = KvKey.applyUnsafe("integration/metadata/example")
+          val value = KvValue.fromArray("schema-backed-value".getBytes(StandardCharsets.UTF_8)).toOption.get
+
+          for
+            ds      <- ZIO.service[javax.sql.DataSource]
+            store    = new PgKeyValueStore(ds)
+            _       <- store.put(key, value)
+            loaded  <- store.get(key)
+            _       <- store.delete(key)
+            deleted <- store.get(key)
+          yield assertTrue(loaded.contains(value), deleted.isEmpty)
+        },
+        test("Postgres object backend streams multi-chunk objects, copies, lists, and deletes") {
+          val source = BlobLocator(
+            LocatorScheme.applyUnsafe("pg"),
+            LocatorBucket.applyUnsafe("integration"),
+            LocatorPath.applyUnsafe("objects/source"),
+          )
+          val copy   = source.copy(path = LocatorPath.applyUnsafe("objects/copy"))
+          val data   = Chunk.fromIterable(0 until (3 * 1024 * 1024 + 37)).map(index => (index % 251).toByte)
+
+          for
+            ds      <- ZIO.service[javax.sql.DataSource]
+            store    = new PgMutableObjectStore(ds)
+            _       <- ZStream.fromChunk(data).rechunk(73 * 1024 + 11).run(store.put(source))
+            size    <- store.head(source)
+            loaded  <- store.get(source).runCollect
+            _       <- store.copy(source, copy)
+            copied  <- store.get(copy).runCollect
+            listed  <- store.list("pg://integration/objects/").runCollect
+            _       <- store.delete(source)
+            deleted <- store.head(source)
+          yield assertTrue(
+            size.contains(data.length.toLong),
+            loaded == data,
+            copied == data,
+            listed.toSet == Set(source, copy),
+            deleted.isEmpty,
+          )
+        },
+        test("Postgres object upload rolls back partial chunks on stream failure") {
+          val locator = BlobLocator(
+            LocatorScheme.applyUnsafe("pg"),
+            LocatorBucket.applyUnsafe("integration"),
+            LocatorPath.applyUnsafe("objects/interrupted"),
+          )
+          val failure = new RuntimeException("intentional upstream failure")
+
+          for
+            ds   <- ZIO.service[javax.sql.DataSource]
+            store = new PgMutableObjectStore(ds)
+            exit <- (ZStream.fromChunk(Chunk.fill(2 * 1024 * 1024)(1.toByte)) ++ ZStream.fail(failure))
+                      .run(store.put(locator))
+                      .exit
+            head <- store.head(locator)
+          yield assertTrue(exit.isFailure, head.isEmpty)
         },
         test("JDBC audit sink persists one linear chain under concurrent writes") {
           val orgId       = UUID.fromString("00000000-0000-0000-0000-000000000101")

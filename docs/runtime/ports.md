@@ -46,9 +46,11 @@ See `graviton.runtime.indexes.ReplicaIndex`.
 
 A minimal KV port used for internal indexes/configurable metadata storage.
 
-- `put(key: String, value: Array[Byte])`
-- `get(key: String)`
-- `delete(key: String)`
+- `put(key: KvKey, value: KvValue)`
+- `get(key: KvKey)`
+- `delete(key: KvKey)`
+
+`KvKey` is an Iron-refined non-empty key capped at 1024 characters. `KvValue` is a `Chunk[Byte]` capped at 32 MiB.
 
 See `graviton.runtime.kv.KeyValueStore`.
 
@@ -57,7 +59,6 @@ See `graviton.runtime.kv.KeyValueStore`.
 - **In-memory block store**: `InMemoryBlockStore` in `graviton.runtime.stores` (main sources) with a `layer` helper.
 - **Test-only blob store**: `InMemoryBlobStore` lives under **`src/test`** — useful in tests, not part of the published main API.
 - **App-friendly in-memory stack**: `Graviton.inMemory()` builds `CasBlobStore` over `InMemoryBlockStore` with an inline manifest repo.
-- **Backend scaffolding**: Postgres/S3/Rocks implementations under `modules/backend/*`
+- **Backend adapters**: PostgreSQL object/KV/replica stores, S3 object/CAS stores, and RocksDB KV under `modules/backend/*`
 
 For a current inventory and status notes, see **[Storage backends](./backends.md)**.
-

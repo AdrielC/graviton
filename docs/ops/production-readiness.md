@@ -1,6 +1,6 @@
 # Production Readiness
 
-Graviton 0.2 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL path is integration-tested and suitable for environment qualification. It is not a universal high-availability claim.
+Graviton 0.3 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL path is integration-tested and suitable for environment qualification. It is not a universal high-availability claim.
 
 ## Support matrix
 
@@ -13,8 +13,8 @@ Graviton 0.2 is a production candidate for controlled embedded and single-node f
 | HTTP v1 | Upload, inventory, pagination, metadata, verify, GET, HEAD, ranges, preconditions, and delete | Multipart and resumable sessions are not implemented |
 | Scala SDK | Typed streaming upload/download plus list, metadata, verify, ranges, and delete; logical 1 TiB contract and real 32 MiB socket round trip | Physically qualify target object sizes, timeouts, and memory under production concurrency |
 | Security | RS256 OIDC/JWKS, issuer/audience checks, capabilities, rate and size controls, exact origins, trusted proxy policy, audit chain | Operator must configure and test the real IdP, ingress, TLS, proxy trust, and retention |
-| Packaging | Fat JAR, distroless non-root image, Kubernetes example, SBOM, checksums, attestations | Maven Central requires repository signing credentials |
-| gRPC | Contracts, generated stubs, clients, and adapters | No runnable gRPC listener in the packaged server yet |
+| Packaging | Fat JAR, distroless non-root image, Kubernetes example, SBOM, checksums, attestations, and Maven Central publication | Release secrets and target repositories remain operator-owned |
+| gRPC | Packaged listener, generated stubs, bounded streaming client, lifecycle calls, auth, capabilities, rate limiting, and audit | HTTP additionally supports ranges, preconditions, and verification |
 | RocksDB | Durable key-value adapter | Not a complete CAS `BlockStore` backend |
 
 ## Executable release gates
@@ -25,6 +25,7 @@ Run these from a clean clone:
 TESTCONTAINERS=0 ./sbt scalafmtCheckAll test
 GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"
 ./scripts/verify-external-consumer.sh
+./scripts/audit-published-artifacts.sh
 ./sbt server/assembly
 ./scripts/smoke-packaged-server.sh
 ./sbt docs/mdoc checkDocSnippets buildDocsAssets
@@ -32,11 +33,13 @@ npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-CI additionally starts pinned PostgreSQL and MinIO images. The packaged smoke runs actual open and authenticated server processes. It uploads and compares bytes, tests range and conditional responses, verifies stored content, checks anonymous rejection, and checks capability denial.
+CI additionally starts pinned PostgreSQL and MinIO images. The packaged smoke runs actual open and authenticated server processes. It uploads and compares HTTP bytes, tests range and conditional responses, verifies stored content, checks anonymous rejection, and checks capability denial. It also streams 3 MiB through both open and authenticated gRPC listeners in the assembled JAR, validates every byte without collecting the payload, and exercises health, stat, list, inspect, and delete.
 
 The SDK tests also execute a real 32 MiB upload and download through the ZIO HTTP client, streaming server, and CAS, then compare the incremental digest and run metadata, inventory, and verification calls. A separate logical 1 TiB test proves `Long` length handling, source laziness, and absence of materialized request content. It does not physically transfer 1 TiB.
 
-The direct S3 blob adapter uses adaptive multipart targets that begin at 5 MiB and grow every 256 parts to a hard, Iron-enforced 128 MiB buffer ceiling. Its 10,000-part schedule has more than 1 TiB of logical capacity. This is a bounded-memory and capacity proof, not a physical 1 TiB S3 transfer or a concurrency sizing result.
+The gRPC suite starts the real listener on an ephemeral port and streams 12 MiB through generated client and server stubs before exercising stat, list, inspect, and delete. Frames are capped at 1 MiB and checked for contiguous download offsets.
+
+The direct S3 blob adapter uses adaptive multipart targets that begin at 5 MiB and grow every 256 parts to a hard, Iron-enforced 128 MiB buffer ceiling. Its 10,000-part schedule has more than 1 TiB of logical capacity. Once the digest is known, objects above the single-copy threshold are promoted to their content key with server-side multipart copy in 512 MiB ranges, and failed source or destination multipart uploads are explicitly aborted. The suite executes the complete 1 TiB copy plan against a recording S3 client without allocating payload bytes. This is a bounded-memory protocol and capacity proof, not a physical 1 TiB S3 transfer or a concurrency sizing result.
 
 ## Deployment profiles
 
@@ -79,8 +82,8 @@ Treat these as operational signals, not a capacity guarantee. Alerts and service
 
 ## Release integrity
 
-A `v*` tag validates the build, runs the packaged smoke, proves external consumption, creates checksums and an SPDX SBOM, attests the JAR and container, pushes a multi-architecture GHCR image, and creates a GitHub release. Signed Maven Central publication runs only when Sonatype and PGP secrets are configured.
+A `v*` tag validates the build, runs the packaged smoke, proves external consumption, creates checksums and an SPDX SBOM, attests the JAR and container, pushes a multi-architecture GHCR image, publishes signed Maven Central modules, and creates a GitHub release. Missing or invalid Sonatype and PGP credentials fail the release instead of silently omitting publication.
 
 ## Remaining product work
 
-The main product gaps are runnable gRPC parity, a full RocksDB block backend, resumable uploads, automatic replica scheduling, long-duration fault injection, and a qualified multi-process upgrade story. These are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.
+The main product gaps are resumable HTTP uploads, automatic replica scheduling, long-duration fault injection, and a qualified multi-process upgrade story. RocksDB is deliberately scoped as a durable key-value module rather than advertised as a blob backend. These boundaries are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.

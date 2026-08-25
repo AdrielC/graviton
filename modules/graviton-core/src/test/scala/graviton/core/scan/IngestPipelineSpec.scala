@@ -1,8 +1,6 @@
 package graviton.core.scan
 
 import graviton.core.bytes.*
-import kyo.Record
-import kyo.Record.`~`
 import zio.*
 import zio.stream.*
 import zio.test.*

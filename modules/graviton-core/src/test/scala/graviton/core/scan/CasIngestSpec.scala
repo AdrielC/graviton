@@ -1,10 +1,7 @@
 package graviton.core.scan
 
-import graviton.core.bytes.*
-import graviton.core.keys.BinaryKey
 import zio.*
 import zio.test.*
-import zio.test.Assertion.*
 import zio.test.TestAspect.ignore
 
 object CasIngestSpec extends ZIOSpecDefault:

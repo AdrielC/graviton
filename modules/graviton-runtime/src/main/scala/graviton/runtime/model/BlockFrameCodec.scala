@@ -2,12 +2,18 @@ package graviton.runtime.model
 
 import graviton.core.codec.BinaryKeyCodec
 import graviton.core.keys.BinaryKey
+import graviton.core.types.MaxBlockBytes
 import scodec.*
 import scodec.bits.{BitVector, ByteVector}
 import scodec.codecs.*
 import zio.Chunk
 
 object BlockFrameCodec:
+
+  private val MaxAadStringBytes = 4096
+  private val MaxAadEntries     = 128
+  private val MaxAadBytes       = 1024 * 1024
+  private val MaxAuxBytes       = 1024
 
   private val frameTypeCodec: Codec[FrameType] =
     mappedEnum(uint8, FrameType.Block -> 0, FrameType.Manifest -> 1, FrameType.Attribute -> 2, FrameType.Index -> 3)
@@ -22,16 +28,16 @@ object BlockFrameCodec:
     )
 
   private val optionalString: Codec[Option[String]] =
-    optional(bool, variableSizeBytes(uint16, utf8))
+    optional(bool, variableSizeBytes(boundedUint16("stringLength", MaxAadStringBytes), utf8))
 
   private val optionalBytes: Codec[Option[Chunk[Byte]]] =
-    optional(bool, variableSizeBytes(uint16, bytes)).xmap(
+    optional(bool, variableSizeBytes(boundedUint16("auxiliaryBytesLength", MaxAuxBytes), bytes)).xmap(
       _.map(bv => Chunk.fromArray(bv.toArray)),
       _.map(chunk => ByteVector(chunk.toArray)),
     )
 
   private val payloadBytes: Codec[Chunk[Byte]] =
-    variableSizeBytesLong(nonNegativeLong("payloadLength"), bytes).xmap(
+    variableSizeBytesLong(boundedLong("payloadLength", MaxBlockBytes.toLong), bytes).xmap(
       bv => Chunk.fromArray(bv.toArray),
       chunk => ByteVector(chunk.toArray),
     )
@@ -44,8 +50,8 @@ object BlockFrameCodec:
         versionBits <- uint8.encode(value.version & 0xff)
         typeBits    <- frameTypeCodec.encode(value.frameType)
         algoBits    <- frameAlgorithmCodec.encode(value.algorithm)
-        payloadBits <- nonNegativeLong("payloadLength").encode(value.payloadLength)
-        aadBits     <- nonNegativeInt("aadLength").encode(value.aadLength)
+        payloadBits <- boundedLong("payloadLength", MaxBlockBytes.toLong).encode(value.payloadLength)
+        aadBits     <- boundedInt("aadLength", MaxAadBytes).encode(value.aadLength)
         keyBits     <- optionalString.encode(value.keyId)
         nonceBits   <- optionalBytes.encode(value.nonce)
       yield versionBits ++ typeBits ++ algoBits ++ payloadBits ++ aadBits ++ keyBits ++ nonceBits
@@ -55,8 +61,8 @@ object BlockFrameCodec:
         versionRes <- uint8.decode(bits)
         typeRes    <- frameTypeCodec.decode(versionRes.remainder)
         algoRes    <- frameAlgorithmCodec.decode(typeRes.remainder)
-        payloadRes <- nonNegativeLong("payloadLength").decode(algoRes.remainder)
-        aadRes     <- nonNegativeInt("aadLength").decode(payloadRes.remainder)
+        payloadRes <- boundedLong("payloadLength", MaxBlockBytes.toLong).decode(algoRes.remainder)
+        aadRes     <- boundedInt("aadLength", MaxAadBytes).decode(payloadRes.remainder)
         keyRes     <- optionalString.decode(aadRes.remainder)
         nonceRes   <- optionalBytes.decode(keyRes.remainder)
         header      = FrameHeader(
@@ -75,14 +81,14 @@ object BlockFrameCodec:
 
     override def encode(value: FrameAadEntry): Attempt[BitVector] =
       for
-        keyBits   <- variableSizeBytes(uint16, utf8).encode(value.key)
-        valueBits <- variableSizeBytes(uint16, utf8).encode(value.value)
+        keyBits   <- variableSizeBytes(boundedUint16("aadKeyLength", MaxAadStringBytes), utf8).encode(value.key)
+        valueBits <- variableSizeBytes(boundedUint16("aadValueLength", MaxAadStringBytes), utf8).encode(value.value)
       yield keyBits ++ valueBits
 
     override def decode(bits: BitVector): Attempt[DecodeResult[FrameAadEntry]] =
       for
-        keyRes   <- variableSizeBytes(uint16, utf8).decode(bits)
-        valueRes <- variableSizeBytes(uint16, utf8).decode(keyRes.remainder)
+        keyRes   <- variableSizeBytes(boundedUint16("aadKeyLength", MaxAadStringBytes), utf8).decode(bits)
+        valueRes <- variableSizeBytes(boundedUint16("aadValueLength", MaxAadStringBytes), utf8).decode(keyRes.remainder)
       yield DecodeResult(FrameAadEntry(keyRes.value, valueRes.value), valueRes.remainder)
 
   private val optionalBinaryKey: Codec[Option[BinaryKey]] =
@@ -92,7 +98,7 @@ object BlockFrameCodec:
     optional(bool, int64)
 
   private val extrasCodec: Codec[List[FrameAadEntry]] =
-    listOfN(uint16, frameAadEntryCodec)
+    listOfN(boundedUint16("aadEntryCount", MaxAadEntries), frameAadEntryCodec)
 
   private val frameAadCodec: Codec[FrameAad] = new Codec[FrameAad]:
     override def sizeBound: SizeBound = SizeBound.unknown
@@ -180,18 +186,26 @@ object BlockFrameCodec:
   private def ensure(condition: => Boolean, message: => String): Attempt[Unit] =
     if condition then Attempt.successful(()) else Attempt.failure(Err(message))
 
-  private def nonNegativeInt(context: String): Codec[Int] =
+  private def boundedInt(context: String, max: Int): Codec[Int] =
     int32.exmap(
       value =>
-        if value >= 0 then Attempt.successful(value)
-        else Attempt.failure(Err(s"$context cannot be negative: $value")),
+        if value >= 0 && value <= max then Attempt.successful(value)
+        else Attempt.failure(Err(s"$context must be between 0 and $max: $value")),
       value => Attempt.successful(value),
     )
 
-  private def nonNegativeLong(context: String): Codec[Long] =
+  private def boundedLong(context: String, max: Long): Codec[Long] =
     int64.exmap(
       value =>
-        if value >= 0 then Attempt.successful(value)
-        else Attempt.failure(Err(s"$context cannot be negative: $value")),
+        if value >= 0L && value <= max then Attempt.successful(value)
+        else Attempt.failure(Err(s"$context must be between 0 and $max: $value")),
+      value => Attempt.successful(value),
+    )
+
+  private def boundedUint16(context: String, max: Int): Codec[Int] =
+    uint16.exmap(
+      value =>
+        if value <= max then Attempt.successful(value)
+        else Attempt.failure(Err(s"$context must be at most $max: $value")),
       value => Attempt.successful(value),
     )

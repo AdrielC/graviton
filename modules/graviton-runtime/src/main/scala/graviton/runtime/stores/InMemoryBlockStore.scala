@@ -81,14 +81,10 @@ final class InMemoryBlockStore private (
   ): IO[Throwable, Option[BlockFrame]] =
     if status != BlockStoredStatus.Fresh then ZIO.succeed(None)
     else
-      plan.frame.layout match
-        case FrameLayout.BlockPerFrame =>
-          ZIO
-            .fromEither(BlockFramer.synthesizeBlock(block, index, plan, FrameContext()))
-            .mapError(msg => new IllegalArgumentException(msg))
-            .map(Some(_))
-        case FrameLayout.Aggregate(_)  =>
-          ZIO.fail(new UnsupportedOperationException("InMemoryBlockStore does not support aggregate frame layout yet"))
+      ZIO
+        .fromEither(BlockFramer.synthesizeBlock(block, index, plan, FrameContext()))
+        .mapError(msg => new IllegalArgumentException(msg))
+        .map(Some(_))
 
 private final case class Acc(
   entries: ChunkBuilder[BlockManifestEntry],

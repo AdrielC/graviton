@@ -34,7 +34,7 @@ final class InMemoryBlobStore private (
       }
       .mapZIO(builder => persist(builder.result(), plan))
 
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     ZStream
       .fromZIO(
         blobs.get.flatMap { map =>
@@ -45,11 +45,23 @@ final class InMemoryBlobStore private (
       )
       .flatMap(blob => ZStream.fromChunk(blob.bytes))
 
-  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
     blobs.get.map(_.get(key).map(_.stat))
 
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
+  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
+    blobs.get.map { entries =>
+      Chunk.fromIterable(
+        entries.iterator.collect { case (key: BinaryKey.Blob, stored) => BlobListing(key, stored.stat, blockCount = 1) }.toList
+      )
+    }
+
+  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+    stat(key).map(_.map(value => BlobDescription(BlobListing(key, value, blockCount = 1), Chunk.empty)))
+
+  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
     blobs.update(_ - key).unit
+
+  override def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
 
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for

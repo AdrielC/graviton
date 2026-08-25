@@ -140,6 +140,8 @@ jobs:
           cache: sbt
       - name: Publish locally and run a clean consumer project
         run: ./scripts/verify-external-consumer.sh
+      - name: Audit publishable JAR contents
+        run: ./scripts/audit-published-artifacts.sh
 
   packaged-server-smoke:
     runs-on: ubuntu-latest

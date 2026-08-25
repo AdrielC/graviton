@@ -1,7 +1,5 @@
 package graviton.security.jwt
 
-import graviton.security.{Capability, CapabilitySet}
-
 import java.util.UUID
 
 import scala.util.Try

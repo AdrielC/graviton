@@ -5,7 +5,6 @@ import zio.schema.{DeriveSchema, Schema}
 
 import graviton.core.canonical.CanonicalEncoding
 import graviton.core.types.{ViewArgKey, ViewArgValue, ViewName, ViewScope}
-import graviton.core.types.given
 import scala.collection.immutable.ListMap
 
 /**

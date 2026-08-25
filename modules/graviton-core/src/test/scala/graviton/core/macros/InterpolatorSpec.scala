@@ -5,7 +5,6 @@ import graviton.core.ranges.Span
 import graviton.core.macros.Interpolators.*
 import zio.test.*
 import graviton.core.types.HexLower
-import graviton.core.types.given
 
 object InterpolatorSpec extends ZIOSpecDefault:
 

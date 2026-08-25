@@ -2,8 +2,7 @@ package graviton.runtime.model
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.BinaryKey
-import graviton.core.types.{BlockIndex, BlockSize, CompressionLevel, FileSize, KekId, MaxBlockBytes, NonceLength, Offset}
-import graviton.core.types.given
+import graviton.core.types.{BlockIndex, BlockSize, FileSize, MaxBlockBytes, Offset}
 import zio.Chunk
 import zio.schema.{DeriveSchema, Schema}
 
@@ -113,14 +112,12 @@ object FrameAadPlan:
 
 sealed trait CompressionPlan
 object CompressionPlan:
-  case object Disabled                                                              extends CompressionPlan
-  final case class Zstd(level: CompressionLevel, dictionary: Option[String] = None) extends CompressionPlan
+  case object Disabled extends CompressionPlan
 
   given Schema[CompressionPlan] = DeriveSchema.gen[CompressionPlan]
 
 enum FrameLayout:
   case BlockPerFrame
-  case Aggregate(maxBlocksPerFrame: Int)
 
 object FrameLayout:
   given Schema[FrameLayout] = DeriveSchema.gen[FrameLayout]
@@ -128,21 +125,8 @@ object FrameLayout:
 sealed trait EncryptionPlan
 object EncryptionPlan:
   case object Disabled extends EncryptionPlan
-  final case class Aead(
-    mode: EncryptionMode,
-    keyId: KekId,
-    nonceLength: NonceLength,
-    aad: FrameAadPlan = FrameAadPlan(),
-  ) extends EncryptionPlan
 
   given Schema[EncryptionPlan] = DeriveSchema.gen[EncryptionPlan]
-
-enum EncryptionMode:
-  case XChaCha20Poly1305
-  case Aes256Gcm
-
-object EncryptionMode:
-  given Schema[EncryptionMode] = DeriveSchema.gen[EncryptionMode]
 
 final case class FrameSynthesis(
   layout: FrameLayout = FrameLayout.BlockPerFrame,

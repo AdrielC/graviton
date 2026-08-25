@@ -81,6 +81,4 @@ That is evidence of bounded-memory structure and a real end-to-end transport pat
 
 When security is enabled, `GRAVITON_SECURITY_MAX_REQUEST_BYTES` must be at least the intended object size. The setting accepts 1 byte through 1 TiB and defaults to 5 GiB.
 
-## Resumable-session boundary
-
-`GravitonUploadHttpClient` remains an experimental client because the packaged server does not advertise resumable routes. Its payload transport is nevertheless streaming, its session ID is Iron-refined, and its session context is scoped through `FiberRef.locally`. Part and completion operations fail with `MissingSession` outside that regional scope. Do not present it as an operational server feature until matching routes have real end-to-end acceptance.
+The 0.3 artifact intentionally contains no client for an unserved resumable or multipart contract. Use the operational streaming HTTP client above or the streaming [gRPC client](../api/grpc.md). Resumable upload will return only with durable session storage and end-to-end server acceptance.

@@ -46,9 +46,13 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            - name: grpc
+              containerPort: 9090
           env:
             - name: GRAVITON_HTTP_PORT
               value: "8080"
+            - name: GRAVITON_GRPC_PORT
+              value: "9090"
             - name: GRAVITON_BLOB_BACKEND
               value: fs
             - name: GRAVITON_FS_ROOT
@@ -126,6 +130,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+    - name: grpc
+      port: 9090
+      targetPort: grpc
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -143,5 +150,7 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+        - protocol: TCP
+          port: 9090
   egress:
     - {}

@@ -57,6 +57,7 @@ The `/api/blobs` aliases remain available with `Deprecation: true` and a success
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
+| `GRAVITON_GRPC_PORT` | `9090` | no | Port for the gRPC server. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
 
 ### PostgreSQL (required for S3/MinIO or JDBC audit mode)

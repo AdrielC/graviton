@@ -1,13 +1,13 @@
 # Protocol Stack
 
-The protocol modules expose Graviton through shared JSON response models, HTTP, and an evolving gRPC surface.
+The protocol modules expose Graviton through shared JSON response models plus operational HTTP and gRPC transports.
 
 | Module | Implemented surface | Status |
 | --- | --- | --- |
 | `protocol/graviton-shared` | Cross-platform health, counters, inventory, manifest, upload, and verification models | Used by JVM and Scala.js |
 | `protocol/graviton-http` | Operational blob lifecycle, typed streaming Scala SDK, metrics, and JWT middleware | Contract and socket tested |
 | `protocol/graviton-proto` | Protobuf definitions and generated types | Generated during the build |
-| `protocol/graviton-grpc` | Typed clients and service implementations | Partial; not served by the default process |
+| `protocol/graviton-grpc` | Generated services and typed streaming client | Served by the default process on port 9090 |
 
 ## HTTP lifecycle
 
@@ -39,8 +39,6 @@ The server owns `GET /api/health/live`, `GET /api/health/ready`, and `GET /api/s
 
 Stats and Prometheus metrics are process-lifetime observations. They reset on restart and require `observability.read` when security is enabled. `GET /api/v1/blobs` is the durable inventory source.
 
-## Partial surfaces
+## Transport boundaries
 
-`UploadNodeHttpClient` targets an experimental versioned multipart surface under `/api/v1/...`; corresponding stable server routes are not advertised. The gRPC clients and service implementations compile and have focused tests, but they are not yet the primary end-to-end deployment path.
-
-The next protocol milestone is a runnable authenticated gRPC listener with transport-level parity acceptance. HTTP compatibility policy is documented and checked in the 0.1 release process.
+The published HTTP and gRPC clients target routes served by the default process and exercised over real sockets. Graviton 0.3 does not publish clients for proposed resumable or multipart routes. The stable gRPC surface deliberately models a stream as the upload session and exposes the core blob lifecycle. HTTP remains the richer transport for byte ranges, conditional requests, and server-side verification.

@@ -1,52 +1,50 @@
 # Roadmap
 
-Graviton is an operational pre-1.0 CAS runtime. This roadmap records what the 0.1 release candidate actually proves and orders the work that still changes the support boundary.
+Graviton is an operational pre-1.0 content-addressable storage runtime. This roadmap separates repository-complete functionality from deployment-specific qualification and future product work.
 
-## 0.1 release candidate
+## 0.3 release boundary
 
-- Stable module organization plus source and binary compatibility checks
-- Clean external sbt consumer proof against locally published POMs
-- Canonical `/api/v1/blobs` lifecycle with structured errors and deprecated legacy aliases
-- Cursor pagination, byte ranges, ETags, modification dates, and HTTP preconditions
-- RS256 OIDC/JWKS verification with issuer, audience, algorithm, and key validation
-- Capability authorization, trusted-proxy TLS policy, exact CORS origins, request and byte limits, and audit chains
-- Fsync plus atomic filesystem publication, readiness checks, S3 client retries, and strict duplicate validation
-- PostgreSQL replica-index persistence and migration checksum ledger
-- Parallel block replication with write quorums, validating read fallback, repair, and health checks
-- Two-pass unreachable-block collection with minimum age, dry-run, quarantine, restore, and delayed purge APIs
-- Packaged JAR smoke proof, non-root container, conservative Kubernetes example, backup/restore tooling, soak tooling, and provenance-rich measurement output
-- Pinned CI actions, dependency review, dependency submission, CodeQL for supported workflow code, Dependabot, SPDX SBOM, checksums, and artifact attestations
+- Typed, bounded streaming APIs across HTTP, gRPC, filesystem, PostgreSQL, and S3-compatible storage
+- Canonical `/api/v1/blobs` upload, inventory, metadata, verification, retrieval, range, precondition, and delete lifecycle
+- Packaged gRPC listener with client-streaming upload, server-streaming download and inspection, stat, list, delete, and public backend health
+- Typed Scala SDKs using ZIO Streams, ZIO Blocks media types, Iron-refined byte limits, and transparent stream-scoped transport state
+- Operational PostgreSQL key-value and chunked object stores with transactional commit, rollback, copy, list, range tracking, and streaming reads
+- Operational S3 content-addressed and generic object adapters with bounded multipart buffering, retry-safe publication, and explicit multipart abort finalizers
+- Durable RocksDB typed key-value adapter with close-and-reopen persistence coverage
+- Filesystem CAS with fsync, atomic publication, restart-safe manifests, conservative garbage collection, quarantine, and restore
+- RS256 OIDC/JWKS verification, capability authorization, trusted-proxy TLS policy, exact CORS origins, request and byte limits, gRPC interceptors, and hash-chained audit events
+- Clean external-consumer resolution for every published module plus a JAR-content gate that rejects empty or unsupported-operation artifacts
+- Packaged JAR smoke proof, non-root container, Kubernetes and on-prem examples, backup/restore tooling, SPDX SBOM, checksums, attestations, and signed Maven Central publication
 
-## 0.1 operator acceptance
+## Operator acceptance
 
-These items are deployment-specific. They cannot be completed once for every user inside the repository.
+These items depend on the deployment and cannot be completed once for every user inside this repository.
 
-- Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, and CORS against the actual ingress and identity provider
+- Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, CORS, and gRPC ingress against the real identity provider and network
 - Run the restore drill from real backups and record recovery time and recovery point objectives
-- Run `scripts/benchmark-http.sh` and `scripts/soak-http.sh` with representative data, concurrency, backends, and retention settings
+- Run `scripts/benchmark-http.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings
 - Exercise node termination, storage throttling, credential rotation, backend outages, and rollback in the target environment
 - For shared S3 plus PostgreSQL, qualify concurrent processes and rolling upgrades before claiming high availability
 
-## 0.2 priorities
+## Next product work
 
 ### Protocols and clients
 
-- Wire the generated gRPC services into the packaged server and reach HTTP lifecycle parity
-- Add resumable and multipart upload contracts with restart and retry acceptance suites
-- Publish narrow Scala client artifacts once the first public coordinates are available
+- Add resumable HTTP upload contracts with restart, retry, expiry, and idempotency acceptance suites
+- Add optional gRPC range reads and server-side verification if production consumers need parity with those HTTP extensions
 - Define an explicit idempotency-key contract for non-content-derived operations
 
 ### Storage and reliability
 
-- Promote the RocksDB adapter into a complete CAS `BlockStore`
 - Schedule replica scrub and repair jobs around `ReplicatedBlockStore` and `PgReplicaIndex`
 - Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
 - Add operator-facing inventory and restore commands for S3 quarantine records
-- Evaluate compression and authenticated encryption without changing content identity semantics
+- Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
+- Add a RocksDB `BlockStore` only when a real embedded blob-backend use case requires it; the published RocksDB module currently promises durable typed key-value storage
 
 ### Operations
 
-- Publish benchmark envelopes only after multiple controlled environments produce retained raw samples
+- Publish benchmark envelopes after multiple controlled environments produce retained raw samples
 - Add dashboards and backend-specific latency distributions
 - Add signed migration sequencing beyond the initial schema ledger
 - Document and test multi-process zero-downtime upgrades

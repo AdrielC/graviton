@@ -3,7 +3,6 @@ package graviton.core.macros
 import graviton.core.keys.KeyBits
 import graviton.core.locator.BlobLocator
 import graviton.core.ranges.Span
-import graviton.core.ranges.given
 import graviton.core.types.HexLower
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
 import graviton.core.types.BlobOffset
@@ -11,7 +10,6 @@ import graviton.core.types.Offset
 import graviton.core.bytes.Digest
 import graviton.core.model.Block
 import java.lang.StringBuilder as JLSBuilder
-import zio.Chunk
 import graviton.core.bytes.Hasher
 import graviton.core.bytes.Hasher.given
 import scala.quoted.*
@@ -50,8 +48,8 @@ object Interpolators:
     val ai   = args.iterator
     val bldr = new JLSBuilder(process(pi.next()))
     while (ai.hasNext) {
-      bldr append processArgs(ai.next())
-      bldr append process(pi.next())
+      val _ = bldr.append(processArgs(ai.next()))
+      val _ = bldr.append(process(pi.next()))
     }
     Right(bldr.toString)
   }

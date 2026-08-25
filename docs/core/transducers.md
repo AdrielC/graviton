@@ -233,7 +233,7 @@ The Transducer algebra is the foundation for upcoming pipeline phases:
 | **C** — Verification & integrity | **Partial** | `BlockVerify` transducers implemented; full operational verification tooling still evolving |
 | **D** — CDC chunker as transducer | Planned | Port FastCDC (and related) to first-class transducer/chunker integration |
 | **E** — Deduplication | **Partial** | Block dedup at `BlockStore`; cross-blob / rolling-hash index roadmap |
-| **F** — Compression & encryption | Planned | Frame synthesis: Zstd and AEAD paths return `Left("…not implemented yet")` today |
+| **F** — Compression & encryption | Not exposed | Requires paired streaming encode/decode and key-provider implementations before entering the public plan algebra |
 | **G** — Retrieval & streaming | **Partial** | Block reassembly via `BlobStreamer`; decompression-as-transducer for reads roadmap |
 | **H** — Operational excellence | **Partial** | `BombGuard`, `ThroughputMonitor`, metrics decorators; rate limiting and hardening roadmap |
 

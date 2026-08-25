@@ -35,15 +35,16 @@ flowchart LR
   end
 
   subgraph Backends["Storage Backends"]
+    fs["Filesystem CAS"]
     s3["S3 Blob Store"]
     pg["PostgreSQL Metadata"]
-    rocks["RocksDB Hot Cache"]
+    rocks["RocksDB Typed KV"]
   end
 
   observability["Prometheus + Structured Logs"]
 
-  cli --> http
-  cli --> grpc
+  cli --> ingest
+  cli --> retrieve
   sdks --> http
   sdks --> grpc
   integ --> http
@@ -54,8 +55,10 @@ flowchart LR
   grpc --> retrieve
   ingest --> manifest
   manifest --> pg
+  ingest -->|Blocks + manifests| fs
+  retrieve --> fs
   ingest -->|Blocks| s3
-  retrieve -->|Cache| rocks
+  retrieve --> s3
   metrics --> observability
   ingest --> metrics
   retrieve --> metrics
@@ -63,11 +66,11 @@ flowchart LR
   class cli,sdks,integ client
   class http,grpc transport
   class ingest,retrieve,manifest,metrics runtime
-  class s3,pg,rocks backend
+  class fs,s3,pg,rocks backend
   class observability ops
 ```
 
-**Accuracy notes for this diagram:** the **CLI** is the `graviton-cli` SBT project (`./sbt "cli/run …"`), not a separate binary artifact. **gRPC** is not started by `server/run` today. **RocksDB** is a backend module but is not required for the default HTTP + Postgres + fs/S3 flows.
+**Accuracy notes for this diagram:** the **CLI** is the `graviton-cli` SBT project (`./sbt "cli/run …"`) and opens its configured store directly. The packaged server starts HTTP on `8081` and gRPC on `9090` by default. **RocksDB** is an operational typed KV library adapter, not an implicit retrieval cache and not part of the default filesystem or S3 plus PostgreSQL server compositions.
 
 ## Quasar + Graviton (service topology)
 
@@ -183,7 +186,7 @@ See the [Transducer Algebra](./core/transducers.md) page for the full API and im
 ## Protocol
 
 - `graviton-proto`: protobuf contracts for gRPC (and related HTTP design).
-- `graviton-grpc`: generated stubs and service scaffolding; **end-to-end gRPC serving** from `graviton-server` is **not** at parity with HTTP yet (see [gRPC API](./api/grpc.md)).
+- `graviton-grpc`: generated stubs, a bounded streaming client, and the packaged server listener. It covers the core blob lifecycle; HTTP additionally provides ranges, preconditions, and verification (see [gRPC API](./api/grpc.md)).
 - `graviton-http`: zio-http routes (blob upload/download, dashboard snapshot/stream, health); see [HTTP API](./api/http.md).
 
 ## Backends
@@ -196,4 +199,4 @@ Each backend implements the runtime ports using specific technologies:
 
 ## Server
 
-`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects filesystem storage or S3 blocks plus PostgreSQL manifests, starts the versioned HTTP server, enforces optional OIDC and capability policy, exposes backend-aware readiness, and registers process metrics. gRPC, Shardcake, and multipart session coordination are partial and are not mounted in the packaged process.
+`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects filesystem storage or S3 blocks plus PostgreSQL manifests, starts the versioned HTTP and streaming gRPC listeners, enforces optional OIDC and capability policy on both transports, exposes backend-aware readiness, and registers process metrics. Shardcake placement and resumable HTTP session coordination are not mounted in the packaged process.

@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JAR_PATH="${1:-}"
 BASE_PORT="${GRAVITON_SMOKE_PORT:-18081}"
 SECURE_PORT="$((BASE_PORT + 1))"
+OPEN_GRPC_PORT="$((BASE_PORT + 1000))"
+SECURE_GRPC_PORT="$((BASE_PORT + 1001))"
 SMOKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/graviton-packaged-smoke.XXXXXX")"
 OPEN_PID=""
 SECURE_PID=""
@@ -60,6 +62,7 @@ run_open_smoke() {
 
   env \
     GRAVITON_HTTP_PORT="${BASE_PORT}" \
+    GRAVITON_GRPC_PORT="${OPEN_GRPC_PORT}" \
     GRAVITON_BLOB_BACKEND=fs \
     GRAVITON_FS_ROOT="${SMOKE_DIR}/open/data" \
     GRAVITON_SECURITY_ENABLED=false \
@@ -86,6 +89,11 @@ run_open_smoke() {
 
   curl --fail --silent --show-error -X POST "http://127.0.0.1:${BASE_PORT}/api/v1/blobs/${blob_id}/verify" | jq -e '.verified == true' >/dev/null
 
+  env \
+    GRAVITON_GRPC_HOST=127.0.0.1 \
+    GRAVITON_GRPC_PORT="${OPEN_GRPC_PORT}" \
+    java -cp "${JAR_PATH}" graviton.server.GrpcSmokeProbe
+
   kill "${OPEN_PID}"
   wait "${OPEN_PID}" || true
   OPEN_PID=""
@@ -98,6 +106,7 @@ run_secure_smoke() {
 
   env \
     GRAVITON_HTTP_PORT="${SECURE_PORT}" \
+    GRAVITON_GRPC_PORT="${SECURE_GRPC_PORT}" \
     GRAVITON_BLOB_BACKEND=fs \
     GRAVITON_FS_ROOT="${SMOKE_DIR}/secure/data" \
     GRAVITON_SECURITY_ENABLED=true \
@@ -139,6 +148,12 @@ run_secure_smoke() {
   read_only_token="$(curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' -d '{"caps":1}' "http://127.0.0.1:${SECURE_PORT}/dev/token" | jq -er '.access_token')"
   forbidden="$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H "Authorization: Bearer ${read_only_token}" --data-binary @"${SMOKE_DIR}/secure/input.bin" "http://127.0.0.1:${SECURE_PORT}/api/v1/blobs")"
   [[ "${forbidden}" == "403" ]]
+
+  env \
+    GRAVITON_GRPC_HOST=127.0.0.1 \
+    GRAVITON_GRPC_PORT="${SECURE_GRPC_PORT}" \
+    GRAVITON_GRPC_BEARER_TOKEN="${token}" \
+    java -cp "${JAR_PATH}" graviton.server.GrpcSmokeProbe
 
   kill "${SECURE_PID}"
   wait "${SECURE_PID}" || true

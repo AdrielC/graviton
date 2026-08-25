@@ -124,8 +124,8 @@ Every line is a **blocker** unless explicitly marked optional.
       unless the court's IT has signed off).
 - [ ] TLS cert is trusted by every client machine (Let's Encrypt or the
       court's internal CA).
-- [ ] Public port 443 is the only externally reachable port; 8081, 5432,
-      9000, 9001 are firewalled to the internal interface.
+- [ ] Public port 443 is the only externally reachable port; 8081, 9090,
+      5432, 9000, and 9001 are firewalled to the internal interface.
 - [ ] Docker daemon restart policy: `--restart=unless-stopped` on each
       service (Compose default).
 - [ ] Postgres WAL archiving configured to a separate durable target.

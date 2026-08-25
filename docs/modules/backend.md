@@ -5,8 +5,8 @@ Backend modules translate runtime storage ports into concrete persistence system
 | Adapter | Proven operations | Known boundary |
 | --- | --- | --- |
 | Filesystem | CAS block and manifest persistence, lookup, streaming, metadata, manifest deletion | Local disk only; no garbage collector |
-| PostgreSQL | Transactional manifest persistence and ordered block references | Generic object, KV, and replica ports are still scaffolds |
-| S3/MinIO | Content-addressed block `put/get/exists`, including duplicate detection | Generic object-store ports remain scaffolds |
+| PostgreSQL | Transactional manifests, streamed object chunks, bounded KV, range tracking, and replica index | Requires the repository DDL and target-database qualification |
+| S3/MinIO | Content-addressed blocks plus full-object and generic multipart object lifecycles | Requires provider-specific multipart and concurrency qualification |
 | RocksDB | Scoped KV `put/get/delete`, including reopen persistence | Not wired as a blob or block store |
 
 ## Server compositions
@@ -25,7 +25,7 @@ The default server, embedded facade, and CLI are database-free. S3/MinIO server 
 
 `PgBlobManifestRepo` is the implemented manifest adapter for S3/MinIO server mode. It writes blob, block, and ordered span records transactionally and reconstructs manifests for reads.
 
-The following classes currently satisfy interfaces but return empty or no-op results: `PgImmutableObjectStore`, `PgMutableObjectStore`, `PgKeyValueStore`, and `PgReplicaIndex`. Their presence should not be read as support.
+`PgImmutableObjectStore` and `PgMutableObjectStore` persist object metadata plus ordered chunks. Uploads use one transaction, cap each database chunk at 1 MiB, and roll back partial data on failure. `PgKeyValueStore` enforces a 32 MiB value boundary, and `PgReplicaIndex` transactionally replaces locator sets.
 
 `PgRangeTracker` has real range-set encoding and merging, with an in-memory cache and a pluggable `KeyValueStore`. Persistence is only as strong as the provided KV implementation.
 
@@ -33,7 +33,7 @@ The following classes currently satisfy interfaces but return empty or no-op res
 
 `S3BlockStore` is the server's implemented S3 path. It derives deterministic object keys from block content IDs and implements block writes, reads, existence checks, and duplicate outcomes.
 
-`S3BlobStore` implements full-object upload, multipart completion, retrieval, and deletion, but does not implement `stat`. The generic `S3ImmutableObjectStore` and `S3MutableObjectStore` remain scaffolds.
+`S3BlobStore` implements full-object upload, adaptive bounded multipart completion, server-side multipart promotion after content hashing, retrieval, stat, inventory, inspection, deletion, health checks, and explicit abort on interruption. `S3ImmutableObjectStore` and `S3MutableObjectStore` implement prefix-isolated head/list/get/put/copy/delete with adaptive bounded multipart buffering.
 
 ## RocksDB
 
@@ -43,7 +43,7 @@ RocksDB is not currently a CAS backend. Building one requires a `BlockStore` or 
 
 ## Promotion checklist
 
-A scaffold becomes a supported backend only after it has:
+An adapter is treated as supported only after it has:
 
 1. Real I/O for every advertised operation.
 2. Explicit resource acquisition and release.

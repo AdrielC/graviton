@@ -1,7 +1,9 @@
 package graviton.server.grpc
 
-import zio.{Scope, ZIO}
+import graviton.protocol.grpc.{GravitonGrpcServer, GrpcServerConfig}
+import graviton.runtime.stores.BlobStore
+import zio.ZIO
 
 object GrpcMain:
-  val run: ZIO[Scope, Throwable, Unit] =
-    ZIO.logInfo("Starting gRPC server") *> ZIO.unit
+  def run(blobStore: BlobStore, port: Int): ZIO[Any, Throwable, Nothing] =
+    GravitonGrpcServer.serve(blobStore, GrpcServerConfig(port))

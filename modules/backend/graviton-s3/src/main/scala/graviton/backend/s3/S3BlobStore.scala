@@ -5,7 +5,7 @@ import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.locator.BlobLocator
 import graviton.core.types.{ChunkCount, FileSize, MaxBlockBytes}
-import graviton.runtime.model.{BlobStat, BlobWritePlan}
+import graviton.runtime.model.{BlobBlockDescription, BlobDescription, BlobListing, BlobStat, BlobWritePlan}
 import graviton.runtime.stores.BlobStore
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
@@ -38,7 +38,9 @@ final class S3BlobStore(
             .fromEither(plan.attributes.validate)
             .mapError(msg => new IllegalArgumentException(s"Invalid binary attributes in BlobWritePlan: $msg"))
         hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-        state   = PutState.initial(hasher, config)
+        temp   <- zio.Ref.make(Option.empty[TempResource])
+        _      <- ZIO.addFinalizer(cleanupTemp(temp))
+        state   = PutState.initial(hasher, config, temp)
       yield ZSink
         .foldLeftChunksZIO[Any, Throwable, Byte, PutState](state) { (s, chunk) =>
           s.ingest(chunk, client)
@@ -47,49 +49,137 @@ final class S3BlobStore(
         .ignoreLeftover
     }
 
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
-    key match
-      case blob: BinaryKey.Blob =>
-        val req =
-          GetObjectRequest
+  private def cleanupTemp(ref: zio.Ref[Option[TempResource]]): zio.UIO[Unit] =
+    ref.get.flatMap {
+      case None                                    => ZIO.unit
+      case Some(TempResource(key, Some(uploadId))) =>
+        ZIO
+          .attemptBlocking(
+            client.abortMultipartUpload(
+              AbortMultipartUploadRequest
+                .builder()
+                .bucket(config.tmp.bucket)
+                .key(key)
+                .uploadId(uploadId)
+                .build()
+            )
+          )
+          .ignore
+      case Some(TempResource(key, None))           =>
+        ZIO
+          .attemptBlocking(client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(key).build()))
+          .ignore
+    }
+
+  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+    val req =
+      GetObjectRequest
+        .builder()
+        .bucket(config.blobs.bucket)
+        .key(objectKeyFor(key))
+        .build()
+
+    ZStream
+      .acquireReleaseWith(
+        ZIO.attemptBlocking(client.getObject(req))
+      )(is => ZIO.attemptBlocking(is.close()).orDie)
+      .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
+
+  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+    val request = HeadObjectRequest.builder().bucket(config.blobs.bucket).key(objectKeyFor(key)).build()
+    ZIO
+      .attemptBlocking(client.headObject(request))
+      .flatMap { response =>
+        ZIO
+          .fromEither(FileSize.either(response.contentLength()))
+          .mapError(message => new IllegalStateException(message))
+          .map(size => Some(BlobStat(size, key.bits.digest, response.lastModified())))
+      }
+      .catchSome { case error: S3Exception if S3BlobStore.isNotFound(error) => ZIO.succeed(None) }
+
+  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
+    ZStream
+      .paginateChunkZIO("") { continuationToken =>
+        ZIO.attemptBlocking {
+          val builder  = ListObjectsV2Request
             .builder()
             .bucket(config.blobs.bucket)
-            .key(objectKeyFor(blob))
-            .build()
+            .prefix(activeListPrefix)
+          if continuationToken.nonEmpty then
+            val _ = builder.continuationToken(continuationToken)
+          val response = client.listObjectsV2(builder.build())
+          val listings = Chunk.fromIterable(
+            response
+              .contents()
+              .asScala
+              .iterator
+              .map { entry =>
+                val key  = parseObjectKey(entry.key()).fold(
+                  message => throw new IllegalStateException(s"Invalid Graviton blob object '${entry.key()}': $message"),
+                  identity,
+                )
+                if entry.size() != key.bits.size then
+                  throw new IllegalStateException(
+                    s"S3 object '${entry.key()}' has ${entry.size()} bytes but its content key declares ${key.bits.size}"
+                  )
+                val size = FileSize.either(entry.size()).fold(message => throw new IllegalStateException(message), identity)
+                BlobListing(key, BlobStat(size, key.bits.digest, entry.lastModified()), blockCount = 1)
+              }
+              .toList
+          )
+          (listings, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+        }
+      }
+      .runCollect
 
-        ZStream
-          .acquireReleaseWith(
-            ZIO.attemptBlocking(client.getObject(req))
-          )(is => ZIO.attemptBlocking(is.close()).orDie)
-          .flatMap { is =>
-            ZStream.fromInputStream(is, chunkSize = 64 * 1024)
+  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+    stat(key).flatMap {
+      case None        => ZIO.succeed(None)
+      case Some(value) =>
+        ZIO
+          .fromEither(BinaryKey.block(key.bits))
+          .mapError(message => new IllegalStateException(message))
+          .map { blockKey =>
+            val listing = BlobListing(key, value, blockCount = 1)
+            Some(BlobDescription(listing, Chunk(BlobBlockDescription(0L, blockKey, 0L, value.size.value))))
           }
+    }
 
-      case other =>
-        ZStream.fail(new UnsupportedOperationException(s"S3BlobStore.get only supports blob keys, got $other"))
+  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+    val req =
+      DeleteObjectRequest
+        .builder()
+        .bucket(config.blobs.bucket)
+        .key(objectKeyFor(key))
+        .build()
+    ZIO.attemptBlocking(client.deleteObject(req)).unit
 
-  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
-    // Not implemented: would require either storing digest metadata or re-hashing the object.
-    ZIO.succeed(None)
-
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
-    key match
-      case blob: BinaryKey.Blob =>
-        val req =
-          DeleteObjectRequest
-            .builder()
-            .bucket(config.blobs.bucket)
-            .key(objectKeyFor(blob))
-            .build()
-        ZIO.attemptBlocking(client.deleteObject(req)).unit
-      case other                =>
-        ZIO.fail(new UnsupportedOperationException(s"S3BlobStore.delete only supports blob keys, got $other"))
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking(client.headBucket(HeadBucketRequest.builder().bucket(config.blobs.bucket).build())).unit
 
   private def objectKeyFor(key: BinaryKey.Blob): String =
-    val base   = key.bits.digest.hex.value
+    val base   = s"${S3BlobStore.algoPathSegment(key.bits.algo)}/${key.bits.digest.hex.value}-${key.bits.size}"
     val prefix = config.blobs.prefix.trim
     if prefix.isEmpty then base
     else s"${prefix.stripSuffix("/")}/$base"
+
+  private val activeListPrefix: String =
+    val prefix = config.blobs.prefix.trim.stripSuffix("/")
+    if prefix.isEmpty then "" else s"$prefix/"
+
+  private def parseObjectKey(value: String): Either[String, BinaryKey.Blob] =
+    val relative = value.stripPrefix(activeListPrefix)
+    relative.split("/", 2).toList match
+      case algorithm :: fileName :: Nil =>
+        fileName.lastIndexOf('-') match
+          case separator if separator > 0 && separator < fileName.length - 1 =>
+            for
+              bits <- KeyBits.fromString(s"$algorithm:${fileName.substring(0, separator)}:${fileName.substring(separator + 1)}")
+              key  <- BinaryKey.blob(bits)
+              _    <- Either.cond(objectKeyFor(key) == value, (), "object key is not canonical")
+            yield key
+          case _                                                             => Left("expected <algorithm>/<hex>-<size>")
+      case _                            => Left("expected <algorithm>/<hex>-<size>")
 
 object S3BlobStore:
 
@@ -97,6 +187,8 @@ object S3BlobStore:
   val PartGrowthWindow: Int     = 256
   val MaxBufferedPartBytes: Int = 128 * 1024 * 1024
   val OneTebibyte: Long         = 1024L * 1024L * 1024L * 1024L
+  val SingleCopyMaxBytes: Long  = 4L * 1024L * 1024L * 1024L
+  val CopyPartBytes: Long       = 512L * 1024L * 1024L
 
   type PartSize = PartSize.T
   object PartSize extends RefinedSubtype[Int, GreaterEqual[5242880] & LessEqual[134217728]]:
@@ -109,6 +201,15 @@ object S3BlobStore:
 
     def fromChunk(bytes: Chunk[Byte]): Either[String, PartBuffer] =
       bytes.refineEither[MaxLength[134217728]]
+
+  private[s3] def isNotFound(error: S3Exception): Boolean =
+    error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(details => details.errorCode() == "NoSuchKey")
+
+  private[s3] def algoPathSegment(algo: graviton.core.bytes.HashAlgo): String =
+    algo match
+      case graviton.core.bytes.HashAlgo.Sha256 => "sha256"
+      case graviton.core.bytes.HashAlgo.Blake3 => "blake3"
+      case other                               => other.primaryName
 
   /**
    * Grow parts for an unknown-length stream while retaining a hard memory
@@ -124,6 +225,108 @@ object S3BlobStore:
     (1 to MaxMultipartParts).foldLeft(0L) { (total, partNumber) =>
       total + partSizeForNumber(base, partNumber).toLong
     }
+
+  private[s3] final case class CopyRange(partNumber: Int, start: Long, endInclusive: Long)
+
+  private[s3] def copyRanges(size: Long): Either[String, Chunk[CopyRange]] =
+    if size <= 0L then Left("S3 multipart copy size must be positive")
+    else
+      val count = ((size - 1L) / CopyPartBytes) + 1L
+      if count > MaxMultipartParts.toLong then Left(s"S3 multipart copy requires $count parts, exceeding $MaxMultipartParts")
+      else
+        Right(
+          Chunk.fromIterable((1L to count).map { number =>
+            val start = (number - 1L) * CopyPartBytes
+            CopyRange(number.toInt, start, math.min(size - 1L, start + CopyPartBytes - 1L))
+          })
+        )
+
+  private[s3] def promoteTempObject(
+    client: S3Client,
+    sourceBucket: String,
+    sourceKey: String,
+    destinationBucket: String,
+    destinationKey: String,
+    size: Long,
+  ): Task[Unit] =
+    if size <= SingleCopyMaxBytes then
+      ZIO.attemptBlocking {
+        client.copyObject(
+          CopyObjectRequest
+            .builder()
+            .sourceBucket(sourceBucket)
+            .sourceKey(sourceKey)
+            .destinationBucket(destinationBucket)
+            .destinationKey(destinationKey)
+            .build()
+        )
+      }.unit
+    else
+      for
+        ranges  <- ZIO.fromEither(copyRanges(size)).mapError(message => new IllegalArgumentException(message))
+        created <- ZIO.attemptBlocking {
+                     client.createMultipartUpload(
+                       CreateMultipartUploadRequest
+                         .builder()
+                         .bucket(destinationBucket)
+                         .key(destinationKey)
+                         .build()
+                     )
+                   }
+        uploadId = created.uploadId()
+        _       <- (for
+                     parts <- ZIO.foreach(ranges) { range =>
+                                ZIO.attemptBlocking {
+                                  val response = client.uploadPartCopy(
+                                    UploadPartCopyRequest
+                                      .builder()
+                                      .sourceBucket(sourceBucket)
+                                      .sourceKey(sourceKey)
+                                      .destinationBucket(destinationBucket)
+                                      .destinationKey(destinationKey)
+                                      .copySourceRange(s"bytes=${range.start}-${range.endInclusive}")
+                                      .uploadId(uploadId)
+                                      .partNumber(range.partNumber)
+                                      .build()
+                                  )
+                                  val result   = Option(response.copyPartResult()).getOrElse(
+                                    throw new IllegalStateException(s"S3 copy part ${range.partNumber} returned no result")
+                                  )
+                                  CompletedPart
+                                    .builder()
+                                    .partNumber(range.partNumber)
+                                    .eTag(Option(result.eTag()).getOrElse(throw new IllegalStateException("S3 copy part returned no ETag")))
+                                    .build()
+                                }
+                              }
+                     _     <- ZIO.attemptBlocking {
+                                client.completeMultipartUpload(
+                                  CompleteMultipartUploadRequest
+                                    .builder()
+                                    .bucket(destinationBucket)
+                                    .key(destinationKey)
+                                    .uploadId(uploadId)
+                                    .multipartUpload(CompletedMultipartUpload.builder().parts(parts.asJava).build())
+                                    .build()
+                                )
+                              }
+                   yield ()).onExit {
+                     case zio.Exit.Success(_) => ZIO.unit
+                     case _                   =>
+                       ZIO
+                         .attemptBlocking(
+                           client.abortMultipartUpload(
+                             AbortMultipartUploadRequest
+                               .builder()
+                               .bucket(destinationBucket)
+                               .key(destinationKey)
+                               .uploadId(uploadId)
+                               .build()
+                           )
+                         )
+                         .ignore
+                   }
+      yield ()
 
   /**
    * Minimal env contract for the on-prem v1 compose bundle:
@@ -159,6 +362,7 @@ private final case class PutState(
   buffer: S3BlobStore.PartBuffer,
   multipart: Option[MultipartState],
   config: S3BlobStoreConfig,
+  temp: zio.Ref[Option[TempResource]],
 ):
 
   private def targetPartSizeBytes: Int =
@@ -193,26 +397,25 @@ private final case class PutState(
       state.multipart match
         case Some(_) => ZIO.succeed(state)
         case None    =>
-          ZIO.attemptBlocking {
-            val uploadKey = state.tempObjectKey
-            val req       =
-              CreateMultipartUploadRequest
-                .builder()
-                .bucket(state.config.tmp.bucket)
-                .key(uploadKey)
-                .build()
-            val resp      = client.createMultipartUpload(req)
-            state.copy(multipart =
-              Some(
-                MultipartState(
-                  uploadId = resp.uploadId(),
-                  key = uploadKey,
-                  nextPartNumber = 1,
-                  parts = Nil,
-                )
-              )
-            )
-          }
+          for
+            created <- ZIO.attemptBlocking {
+                         val uploadKey = state.tempObjectKey
+                         val req       =
+                           CreateMultipartUploadRequest
+                             .builder()
+                             .bucket(state.config.tmp.bucket)
+                             .key(uploadKey)
+                             .build()
+                         val resp      = client.createMultipartUpload(req)
+                         MultipartState(
+                           uploadId = resp.uploadId(),
+                           key = uploadKey,
+                           nextPartNumber = 1,
+                           parts = Nil,
+                         )
+                       }
+            _       <- state.temp.set(Some(TempResource(created.key, Some(created.uploadId))))
+          yield state.copy(multipart = Some(created))
 
     ensureMultipart(this).flatMap { ensured =>
       ZIO
@@ -311,20 +514,23 @@ private final case class PutState(
                                                 .build()
                                             )
                                           }.unit
-                              _        <- ZIO.attemptBlocking {
-                                            val copyReq =
-                                              CopyObjectRequest
-                                                .builder()
-                                                .sourceBucket(config.tmp.bucket)
-                                                .sourceKey(mp.key)
-                                                .destinationBucket(config.blobs.bucket)
-                                                .destinationKey(finalObjectKeyFor(key))
-                                                .build()
-                                            client.copyObject(copyReq)
-                                          }.unit
-                              _        <- ZIO.attemptBlocking {
-                                            client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build())
-                                          }.unit
+                              _        <- temp.set(Some(TempResource(mp.key, None)))
+                              _        <- S3BlobStore.promoteTempObject(
+                                            client = client,
+                                            sourceBucket = config.tmp.bucket,
+                                            sourceKey = mp.key,
+                                            destinationBucket = config.blobs.bucket,
+                                            destinationKey = finalObjectKeyFor(key),
+                                            size = totalBytes,
+                                          )
+                              deleted  <- ZIO
+                                            .attemptBlocking(
+                                              client.deleteObject(
+                                                DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build()
+                                              )
+                                            )
+                                            .exit
+                              _        <- ZIO.when(deleted.isSuccess)(temp.set(None))
                             yield ()
       locator        <-
         plan.locatorHint match
@@ -345,13 +551,15 @@ private final case class PutState(
     if prefix.isEmpty then name else s"${prefix.stripSuffix("/")}/$name"
 
   private def finalObjectKeyFor(key: BinaryKey.Blob): String =
-    val base   = key.bits.digest.hex.value
+    val base   = s"${S3BlobStore.algoPathSegment(key.bits.algo)}/${key.bits.digest.hex.value}-${key.bits.size}"
     val prefix = config.blobs.prefix.trim
     if prefix.isEmpty then base else s"${prefix.stripSuffix("/")}/$base"
 
 object PutState:
-  def initial(hasher: Hasher, config: S3BlobStoreConfig): PutState =
-    PutState(hasher, totalBytes = 0L, buffer = S3BlobStore.PartBuffer.empty, multipart = None, config = config)
+  def initial(hasher: Hasher, config: S3BlobStoreConfig, temp: zio.Ref[Option[TempResource]]): PutState =
+    PutState(hasher, totalBytes = 0L, buffer = S3BlobStore.PartBuffer.empty, multipart = None, config = config, temp = temp)
+
+private final case class TempResource(key: String, uploadId: Option[String])
 
 private final case class MultipartState(
   uploadId: String,

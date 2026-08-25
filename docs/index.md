@@ -109,7 +109,7 @@ The public site has no hosted Graviton backend. This worksheet stays useful by p
 
 ## Explicit limits
 
-Graviton is pre-1.0. The packaged server does not yet mount gRPC, RocksDB is not a complete block backend, resumable uploads are not implemented, and automatic replica placement/repair scheduling is not wired into `Main`. Single-node filesystem mode is not HA. Shared S3 plus PostgreSQL needs target-environment concurrent-process and rolling-upgrade qualification. Published benchmark envelopes require retained representative samples.
+Graviton is pre-1.0. The RocksDB module deliberately provides typed durable key-value storage rather than claiming to be a blob backend. Resumable HTTP uploads and automatic replica placement/repair scheduling are not wired into `Main`. Single-node filesystem mode is not HA. Shared S3 plus PostgreSQL needs target-environment concurrent-process and rolling-upgrade qualification. Published benchmark envelopes require retained representative samples.
 
 ## Continue
 

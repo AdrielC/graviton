@@ -81,6 +81,7 @@ services:
       dockerfile: deploy/on-prem/v1/docker/graviton.Dockerfile
     environment:
       GRAVITON_HTTP_PORT: ${GRAVITON_HTTP_PORT:-8081}
+      GRAVITON_GRPC_PORT: ${GRAVITON_GRPC_PORT:-9090}
       GRAVITON_BLOB_BACKEND: ${GRAVITON_BLOB_BACKEND:-s3}
       QUASAR_MINIO_URL: ${QUASAR_MINIO_URL:-http://minio:9000}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -111,6 +112,7 @@ services:
       GRAVITON_SECURITY_CLOCK_SKEW_SECONDS: ${GRAVITON_SECURITY_CLOCK_SKEW_SECONDS:-30}
     ports:
       - "${GRAVITON_HTTP_PORT:-8081}:${GRAVITON_HTTP_PORT:-8081}"
+      - "${GRAVITON_GRPC_PORT:-9090}:${GRAVITON_GRPC_PORT:-9090}"
     volumes:
       - ./config:/etc/quasar/config:ro
       - graviton-tmp:/var/lib/graviton
@@ -193,4 +195,3 @@ volumes:
 networks:
   quasar-internal:
     driver: bridge
-

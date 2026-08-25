@@ -15,6 +15,7 @@ The smoke script starts the assembled JAR twice. The open server proves upload, 
 
 ```bash
 export GRAVITON_HTTP_PORT=8081
+export GRAVITON_GRPC_PORT=9090
 export GRAVITON_BLOB_BACKEND=fs
 export GRAVITON_FS_ROOT=/var/lib/graviton
 export GRAVITON_FS_BLOCK_PREFIX=cas/blocks
@@ -33,6 +34,7 @@ Build the JAR first, then the image:
 docker build -t graviton:local .
 docker run --rm \
   -p 8080:8080 \
+  -p 9090:9090 \
   -v graviton-data:/data \
   graviton:local
 ```

@@ -66,6 +66,14 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
           calls.completed.get() == 1,
         )
       },
+      test("an interrupted multipart upload is explicitly aborted") {
+        val calls = MultipartCalls()
+        val store = new S3BlobStore(multipartClient(calls), testConfig)
+        val data  = Chunk.fromArray(Array.fill[Byte](S3BlobStore.PartSize.Default.value)(3))
+
+        for exit <- (ZStream.fromChunk(data) ++ ZStream.fail(new RuntimeException("intentional failure"))).run(store.put()).exit
+        yield assertTrue(exit.isFailure, calls.created.get() == 1, calls.aborted.get() == 1, calls.completed.get() == 0)
+      },
       test("adaptive bounded parts provide at least one TiB of multipart capacity") {
         assertTrue(
           S3BlobStore.partSizeForNumber(S3BlobStore.PartSize.Default, 1) == 5 * 1024 * 1024,
@@ -74,13 +82,40 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
           S3BlobStore.multipartCapacityBytes(S3BlobStore.PartSize.Default) >= S3BlobStore.OneTebibyte,
         )
       },
+      test("one TiB promotion uses bounded server-side multipart copy") {
+        val calls = MultipartCalls()
+
+        for
+          ranges <- ZIO.fromEither(S3BlobStore.copyRanges(S3BlobStore.OneTebibyte))
+          _      <- S3BlobStore.promoteTempObject(
+                      multipartClient(calls),
+                      sourceBucket = "graviton-test-tmp",
+                      sourceKey = "temporary/object",
+                      destinationBucket = "graviton-test",
+                      destinationKey = "sha256/content-key",
+                      size = S3BlobStore.OneTebibyte,
+                    )
+        yield assertTrue(
+          ranges.length == 2048,
+          ranges.head.start == 0L,
+          ranges.last.endInclusive == S3BlobStore.OneTebibyte - 1L,
+          ranges.zip(ranges.drop(1)).forall { case (left, right) => left.endInclusive + 1L == right.start },
+          calls.created.get() == 1,
+          calls.copied.get() == 0,
+          calls.copiedParts.get() == ranges.length,
+          calls.completed.get() == 1,
+          calls.aborted.get() == 0,
+        )
+      },
     )
 
   private final case class MultipartCalls(
     created: AtomicInteger = new AtomicInteger(0),
     uploaded: AtomicInteger = new AtomicInteger(0),
     completed: AtomicInteger = new AtomicInteger(0),
+    aborted: AtomicInteger = new AtomicInteger(0),
     copied: AtomicInteger = new AtomicInteger(0),
+    copiedParts: AtomicInteger = new AtomicInteger(0),
     deleted: AtomicInteger = new AtomicInteger(0),
   )
 
@@ -132,9 +167,15 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
             case "completeMultipartUpload" =>
               calls.completed.incrementAndGet()
               CompleteMultipartUploadResponse.builder().build()
+            case "abortMultipartUpload"    =>
+              calls.aborted.incrementAndGet()
+              AbortMultipartUploadResponse.builder().build()
             case "copyObject"              =>
               calls.copied.incrementAndGet()
               CopyObjectResponse.builder().build()
+            case "uploadPartCopy"          =>
+              val part = calls.copiedParts.incrementAndGet()
+              UploadPartCopyResponse.builder().copyPartResult(CopyPartResult.builder().eTag(s"copy-etag-$part").build()).build()
             case "deleteObject"            =>
               calls.deleted.incrementAndGet()
               DeleteObjectResponse.builder().build()
