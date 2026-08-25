@@ -28,8 +28,8 @@ done
 directories=(
   "modules/graviton-core"
   "modules/graviton-streams"
-  "modules/protocol/graviton-shared/.jvm"
-  "modules/protocol/graviton-shared/.js"
+  "modules/protocol/graviton-shared/jvm"
+  "modules/protocol/graviton-shared/js"
   "modules/graviton-runtime"
   "modules/protocol/graviton-proto"
   "modules/security/graviton-security"
@@ -58,7 +58,7 @@ for index in "${!projects[@]}"; do
     continue
   fi
 
-  suspicious="$(unzip -p "${jar_path}" | strings | rg -i 'UnsupportedOperationException|not implemented|scaffold only|placeholder backend' || true)"
+  suspicious="$(unzip -p "${jar_path}" | strings | grep -E -i 'UnsupportedOperationException|not implemented|scaffold only|placeholder backend' || true)"
   if [[ -n "${suspicious}" ]]; then
     echo "${project}: package contains unsupported or placeholder markers" >&2
     printf '%s\n' "${suspicious}" >&2
