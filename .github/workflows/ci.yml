@@ -167,15 +167,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Check public compatibility after the first release exists
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git tag --list 'v*' | grep -q .; then
-            ./sbt versionPolicyCheck
-          else
-            echo 'First release: no previous artifact exists for MiMa comparison.'
-          fi
+          cache: sbt
+      - name: Check public compatibility against the latest release tag
+        run: ./scripts/verify-version-compatibility.sh
 
   dependency-review:
     if: github.event_name == 'pull_request'
