@@ -54,14 +54,16 @@ ThisBuild / developers := List(
   )
 )
 
-// Task to generate and copy scaladoc to docs
-lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
-generateDocs := {
+// Generate Scaladoc one module at a time. Scala 3.8.2's renderer is not safe
+// when these projects render concurrently in the same sbt process.
+lazy val generateDocs     = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
+lazy val copyGeneratedDocs = taskKey[Unit]("Copy generated Scaladoc into the docs site")
+copyGeneratedDocs := {
   val log = Keys.streams.value.log
   val targetDir = file("docs/public/scaladoc")
   val indexFile = targetDir / "index.html"
 
-  log.info("Generating Scaladoc for JVM modules...")
+  log.info("Collecting generated Scaladoc for JVM modules...")
 
   val moduleDocs = List(
     // Core runtime surface
@@ -132,6 +134,21 @@ generateDocs := {
 
   log.info(s"Scaladoc copied to $targetDir")
 }
+
+generateDocs := Def.sequential(
+  LocalProject("core") / Compile / doc,
+  LocalProject("streams") / Compile / doc,
+  LocalProject("runtime") / Compile / doc,
+  sharedProtocol.jvm / Compile / doc,
+  LocalProject("proto") / Compile / doc,
+  LocalProject("grpc") / Compile / doc,
+  LocalProject("http") / Compile / doc,
+  LocalProject("s3") / Compile / doc,
+  LocalProject("pg") / Compile / doc,
+  LocalProject("rocks") / Compile / doc,
+  LocalProject("server") / Compile / doc,
+  copyGeneratedDocs,
+).value
 
 // Task to build frontend and copy to docs
 lazy val buildFrontend = taskKey[Unit]("Build Scala.js frontend and copy to docs")
