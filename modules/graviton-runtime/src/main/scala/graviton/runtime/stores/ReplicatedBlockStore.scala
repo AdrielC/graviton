@@ -2,7 +2,9 @@ package graviton.runtime.stores
 
 import graviton.core.bytes.Hasher
 import graviton.core.keys.BinaryKey
+import graviton.core.model.Block.*
 import graviton.runtime.model.*
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 
@@ -89,8 +91,8 @@ final class ReplicatedBlockStore private (
     }
 
   private def readValidated(replica: Replica, key: BinaryKey.Block): Task[Chunk[Byte]] =
-    replica.store.get(key).runCollect.flatMap { bytes =>
-      validate(key, bytes).as(bytes)
+    BoundedByteStream.collectBlock(replica.store.get(key)).flatMap { block =>
+      validate(key, block.bytes).as(block.bytes)
     }
 
   private def validate(key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =

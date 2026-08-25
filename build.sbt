@@ -83,7 +83,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible
+// v0.2 intentionally replaces the experimental byte-materializing SDK shapes
+// with refined, stream-first APIs. Reset this to BinaryAndSourceCompatible
+// immediately after the v0.2.0 release.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -442,6 +445,7 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio-http"   % V.zioHttp,
       "dev.zio" %% "zio-schema" % V.zioSchema,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -488,7 +492,7 @@ lazy val security = (project in file("modules/security/graviton-security"))
     libraryDependencies ++= Seq(
       "dev.zio"       %% "zio"               % V.zio,
       "dev.zio"       %% "zio-streams"       % V.zio,
-      "dev.zio"       %% "zio-json"          % "0.8.0",
+      "dev.zio"       %% "zio-json"          % V.zioJson,
       "org.postgresql" % "postgresql"        % V.pg,
       "com.nimbusds"   % "nimbus-jose-jwt"    % "10.9.1",
       "dev.zio"       %% "zio-test"          % V.zio % Test,
@@ -555,7 +559,7 @@ lazy val quasarCore = (project in file("modules/quasar-core"))
     publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-json" % "0.8.0",
+      "dev.zio" %% "zio-json" % V.zioJson,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -643,7 +647,7 @@ lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
     },
     libraryDependencies ++= Seq(
       "dev.zio"      %%% "zio"         % V.zio,
-      "dev.zio"      %%% "zio-json"    % "0.8.0",
+      "dev.zio"      %%% "zio-json"    % V.zioJson,
       "com.raquo"    %%% "laminar"     % V.laminar,
       "com.raquo"    %%% "waypoint"    % V.waypoint,
       "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,

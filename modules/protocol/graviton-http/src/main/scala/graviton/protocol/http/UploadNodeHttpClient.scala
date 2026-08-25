@@ -1,12 +1,17 @@
 package graviton.protocol.http
 
+import graviton.streams.BoundedByteStream
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 import zio.*
+import zio.blocks.mediatype.MediaType as BlocksMediaType
 import zio.http.*
 import zio.json.*
 import zio.stream.ZStream
 
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.nio.charset.StandardCharsets
 import scala.util.Try
 
 /**
@@ -30,13 +35,7 @@ final case class UploadNodeHttpClient private (
 
   /** Start a multipart session. */
   def startMultipart(request: MultipartStartRequest): IO[Error, MultipartSession] =
-    for {
-      response <- execute(Method.POST, uploadsPath, Body.fromString(request.toJson), jsonHeaders)
-      bodyText <- response.body.asString.mapError(Error.TransportFailure.apply)
-      session  <- ZIO
-                    .fromEither(bodyText.fromJson[MultipartSession])
-                    .mapError(err => Error.DecodingFailed(response.status, bodyText, err))
-    } yield session
+    execute(Method.POST, uploadsPath, Body.fromString(request.toJson), jsonHeaders)(decode[MultipartSession])
 
   /** Upload an individual part inside an existing multipart session. */
   def uploadPart(
@@ -44,32 +43,25 @@ final case class UploadNodeHttpClient private (
     request: MultipartPartRequest,
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[Error, PartAck] =
-    val target       = uploadsPath / session.uploadId / "parts" / request.partNumber.toString
-    val lengthHeader = request.contentLength.map(len => Header.Custom("Content-Length", len.toString))
-    val partHeaders  = defaultHeaders ++ Headers(lengthHeader.toList*)
+    val target = uploadsPath / session.uploadId.value / "parts" / request.partNumber.toString
+    val body   = request.contentLength match
+      case Some(length) => Body.fromStream(bytes, length.value)
+      case None         => Body.fromStreamChunked(bytes)
 
-    for {
-      payload  <- bytes.runCollect.mapError(Error.TransportFailure.apply)
-      response <- execute(Method.PUT, target, Body.fromChunk(payload), partHeaders)
-      bodyText <- response.body.asString.mapError(Error.TransportFailure.apply)
-      ack      <- ZIO
-                    .fromEither(bodyText.fromJson[PartAck])
-                    .mapError(err => Error.DecodingFailed(response.status, bodyText, err))
-    } yield ack
+    execute(Method.PUT, target, body, defaultHeaders)(decode[PartAck])
 
   /** Complete a multipart upload by supplying the collected part metadata. */
   def completeMultipart(session: MultipartSession, request: MultipartCompleteRequest): IO[Error, CompletedBlob] =
-    for {
-      response <- execute(Method.POST, uploadsPath / session.uploadId / "complete", Body.fromString(request.toJson), jsonHeaders)
-      bodyText <- response.body.asString.mapError(Error.TransportFailure.apply)
-      result   <- ZIO
-                    .fromEither(bodyText.fromJson[CompletedBlob])
-                    .mapError(err => Error.DecodingFailed(response.status, bodyText, err))
-    } yield result
+    execute(
+      Method.POST,
+      uploadsPath / session.uploadId.value / "complete",
+      Body.fromString(request.toJson),
+      jsonHeaders,
+    )(decode[CompletedBlob])
 
   /** Abort an in-flight multipart upload. */
   def abortMultipart(session: MultipartSession): IO[Error, Unit] =
-    execute(Method.DELETE, uploadsPath / session.uploadId).unit
+    execute(Method.DELETE, uploadsPath / session.uploadId.value)(_ => ZIO.unit)
 
   /**
    * Upload a full blob using a streamed request body.
@@ -87,40 +79,51 @@ final case class UploadNodeHttpClient private (
   def uploadStream(
     attributes: Map[String, String],
     data: ZStream[Any, Throwable, Byte],
-    contentType: Option[String] = None,
-    contentLength: Option[Long] = None,
+    contentType: Option[BlocksMediaType] = None,
+    contentLength: Option[ByteLength] = None,
   ): IO[Error, CompletedBlob] =
-    val typeHeader      = contentType.map(ct => Header.Custom("Content-Type", ct))
-    val lengthHeader    = contentLength.map(len => Header.Custom("Content-Length", len.toString))
+    val typeHeader      = contentType.map(ct => Header.Custom("Content-Type", ct.fullType))
     val attributeHeader = Header.Custom("X-Attributes", attributes.toJson)
-    val headers         = defaultHeaders ++ Headers((typeHeader.toList ++ lengthHeader.toList :+ attributeHeader)*)
+    val headers         = defaultHeaders ++ Headers((typeHeader.toList :+ attributeHeader)*)
+    val body            = contentLength match
+      case Some(length) => Body.fromStream(data, length.value)
+      case None         => Body.fromStreamChunked(data)
 
-    for {
-      payload  <- data.runCollect.mapError(Error.TransportFailure.apply)
-      response <- execute(Method.POST, blobsPath, Body.fromChunk(payload), headers)
-      bodyText <- response.body.asString.mapError(Error.TransportFailure.apply)
-      result   <- ZIO
-                    .fromEither(bodyText.fromJson[CompletedBlob])
-                    .mapError(err => Error.DecodingFailed(response.status, bodyText, err))
-    } yield result
+    execute(Method.POST, blobsPath, body, headers)(decode[CompletedBlob])
 
   private val jsonHeaders: Headers =
     defaultHeaders ++ Headers(Header.Custom("Content-Type", "application/json"))
 
-  private def execute(method: Method, url: URL, body: Body = Body.empty, headers: Headers = defaultHeaders): IO[Error, Response] =
-    ZIO
-      .scoped {
-        client.request(Request(method = method, url = url, headers = headers, body = body))
-      }
-      .mapError(Error.TransportFailure.apply)
-      .flatMap(response => ensureSuccess(response).as(response))
-
-  private def ensureSuccess(response: Response): IO[Error, Unit] =
-    if response.status.isSuccess then ZIO.unit
-    else
-      response.body.asString
+  private def execute[A](
+    method: Method,
+    url: URL,
+    body: Body = Body.empty,
+    headers: Headers = defaultHeaders,
+  )(consume: Response => IO[Error, A]): IO[Error, A] =
+    ZIO.scoped {
+      client(Request(method = method, url = url, headers = headers, body = body))
         .mapError(Error.TransportFailure.apply)
-        .flatMap(bodyText => ZIO.fail(Error.HttpFailure(response.status, bodyText)))
+        .flatMap { response =>
+          if response.status.isSuccess then consume(response)
+          else responseText(response).flatMap(bodyText => ZIO.fail(Error.HttpFailure(response.status, bodyText)))
+        }
+    }
+
+  private def decode[A: JsonDecoder](response: Response): IO[Error, A] =
+    responseText(response).flatMap { bodyText =>
+      ZIO
+        .fromEither(bodyText.fromJson[A])
+        .mapError(err => Error.DecodingFailed(response.status, bodyText, err))
+    }
+
+  private def responseText(response: Response): IO[Error, String] =
+    BoundedByteStream
+      .collectControlPlane(response.body.asStream)
+      .map(bytes => new String(bytes.toArray, StandardCharsets.UTF_8))
+      .mapError {
+        case _: BoundedByteStream.LimitExceeded => Error.ResponseTooLarge(BoundedByteStream.MaxControlPlaneBytes.toLong)
+        case cause                              => Error.TransportFailure(cause)
+      }
 
 object UploadNodeHttpClient:
 
@@ -140,23 +143,32 @@ object UploadNodeHttpClient:
     final case class TransportFailure(cause: Throwable)                              extends Error
     final case class HttpFailure(status: Status, body: String)                       extends Error
     final case class DecodingFailed(status: Status, payload: String, reason: String) extends Error
+    final case class ResponseTooLarge(limit: Long)                                   extends Error
+
+  type UploadId = UploadId.T
+  object UploadId extends RefinedSubtype[String, Match["[A-Za-z0-9._~-]+"] & MinLength[1] & MaxLength[128]]:
+    given JsonCodec[UploadId] = summon[JsonCodec[String]].transformOrFail(either, _.value)
+
+  type ByteLength = ByteLength.T
+  object ByteLength extends RefinedSubtype[Long, GreaterEqual[1L] & LessEqual[1099511627776L]]:
+    given JsonCodec[ByteLength] = summon[JsonCodec[Long]].transformOrFail(either, _.value)
 
   /** Request payload for initiating a multipart upload. */
   final case class MultipartStartRequest(
-    totalSize: Option[Long],
+    totalSize: Option[ByteLength],
     attributes: Map[String, String],
   ) derives JsonEncoder
 
   /** Representation of a multipart session returned by the node. */
   final case class MultipartSession(
-    uploadId: String,
+    uploadId: UploadId,
     expiresAt: Option[Instant],
   ) derives JsonDecoder
 
   /** Metadata required for uploading a single part. */
   final case class MultipartPartRequest(
     partNumber: Int,
-    contentLength: Option[Long],
+    contentLength: Option[ByteLength],
   )
 
   /** Acknowledgement returned after a part upload completes. */

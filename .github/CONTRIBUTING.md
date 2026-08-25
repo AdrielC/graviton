@@ -181,18 +181,20 @@ If you modify the PostgreSQL schema:
 
 (For maintainers)
 
-1. Update version in `build.sbt`
-2. Update `CHANGELOG.md`
-3. Tag the release:
+1. Set `versionPolicyIntention` to the compatibility promised by the release.
+2. Run `./scripts/verify-version-compatibility.sh`.
+3. Tag the release. `sbt-dynver` derives the version from the tag:
    ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m "Release v0.2.0"
+   git push origin v0.2.0
    ```
 4. GitHub Actions will:
    - Run tests
    - Build artifacts
    - Publish to Maven Central
    - Deploy documentation
+5. Reset `versionPolicyIntention` to `Compatibility.BinaryAndSourceCompatible`
+   in the next change after an intentionally incompatible release.
 
 ## Getting Help
 

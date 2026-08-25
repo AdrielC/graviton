@@ -2,6 +2,7 @@ package graviton.protocol.http
 
 import graviton.runtime.Graviton
 import graviton.security.*
+import graviton.core.types.FileSize
 import zio.*
 import zio.http.*
 import zio.test.*
@@ -27,7 +28,7 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
       )
     },
     test("enforces streaming body limits without trusting Content-Length") {
-      val config = SecurityConfig.Default.copy(enabled = true, maxRequestBytes = 3L)
+      val config = SecurityConfig.Default.copy(enabled = true, maxRequestBytes = FileSize.unsafe(3L))
       for
         fixture  <- makeFixture(config)
         response <- callAs(

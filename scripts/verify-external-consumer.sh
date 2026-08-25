@@ -25,7 +25,9 @@ PUBLISH_SETTING="set ThisBuild / publishTo := Some(Resolver.file(\"graviton-cons
   'core/publish' \
   'streams/publish' \
   'sharedProtocolJVM/publish' \
-  'runtime/publish'
+  'runtime/publish' \
+  'security/publish' \
+  'http/publish'
 
 cd "${CONSUMER_DIR}"
 COURSIER_CACHE="${CONSUMER_CACHE}" ../../sbt -batch \

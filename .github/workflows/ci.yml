@@ -22,6 +22,8 @@ jobs:
           cache: sbt
       - name: Scalafmt check
         run: ./sbt scalafmtCheckAll
+      - name: Byte-streaming hygiene
+        run: ./scripts/check-byte-streaming-hygiene.sh
 
   test:
     runs-on: ubuntu-latest

@@ -3,11 +3,12 @@ package graviton.runtime
 import graviton.core.attributes.BlobWriteResult
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
+import graviton.core.model.InMemoryBytes
 import graviton.core.scan.*
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.*
-import graviton.streams.Chunker
+import graviton.streams.{BoundedByteStream, Chunker}
 import zio.*
 import zio.stream.*
 
@@ -79,9 +80,12 @@ final class Graviton private (
       stream.run(blobStore.put(plan))
     }
 
-  /** Retrieve all bytes for a stored blob. */
-  def retrieve(key: BinaryKey): ZIO[Any, Throwable, Chunk[Byte]] =
-    blobStore.get(key).runCollect
+  /**
+   * Retrieve a small blob in memory, rejecting values larger than 16 MiB.
+   * Arbitrary-size consumers must use [[stream]].
+   */
+  def retrieve(key: BinaryKey): ZIO[Any, Throwable, InMemoryBytes] =
+    BoundedByteStream.collectInMemory(blobStore.get(key))
 
   /** Stream bytes for a stored blob (memory-efficient for large blobs). */
   def stream(key: BinaryKey): ZStream[Any, Throwable, Byte] =

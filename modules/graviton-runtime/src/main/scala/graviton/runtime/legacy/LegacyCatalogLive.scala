@@ -1,5 +1,7 @@
 package graviton.runtime.legacy
 
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.collection.MaxLength
 import zio.*
 
 import java.nio.charset.StandardCharsets
@@ -118,7 +120,20 @@ final class LegacyCatalogLive(
                      .mapError(_ => LegacyRepoError.CatalogError.RepoNotConfigured(id.repo))
       (path, _) <- metadataPathFor(id, repoCfg)
       xml       <- ZIO
-                     .attemptBlocking(new String(Files.readAllBytes(path), StandardCharsets.UTF_8))
+                     .attemptBlocking {
+                       val input = Files.newInputStream(path)
+                       try
+                         val bytes   = input.readNBytes(LegacyCatalogLive.MaxMetadataBytes + 1)
+                         if bytes.length > LegacyCatalogLive.MaxMetadataBytes then
+                           throw new IllegalArgumentException(
+                             s"Legacy metadata exceeds ${LegacyCatalogLive.MaxMetadataBytes} bytes: $path"
+                           )
+                         val bounded = bytes
+                           .refineEither[MaxLength[4194304]]
+                           .fold(message => throw new IllegalArgumentException(message), identity)
+                         new String(bounded, StandardCharsets.UTF_8)
+                       finally input.close()
+                     }
                      .mapError(th => LegacyRepoError.CatalogError.MetadataUnreadable(id, path, th))
       hash0     <- ZIO
                      .fromOption(findFirstGroup(xmlHashPatterns, xml))
@@ -129,6 +144,10 @@ final class LegacyCatalogLive(
     yield LegacyDescriptor(id, hash, mime, length)
 
 object LegacyCatalogLive:
+  type MetadataBytes = Array[Byte] :| MaxLength[4194304]
+
+  val MaxMetadataBytes: Int = 4 * 1024 * 1024
+
   def make(
     repos: LegacyRepos,
     metadataDirName: String = "metadata",

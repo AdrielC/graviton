@@ -2,7 +2,9 @@ package graviton.runtime.stores
 
 import graviton.core.GravitonError
 import graviton.core.keys.BinaryKey
+import graviton.core.model.InMemoryBytes
 import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 
@@ -55,10 +57,10 @@ object StoreOps:
     def roundTrip(
       data: Chunk[Byte],
       plan: BlobWritePlan = BlobWritePlan(),
-    ): ZIO[Any, Throwable, (BlobWriteResult, Chunk[Byte])] =
+    ): ZIO[Any, Throwable, (BlobWriteResult, InMemoryBytes)] =
       for
         result   <- insertBytes(data, plan)
-        readBack <- store.get(result.key).runCollect
+        readBack <- BoundedByteStream.collectInMemory(store.get(result.key))
       yield (result, readBack)
 
     /**

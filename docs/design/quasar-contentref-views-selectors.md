@@ -27,10 +27,10 @@ If you didn’t freeze the inputs, you can’t defend the output.
 
 ```mermaid
 flowchart LR
-  U[SelectorURN] --> S[SelectorSpec<br/>(params + cutoff + ordering)]
+  U[SelectorURN] --> S["SelectorSpec<br/>(params + cutoff + ordering)"]
   S --> X[Execute selector once]
-  X --> J[SelectionSnapshot<br/>(canonical JSON → content-addressed blob)]
-  J --> V[View transform<br/>(deterministic)]
+  X --> J["SelectionSnapshot<br/>(canonical JSON → content-addressed blob)"]
+  J --> V["View transform<br/>(deterministic)"]
   V --> O[Output Blob]
   O --> H[Human review]
   O --> A[Agent pause/resume]

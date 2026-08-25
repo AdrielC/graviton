@@ -20,4 +20,4 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - [Scala.js frontend](../modules/frontend.md)
 - [Apache Tika module](./tika.md)
 
-Each page outlines the responsibilities, current implementation status, and follow-up tasks needed for v0.1.0. See the repository `ROADMAP.md` for current engineering priorities.
+Each page outlines the responsibilities, current implementation status, and remaining engineering work. See the repository `ROADMAP.md` for current priorities.

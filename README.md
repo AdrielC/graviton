@@ -14,6 +14,7 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Filesystem blocks and manifests | Operational | Fsync, atomic publication, restart-safe round trips, health checks, and reversible GC tests |
 | CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
 | Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
+| Scala streaming SDK | Operational | Typed lifecycle, logical 1 TiB laziness contract, real 32 MiB socket round trip, and clean external-consumer compilation |
 | Authentication and policy | Operational | RS256 OIDC/JWKS verification, dev HS256 proof, capabilities, CORS, TLS policy, size and rate controls, and chained audit events |
 | S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
 | Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
@@ -41,7 +42,7 @@ Those commands prove three separate boundaries:
 - the packaged JAR running both open and authenticated HTTP lifecycles
 - published module metadata consumed from an unrelated sbt build
 
-The packaged smoke uploads real bytes, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload.
+The packaged smoke uploads real bytes, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload. The SDK suite separately proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket.
 
 ## Run the server
 
@@ -57,6 +58,8 @@ curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$blob_id/verify" | jq .
 ```
 
 Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The legacy `/api/blobs` routes remain available with deprecation headers; new clients should use `/api/v1/blobs`.
+
+Scala applications can use `ai.hylo.graviton.client.GravitonClient` from the `graviton-http` artifact. Upload and download bodies remain streamed, media types use ZIO Blocks, and byte lengths are Iron-refined through 1 TiB. See the [Scala Streaming SDK guide](docs/guide/scala-sdk.md).
 
 Blob IDs are explicit and round-trippable:
 

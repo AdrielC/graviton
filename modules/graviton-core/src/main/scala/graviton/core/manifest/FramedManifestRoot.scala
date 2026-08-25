@@ -5,13 +5,16 @@ import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
 import graviton.core.types.BlobOffset
 import graviton.core.types.Offset
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.collection.MaxLength
 
 import scodec.*
 import scodec.bits.BitVector
 import scodec.codecs.*
 
 object FramedManifestRoot:
-  final case class Frame(bytes: Array[Byte])
+  type FrameBytes = Array[Byte] :| MaxLength[67108864]
+  final case class Frame(bytes: FrameBytes)
 
   private val Version: Byte = 1
 
@@ -103,7 +106,13 @@ object FramedManifestRoot:
       .withContext("manifest root frame")
 
   def encode(root: ManifestRoot): Either[String, Frame] =
-    rootCodec.encode(root).toEither.left.map(_.message).map(bits => Frame(bits.toByteArray))
+    rootCodec
+      .encode(root)
+      .toEither
+      .left
+      .map(_.message)
+      .flatMap(_.toByteArray.refineEither[MaxLength[67108864]])
+      .map(Frame.apply)
 
   def decode(frame: Frame): Either[String, ManifestRoot] =
     rootCodec.decode(BitVector(frame.bytes)) match

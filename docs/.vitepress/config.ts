@@ -100,6 +100,7 @@ export default withMermaid(defineConfig({
     siteTitle: 'Graviton',
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Scala SDK', link: '/guide/scala-sdk' },
       { text: 'Streaming', link: '/guide/binary-streaming' },
       { text: 'Architecture', link: '/architecture' },
       { text: 'Operations', link: '/ops/production-readiness' },
@@ -122,6 +123,8 @@ export default withMermaid(defineConfig({
           { text: 'Run Locally (Full Stack)', link: '/guide/run-locally' },
           { text: 'Storage Backends', link: '/guide/storage-backends' },
           { text: 'CLI & Server Usage', link: '/guide/cli' },
+          { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
+          { text: 'Migrate to 0.2', link: '/guide/migration-0.2' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' }
         ]
       },
@@ -181,6 +184,7 @@ export default withMermaid(defineConfig({
           { text: 'API Overview', link: '/api' },
           { text: 'gRPC', link: '/api/grpc' },
           { text: 'HTTP', link: '/api/http' },
+          { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
           { text: 'Quasar HTTP API v1 (Draft)', link: '/api/quasar-http-v1' },
           { text: 'Quasar metadata governance (Draft)', link: '/api/quasar-metadata' },
           { text: 'Legacy repository integration', link: '/api/legacy-repos' },

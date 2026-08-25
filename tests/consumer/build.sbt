@@ -15,5 +15,5 @@ lazy val root = project
   .settings(
     name := "graviton-external-consumer-proof",
     resolvers += "graviton-consumer-proof" at file(gravitonRepository).toURI.toString,
-    libraryDependencies += "io.github.adrielc" %% "graviton-runtime" % gravitonVersion,
+    libraryDependencies += "io.github.adrielc" %% "graviton-http" % gravitonVersion,
   )

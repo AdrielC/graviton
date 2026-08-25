@@ -1,5 +1,5 @@
 // Version is computed from git tags by sbt-dynver
-// To release: git tag -a v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0
+// Releases are computed from annotated vX.Y.Z tags by sbt-dynver.
 ThisBuild / version := dynverGitDescribeOutput.value
   .mkVersion(versionFmt, fallbackVersion(dynverCurrentDate.value))
 

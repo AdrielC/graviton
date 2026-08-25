@@ -1,5 +1,7 @@
 package graviton.core.manifest
 
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.collection.MaxLength
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.*
 import graviton.core.ranges.Span
@@ -96,7 +98,7 @@ object FramedManifestSpec extends ZIOSpecDefault:
                           .mapError(_.toString)
             encoded  <- ZIO.fromEither(FramedManifest.encode(manifest)).mapError(_.toString)
             corrupted =
-              encoded.copy(bytes = encoded.bytes.updated(0, 99.toByte))
+              encoded.copy(bytes = encoded.bytes.updated(0, 99.toByte).refineUnsafe[MaxLength[67108864]])
             decoded  <- ZIO.succeed(FramedManifest.decode(corrupted))
           yield assert(decoded)(isLeft(containsString("Unsupported manifest frame version")))
 

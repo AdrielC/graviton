@@ -4,6 +4,8 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{FramedManifest, Manifest}
 import graviton.runtime.streaming.BlobStreamer
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.collection.MaxLength
 import zio.*
 import zio.stream.ZStream
 
@@ -126,12 +128,25 @@ final class FsBlobManifestRepo(
         s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
       )
 
-    val frame      = FramedManifest.Frame(Files.readAllBytes(path))
+    val frame      = FramedManifest.Frame(readBoundedManifest(path))
     val manifest   = FramedManifest
       .decode(frame)
       .fold(message => throw new IllegalArgumentException(s"Invalid manifest at $path: $message"), identity)
     val ingestedAt = Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant
     StoredManifest(manifest, ingestedAt)
+
+  private def readBoundedManifest(path: Path): FsBlobManifestRepo.ManifestBytes =
+    val input = Files.newInputStream(path, StandardOpenOption.READ)
+    try
+      val bytes = input.readNBytes(FsBlobManifestRepo.MaxManifestBytes + 1)
+      if bytes.length > FsBlobManifestRepo.MaxManifestBytes then
+        throw new IllegalArgumentException(
+          s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
+        )
+      bytes
+        .refineEither[MaxLength[67108864]]
+        .fold(message => throw new IllegalArgumentException(message), identity)
+    finally input.close()
 
   private def keyFromPath(path: Path): Either[String, BinaryKey.Blob] =
     val algorithmDirectory = Option(path.getParent).flatMap(parent => Option(parent.getFileName)).map(_.toString).getOrElse("")
@@ -176,7 +191,9 @@ final class FsBlobManifestRepo(
     }
 
 object FsBlobManifestRepo:
-  val MaxManifestBytes: Long = 64L * 1024L * 1024L
+  type ManifestBytes = Array[Byte] :| MaxLength[67108864]
+
+  val MaxManifestBytes: Int = 64 * 1024 * 1024
 
   def layer(root: Path, prefix: String = "cas/manifests"): ULayer[BlobManifestRepo] =
     ZLayer.succeed(new FsBlobManifestRepo(root, prefix))
