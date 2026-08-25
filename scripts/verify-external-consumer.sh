@@ -13,7 +13,11 @@ cleanup() { find "${PROOF_ROOT}" -depth -delete 2>/dev/null || true; }
 trap cleanup EXIT
 
 cd "${REPO_ROOT}"
-GRAVITON_VERSION="$(./sbt -batch -error 'print version' | tail -n 1 | tr -d '[:space:]')"
+GRAVITON_VERSION="$({ ./sbt -batch -no-colors 'show runtime / version'; } | sed -n 's/^\[info\] //p' | tail -n 1)"
+if [[ ! "${GRAVITON_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)*$ ]]; then
+  echo "Could not determine a valid Graviton version from sbt: ${GRAVITON_VERSION:-<empty>}" >&2
+  exit 1
+fi
 
 PUBLISH_SETTING="set ThisBuild / publishTo := Some(Resolver.file(\"graviton-consumer-proof\", file(\"${LOCAL_REPO}\"))(Resolver.mavenStylePatterns))"
 ./sbt -batch \

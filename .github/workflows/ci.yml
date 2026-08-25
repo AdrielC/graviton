@@ -167,7 +167,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-          cache: sbt
       - name: Check public compatibility after the first release exists
         shell: bash
         run: |
