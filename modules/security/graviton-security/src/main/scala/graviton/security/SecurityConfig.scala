@@ -1,5 +1,6 @@
 package graviton.security
 
+import graviton.core.types.FileSize
 import zio.*
 import zio.Config
 
@@ -22,7 +23,7 @@ final case class SecurityConfig(
   rateLimitPerPrincipalPerSec: Long,
   rateLimitUploadBytesPerSec: Long,
   rateLimitDownloadBytesPerSec: Long,
-  maxRequestBytes: Long,
+  maxRequestBytes: FileSize,
   auditFlushInterval: Duration,
   kmsKeyArn: Option[String],
   clockSkewSeconds: Long,
@@ -40,7 +41,10 @@ final case class SecurityConfig(
         _ <- Either.cond(rateLimitPerPrincipalPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC must be positive")
         _ <- Either.cond(rateLimitUploadBytesPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_UPLOAD_BYTES_PER_SEC must be positive")
         _ <- Either.cond(rateLimitDownloadBytesPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_DOWNLOAD_BYTES_PER_SEC must be positive")
-        _ <- Either.cond(maxRequestBytes > 0L, (), "GRAVITON_SECURITY_MAX_REQUEST_BYTES must be positive")
+        _ <- FileSize
+               .either(maxRequestBytes.value)
+               .left
+               .map(_ => "GRAVITON_SECURITY_MAX_REQUEST_BYTES must be between 1 byte and 1 TiB")
         _ <- Either.cond(
                Set("token", "jdbc").contains(authorizationBackend),
                (),
@@ -81,7 +85,7 @@ object SecurityConfig:
     rateLimitPerPrincipalPerSec = 100L,
     rateLimitUploadBytesPerSec = 10L * 1024L * 1024L,
     rateLimitDownloadBytesPerSec = 50L * 1024L * 1024L,
-    maxRequestBytes = 5L * 1024L * 1024L * 1024L,
+    maxRequestBytes = FileSize.unsafe(5L * 1024L * 1024L * 1024L),
     auditFlushInterval = 2.seconds,
     kmsKeyArn = None,
     clockSkewSeconds = 30L,
@@ -141,7 +145,8 @@ object SecurityConfig:
             rateLimitPerPrincipalPerSec = rpsPrincipal,
             rateLimitUploadBytesPerSec = bpsUpload,
             rateLimitDownloadBytesPerSec = bpsDownload,
-            maxRequestBytes = maxBytes,
+            // Config validation rejects an out-of-range value before the server starts.
+            maxRequestBytes = FileSize.unsafe(maxBytes),
             auditFlushInterval = auditFlush,
             kmsKeyArn = kms,
             clockSkewSeconds = skew,

@@ -27,7 +27,7 @@ object ApiModels {
 
   /** Non-negative size in bytes. `SizeBytes <: Long`. */
   type SizeBytes = SizeBytes.T
-  object SizeBytes extends RefinedSubtype[Long, GreaterEqual[0L]]:
+  object SizeBytes extends RefinedSubtype[Long, GreaterEqual[0L] & LessEqual[1099511627776L]]:
     given JsonCodec[SizeBytes] =
       summon[JsonCodec[Long]].transformOrFail(either, _.value)
 

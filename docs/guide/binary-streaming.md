@@ -91,7 +91,7 @@ final case class Ingest(blockStore: BlockStore):
 
 _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreamingIngest.scala` (managed via `sbt syncDocSnippets`)._
 
-- **Backend-specific size caps**: use `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)` whenever you hydrate a backend config (filesystem quota, S3 object cap, etc.). The core `FileSize` refinement only ensures non-negative longs so each store can apply its own ceiling without fighting the type system.
+- **Blob size bound**: `FileSize` is an Iron-refined positive `Long` capped at 1 TiB. Backends may enforce a lower operational quota with `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)`.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Incremental chunking core**: `graviton.streams.Chunker` is backed by a small, bounded incremental cutter and can also be used as a plain state machine via `graviton.streams.ChunkerCore` (useful for tests/benchmarks or lifting into non-ZIO runtimes).
 - **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` (currently BLAKE3) is the runtime’s default, but you can still opt into SHA-256 for FIPS-bound workflows.
@@ -152,6 +152,10 @@ Fetching a blob reverses the ingest pipeline:
 3. Blocks are reassembled into a `ZStream[Byte]`. Partial reads use manifest offsets so large blobs can seek without decoding the entire payload.
 
 Because manifest offsets and chunk counts are validated during ingest, retrieval never needs to buffer the whole object; the runtime can resume from any block boundary and still honor encryption or compression frames.
+
+Application code should keep arbitrary-size values on `Graviton.stream`. The `Graviton.retrieve` convenience method now returns an Iron-refined `InMemoryBytes` and rejects anything larger than 16 MiB. Internal block prefetch uses the same enforced block limit, so its worst-case payload memory is `maxInFlight × 16 MiB`.
+
+For remote applications, use the [Scala Streaming SDK](./scala-sdk.md). It carries typed ZIO Blocks media types at the public boundary and caps all collected JSON control responses at 1 MiB.
 
 ## Namespace metadata as DynamicValue
 

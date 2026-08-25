@@ -2,8 +2,10 @@ package graviton.backend.s3
 
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.model.Block.*
 import graviton.runtime.model.*
 import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock}
+import graviton.streams.BoundedByteStream
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -139,8 +141,8 @@ final class S3BlockStore(
     }
 
   private def verifyExisting(block: CanonicalBlock): Task[Unit] =
-    get(block.key).runCollect.flatMap { stored =>
-      if stored == block.bytes then ZIO.unit
+    BoundedByteStream.collectBlock(get(block.key)).flatMap { stored =>
+      if stored.bytes == block.bytes then ZIO.unit
       else ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
     }
 

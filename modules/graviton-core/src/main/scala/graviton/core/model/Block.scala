@@ -22,6 +22,27 @@ object UploadChunk:
     def bytes: Chunk[Byte] = chunk
     def length: Int        = chunk.length
 
+/**
+ * Bytes that may be held in memory by a convenience API.
+ *
+ * Arbitrary-size payloads must stay as streams. This type exists for small,
+ * explicitly bounded call sites and keeps the 16 MiB ceiling in the result
+ * type instead of relying on documentation alone.
+ */
+type InMemoryBytes = Chunk[Byte] :| InMemoryBytes.Constraint
+
+object InMemoryBytes:
+  type Constraint = MaxLength[16777216]
+
+  inline def maxBytes: Int = ByteConstraints.MaxBlockBytes
+
+  def fromChunk(chunk: Chunk[Byte]): Either[String, InMemoryBytes] =
+    chunk.refineEither[Constraint]
+
+  extension (bytes: InMemoryBytes)
+    def chunk: Chunk[Byte] = bytes
+    def length: Int        = bytes.length
+
 type Block = Chunk[Byte] :| Block.Constraint
 
 object Block:

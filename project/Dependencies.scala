@@ -14,29 +14,28 @@ object Dependencies {
    */
   object V {
     val scala3     = "3.8.2"
-    val zio        = "2.1.23"
-    val zioSchema  = "1.7.6"
-    val zioPrelude = "1.0.0-RC44"
+    val zio        = "2.1.26"
+    val zioJson    = "0.10.0"
+    val zioSchema  = "1.8.6"
+    val zioPrelude = "1.0.0-RC48"
     val zioGrpc    = "0.6.3"
-    val zioHttp    = "3.7.4"
+    val zioHttp    = "3.11.4"
     val zioNio     = "2.0.2"
 
     // Kyo
     val kyo = "1.0-RC1"
 
-    // zio-blocks (published to Maven Central, TASTy 28.3 stable = 3.3 LTS,
-    // consumable by our 3.7.4 compiler). Optional sibling codec artifacts
-    // share this version:
+    // zio-blocks. Optional sibling codec artifacts share this version:
     //   zio-blocks-schema-avro, zio-blocks-schema-toon,
     //   zio-blocks-schema-messagepack, zio-blocks-schema-thrift,
     //   zio-blocks-schema-bson
-    val zioBlocks = "0.0.32"
+    val zioBlocks = "0.0.51"
 
     // ZIO Config
     val zioConfig = "4.0.6"
 
     // Misc
-    val iron       = "3.2.2"
+    val iron       = "3.3.2"
     val awsV2      = "2.25.54"
     val blake3     = "3.1.2"
     val rocksdbJni = "8.11.3"

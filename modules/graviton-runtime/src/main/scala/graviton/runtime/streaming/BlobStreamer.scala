@@ -1,7 +1,9 @@
 package graviton.runtime.streaming
 
 import graviton.core.keys.BinaryKey
+import graviton.core.model.Block.*
 import graviton.runtime.stores.BlockStore
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 
@@ -41,5 +43,5 @@ object BlobStreamer:
     // - worst-case memory: par * MaxBlockBytes (default: 8 * 16 MiB = 128 MiB)
     refs
       .buffer(window)
-      .mapZIOPar(par)(ref => blockStore.get(ref.key).runCollect)
-      .flattenChunks
+      .mapZIOPar(par)(ref => BoundedByteStream.collectBlock(blockStore.get(ref.key)))
+      .flatMap(block => ZStream.fromChunk(block.bytes))

@@ -5,6 +5,7 @@ import ai.hylo.graviton.client.GravitonUploadGatewayClientZIO.UploadGatewayClien
 import io.grpc.Status
 import io.graviton.blobstore.v1.upload.*
 import zio.*
+import zio.blocks.mediatype.MediaType as BlocksMediaType
 import zio.http.*
 import zio.json.*
 import zio.json.ast.Json
@@ -16,64 +17,123 @@ object GravitonUploadHttpClientSpec extends ZIOSpecDefault {
   override def spec: Spec[TestEnvironment, Any] =
     suite("GravitonUploadHttpClient")(
       test("HTTP upload parity matches frames upload hash") {
-        val expectedHash = "hash-parity"
-        for {
-          recorded     <- Ref.make(Chunk.empty[ClientFrame])
-          gateway       = RecordingGateway(
-                            recorded,
-                            Chunk(
-                              ServerFrame(ServerFrame.Kind.StartAck(StartAck(sessionId = "sess", ttlSeconds = 60L))),
-                              ServerFrame(ServerFrame.Kind.Ack(Ack(sessionId = "sess", acknowledgedSequence = 0L, receivedBytes = 5L))),
-                              ServerFrame(
-                                ServerFrame.Kind.Completed(
-                                  Completed(
+        ZIO.scoped {
+          val expectedHash = "hash-parity"
+          for {
+            recorded     <- Ref.make(Chunk.empty[ClientFrame])
+            gateway       = RecordingGateway(
+                              recorded,
+                              Chunk(
+                                ServerFrame(ServerFrame.Kind.StartAck(StartAck(sessionId = "sess", ttlSeconds = 60L))),
+                                ServerFrame(ServerFrame.Kind.Ack(Ack(sessionId = "sess", acknowledgedSequence = 0L, receivedBytes = 5L))),
+                                ServerFrame(
+                                  ServerFrame.Kind.Completed(
+                                    Completed(
+                                      sessionId = "sess",
+                                      documentId = "doc",
+                                      blobHash = expectedHash,
+                                      objectContentType = "application/octet-stream",
+                                    )
+                                  )
+                                ),
+                              ),
+                            )
+            uploadSvc     = new InMemoryUploadService
+            gatewayClient = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)
+            outcome      <- gatewayClient.uploadFrames(
+                              StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
+                              ZStream.succeed(
+                                Left(
+                                  DataFrame(
                                     sessionId = "sess",
-                                    documentId = "doc",
-                                    blobHash = expectedHash,
-                                    objectContentType = "application/octet-stream",
+                                    sequence = 0L,
+                                    offsetBytes = 0L,
+                                    contentType = "application/graviton-frame",
+                                    bytes = ByteString.copyFrom("bytes".getBytes),
+                                    last = true,
                                   )
                                 )
                               ),
-                            ),
-                          )
-          uploadSvc     = new InMemoryUploadService
-          gatewayClient = new GravitonUploadGatewayClientZIO(gateway, uploadSvc)
-          outcome      <- gatewayClient.uploadFrames(
-                            StartUpload(objectContentType = "application/octet-stream", metadata = List.empty),
-                            ZStream.succeed(
-                              Left(
-                                DataFrame(
-                                  sessionId = "sess",
-                                  sequence = 0L,
-                                  offsetBytes = 0L,
-                                  contentType = "application/graviton-frame",
-                                  bytes = ByteString.copyFrom("bytes".getBytes),
-                                  last = true,
-                                )
+                              complete = Complete(sessionId = "sess"),
+                            )
+            calls        <- Ref.make(Vector.empty[HttpCall])
+            transport     = HttpTransportStub(expectedHash, calls)
+            httpClient   <- GravitonUploadHttpClient
+                              .fromTransport(URL.decode("http://localhost:8080").toOption.get)(transport.apply)
+            complete     <- httpClient.uploadOneShot(
+                              GravitonUploadHttpClient.RegisterRequest(
+                                objectContentType = BlocksMediaType.unsafeFromString("application/octet-stream"),
+                                totalSize = Some(GravitonUploadHttpClient.UploadByteLength.applyUnsafe(5L)),
+                                metadata = Chunk.empty,
+                                clientSessionId = Some(GravitonUploadHttpClient.SessionId.applyUnsafe("sess")),
+                              ),
+                              ZStream.fromChunk(Chunk.fromArray("bytes".getBytes)),
+                              checksum = Some(expectedHash),
+                            )
+            history      <- calls.get
+          } yield assertTrue(
+            outcome.completed.blobHash == expectedHash,
+            complete.blobHash == expectedHash,
+            history.exists(call => call.path.toString.contains("complete")),
+          )
+        }
+      },
+      test("1 TiB upload contract stays lazy and session context is restored") {
+        ZIO.scoped {
+          for {
+            requests <- Ref.make(Vector.empty[Request])
+            transport = (request: Request) =>
+                          requests
+                            .update(_ :+ request)
+                            .as(
+                              Response.json(
+                                Json
+                                  .Obj(
+                                    "sessionId"            -> Json.Str("logical-terabyte"),
+                                    "acknowledgedSequence" -> Json.Num(0),
+                                    "receivedBytes"        -> Json.Num(BigDecimal(1099511627776L)),
+                                  )
+                                  .toJson
                               )
+                            )
+            client   <- GravitonUploadHttpClient
+                          .fromTransport(URL.decode("http://localhost:8080").toOption.get)(transport)
+            ack      <- client.withSession(GravitonUploadHttpClient.SessionId.applyUnsafe("logical-terabyte")) {
+                          client.uploadPart(
+                            GravitonUploadHttpClient.UploadPart(
+                              sequence = GravitonUploadHttpClient.PartSequence.applyUnsafe(0L),
+                              offset = GravitonUploadHttpClient.ByteOffset.applyUnsafe(0L),
+                              last = true,
+                              checksum = None,
+                              contentType = BlocksMediaType.unsafeFromString("application/octet-stream"),
+                              contentLength = Some(GravitonUploadHttpClient.UploadByteLength.applyUnsafe(1099511627776L)),
                             ),
-                            complete = Complete(sessionId = "sess"),
+                            ZStream.fail(new AssertionError("the transport contract must not pull the logical 1 TiB source")),
                           )
-          calls        <- Ref.make(Vector.empty[HttpCall])
-          transport     = HttpTransportStub(expectedHash, calls)
-          httpClient    = new GravitonUploadHttpClient(URL.decode("http://localhost:8080").toOption.get)(transport.apply)
-          complete     <- httpClient.uploadOneShot(
-                            GravitonUploadHttpClient.RegisterRequest(
-                              objectContentType = "application/octet-stream",
-                              totalSize = Some(5L),
-                              metadata = Chunk.empty,
-                              clientSessionId = Some("sess"),
+                        }
+            outside  <- client
+                          .uploadPart(
+                            GravitonUploadHttpClient.UploadPart(
+                              sequence = GravitonUploadHttpClient.PartSequence.applyUnsafe(0L),
+                              offset = GravitonUploadHttpClient.ByteOffset.applyUnsafe(0L),
+                              last = true,
+                              checksum = None,
+                              contentType = BlocksMediaType.unsafeFromString("application/octet-stream"),
+                              contentLength = None,
                             ),
-                            ZStream.fromChunk(Chunk.fromArray("bytes".getBytes)),
-                            checksum = Some(expectedHash),
+                            ZStream.empty,
                           )
-          history      <- calls.get
-        } yield assertTrue(
-          outcome.completed.blobHash == expectedHash,
-          complete.blobHash == expectedHash,
-          history.exists(call => call.path.toString.contains("complete")),
-        )
-      }
+                          .exit
+            history  <- requests.get
+            body      = history.head.body
+          } yield assertTrue(
+            ack.receivedBytes == 1099511627776L,
+            body.knownContentLength.contains(1099511627776L),
+            body.materializedContent.isEmpty,
+            outside == Exit.fail(GravitonUploadHttpClient.Error.MissingSession),
+          )
+        }
+      },
     )
 
   private final case class HttpCall(method: Method, path: Path, body: String, headers: Headers)

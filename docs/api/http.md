@@ -55,6 +55,8 @@ Success returns `201 Created` only after the manifest is persisted. `Location` p
 
 Empty bodies return `400`. The configured maximum is enforced while streaming even if `Content-Length` is absent or dishonest. Authenticated uploads also consume a per-principal byte budget.
 
+The packaged server explicitly enables ZIO HTTP request streaming. Scala applications can use the [typed streaming SDK](../guide/scala-sdk.md), which selects known-length or chunked streaming bodies without collecting payload bytes.
+
 ## Inventory and pagination
 
 ```http
@@ -168,5 +170,7 @@ Unexpected storage errors do not expose arbitrary exception messages.
 ```
 
 Contract tests cover ranges, conditional reads, pagination, deprecation headers, lifecycle behavior, streaming limits, preflights, origins, rate limits, and capability denial. The packaged smoke proves those contracts through a real network listener and fat JAR.
+
+The SDK suite additionally proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket. The 1 TiB case is structural evidence, not a physical 1 TiB transfer claim.
 
 Multipart and resumable session protocols remain future work. They are not simulated by this API.

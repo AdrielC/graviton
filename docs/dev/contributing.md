@@ -121,6 +121,18 @@ def put(key: BinaryKey, data: Chunk[Byte]): IO[StorageError, Unit]
 
 ## Testing
 
+### Byte-streaming invariant
+
+Production payloads must remain streams. Whole-body HTTP decoders, unbounded `runCollect`, `Files.readAllBytes`, and implicit byte-array buffers are rejected by `scripts/check-byte-streaming-hygiene.sh` in CI. The only byte collection helper consumes at most the named limit plus one byte, rejects overflow, and returns an Iron-refined bounded type.
+
+Run the policy check before opening a PR:
+
+```bash
+./scripts/check-byte-streaming-hygiene.sh
+```
+
+Use `Body.fromStream(stream, contentLength)` for a known `Long` length, `Body.fromStreamChunked(stream)` for unknown length, and `Body.asStream` for reads. Keep the response `Scope` alive through stream consumption. A tiny expected JSON schema does not bound hostile input, so control-plane bodies also use the fixed 1 MiB collection helper.
+
 ### Unit Tests
 
 ```scala

@@ -7,20 +7,21 @@ import graviton.core.locator.BlobLocator
 import graviton.core.types.{ChunkCount, FileSize, MaxBlockBytes}
 import graviton.runtime.model.{BlobStat, BlobWritePlan}
 import graviton.runtime.stores.BlobStore
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
 import zio.stream.{ZSink, ZStream}
 import zio.{Chunk, IO, Task, ZIO, ZLayer}
 
-import java.io.ByteArrayOutputStream
 import java.util.UUID
 import scala.jdk.CollectionConverters.*
 
 final case class S3BlobStoreConfig(
   blobs: S3Config,
   tmp: S3Config,
-  partSizeBytes: Int = 5 * 1024 * 1024, // S3 multipart min part size (except last)
+  partSizeBytes: S3BlobStore.PartSize = S3BlobStore.PartSize.Default,
   scheme: String = "s3",
 )
 
@@ -92,6 +93,38 @@ final class S3BlobStore(
 
 object S3BlobStore:
 
+  val MaxMultipartParts: Int    = 10000
+  val PartGrowthWindow: Int     = 256
+  val MaxBufferedPartBytes: Int = 128 * 1024 * 1024
+  val OneTebibyte: Long         = 1024L * 1024L * 1024L * 1024L
+
+  type PartSize = PartSize.T
+  object PartSize extends RefinedSubtype[Int, GreaterEqual[5242880] & LessEqual[134217728]]:
+    val Default: PartSize = applyUnsafe(5 * 1024 * 1024)
+
+  type PartBuffer = Chunk[Byte] :| MaxLength[134217728]
+
+  object PartBuffer:
+    val empty: PartBuffer = Chunk.empty[Byte].refineUnsafe[MaxLength[134217728]]
+
+    def fromChunk(bytes: Chunk[Byte]): Either[String, PartBuffer] =
+      bytes.refineEither[MaxLength[134217728]]
+
+  /**
+   * Grow parts for an unknown-length stream while retaining a hard memory
+   * ceiling. Small uploads begin at the configured size; every 256 parts the
+   * target doubles until it reaches 128 MiB.
+   */
+  private[s3] def partSizeForNumber(base: PartSize, partNumber: Int): Int =
+    val window     = math.max(0, (partNumber - 1) / PartGrowthWindow)
+    val multiplier = 1L << math.min(window, 30)
+    math.min(MaxBufferedPartBytes.toLong, base.value.toLong * multiplier).toInt
+
+  private[s3] def multipartCapacityBytes(base: PartSize): Long =
+    (1 to MaxMultipartParts).foldLeft(0L) { (total, partNumber) =>
+      total + partSizeForNumber(base, partNumber).toLong
+    }
+
   /**
    * Minimal env contract for the on-prem v1 compose bundle:
    *
@@ -123,25 +156,38 @@ object S3BlobStore:
 private final case class PutState(
   hasher: Hasher,
   totalBytes: Long,
-  buffer: ByteArrayOutputStream,
+  buffer: S3BlobStore.PartBuffer,
   multipart: Option[MultipartState],
   config: S3BlobStoreConfig,
 ):
 
+  private def targetPartSizeBytes: Int =
+    S3BlobStore.partSizeForNumber(config.partSizeBytes, multipart.fold(1)(_.nextPartNumber))
+
   def ingest(chunk: Chunk[Byte], client: S3Client): Task[PutState] =
-    ZIO
-      .attempt {
-        val arr = chunk.toArray
-        val _   = hasher.update(arr)
+    def loop(state: PutState, remaining: Chunk[Byte]): Task[PutState] =
+      if remaining.isEmpty then ZIO.succeed(state)
+      else
+        val capacity = state.targetPartSizeBytes - state.buffer.length
+        val accepted = remaining.take(capacity)
+        val rest     = remaining.drop(capacity)
+        for
+          _          <- ZIO.attempt(state.hasher.update(accepted))
+          nextBuffer <- ZIO
+                          .fromEither(S3BlobStore.PartBuffer.fromChunk(state.buffer ++ accepted))
+                          .mapError(new IllegalArgumentException(_))
+          next        = state.copy(
+                          totalBytes = state.totalBytes + accepted.length.toLong,
+                          buffer = nextBuffer,
+                        )
+          flushed    <- if next.buffer.length == next.targetPartSizeBytes then next.uploadFullPart(client)
+                        else ZIO.succeed(next)
+          result     <- loop(flushed, rest)
+        yield result
 
-        buffer.write(arr)
+    loop(this, chunk)
 
-        this.copy(totalBytes = totalBytes + arr.length.toLong)
-      }
-      .flatMap(_.flushFullParts(client))
-
-  private def flushFullParts(client: S3Client): Task[PutState] =
-    val partSize = config.partSizeBytes
+  private def uploadFullPart(client: S3Client): Task[PutState] =
 
     def ensureMultipart(state: PutState): Task[PutState] =
       state.multipart match
@@ -168,13 +214,13 @@ private final case class PutState(
             )
           }
 
-    def uploadOneFullPart(state: PutState): Task[PutState] =
-      ensureMultipart(state).flatMap { ensured =>
+    ensureMultipart(this).flatMap { ensured =>
+      ZIO
+        .fail(new IllegalArgumentException(s"S3 multipart upload exceeds ${S3BlobStore.MaxMultipartParts} parts"))
+        .when(ensured.multipart.exists(_.nextPartNumber > S3BlobStore.MaxMultipartParts)) *>
         ZIO.attemptBlocking {
           val mp        = ensured.multipart.get
-          val bytes     = ensured.buffer.toByteArray
-          val partBytes = java.util.Arrays.copyOfRange(bytes, 0, partSize)
-          val remainder = java.util.Arrays.copyOfRange(bytes, partSize, bytes.length)
+          val partBytes = ensured.buffer.toArray
 
           val req =
             UploadPartRequest
@@ -195,17 +241,9 @@ private final case class PutState(
               parts = mp.parts :+ completed,
             )
 
-          val nextBuf = new ByteArrayOutputStream(math.max(remainder.length, 32))
-          nextBuf.write(remainder)
-          ensured.copy(buffer = nextBuf, multipart = Some(nextMp))
+          ensured.copy(buffer = S3BlobStore.PartBuffer.empty, multipart = Some(nextMp))
         }
-      }
-
-    def loop(state: PutState): Task[PutState] =
-      if state.buffer.size() < partSize then ZIO.succeed(state)
-      else uploadOneFullPart(state).flatMap(loop)
-
-    loop(this)
+    }
 
   def finish(client: S3Client, plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
@@ -228,56 +266,65 @@ private final case class PutState(
                                 .bucket(config.blobs.bucket)
                                 .key(finalObjectKeyFor(key))
                                 .build()
-                            ZIO.attemptBlocking(client.putObject(req, RequestBody.fromBytes(buffer.toByteArray))).unit
+                            ZIO.attemptBlocking(client.putObject(req, RequestBody.fromBytes(buffer.toArray))).unit
                           case Some(mp) =>
-                            // Upload last part (may be < 5MiB), complete multipart, then copy into final CAS key.
-                            val lastBytes = buffer.toByteArray
+                            // Upload a non-empty last part, complete multipart, then copy into the final CAS key.
                             for
-                              _ <-
-                                ZIO.attemptBlocking {
-                                  val req  =
-                                    UploadPartRequest
-                                      .builder()
-                                      .bucket(config.tmp.bucket)
-                                      .key(mp.key)
-                                      .uploadId(mp.uploadId)
-                                      .partNumber(mp.nextPartNumber)
-                                      .contentLength(lastBytes.length.toLong)
-                                      .build()
-                                  val resp = client.uploadPart(req, RequestBody.fromBytes(lastBytes))
-                                  val last = CompletedPart.builder().partNumber(mp.nextPartNumber).eTag(resp.eTag()).build()
-                                  val all  = (mp.parts :+ last).asJava
-
-                                  val completed =
-                                    CompletedMultipartUpload
-                                      .builder()
-                                      .parts(all)
-                                      .build()
-
-                                  client.completeMultipartUpload(
-                                    CompleteMultipartUploadRequest
-                                      .builder()
-                                      .bucket(config.tmp.bucket)
-                                      .key(mp.key)
-                                      .uploadId(mp.uploadId)
-                                      .multipartUpload(completed)
-                                      .build()
+                              allParts <-
+                                if buffer.isEmpty then ZIO.succeed(mp.parts)
+                                else if mp.nextPartNumber > S3BlobStore.MaxMultipartParts then
+                                  ZIO.fail(
+                                    new IllegalArgumentException(
+                                      s"S3 multipart upload exceeds ${S3BlobStore.MaxMultipartParts} parts"
+                                    )
                                   )
-                                }.unit
-                              _ <- ZIO.attemptBlocking {
-                                     val copyReq =
-                                       CopyObjectRequest
-                                         .builder()
-                                         .sourceBucket(config.tmp.bucket)
-                                         .sourceKey(mp.key)
-                                         .destinationBucket(config.blobs.bucket)
-                                         .destinationKey(finalObjectKeyFor(key))
-                                         .build()
-                                     client.copyObject(copyReq)
-                                   }.unit
-                              _ <- ZIO.attemptBlocking {
-                                     client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build())
-                                   }.unit
+                                else
+                                  ZIO.attemptBlocking {
+                                    val lastBytes = buffer.toArray
+                                    val req       =
+                                      UploadPartRequest
+                                        .builder()
+                                        .bucket(config.tmp.bucket)
+                                        .key(mp.key)
+                                        .uploadId(mp.uploadId)
+                                        .partNumber(mp.nextPartNumber)
+                                        .contentLength(lastBytes.length.toLong)
+                                        .build()
+                                    val resp      = client.uploadPart(req, RequestBody.fromBytes(lastBytes))
+                                    val last      = CompletedPart.builder().partNumber(mp.nextPartNumber).eTag(resp.eTag()).build()
+                                    mp.parts :+ last
+                                  }
+                              _        <- ZIO.attemptBlocking {
+                                            val completed =
+                                              CompletedMultipartUpload
+                                                .builder()
+                                                .parts(allParts.asJava)
+                                                .build()
+
+                                            client.completeMultipartUpload(
+                                              CompleteMultipartUploadRequest
+                                                .builder()
+                                                .bucket(config.tmp.bucket)
+                                                .key(mp.key)
+                                                .uploadId(mp.uploadId)
+                                                .multipartUpload(completed)
+                                                .build()
+                                            )
+                                          }.unit
+                              _        <- ZIO.attemptBlocking {
+                                            val copyReq =
+                                              CopyObjectRequest
+                                                .builder()
+                                                .sourceBucket(config.tmp.bucket)
+                                                .sourceKey(mp.key)
+                                                .destinationBucket(config.blobs.bucket)
+                                                .destinationKey(finalObjectKeyFor(key))
+                                                .build()
+                                            client.copyObject(copyReq)
+                                          }.unit
+                              _        <- ZIO.attemptBlocking {
+                                            client.deleteObject(DeleteObjectRequest.builder().bucket(config.tmp.bucket).key(mp.key).build())
+                                          }.unit
                             yield ()
       locator        <-
         plan.locatorHint match
@@ -304,7 +351,7 @@ private final case class PutState(
 
 object PutState:
   def initial(hasher: Hasher, config: S3BlobStoreConfig): PutState =
-    PutState(hasher, totalBytes = 0L, buffer = new ByteArrayOutputStream(64 * 1024), multipart = None, config = config)
+    PutState(hasher, totalBytes = 0L, buffer = S3BlobStore.PartBuffer.empty, multipart = None, config = config)
 
 private final case class MultipartState(
   uploadId: String,

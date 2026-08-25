@@ -2,11 +2,13 @@ package graviton.protocol.http
 
 import graviton.security.*
 import graviton.security.jwt.HmacJwtVerifier
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.http.*
 import zio.json.*
 
 import java.util.UUID
+import java.nio.charset.StandardCharsets
 
 /**
  * Development-only token mint endpoint. Active only when a dev shared
@@ -41,8 +43,13 @@ object DevAuthRoutes:
     Routes(
       Method.POST / "dev" / "token" ->
         Handler.fromFunctionZIO[Request] { req =>
-          req.body.asString
-            .mapError(err => Response.text(s"failed to read body: ${err.getMessage}").copy(status = Status.BadRequest))
+          BoundedByteStream
+            .collectControlPlane(req.body.asStream)
+            .map(bytes => new String(bytes.toArray, StandardCharsets.UTF_8))
+            .mapError {
+              case _: BoundedByteStream.LimitExceeded => Response.status(Status.RequestEntityTooLarge)
+              case _                                  => Response.text("failed to read body").copy(status = Status.BadRequest)
+            }
             .flatMap { raw =>
               val parsed =
                 if raw.isEmpty then Right(MintRequest())

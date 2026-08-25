@@ -146,7 +146,7 @@ object Main extends ZIOAppDefault:
                                                           )
 
       _ <- program.provide(
-             Server.defaultWithPort(port),
+             Server.defaultWith(_.port(port).enableRequestStreaming),
              blobLayer(cfg),
              auditLayer,
              capabilityLayer(sec),

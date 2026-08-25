@@ -305,9 +305,9 @@ flowchart TD
 
     fixed[Fixed-size]:::action
     anchored[Anchored CDC]:::action
-    fast1[FastCDC (speed)]:::action
-    fast2[FastCDC (balanced)]:::action
-    fast3[FastCDC (dedup)]:::action
+    fast1["FastCDC (speed)"]:::action
+    fast2["FastCDC (balanced)"]:::action
+    fast3["FastCDC (dedup)"]:::action
 
     need -->|No| direct
     need -->|Yes| dedup

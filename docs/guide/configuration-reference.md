@@ -178,7 +178,7 @@ Security is disabled by default. When enabled, issuer and audience are required.
 | `GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC` | `100` | Per-principal request budget. |
 | `GRAVITON_SECURITY_RATE_LIMIT_UPLOAD_BYTES_PER_SEC` | `10485760` | Per-principal streamed upload-byte budget. |
 | `GRAVITON_SECURITY_RATE_LIMIT_DOWNLOAD_BYTES_PER_SEC` | `52428800` | Per-principal streamed download-byte budget. |
-| `GRAVITON_SECURITY_MAX_REQUEST_BYTES` | `5368709120` | Maximum upload size, enforced while streaming. |
+| `GRAVITON_SECURITY_MAX_REQUEST_BYTES` | `5368709120` | Maximum upload size, enforced while streaming; valid range is 1 byte through 1 TiB. |
 | `GRAVITON_SECURITY_AUDIT_BACKEND` | `memory` | `memory` or `jdbc`. |
 | `GRAVITON_SECURITY_AUTHORIZATION_BACKEND` | `token` | JWT capability checks or `jdbc` ACL augmentation. |
 | `GRAVITON_SECURITY_DEV_SHARED_SECRET` | none | Enables HS256 and `/dev/token`; never set in production. |

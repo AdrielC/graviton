@@ -68,20 +68,20 @@ final class HttpSecurityPolicy(
    */
   def checkedUpload(request: Request): IO[Response, ZStream[Any, Throwable, Byte]] =
     request.headers.get("Content-Length").flatMap(_.toLongOption) match
-      case Some(length) if length > config.maxRequestBytes =>
-        ZIO.fail(toResponse(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes} bytes")))
-      case Some(length) if length < 0L                     =>
+      case Some(length) if length > config.maxRequestBytes.value =>
+        ZIO.fail(toResponse(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes.value} bytes")))
+      case Some(length) if length < 0L                           =>
         ZIO.fail(toResponse(SecurityError.PayloadTooLarge("negative Content-Length")))
-      case _                                               =>
+      case _                                                     =>
         Ref.make(0L).map { consumed =>
           request.body.asStream.mapChunksZIO { chunk =>
             for
               total <- consumed.updateAndGet(_ + chunk.length.toLong)
               _     <-
-                if total <= config.maxRequestBytes then ZIO.unit
+                if total <= config.maxRequestBytes.value then ZIO.unit
                 else
                   ZIO.fail(
-                    HttpSecurityPolicy.BodyRejected(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes} bytes"))
+                    HttpSecurityPolicy.BodyRejected(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes.value} bytes"))
                   )
               _     <- rateLimiter
                          .check(RateLimiter.Kind.UploadBytes, chunk.length.toLong)
