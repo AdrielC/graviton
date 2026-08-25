@@ -90,7 +90,11 @@ export default withMermaid(defineConfig({
   mermaid: {
     theme: 'neutral',
     darkTheme: 'forest',
-    fontFamily: 'JetBrains Mono, Fira Code, monospace'
+    fontFamily: 'JetBrains Mono, Fira Code, monospace',
+    // Mermaid otherwise appends a giant diagnostic SVG directly to <body>
+    // when a client-side render fails. Static syntax remains enforced by
+    // scripts/check-mermaid.mjs, while readers keep a usable document.
+    suppressErrorRendering: true
   },
   mermaidPlugin: {
     class: 'graviton-mermaid'
