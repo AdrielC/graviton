@@ -155,10 +155,10 @@
 
 .api-connection-bar {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(240px, 1fr)) auto;
   gap: 0.75rem;
   align-items: end;
-  max-width: 780px;
+  max-width: 1050px;
   margin: 1.5rem auto 0;
   padding: 1rem;
   border: 1px solid var(--graviton-border);

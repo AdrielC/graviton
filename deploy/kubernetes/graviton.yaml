@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: graviton
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: graviton-data
+  namespace: graviton
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graviton
+  namespace: graviton
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: graviton
+  template:
+    metadata:
+      labels:
+        app: graviton
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: graviton
+          image: ghcr.io/adrielc/graviton:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: GRAVITON_HTTP_PORT
+              value: "8080"
+            - name: GRAVITON_BLOB_BACKEND
+              value: fs
+            - name: GRAVITON_FS_ROOT
+              value: /data
+            - name: GRAVITON_SECURITY_ENABLED
+              value: "true"
+            - name: GRAVITON_SECURITY_REQUIRE_TLS
+              value: "true"
+            - name: GRAVITON_SECURITY_TRUST_PROXY_HEADERS
+              value: "true"
+            - name: GRAVITON_SECURITY_OIDC_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: graviton-oidc
+                  key: issuer
+            - name: GRAVITON_SECURITY_OIDC_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: graviton-oidc
+                  key: audience
+            - name: GRAVITON_SECURITY_OIDC_JWKS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: graviton-oidc
+                  key: jwks-uri
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: http
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: graviton-data
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graviton
+  namespace: graviton
+spec:
+  selector:
+    app: graviton
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: graviton
+  namespace: graviton
+spec:
+  podSelector:
+    matchLabels:
+      app: graviton
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - {}

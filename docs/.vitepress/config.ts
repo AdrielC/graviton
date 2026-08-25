@@ -102,6 +102,7 @@ export default withMermaid(defineConfig({
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Streaming', link: '/guide/binary-streaming' },
       { text: 'Architecture', link: '/architecture' },
+      { text: 'Operations', link: '/ops/production-readiness' },
       { text: 'API', link: '/api' },
       { text: 'Scala.js', link: '/dev/scalajs' },
       { text: 'CAS Playground', link: '/cas-playground' },
@@ -168,7 +169,9 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Postgres Schema (Alpha Overhaul)', link: '/ops/postgres-schema' },
+          { text: 'Production Readiness', link: '/ops/production-readiness' },
           { text: 'Deployment', link: '/ops/deployment' },
+          { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
           { text: 'Performance Measurement', link: '/ops/performance' }
         ]
       },
@@ -191,6 +194,9 @@ export default withMermaid(defineConfig({
           { text: 'Testing', link: '/dev/testing' },
           { text: 'Scala.js Playbook', link: '/dev/scalajs' },
           { text: 'Design Docs', link: '/design/' },
+          { text: 'ADR: Content Identity & GC', link: '/adr/0001-content-identity-deletion-and-gc' },
+          { text: 'ADR: Compatibility & Releases', link: '/adr/0002-compatibility-and-releases' },
+          { text: 'ADR: Deployment Profiles', link: '/adr/0003-deployment-profiles' },
           { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
           { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
           { text: 'Quasar metadata envelope v1.1 (Draft)', link: '/design/quasar-metadata-envelope-v1.1' },

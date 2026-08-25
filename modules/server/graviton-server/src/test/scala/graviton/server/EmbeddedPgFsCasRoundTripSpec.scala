@@ -1,8 +1,11 @@
 package graviton.server
 
-import graviton.backend.pg.PgBlobManifestRepo
+import graviton.backend.pg.{PgBlobManifestRepo, PgReplicaIndex}
+import graviton.core.locator.BlobLocator
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.{BlobStore, CasBlobStore, FsBlockStore}
+import graviton.security.*
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
@@ -13,6 +16,8 @@ import zio.test.*
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.sql.Connection
+import java.time.Instant
+import java.util.UUID
 import scala.collection.mutable.ArrayBuffer
 import java.io.FileNotFoundException
 
@@ -135,6 +140,57 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             details.blocks.map(_.size).sum == data.length.toLong,
           )
         },
+        test("Postgres replica index persists and replaces locator sets") {
+          for
+            store    <- ZIO.service[BlobStore]
+            ds       <- ZIO.service[javax.sql.DataSource]
+            written  <- ZStream.fromIterable("replica-index".getBytes(StandardCharsets.UTF_8)).run(store.put())
+            index     = new PgReplicaIndex(ds)
+            first     = BlobLocator(LocatorScheme.applyUnsafe("s3"), LocatorBucket.applyUnsafe("primary"), LocatorPath.applyUnsafe("objects/a"))
+            second    = BlobLocator(LocatorScheme.applyUnsafe("fs"), LocatorBucket.applyUnsafe("local"), LocatorPath.applyUnsafe("blocks/a"))
+            _        <- index.update(written.key, Set(first, second))
+            both     <- index.replicas(written.key)
+            _        <- index.update(written.key, Set(second))
+            replaced <- index.replicas(written.key)
+          yield assertTrue(both == Set(first, second), replaced == Set(second))
+        },
+        test("JDBC audit sink persists one linear chain under concurrent writes") {
+          val orgId       = UUID.fromString("00000000-0000-0000-0000-000000000101")
+          val principalId = UUID.fromString("00000000-0000-0000-0000-000000000102")
+          val caller      = CallerContext(
+            orgId = orgId,
+            principalId = principalId,
+            capabilities = CapabilitySet.of(Capability.BlobRead),
+            jti = "embedded-pg-audit",
+            tokenExpiresAt = Instant.parse("2099-01-01T00:00:00Z"),
+            requestId = UUID.fromString("00000000-0000-0000-0000-000000000103"),
+          )
+
+          for
+            ds    <- ZIO.service[javax.sql.DataSource]
+            _     <- ZIO.attemptBlocking(seedAuditOrg(ds, orgId))
+            audit <- ZIO.service[AuditSink].provide(ZLayer.succeed(ds), AuditSink.jdbc)
+            _     <- CallerContext.scopedWith(caller) {
+                       ZIO.foreachParDiscard(1 to 20) { index =>
+                         audit.record(
+                           AuditEvent(
+                             action = s"blob.read.$index",
+                             resource = ResourceRef.blob(s"sha-256:${"a" * 64}:$index"),
+                             outcome = AuditEvent.Outcome.Allow,
+                             bytes = Some(index.toLong),
+                           )
+                         )
+                       }
+                     }
+            chain <- ZIO.attemptBlocking(readAuditChain(ds, orgId))
+          yield assertTrue(
+            chain.map(_._1) == (1L to 20L).toVector,
+            chain.headOption.exists(row => java.util.Arrays.equals(row._2, new Array[Byte](32))),
+            chain.zip(chain.drop(1)).forall { case (previous, next) =>
+              java.util.Arrays.equals(next._2, previous._3)
+            },
+          )
+        },
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
   private val ddlRelPath: Path =
@@ -168,6 +224,44 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       try s.execute(stmt)
       finally s.close()
     }
+
+  private def seedAuditOrg(dataSource: javax.sql.DataSource, orgId: UUID): Unit =
+    val tenantId   = UUID.fromString("00000000-0000-0000-0000-000000000100")
+    val connection = dataSource.getConnection
+    try
+      val tenant = connection.prepareStatement(
+        "INSERT INTO quasar.tenant(tenant_id, name) VALUES (?, 'embedded-audit') ON CONFLICT (tenant_id) DO NOTHING"
+      )
+      try
+        tenant.setObject(1, tenantId)
+        val _ = tenant.executeUpdate()
+      finally tenant.close()
+      val org    = connection.prepareStatement(
+        "INSERT INTO quasar.org(org_id, tenant_id, name) VALUES (?, ?, 'embedded-audit') ON CONFLICT (org_id) DO NOTHING"
+      )
+      try
+        org.setObject(1, orgId)
+        org.setObject(2, tenantId)
+        val _ = org.executeUpdate()
+      finally org.close()
+    finally connection.close()
+
+  private def readAuditChain(dataSource: javax.sql.DataSource, orgId: UUID): Vector[(Long, Array[Byte], Array[Byte])] =
+    val connection = dataSource.getConnection
+    try
+      val statement = connection.prepareStatement(
+        "SELECT seq, prev_hash, row_hash FROM quasar.audit_log WHERE org_id = ? ORDER BY seq"
+      )
+      try
+        statement.setObject(1, orgId)
+        val result = statement.executeQuery()
+        try
+          val rows = Vector.newBuilder[(Long, Array[Byte], Array[Byte])]
+          while result.next() do rows += ((result.getLong(1), result.getBytes(2), result.getBytes(3)))
+          rows.result()
+        finally result.close()
+      finally statement.close()
+    finally connection.close()
 
   /** Minimal SQL splitter (handles $$ blocks) */
   private def splitStatements(sql: String): Seq[String] =

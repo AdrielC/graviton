@@ -67,7 +67,7 @@ const capabilities: Capability[] = [
     value: 'REHASHED',
     summary: 'Verification reads persisted bytes instead of trusting metadata.',
     evidence: 'The verification endpoint streams every stored block, reconstructs the blob, and compares the resulting content key.',
-    command: 'POST /api/blobs/{id}/verify',
+    command: 'POST /api/v1/blobs/{id}/verify',
     href: '/api/http'
   },
   {

@@ -42,10 +42,10 @@ This Scala.js application operates a Graviton server that you provide. GitHub Pa
 
 The console supports:
 
-- streaming a selected file to `POST /api/blobs`
-- listing persisted manifests from `GET /api/blobs`
-- inspecting the exact block layout from `GET /api/blobs/{id}/metadata`
-- reading and hashing stored bytes through `POST /api/blobs/{id}/verify`
+- streaming a selected file to `POST /api/v1/blobs`
+- listing persisted manifests from `GET /api/v1/blobs`
+- inspecting the exact block layout from `GET /api/v1/blobs/{id}/metadata`
+- reading and hashing stored bytes through `POST /api/v1/blobs/{id}/verify`
 - downloading the stored bytes
 - deleting a blob manifest while retaining shared CAS blocks
 - reading live health and process counters
@@ -59,7 +59,7 @@ GRAVITON_HTTP_PORT=8081 \
 ./sbt "server/run"
 ```
 
-The default unsecured local server enables CORS so a locally served documentation console can call it. Security-enabled deployments must terminate the UI and API under an intentional origin policy.
+The default unsecured local server enables CORS so a locally served documentation console can call it. Security-enabled deployments can use an exact allowed origin or a same-origin reverse proxy. Canonical blob routes answer validated bearer-token preflights without making the actual API anonymous.
 
 Build and serve the console in another terminal:
 
@@ -69,7 +69,7 @@ npm ci --prefix docs
 npm run docs:dev --prefix docs
 ```
 
-Use the API endpoint field below to connect. The selected endpoint is stored in browser local storage. Connection failures remain visible and do not trigger a fallback. For a self-contained public interaction, use the [CAS Playground](./cas-playground.md).
+Use the API endpoint field below to connect. The selected endpoint is stored in browser local storage. For a secured server, paste a bearer token into the optional password field. The token exists only in page memory, is attached to API requests and fetch-based downloads, and is cleared on reload. Connection failures remain visible and do not trigger a fallback. For a self-contained public interaction, use the [CAS Playground](./cas-playground.md).
 
 <meta name="graviton-api-url" content="http://localhost:8081" />
 
@@ -84,12 +84,12 @@ BLOB_ID="$(
   curl -fsS -X POST \
     -H 'content-type: application/octet-stream' \
     --data-binary @/tmp/graviton-input.txt \
-    http://localhost:8081/api/blobs | jq -r '.blob.id'
+    http://localhost:8081/api/v1/blobs | jq -r '.blob.id'
 )"
 
-curl -fsS http://localhost:8081/api/blobs | jq .
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" -o /tmp/graviton-output.txt
+curl -fsS http://localhost:8081/api/v1/blobs | jq .
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" -o /tmp/graviton-output.txt
 cmp /tmp/graviton-input.txt /tmp/graviton-output.txt
 ```

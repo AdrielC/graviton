@@ -1,157 +1,135 @@
-# Secure API quick-start
+# Secure API Quick Start
 
-Graviton's HTTP surface can authenticate every request with a bearer JWT.
-This page walks through the fastest path to a **working, authenticated
-upload + download flow** without standing up an external OIDC provider.
+Graviton can protect every blob and observability request with bearer authentication, capability authorization, origin and TLS policy, request and byte budgets, and audit events.
 
-Two modes are supported:
+| Mode | Use | Signature | Key source |
+| --- | --- | --- | --- |
+| Development | Local smoke and CI | HS256 | `GRAVITON_SECURITY_DEV_SHARED_SECRET` |
+| OIDC | Staging and production | RS256 only | Remote HTTPS JWKS |
 
-| Mode      | When to use it                               | Signing  | Token source               |
-|-----------|-----------------------------------------------|----------|----------------------------|
-| Dev       | Local testing, CI, smoke tests                | HS256    | Built-in `/dev/token` mint |
-| OIDC      | Staging / production                          | RS256    | External IdP + JWKS        |
+## Local authenticated proof
 
-Both modes use the same [`CallerContext`](../architecture.md) + Postgres
-row-level-security enforcement, so switching between them is just a config
-flip.
-
-## 1. Dev mode (HS256 shared secret)
-
-### 1.1 Start the server
+Start a filesystem server:
 
 ```bash
 export GRAVITON_SECURITY_ENABLED=true
-export GRAVITON_SECURITY_DEV_SHARED_SECRET="change-me-any-string"
-export GRAVITON_SECURITY_OIDC_ISSUER="graviton-dev"
-export GRAVITON_SECURITY_OIDC_AUDIENCE="graviton"
-export GRAVITON_BLOB_BACKEND="fs"
+export GRAVITON_SECURITY_DEV_SHARED_SECRET='local-proof-secret-at-least-32-bytes'
+export GRAVITON_SECURITY_OIDC_ISSUER='https://issuer.local.invalid'
+export GRAVITON_SECURITY_OIDC_AUDIENCE='graviton-local'
+export GRAVITON_BLOB_BACKEND=fs
 ./sbt "server/run"
 ```
 
-The server logs `Security: ENABLED | mode=HS256 dev shared-secret ...` at
-startup. `/api/health` stays public; everything under `/api/blobs` now
-requires a bearer token.
+Health remains public. Blob routes, stats, and metrics require a token.
 
-### 1.2 Mint a token
+Mint a local token:
 
 ```bash
-curl -s -X POST http://localhost:8081/dev/token \
-  -H 'Content-Type: application/json' \
-  -d '{"org_id":"00000000-0000-0000-0000-000000000001",
-       "principal_id":"00000000-0000-0000-0000-000000000002"}' \
-| tee /tmp/tok.json
-
-export TOKEN=$(jq -r .access_token < /tmp/tok.json)
+TOKEN="$(
+  curl -fsS -X POST \
+    -H 'Content-Type: application/json' \
+    -d '{}' \
+    http://localhost:8081/dev/token \
+  | jq -r '.access_token'
+)"
 ```
 
-The response is OAuth-shaped:
+The default development token includes blob read, write, and delete plus `observability.read`. A custom numeric capability mask can be passed as `{"caps":1}`. That example grants only `blob.read`.
 
-```json
-{ "access_token": "<jwt>", "expires_in": 3600, "token_type": "Bearer" }
-```
-
-The minted token carries a sensible default capability bundle
-(`BlobRead`, `BlobWrite`, `BlobDelete`, `DocumentRead`, `DocumentWrite`,
-`ObservabilityRead`). Override with `"caps": <bitmask>` if you need
-different bits.
-
-### 1.3 Upload + download
+Upload, retrieve, and verify real bytes:
 
 ```bash
-# Upload a local file as a blob. Response is the blob id.
-BLOB_ID=$(curl -s -X POST http://localhost:8081/api/blobs \
+printf 'authenticated graviton\n' > /tmp/graviton-secure-input
+
+BLOB_ID="$(
+  curl -fsS -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    --data-binary @/tmp/graviton-secure-input \
+    http://localhost:8081/api/v1/blobs \
+  | jq -r '.blob.id'
+)"
+
+curl -fsS \
   -H "Authorization: Bearer $TOKEN" \
-  --data-binary @./some-document.pdf | jq -r .)
+  "http://localhost:8081/api/v1/blobs/$BLOB_ID" \
+  --output /tmp/graviton-secure-output
 
-echo "Uploaded: $BLOB_ID"
+cmp /tmp/graviton-secure-input /tmp/graviton-secure-output
 
-# Stream the same bytes back.
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8081/api/blobs/$BLOB_ID" -o /tmp/roundtrip.pdf
-
-diff ./some-document.pdf /tmp/roundtrip.pdf && echo "round-trip OK"
+curl -fsS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" \
+| jq -e '.verified == true'
 ```
 
-A request **without** the header fails with `401 Unauthorized`; a request
-with a token that lacks `blob.read`/`blob.write` in its capability mask
-fails with `403 Forbidden`.
+A missing or invalid token returns `401`. An authenticated token missing the route capability returns `403`.
 
-## 2. OIDC mode (RS256 + JWKS)
+The complete fat-JAR proof is automated:
 
-For production, bind Graviton to an OIDC IdP (Okta, Auth0, Cognito,
-Keycloak, etc.):
+```bash
+./sbt server/assembly
+./scripts/smoke-packaged-server.sh
+```
+
+## Production OIDC
 
 ```bash
 export GRAVITON_SECURITY_ENABLED=true
-export GRAVITON_SECURITY_OIDC_ISSUER="https://auth.example.com"
-export GRAVITON_SECURITY_OIDC_AUDIENCE="graviton"
-unset GRAVITON_SECURITY_DEV_SHARED_SECRET   # production MUST NOT have this set
+export GRAVITON_SECURITY_OIDC_ISSUER='https://id.example.com/'
+export GRAVITON_SECURITY_OIDC_AUDIENCE='graviton'
+export GRAVITON_SECURITY_OIDC_JWKS_URI='https://id.example.com/.well-known/jwks.json'
+unset GRAVITON_SECURITY_DEV_SHARED_SECRET
 ```
 
-Wire a live RS256 verifier at server assembly time using the
-[`zio-jwt`](https://github.com/arashi01/zio-jwt) adapter
-`graviton.security.jwt.ZioJwtVerifier.fromDecoder`. The server refuses to
-start if `GRAVITON_SECURITY_OIDC_ISSUER` or `GRAVITON_SECURITY_OIDC_AUDIENCE`
-are missing while `GRAVITON_SECURITY_ENABLED=true`.
+The server uses Nimbus JOSE + JWT to fetch and cache remote keys, refresh unknown key IDs, and verify RS256 signatures. It rejects other signature algorithms, wrong issuer or audience, missing required claims, expired tokens, future `nbf`, malformed UUID claims, and unknown signing keys.
 
-The tokens your IdP issues must include these claims:
+Required identity claims are:
 
-| Claim          | Meaning                                           |
-|----------------|---------------------------------------------------|
-| `iss`          | matches `GRAVITON_SECURITY_OIDC_ISSUER`           |
-| `aud`          | contains `GRAVITON_SECURITY_OIDC_AUDIENCE`        |
-| `exp`, `nbf`   | standard lifetime constraints                     |
-| `jti`          | unique token id (used for replay detection later) |
-| `sub`          | principal UUID                                    |
-| `org_id`       | tenant UUID — drives Postgres RLS isolation       |
-| `scope`        | space-separated capability strings (see below)    |
-| `caps`         | **or** a numeric capability bitmask               |
+| Claim | Meaning |
+| --- | --- |
+| `iss` | Exact configured issuer |
+| `aud` | Contains the configured audience |
+| `exp` | Expiration time |
+| `nbf` | Optional not-before time |
+| `jti` | Token identifier |
+| `sub` | Principal UUID |
+| `org_id` | Organization UUID |
+| `scope` | Space-separated capability names |
+| `caps` | Optional numeric capability mask merged with scopes |
 
-Recognised scope tokens: `blob.read`, `blob.write`, `blob.delete`,
-`doc.read`, `doc.write`, `doc.delete`, `ns.admin`, `acl.admin`,
-`observability.read`, `audit.read`, `legal_hold.write`.
+Recognized scopes are `blob.read`, `blob.write`, `blob.delete`, `doc.read`, `doc.write`, `doc.delete`, `ns.admin`, `acl.admin`, `observability.read`, `audit.read`, and `legal_hold.write`.
 
-## 3. What the server does with your token
+## Authorization backends
 
-1. `AuthMiddleware` extracts the bearer token and calls the configured
-   `JwtVerifier`.
-2. The resulting `CallerContext` is placed on the fiber via a `FiberRef`.
-3. Every subsequent DB call flows through `TenantScopedDataSource`,
-   which runs `SET LOCAL app.org_id = <orgId>` before executing the
-   query. The Postgres RLS policies in `modules/pg/ddl.sql` then enforce
-   tenant isolation — the app role has `NOBYPASSRLS`, so a buggy query
-   cannot leak cross-tenant rows.
-4. Every request produces an audit row through `AuditSink` with a
-   per-org SHA-256 hash chain (see
-   `deploy/on-prem/v1/migrations/30_audit.sql`).
+`GRAVITON_SECURITY_AUTHORIZATION_BACKEND=token` checks capabilities carried by the verified JWT.
 
-## 4. Configuration reference
+`GRAVITON_SECURITY_AUTHORIZATION_BACKEND=jdbc` augments token capabilities with PostgreSQL ACL rows for resources that have an ID. Deny rows win. It requires the PostgreSQL connection variables and schema. Qualify its tenant and role configuration against the actual database deployment before enabling it.
 
-| Env var                                      | Default | Purpose                                         |
-|----------------------------------------------|---------|-------------------------------------------------|
-| `GRAVITON_SECURITY_ENABLED`                  | `false` | Turn middleware on                              |
-| `GRAVITON_SECURITY_OIDC_ISSUER`              | —       | Expected `iss` claim                            |
-| `GRAVITON_SECURITY_OIDC_AUDIENCE`            | —       | Expected `aud` claim                            |
-| `GRAVITON_SECURITY_DEV_SHARED_SECRET`        | —       | Enables HS256 + `/dev/token`. **Never in prod.**|
-| `GRAVITON_SECURITY_CLOCK_SKEW_SECONDS`       | `30`    | Slack applied to `exp`/`nbf`                    |
-| `GRAVITON_SECURITY_REQUIRE_TLS`              | `false` | Refuse non-TLS listeners when `true`            |
-| `GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC` | `100` | Per-caller token-bucket refill         |
-| `GRAVITON_SECURITY_MAX_REQUEST_BYTES`        | `5 GiB` | Upload size cap                                 |
-| `GRAVITON_SECURITY_KMS_KEY_ARN`              | —       | KMS ARN for S3 SSE-KMS + secrets                |
+## Transport and browser policy
 
-## 5. Troubleshooting
+Set `GRAVITON_SECURITY_REQUIRE_TLS=true` in a protected deployment. If TLS terminates at a reverse proxy, set `GRAVITON_SECURITY_TRUST_PROXY_HEADERS=true` only when that proxy removes client-supplied forwarding headers and writes the authoritative protocol.
 
-**`401 missing bearer token`** — no `Authorization: Bearer <jwt>` header
-or the header is malformed. In dev mode, re-run the `/dev/token` mint.
+Set exact browser origins:
 
-**`401 bad JWT signature`** — the server's
-`GRAVITON_SECURITY_DEV_SHARED_SECRET` differs from the one used to mint
-the token. Restart the server after changing the secret.
+```bash
+export GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS='https://console.example.com'
+```
 
-**`401 token expired`** — tokens have a 1-hour default TTL in dev mode.
-Mint a new one (the mint endpoint accepts `"ttl_seconds": <n>` to
-override, capped at 24 h).
+Requests with a different `Origin` are rejected. No wildcard or suffix matching is used. Canonical blob routes permit only validated `OPTIONS` preflights for their actual methods and supported request headers; the subsequent request still requires the bearer token.
 
-**`403 missing capability X`** — the token's scope/mask doesn't include
-the capability the route requires. In dev mode, supply `"caps": <mask>`
-on mint; in OIDC mode, fix the IdP's scope configuration.
+## Limits and auditing
+
+The server enforces per-principal request, upload-byte, and download-byte budgets. Upload size is checked while streaming and does not trust `Content-Length`.
+
+The in-memory audit sink is useful for tests only. For durable chained events:
+
+```bash
+export GRAVITON_SECURITY_AUDIT_BACKEND=jdbc
+export PG_JDBC_URL='jdbc:postgresql://postgres:5432/graviton'
+export PG_USERNAME='graviton'
+export PG_PASSWORD='from-a-secret-store'
+```
+
+The JDBC sink serializes each organization chain with a PostgreSQL advisory transaction lock. Each row commits the previous hash plus a canonical event payload, so later verification can detect modification or gaps.
+
+See [Configuration Reference](./configuration-reference.md) and [Production Readiness](../ops/production-readiness.md) before exposing the service.

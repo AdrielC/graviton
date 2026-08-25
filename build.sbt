@@ -7,6 +7,11 @@ import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
 import scalapb.compiler.Version
+import sbtassembly.AssemblyPlugin
+import sbtassembly.AssemblyPlugin.autoImport.*
+import sbtassembly.MergeStrategy
+import sbtversionpolicy.Compatibility
+import sbtversionpolicy.SbtVersionPolicyPlugin.autoImport.*
 
 lazy val docSnippetMappings =
   settingKey[Seq[DocSnippet]]("Mappings between documentation files and compiled snippet sources.")
@@ -20,7 +25,7 @@ lazy val checkDocSnippets =
 lazy val V = Dependencies.V
 
 ThisBuild / scalaVersion := V.scala3
-ThisBuild / organization := "io.graviton"
+ThisBuild / organization := "io.github.adrielc"
 ThisBuild / resolvers += Resolver.mavenCentral
 ThisBuild / PB.protocVersion := "3.21.12"
 
@@ -31,6 +36,14 @@ ThisBuild / libraryDependencySchemes ++= Seq(
   "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
 )
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/AdrielC/graviton"),
+    "scm:git:https://github.com/AdrielC/graviton.git",
+  )
+)
+ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible
+ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
   Developer(
@@ -41,25 +54,16 @@ ThisBuild / developers := List(
   )
 )
 
-// Scaladoc settings
-ThisBuild / Compile / doc / scalacOptions ++= Seq(
-  "-project", "Graviton",
-  "-project-version", version.value,
-  "-project-logo", "docs/public/logo.svg",
-  "-social-links:github::https://github.com/AdrielC/graviton",
-  "-source-links:github://AdrielC/graviton",
-  "-revision", "main",
-  "-doc-root-content", "docs/scaladoc-root.md"
-)
-
-// Task to generate and copy scaladoc to docs
-lazy val generateDocs = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
-generateDocs := {
+// Generate Scaladoc one module at a time. Scala 3.8.2's renderer is not safe
+// when these projects render concurrently in the same sbt process.
+lazy val generateDocs     = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
+lazy val copyGeneratedDocs = taskKey[Unit]("Copy generated Scaladoc into the docs site")
+copyGeneratedDocs := {
   val log = Keys.streams.value.log
   val targetDir = file("docs/public/scaladoc")
   val indexFile = targetDir / "index.html"
 
-  log.info("Generating Scaladoc for JVM modules...")
+  log.info("Collecting generated Scaladoc for JVM modules...")
 
   val moduleDocs = List(
     // Core runtime surface
@@ -130,6 +134,21 @@ generateDocs := {
 
   log.info(s"Scaladoc copied to $targetDir")
 }
+
+generateDocs := Def.sequential(
+  LocalProject("core") / Compile / doc,
+  LocalProject("streams") / Compile / doc,
+  LocalProject("runtime") / Compile / doc,
+  sharedProtocol.jvm / Compile / doc,
+  LocalProject("proto") / Compile / doc,
+  LocalProject("grpc") / Compile / doc,
+  LocalProject("http") / Compile / doc,
+  LocalProject("s3") / Compile / doc,
+  LocalProject("pg") / Compile / doc,
+  LocalProject("rocks") / Compile / doc,
+  LocalProject("server") / Compile / doc,
+  copyGeneratedDocs,
+).value
 
 // Task to build frontend and copy to docs
 lazy val buildFrontend = taskKey[Unit]("Build Scala.js frontend and copy to docs")
@@ -212,6 +231,7 @@ lazy val cli = (project in file("modules/graviton-cli"))
   .settings(
     baseSettings,
     name := "graviton-cli",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
@@ -363,7 +383,9 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
   )
 
 lazy val http = (project in file("modules/protocol/graviton-http"))
-  .dependsOn(runtime, grpc, security)
+  // The HTTP runtime is transport-independent. gRPC is needed only by the
+  // parity test and must not leak Netty 4.1 into the zio-http/Netty 4.2 server.
+  .dependsOn(runtime, security, grpc % "test->compile")
   .settings(baseSettings,
     name := "graviton-http",
     libraryDependencies ++= Seq(
@@ -382,7 +404,12 @@ lazy val s3 = (project in file("modules/backend/graviton-s3"))
   .settings(baseSettings,
     name := "graviton-s3",
     libraryDependencies ++= Seq(
-      "software.amazon.awssdk" % "s3" % V.awsV2
+      // Graviton uses the synchronous S3Client. The AWS services parent also
+      // declares its asynchronous Netty 4.1 client at runtime; exclude that
+      // unused transport so it cannot conflict with zio-http's Netty 4.2.
+      ("software.amazon.awssdk" % "s3" % V.awsV2)
+        .exclude("software.amazon.awssdk", "netty-nio-client"),
+      "software.amazon.awssdk" % "apache-client" % V.awsV2,
     )
   )
 
@@ -414,12 +441,7 @@ lazy val security = (project in file("modules/security/graviton-security"))
       "dev.zio"       %% "zio-streams"       % V.zio,
       "dev.zio"       %% "zio-json"          % "0.8.0",
       "org.postgresql" % "postgresql"        % V.pg,
-      // NOTE: the `io.github.arashi01 %% zio-jwt` dep pulls magnolia which
-      // forces scala3-library 3.8.2 into the classpath and crashes the 3.7.4
-      // compiler. Bind a live RS256 JwtValidator in graviton-server where
-      // its own classpath can tolerate the forced upgrade; the
-      // `ZioJwtVerifier` adapter in this module is parameterised on a
-      // decoder function so it does not import the library directly.
+      "com.nimbusds"   % "nimbus-jose-jwt"    % "10.9.1",
       "dev.zio"       %% "zio-test"          % V.zio % Test,
       "dev.zio"       %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio"       %% "zio-test-magnolia" % V.zio % Test,
@@ -427,10 +449,33 @@ lazy val security = (project in file("modules/security/graviton-security"))
   )
 
 lazy val server = (project in file("modules/server/graviton-server"))
-  .dependsOn(runtime, grpc, http, s3, pg, rocks, security)
+  .enablePlugins(AssemblyPlugin)
+  .dependsOn(runtime, http, s3, pg, rocks, security)
   .settings(
     baseSettings,
     name := "graviton-server",
+    publish / skip := true,
+    assembly / mainClass := Some("graviton.server.Main"),
+    assembly / assemblyJarName := s"graviton-server-${version.value}.jar",
+    assembly / assemblyMergeStrategy := {
+      val previous: String => MergeStrategy = (assembly / assemblyMergeStrategy).value
+      (path: String) =>
+        path match {
+        case PathList("META-INF", "services", _*) => MergeStrategy.concat
+        // Log4j2 discovers its built-in plugins from this binary cache. Keep
+        // the core descriptor so the packaged server does not fall back to
+        // runtime classpath scanning.
+        case PathList("META-INF", "org", "apache", "logging", "log4j", "core", "config", "plugins", "Log4j2Plugins.dat") =>
+          MergeStrategy.first
+        case PathList("META-INF", _*)             => MergeStrategy.discard
+        case "module-info.class"                  => MergeStrategy.discard
+        // Scala 3.8 ships @unroll in scala-library. Some dependencies still
+        // carry the compatibility artifact, so retain the compiler-owned copy.
+        case PathList("scala", "annotation", "unroll.class") => MergeStrategy.first
+        case PathList("scala", "annotation", "unroll.tasty") => MergeStrategy.first
+        case path                                  => previous(path)
+        }
+    },
     Compile / sourceGenerators += Def.task {
       val output = (Compile / sourceManaged).value / "graviton" / "server" / "BuildInfo.scala"
       val currentVersion = version.value.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -449,9 +494,6 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
-      // zio-jwt is only needed in the server assembly where we wire the
-      // live RS256 JwtValidator; omitted until we bump Scala so it
-      // doesn't force scala3-library 3.8.2 into every downstream module.
       "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
     ),
   )
@@ -461,6 +503,7 @@ lazy val quasarCore = (project in file("modules/quasar-core"))
   .settings(
     baseSettings,
     name := "quasar-core",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "dev.zio" %% "zio-json" % "0.8.0",
@@ -475,6 +518,7 @@ lazy val quasarHttp = (project in file("modules/quasar-http"))
   .settings(
     baseSettings,
     name := "quasar-http",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "dev.zio" %% "zio-http" % V.zioHttp,
@@ -487,6 +531,7 @@ lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
   .settings(
     baseSettings,
     name := "quasar-legacy",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio" % V.zio,
       "org.postgresql" % "postgresql" % V.pg,
@@ -505,8 +550,7 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-schema"            % V.zioSchema,
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
-      "io.github.iltotore" %%% "iron"           % V.iron,
-      "io.github.iltotore" %%% "iron-zio-json" % V.iron,
+      "io.github.iltotore" %%% "iron"        % V.iron,
     )
   )
   .jsSettings(
@@ -520,6 +564,7 @@ lazy val frontend = (project in file("modules/frontend"))
   .settings(
     baseSettings,
     name := "graviton-frontend",
+    publish / skip := true,
     Test / fork := false,  // Scala.js tests cannot be forked
     scalaJSUseMainModuleInitializer := true,
     scalaJSLinkerConfig ~= {
@@ -540,6 +585,7 @@ lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
   .settings(
     baseSettings,
     name := "quasar-frontend",
+    publish / skip := true,
     Test / fork := false, // Scala.js tests cannot be forked
     scalaJSUseMainModuleInitializer := true,
     scalaJSLinkerConfig ~= {

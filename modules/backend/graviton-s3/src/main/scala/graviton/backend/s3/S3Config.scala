@@ -15,9 +15,9 @@ final case class S3Config(
   bucket: String,
   region: Region = Region.US_EAST_1,
   endpointOverride: Option[URI] = None,
-  accessKeyId: String,
-  secretAccessKey: String,
-  forcePathStyle: Boolean = true,
+  accessKeyId: Option[String] = None,
+  secretAccessKey: Option[String] = None,
+  forcePathStyle: Boolean = false,
   prefix: String = "",
 )
 
@@ -56,8 +56,8 @@ object S3Config:
       bucket = bucket.trim,
       region = region,
       endpointOverride = Some(endpoint),
-      accessKeyId = ak,
-      secretAccessKey = sk,
+      accessKeyId = Some(ak),
+      secretAccessKey = Some(sk),
       forcePathStyle = forcePathStyle,
       prefix = prefix,
     )
@@ -85,3 +85,11 @@ object S3Config:
              forcePathStyle = true,
            )
     yield c
+
+  /** Use explicit MinIO settings when an endpoint exists, otherwise AWS defaults. */
+  def fromEnvironment(bucket: String, prefix: String = ""): Either[String, S3Config] =
+    sys.env.get("QUASAR_MINIO_URL").map(_.trim).filter(_.nonEmpty) match
+      case Some(_) => fromEndpointEnv(bucket, prefix)
+      case None    =>
+        val region = sys.env.get("GRAVITON_S3_REGION").map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
+        Right(S3Config(bucket = bucket, region = region, prefix = prefix))

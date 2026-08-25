@@ -17,6 +17,7 @@ object FileUpload:
     val verificationVar = Var[Option[BlobVerificationResult]](None)
     val uploadingVar    = Var(false)
     val verifyingVar    = Var(false)
+    val downloadingVar  = Var(false)
     val errorVar        = Var[Option[String]](None)
     val runtime         = Runtime.default
 
@@ -53,6 +54,18 @@ object FileUpload:
           case scala.util.Failure(error)  =>
             errorVar.set(Some(error.getMessage))
             verifyingVar.set(false)
+        }
+      }
+
+    def download(blobId: String): Unit =
+      downloadingVar.set(true)
+      errorVar.set(None)
+      Unsafe.unsafe { implicit unsafe =>
+        runtime.unsafe.runToFuture(api.downloadBlob(blobId)).onComplete {
+          case scala.util.Success(_)     => downloadingVar.set(false)
+          case scala.util.Failure(error) =>
+            errorVar.set(Some(error.getMessage))
+            downloadingVar.set(false)
         }
       }
 
@@ -130,7 +143,12 @@ object FileUpload:
             ),
             div(
               cls   := "operation-actions",
-              a(cls := "btn-secondary", href := api.downloadUrl(id), download := "", "Download stored bytes"),
+              button(
+                cls := "btn-secondary",
+                child.text <-- downloadingVar.signal.map(if _ then "Downloading..." else "Download stored bytes"),
+                disabled <-- downloadingVar.signal,
+                onClick --> { _ => download(id) },
+              ),
               button(
                 cls := "btn-primary",
                 child.text <-- verifyingVar.signal.map(if _ then "Verifying..." else "Verify on server"),

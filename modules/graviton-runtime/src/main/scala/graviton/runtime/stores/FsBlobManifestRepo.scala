@@ -8,7 +8,9 @@ import zio.*
 import zio.stream.ZStream
 
 import java.nio.file.attribute.FileTime
-import java.nio.file.{AtomicMoveNotSupportedException, Files, LinkOption, Path, StandardCopyOption}
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
+import java.nio.file.{Files, LinkOption, Path, StandardCopyOption}
 import java.time.Instant
 import scala.jdk.CollectionConverters.*
 
@@ -95,6 +97,20 @@ final class FsBlobManifestRepo(
   override def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
     ZIO.attemptBlocking(Files.deleteIfExists(pathFor(blob)))
 
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking {
+      val directory = root.resolve(prefix)
+      Files.createDirectories(directory)
+      val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
+      try
+        val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
+        try channel.force(true)
+        finally channel.close()
+      finally
+        val _ = Files.deleteIfExists(probe)
+      ()
+    }
+
   private[stores] def pathFor(blob: BinaryKey.Blob): Path =
     val algo = blob.bits.algo.primaryName.toLowerCase.replace("-", "")
     val name = s"${blob.bits.digest.hex.value}-${blob.bits.size}.manifest"
@@ -138,12 +154,19 @@ final class FsBlobManifestRepo(
       Files.createDirectories(path.getParent)
       val tmp = Files.createTempFile(path.getParent, ".manifest-", ".tmp")
       try
-        Files.write(tmp, bytes)
-        try Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        catch
-          case _: AtomicMoveNotSupportedException =>
-            Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING)
+        val tmpChannel       = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+        try
+          tmpChannel.write(java.nio.ByteBuffer.wrap(bytes))
+          tmpChannel.force(true)
+        finally tmpChannel.close()
+        Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         Files.setLastModifiedTime(path, FileTime.from(ingestedAt))
+        val fileChannel      = FileChannel.open(path, StandardOpenOption.READ)
+        try fileChannel.force(true)
+        finally fileChannel.close()
+        val directoryChannel = FileChannel.open(path.getParent, StandardOpenOption.READ)
+        try directoryChannel.force(true)
+        finally directoryChannel.close()
         ()
       finally
         try

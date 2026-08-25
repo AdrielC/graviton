@@ -1,6 +1,6 @@
-# Configuration Reference (Current Server)
+# Configuration Reference
 
-This page documents the **current, runnable** configuration surface for the `graviton-server` app (`./sbt "server/run"`). Today the server is configured via **environment variables** (see `graviton.server.Main`), not HOCON.
+This page documents the current runnable configuration surface for `graviton-server`. The server reads environment variables through ZIO Config.
 
 :::: warning Scope
 This is the **current** server configuration contract. Other modules may expose additional configuration options that are not wired into the server yet.
@@ -40,12 +40,15 @@ export GRAVITON_S3_REGION="us-east-1"
 
 | Path | Meaning | Notes |
 | --- | --- | --- |
-| `GET /api/health` | health check | Always available when server is up |
+| `GET /api/health/live` | liveness | Always available when the process is up |
+| `GET /api/health/ready` | backend readiness | Checks the configured block and manifest stores |
 | `GET /metrics` | Prometheus scrape | Exposes `text/plain; version=0.0.4` (metric names are evolving) |
-| `POST /api/blobs` | upload | Uses the selected storage composition |
-| `GET /api/blobs/:id` | download | Uses the selected storage composition |
-| `HEAD /api/blobs/:id` | metadata headers | Checks existence without a response body |
-| `DELETE /api/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
+| `POST /api/v1/blobs` | upload | Uses the selected storage composition |
+| `GET /api/v1/blobs/:id` | download | Supports ranges and conditional requests |
+| `HEAD /api/v1/blobs/:id` | metadata headers | Checks existence without a response body |
+| `DELETE /api/v1/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
+
+The `/api/blobs` aliases remain available with `Deprecation: true` and a successor `Link` header.
 
 ## Environment variables
 
@@ -54,6 +57,7 @@ export GRAVITON_S3_REGION="us-east-1"
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
+| `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
 
 ### PostgreSQL (required for S3/MinIO or JDBC audit mode)
 
@@ -79,7 +83,9 @@ psql -U postgres -d graviton -f modules/pg/ddl.sql
 
 Notes:
 
-- `minio` and `s3` currently share the **same env contract** (endpoint + access keys), and are best understood as “S3-compatible via MinIO-style credentials”.
+- `minio` and `s3` select the same S3-compatible adapter.
+- Set `QUASAR_MINIO_URL` for an explicit MinIO-style endpoint and credentials.
+- Without an explicit endpoint, the AWS SDK default credential provider chain is used.
 - Filesystem mode stores blocks and manifests locally and is the zero-service default.
 
 ### Filesystem blocks and manifests (`GRAVITON_BLOB_BACKEND=fs`)
@@ -105,13 +111,13 @@ Example:
 
 ### S3/MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
-Required endpoint + credentials (used by `S3Config.fromEndpointEnv`):
+Endpoint and explicit credentials for MinIO:
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
-| `QUASAR_MINIO_URL` | (none) | yes | S3 endpoint URL (for MinIO: `http://localhost:9000`). |
-| `MINIO_ROOT_USER` | (none) | yes | Access key id. |
-| `MINIO_ROOT_PASSWORD` | (none) | yes | Secret access key. |
+| `QUASAR_MINIO_URL` | (none) | only for explicit endpoint | S3-compatible endpoint URL, such as `http://localhost:9000`. |
+| `MINIO_ROOT_USER` | (none) | with endpoint | Access key id. |
+| `MINIO_ROOT_PASSWORD` | (none) | with endpoint | Secret access key. |
 
 Block object layout:
 
@@ -130,6 +136,8 @@ From `S3BlockStore`, block objects are written under:
 Example:
 
 - `cas/blocks/blake3/0123abcd...-1048576`
+
+Quarantined objects use the configured block prefix followed by `.graviton-quarantine/`. Applications should access them through `BlockMaintenance`, not by constructing object keys.
 
 #### Bucket creation (MinIO)
 
@@ -152,6 +160,31 @@ docker run --rm --network host minio/mc \
   mb local/"$GRAVITON_S3_BLOCK_BUCKET"
 ```
 
+## Security
+
+Security is disabled by default. When enabled, issuer and audience are required. Configure an HTTPS JWKS URI for production RS256 verification, or a development shared secret only for local proof.
+
+| Name | Default | Meaning |
+| --- | --- | --- |
+| `GRAVITON_SECURITY_ENABLED` | `false` | Require bearer authentication and capability checks. |
+| `GRAVITON_SECURITY_OIDC_ISSUER` | none | Exact expected `iss` claim. |
+| `GRAVITON_SECURITY_OIDC_AUDIENCE` | none | Required token audience. |
+| `GRAVITON_SECURITY_OIDC_JWKS_URI` | none | Absolute HTTPS JWKS URI for RS256 key lookup and rotation. |
+| `GRAVITON_SECURITY_JWKS_CACHE_TTL` | `10m` | Remote key cache lifetime. |
+| `GRAVITON_SECURITY_CLOCK_SKEW_SECONDS` | `30` | Allowed JWT clock skew. |
+| `GRAVITON_SECURITY_REQUIRE_TLS` | `false` | Reject protected requests outside the configured HTTPS trust boundary. |
+| `GRAVITON_SECURITY_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-Proto`; enable only behind a sanitizing proxy. |
+| `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins. |
+| `GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC` | `100` | Per-principal request budget. |
+| `GRAVITON_SECURITY_RATE_LIMIT_UPLOAD_BYTES_PER_SEC` | `10485760` | Per-principal streamed upload-byte budget. |
+| `GRAVITON_SECURITY_RATE_LIMIT_DOWNLOAD_BYTES_PER_SEC` | `52428800` | Per-principal streamed download-byte budget. |
+| `GRAVITON_SECURITY_MAX_REQUEST_BYTES` | `5368709120` | Maximum upload size, enforced while streaming. |
+| `GRAVITON_SECURITY_AUDIT_BACKEND` | `memory` | `memory` or `jdbc`. |
+| `GRAVITON_SECURITY_AUTHORIZATION_BACKEND` | `token` | JWT capability checks or `jdbc` ACL augmentation. |
+| `GRAVITON_SECURITY_DEV_SHARED_SECRET` | none | Enables HS256 and `/dev/token`; never set in production. |
+
+`/api/stats` and `/metrics` require `observability.read` when security is enabled. Blob endpoints require the corresponding `blob.read`, `blob.write`, or `blob.delete` capability.
+
 ## Blob IDs (HTTP)
 
 The HTTP API uses a string `BlobId` rendered as:
@@ -166,7 +199,7 @@ This is produced on upload by `HttpApi` from the `BinaryKey.Blob`:
 
 ### Validation behavior
 
-- `GET /api/blobs/:id` validates the id and returns **400** if it cannot be parsed.
+- `GET /api/v1/blobs/:id` validates the id and returns **400** if it cannot be parsed.
 - Invalid ingest input returns **400** with a JSON error envelope; unexpected storage failures return a generic **500** without exposing arbitrary exception messages.
 
 ## How configuration is read (source pointers)
@@ -190,11 +223,11 @@ Fix:
 psql -U postgres -d graviton -f modules/pg/ddl.sql
 ```
 
-### S3/MinIO backend selected but MinIO env vars missing
+### MinIO endpoint selected but credentials missing
 
 Symptoms: server fails at startup with “Missing env var …”.
 
-Fix: set `QUASAR_MINIO_URL`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, or switch to filesystem blocks.
+Fix: set both `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, unset `QUASAR_MINIO_URL` to use the AWS default credential chain, or switch to filesystem blocks.
 
 ### Bucket does not exist
 

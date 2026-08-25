@@ -57,10 +57,10 @@ The default server is self-contained and persists blocks plus manifests below `.
 ./sbt "server/run"
 
 # In another terminal
-BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs | jq -r '.blob.id')"
-curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
+BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/v1/blobs | jq -r '.blob.id')"
+curl -fsSI "http://localhost:8081/api/v1/blobs/$BLOB_ID"
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
 cmp README.md /tmp/graviton-readme.md
 ```
 

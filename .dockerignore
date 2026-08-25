@@ -1,0 +1,12 @@
+**/target
+**/node_modules
+.git
+.idea
+.metals
+.bloop
+docs/.vitepress
+
+!modules/server/graviton-server/target/
+!modules/server/graviton-server/target/scala-3.8.2/
+!modules/server/graviton-server/target/scala-3.8.2/graviton-server-*.jar
+!deploy/container/data/.keep

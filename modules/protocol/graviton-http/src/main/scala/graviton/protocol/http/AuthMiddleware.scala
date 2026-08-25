@@ -27,20 +27,28 @@ object AuthMiddleware:
   private val BearerPrefix = "Bearer "
 
   /** Mandatory auth: rejects any request without a valid JWT. */
-  def required(verifier: JwtVerifier, auditSink: AuditSink): HandlerAspect[Any, Unit] =
+  def required(
+    verifier: JwtVerifier,
+    auditSink: AuditSink,
+    decorateFailure: (Request, Response) => Response = (_, response) => response,
+  ): HandlerAspect[Any, Unit] =
     HandlerAspect.interceptIncomingHandler(
       Handler.fromFunctionZIO[Request] { req =>
-        authenticate(verifier, auditSink, req).map((req, _))
+        authenticate(verifier, auditSink, req).mapError(response => decorateFailure(req, response)).map((req, _))
       }
     )
 
   /** Applies only when the header is present — used for partially-public routes. */
-  def optional(verifier: JwtVerifier, auditSink: AuditSink): HandlerAspect[Any, Unit] =
+  def optional(
+    verifier: JwtVerifier,
+    auditSink: AuditSink,
+    decorateFailure: (Request, Response) => Response = (_, response) => response,
+  ): HandlerAspect[Any, Unit] =
     HandlerAspect.interceptIncomingHandler(
       Handler.fromFunctionZIO[Request] { req =>
         req.headers.get("Authorization") match
           case None    => ZIO.succeed((req, ()))
-          case Some(_) => authenticate(verifier, auditSink, req).map((req, _))
+          case Some(_) => authenticate(verifier, auditSink, req).mapError(response => decorateFailure(req, response)).map((req, _))
       }
     )
 

@@ -6,6 +6,9 @@
 -- pgcrypto provides digest() used by verify_audit_chain below.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- CAS audit and ACL resources use the same enum as document resources.
+ALTER TYPE quasar.resource_kind ADD VALUE IF NOT EXISTS 'blob';
+
 -- ---------------------------------------------------------------
 -- audit_outcome enum
 -- ---------------------------------------------------------------

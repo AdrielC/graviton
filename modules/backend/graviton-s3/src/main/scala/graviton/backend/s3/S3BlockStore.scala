@@ -1,14 +1,17 @@
 package graviton.backend.s3
 
 import graviton.core.bytes.HashAlgo
-import graviton.core.keys.BinaryKey
+import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.runtime.model.*
-import graviton.runtime.stores.BlockStore
+import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
 import zio.*
 import zio.stream.*
+
+import java.util.UUID
+import scala.jdk.CollectionConverters.*
 
 final case class S3BlockStoreConfig(
   blocks: S3Config,
@@ -18,7 +21,8 @@ final case class S3BlockStoreConfig(
 final class S3BlockStore(
   client: S3Client,
   config: S3BlockStoreConfig,
-) extends BlockStore:
+) extends BlockStore,
+      BlockMaintenance:
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -60,14 +64,66 @@ final class S3BlockStore(
       .attemptBlocking(client.headObject(req))
       .as(true)
       .catchSome { case _: NoSuchKeyException => ZIO.succeed(false) }
-      .catchSome { case _: S3Exception =>
-        // MinIO may raise generic S3Exception for missing keys.
-        ZIO.succeed(false)
+      .catchSome {
+        case error: S3Exception if error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(_.errorCode() == "NoSuchKey") =>
+          ZIO.succeed(false)
       }
+
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking {
+      val request = HeadBucketRequest.builder().bucket(config.blocks.bucket).build()
+      client.headBucket(request)
+      ()
+    }
+
+  override def inventory: ZStream[Any, Throwable, BlockInventoryEntry] =
+    ZStream.paginateChunkZIO("") { continuationToken =>
+      ZIO.attemptBlocking {
+        val builder  = ListObjectsV2Request
+          .builder()
+          .bucket(config.blocks.bucket)
+          .prefix(activeListPrefix)
+        if continuationToken.nonEmpty then
+          val _ = builder.continuationToken(continuationToken)
+        val response = client.listObjectsV2(builder.build())
+        val entries  = Chunk.fromIterable(
+          response
+            .contents()
+            .iterator()
+            .asScala
+            .filterNot(obj => obj.key().startsWith(quarantinePrefix))
+            .map { obj =>
+              val key = parseObjectKey(obj.key()).fold(
+                message => throw new IllegalStateException(s"Invalid block object '${obj.key()}': $message"),
+                identity,
+              )
+              BlockInventoryEntry(key, obj.size(), obj.lastModified())
+            }
+            .toList
+        )
+        (entries, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+      }
+    }
+
+  override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
+    for
+      quarantinedAt <- Clock.instant
+      token          = s"$quarantinePrefix${UUID.randomUUID()}/${objectKeyFor(entry.key).stripPrefix(activeListPrefix)}"
+      _             <- copyObject(objectKeyFor(entry.key), token)
+      _             <- deleteObject(objectKeyFor(entry.key))
+    yield QuarantinedBlock(entry.key, token, entry.size, quarantinedAt)
+
+  override def restore(block: QuarantinedBlock): Task[Unit] =
+    validateQuarantineToken(block.token) *>
+      copyObject(block.token, objectKeyFor(block.key)) *>
+      deleteObject(block.token)
+
+  override def purge(block: QuarantinedBlock): Task[Unit] =
+    validateQuarantineToken(block.token) *> deleteObject(block.token)
 
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
     exists(block.key).flatMap { present =>
-      if present then ZIO.succeed(BlockStoredStatus.Duplicate)
+      if present then verifyExisting(block).as(BlockStoredStatus.Duplicate)
       else
         val req =
           PutObjectRequest
@@ -82,6 +138,12 @@ final class S3BlockStore(
           .as(BlockStoredStatus.Fresh)
     }
 
+  private def verifyExisting(block: CanonicalBlock): Task[Unit] =
+    get(block.key).runCollect.flatMap { stored =>
+      if stored == block.bytes then ZIO.unit
+      else ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
+    }
+
   private def objectKeyFor(key: BinaryKey.Block): String =
     val algo = algoPathSegment(key.bits.algo)
     val hex  = key.bits.digest.hex.value
@@ -90,6 +152,62 @@ final class S3BlockStore(
     val prefix = config.blocks.prefix.trim
     if prefix.isEmpty then base
     else s"${prefix.stripSuffix("/")}/$base"
+
+  private val activeListPrefix: String =
+    val prefix = config.blocks.prefix.trim.stripSuffix("/")
+    if prefix.isEmpty then "" else s"$prefix/"
+
+  private val quarantinePrefix: String =
+    s"$activeListPrefix.graviton-quarantine/"
+
+  private def parseObjectKey(objectKey: String): Either[String, BinaryKey.Block] =
+    val relative = objectKey.stripPrefix(activeListPrefix)
+    relative.split("/", 2).toList match
+      case algoSegment :: fileName :: Nil =>
+        fileName.lastIndexOf('-') match
+          case separator if separator > 0 && separator < fileName.length - 1 =>
+            val digest = fileName.substring(0, separator)
+            val size   = fileName.substring(separator + 1)
+            for
+              bits <- KeyBits.fromString(s"$algoSegment:$digest:$size")
+              key  <- BinaryKey.block(bits)
+              _    <- Either.cond(objectKeyFor(key) == objectKey, (), "object key is not canonical")
+            yield key
+          case _                                                             => Left("expected <algorithm>/<hex>-<size>")
+      case _                              => Left("expected <algorithm>/<hex>-<size>")
+
+  private def copyObject(source: String, destination: String): Task[Unit] =
+    ZIO.attemptBlocking {
+      client.copyObject(
+        CopyObjectRequest
+          .builder()
+          .sourceBucket(config.blocks.bucket)
+          .sourceKey(source)
+          .destinationBucket(config.blocks.bucket)
+          .destinationKey(destination)
+          .build()
+      )
+      ()
+    }
+
+  private def deleteObject(objectKey: String): Task[Unit] =
+    ZIO.attemptBlocking {
+      client.deleteObject(
+        DeleteObjectRequest
+          .builder()
+          .bucket(config.blocks.bucket)
+          .key(objectKey)
+          .build()
+      )
+      ()
+    }
+
+  private def validateQuarantineToken(token: String): Task[Unit] =
+    ZIO
+      .unless(token.startsWith(quarantinePrefix))(
+        ZIO.fail(new IllegalArgumentException("quarantine token is outside the configured prefix"))
+      )
+      .unit
 
   private def algoPathSegment(algo: HashAlgo): String =
     algo match
@@ -112,17 +230,18 @@ object S3BlockStore:
    * - GRAVITON_S3_BLOCK_PREFIX (defaults to cas/blocks)
    * - GRAVITON_S3_REGION (defaults to us-east-1)
    */
+  def fromEnvironment: Task[S3BlockStore] =
+    for
+      bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
+      prefix <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks"))
+      base   <- ZIO
+                  .fromEither(S3Config.fromEnvironment(bucket = bucket, prefix = prefix))
+                  .mapError(msg => new IllegalArgumentException(msg))
+      client <- S3ClientLayer.make(base)
+    yield new S3BlockStore(client, S3BlockStoreConfig(blocks = base))
+
   val layerFromEnv: ZLayer[Any, Throwable, BlockStore] =
-    ZLayer.fromZIO {
-      for
-        bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
-        prefix <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks"))
-        base   <- ZIO
-                    .fromEither(S3Config.fromEndpointEnv(bucket = bucket, prefix = prefix))
-                    .mapError(msg => new IllegalArgumentException(msg))
-        client <- S3ClientLayer.make(base)
-      yield new S3BlockStore(client, S3BlockStoreConfig(blocks = base))
-    }
+    ZLayer.fromZIO(fromEnvironment.map(store => store: BlockStore))
 
 private final case class Acc(
   entries: ChunkBuilder[BlockManifestEntry],

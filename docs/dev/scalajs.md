@@ -34,7 +34,7 @@ For repeated Scala edits, run `./sbt ~frontend/fastLinkJS`, then rerun `buildFro
 - Upload sends the browser `File` directly as an `application/octet-stream` request body.
 - Inventory and manifest views decode shared response models.
 - Verify is a server operation that streams and hashes persisted bytes.
-- Download uses the raw blob route.
+- Download uses authenticated Fetch against the raw blob route.
 - Delete removes the manifest and refreshes durable inventory.
 
 No request has a bundled fallback. A stopped server, CORS failure, malformed response, or storage error remains visible in the component that made the request.
@@ -55,7 +55,7 @@ Before shipping, use browser developer tools to confirm that upload, inventory, 
 | Symptom | Fix |
 | --- | --- |
 | Console bundle unavailable | Run `./sbt buildFrontend` and refresh the page. |
-| API request blocked by CORS | Use the default local security-disabled server or configure a same-origin reverse proxy. |
+| API request blocked by CORS | Use the default local security-disabled server, configure the console's exact origin in `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS`, or use a same-origin reverse proxy. |
 | Wrong API endpoint | Change the connection bar or append `?api=http://host:port`. |
 | Shared model type error | Run `./sbt clean frontend/compile` to force recompilation of cross-project sources. |
 

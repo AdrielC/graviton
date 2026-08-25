@@ -7,8 +7,12 @@ addSbtPlugin("dev.zio" % "zio-sbt-ecosystem" % zioSbtVersion)
 addSbtPlugin("dev.zio" % "zio-sbt-ci"        % zioSbtVersion)
 addSbtPlugin("dev.zio" % "zio-sbt-website"   % zioSbtVersion)
 
-// Semantic versioning from git tags
-addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.0.1")
+// Signed Central Portal publishing, semantic compatibility checks, and a
+// reproducible executable server artifact.
+addSbtPlugin("com.github.sbt" % "sbt-ci-release"    % "1.12.1")
+addSbtPlugin("com.github.sbt" % "sbt-dynver"        % "5.1.1")
+addSbtPlugin("ch.epfl.scala"  % "sbt-version-policy" % "3.3.0")
+addSbtPlugin("com.eed3si9n"   % "sbt-assembly"       % "2.4.2")
 addSbtPlugin("com.thesamet"  % "sbt-protoc" % "1.0.6")
 
 addSbtPlugin("ch.epfl.scala"  % "sbt-scalafix"  % "0.14.0")

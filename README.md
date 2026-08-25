@@ -6,42 +6,57 @@
 
 Graviton is a typed, streaming content-addressable storage runtime for Scala 3 and ZIO. It chunks blobs into bounded blocks, derives cryptographic content keys, deduplicates writes, persists versioned manifests, and streams bytes back through pluggable storage ports.
 
-It is a working pre-1.0 library, not a finished distributed storage product. The table below separates operational paths from partial and planned work.
+This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
 
-| Capability | Status | Evidence |
+| Capability | Status | Executable evidence |
 | --- | --- | --- |
 | In-memory CAS | Operational | Round-trip, property, deduplication, stat, and delete suites |
-| Filesystem blocks and manifests | Operational | Atomic writes and restart-safe round-trip tests |
-| CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, and `delete` across JVM invocations |
-| Default HTTP server | Operational, pre-1.0 | Self-contained filesystem CAS plus live process counters |
-| HTTP blob lifecycle | Operational, pre-1.0 | Upload, durable inventory, manifest inspection, server-side verification, retrieval, and deletion contract tests |
-| S3 blocks and PostgreSQL manifests | Integration-tested | Container-gated CI suites |
-| gRPC server parity | Partial | Contracts, generated code, clients, and service implementations exist |
-| RocksDB | Partial | Durable key-value adapter works; it is not wired as a CAS block backend |
+| Filesystem blocks and manifests | Operational | Fsync, atomic publication, restart-safe round trips, health checks, and reversible GC tests |
+| CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
+| Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
+| Authentication and policy | Operational | RS256 OIDC/JWKS verification, dev HS256 proof, capabilities, CORS, TLS policy, size and rate controls, and chained audit events |
+| S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
+| Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
+| Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
+| Runnable gRPC lifecycle | Partial | Contracts, generated code, clients, interceptors, and adapters exist; the packaged server currently exposes HTTP |
+| RocksDB CAS backend | Partial | Durable key-value adapter exists; it is not yet a complete `BlockStore` backend |
 
-## See it work
+## Prove it locally
 
 Prerequisite: JDK 21 or newer.
 
 ```bash
 git clone https://github.com/AdrielC/graviton.git
 cd graviton
+
 ./scripts/verify-local-lifecycle.sh
+./sbt server/assembly
+./scripts/smoke-packaged-server.sh
+./scripts/verify-external-consumer.sh
 ```
 
-The verification script performs an ingest, starts fresh CLI JVMs for stat, retrieval, and verification, then compares the retrieved file byte-for-byte. It prints the stable blob ID and the generated store path so you can inspect the blocks and framed manifest.
+Those commands prove three separate boundaries:
 
-The HTTP server also runs with no external services by default:
+- durable CLI operations across fresh JVM processes
+- the packaged JAR running both open and authenticated HTTP lifecycles
+- published module metadata consumed from an unrelated sbt build
+
+The packaged smoke uploads real bytes, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload.
+
+## Run the server
 
 ```bash
 ./sbt "server/run"
 
 # In another terminal
-curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs
-curl -fsS http://localhost:8081/api/stats
+upload="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/v1/blobs)"
+blob_id="$(jq -r '.blob.id' <<<"$upload")"
+curl -fsS "http://localhost:8081/api/v1/blobs/$blob_id" --output retrieved.md
+cmp README.md retrieved.md
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$blob_id/verify" | jq .
 ```
 
-Default server data is persisted below `.graviton/`. Select `s3` or `minio` when you want S3-compatible blocks with PostgreSQL manifests.
+Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The legacy `/api/blobs` routes remain available with deprecation headers; new clients should use `/api/v1/blobs`.
 
 Blob IDs are explicit and round-trippable:
 
@@ -79,7 +94,8 @@ BlobStore
     ├── BlockStore
     │   ├── InMemoryBlockStore
     │   ├── FsBlockStore
-    │   └── S3BlockStore
+    │   ├── S3BlockStore
+    │   └── ReplicatedBlockStore
     └── BlobManifestRepo
         ├── in-memory reference implementation
         ├── FsBlobManifestRepo
@@ -91,18 +107,31 @@ The build keeps pure content types in `graviton-core`, stream transformations in
 ## Build and verify
 
 ```bash
-TESTCONTAINERS=0 ./sbt scalafmtAll test
-./sbt docs/mdoc checkDocSnippets
-./sbt buildDocsAssets
+TESTCONTAINERS=0 ./sbt scalafmtCheckAll test
+GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"
+./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
 npm run docs:build --prefix docs
 ```
 
-See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands and container-backed integration setup. The [documentation site](https://adrielc.github.io/graviton/) includes a self-contained CAS playground, a console for connecting your own Graviton server, the architecture guide, the HTTP reference, and generated Scaladoc.
+CI adds real PostgreSQL and MinIO services, the clean external consumer, packaged-server smoke tests, compatibility policy, dependency review, and docs verification. See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands.
 
-## Project direction
+The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. Browser-only labs perform real hashing and chunking but never pretend to be a hosted Graviton server.
 
-The immediate release work is API stabilization, authenticated versioned HTTP contracts, RocksDB CAS integration, replica repair, and published benchmark methodology. See [ROADMAP.md](ROADMAP.md) for the status-driven plan.
+## Operations and releases
+
+- [Production readiness](docs/ops/production-readiness.md)
+- [Deployment](docs/ops/deployment.md)
+- [Backup and restore](docs/ops/backup-restore.md)
+- [Configuration](docs/guide/configuration-reference.md)
+- [HTTP API](docs/api/http.md)
+- [Performance measurement](docs/ops/performance.md)
+
+A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations, multi-architecture GHCR image, and GitHub release. Maven Central publication runs only after the repository owner configures Sonatype and signing secrets.
+
+## Remaining boundaries
+
+The highest-value remaining work is runnable gRPC parity, a complete RocksDB block backend, resumable upload contracts, long-duration failure injection, and multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 

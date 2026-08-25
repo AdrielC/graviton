@@ -4,7 +4,7 @@ import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.S3BlockStore
 import graviton.core.types.UploadChunkSize
 import graviton.runtime.model.BlobWritePlan
-import graviton.runtime.stores.{BlobStore, CasBlobStore}
+import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
@@ -26,11 +26,17 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
   private val enabled: Boolean =
     sys.env.get("GRAVITON_MINIO_IT").exists(v => v.trim == "1" || v.trim.equalsIgnoreCase("true"))
 
-  private val blobLayer: ZLayer[Any, Throwable, BlobStore] =
-    ZLayer.make[BlobStore](
+  private val s3StoreLayer: ZLayer[Any, Throwable, S3BlockStore & BlockStore] =
+    ZLayer.fromZIO(S3BlockStore.fromEnvironment).flatMap { environment =>
+      val store = environment.get[S3BlockStore]
+      ZLayer.succeed[S3BlockStore](store) ++ ZLayer.succeed[BlockStore](store)
+    }
+
+  private val blobLayer: ZLayer[Any, Throwable, BlobStore & S3BlockStore] =
+    ZLayer.make[BlobStore & S3BlockStore](
       PgDataSource.layerFromEnv,
       PgBlobManifestRepo.layer,
-      S3BlockStore.layerFromEnv,
+      s3StoreLayer,
       CasBlobStore.layer,
     )
 
@@ -55,5 +61,22 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
                         }
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
-        }
+        },
+        test("S3 block quarantine can be restored without losing blob bytes") {
+          val data = Chunk.fromArray(("s3-quarantine-restore-" * 100).getBytes(StandardCharsets.UTF_8))
+
+          for
+            store       <- ZIO.service[BlobStore]
+            s3          <- ZIO.service[S3BlockStore]
+            written     <- ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
+            description <- store.inspect(written.key).someOrFail(new NoSuchElementException("manifest not found"))
+            blockKey     = description.blocks.head.key
+            entry       <- s3.inventory.filter(_.key == blockKey).runHead.someOrFail(new NoSuchElementException("block not inventoried"))
+            quarantined <- s3.quarantine(entry)
+            absent      <- s3.exists(blockKey)
+            _           <- s3.restore(quarantined)
+            present     <- s3.exists(blockKey)
+            readBack    <- store.get(written.key).runCollect
+          yield assertTrue(!absent, present, readBack == data)
+        },
       ).provideShared(blobLayer) @@ TestAspect.sequential

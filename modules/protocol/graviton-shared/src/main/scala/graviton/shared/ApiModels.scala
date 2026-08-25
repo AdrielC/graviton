@@ -2,21 +2,15 @@ package graviton.shared
 
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
-import io.github.iltotore.iron.zioJson.given
 import zio.json.*
 import zio.schema.Schema
 
 /**
  * Shared API models for the Graviton HTTP API.
  *
- * Codec note: under Scala 3.8+, `derives JsonCodec` on case classes that
- * carry Iron `RefinedSubtype` members fails to locate a combined
- * `JsonCodec[T]` — iron-zio-json only publishes separate
- * `JsonEncoder[T]` / `JsonDecoder[T]` givens, and the compiler's
- * path-dependent type normalisation no longer bridges them
- * automatically. Each RefinedSubtype below exposes an explicit
- * `given JsonCodec[T]` composed from those two givens so the derivation
- * on the case classes keeps working unchanged.
+ * Each refined primitive owns an explicit codec built from zio-json's
+ * primitive codec. Keeping that small bridge here avoids leaking
+ * iron-zio-json's zio-json version into every external consumer.
  */
 object ApiModels {
 
@@ -29,25 +23,25 @@ object ApiModels {
         id => Right(id.value),
       )
     given JsonCodec[BlobId] =
-      JsonCodec(summon[JsonEncoder[BlobId]], summon[JsonDecoder[BlobId]])
+      summon[JsonCodec[String]].transformOrFail(either, _.value)
 
   /** Non-negative size in bytes. `SizeBytes <: Long`. */
   type SizeBytes = SizeBytes.T
   object SizeBytes extends RefinedSubtype[Long, GreaterEqual[0L]]:
     given JsonCodec[SizeBytes] =
-      JsonCodec(summon[JsonEncoder[SizeBytes]], summon[JsonDecoder[SizeBytes]])
+      summon[JsonCodec[Long]].transformOrFail(either, _.value)
 
   /** Non-negative count. `Count <: Long`. */
   type Count = Count.T
   object Count extends RefinedSubtype[Long, GreaterEqual[0L]]:
     given JsonCodec[Count] =
-      JsonCodec(summon[JsonEncoder[Count]], summon[JsonDecoder[Count]])
+      summon[JsonCodec[Long]].transformOrFail(either, _.value)
 
   /** Non-negative ratio ∈ [0.0, ∞). `Ratio <: Double`. */
   type Ratio = Ratio.T
   object Ratio extends RefinedSubtype[Double, GreaterEqual[0.0]]:
     given JsonCodec[Ratio] =
-      JsonCodec(summon[JsonEncoder[Ratio]], summon[JsonDecoder[Ratio]])
+      summon[JsonCodec[Double]].transformOrFail(either, _.value)
 
   /** System stats */
   final case class SystemStats(
@@ -89,7 +83,8 @@ object ApiModels {
 
   /** Current durable blob inventory. */
   final case class BlobListResponse(
-    blobs: List[BlobSummary]
+    blobs: List[BlobSummary],
+    nextCursor: Option[String] = None,
   ) derives JsonCodec
 
   /** Result returned after the server has fully persisted an upload. */

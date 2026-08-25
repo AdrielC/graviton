@@ -39,7 +39,7 @@ object RateLimiter:
 
     private val requestLimit  = cfg.rateLimitPerPrincipalPerSec
     private val uploadLimit   = cfg.rateLimitUploadBytesPerSec
-    private val downloadLimit = cfg.rateLimitUploadBytesPerSec // same default; separate knob later
+    private val downloadLimit = cfg.rateLimitDownloadBytesPerSec
 
     def check(kind: Kind, tokens: Long): IO[SecurityError, Unit] =
       CallerContext.required.flatMap { ctx =>

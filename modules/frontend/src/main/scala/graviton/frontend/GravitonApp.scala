@@ -30,8 +30,12 @@ object GravitonApp:
   private val pageVar = Var(pageFromLocation(dom.window.location.hash))
 
   def apply(baseUrl: String, docsBase: String): HtmlElement =
-    val api                = GravitonApi(baseUrl, BrowserHttpClient(baseUrl))
     val endpointVar        = Var(baseUrl)
+    val tokenVar           = Var("")
+    val api                = GravitonApi(
+      baseUrl,
+      BrowserHttpClient(baseUrl, () => Option(tokenVar.now()).map(_.trim).filter(_.nonEmpty)),
+    )
     val docsBaseNormalized =
       val trimmed = docsBase.trim
       if trimmed.isEmpty || trimmed == "/" then ""
@@ -69,8 +73,16 @@ object GravitonApp:
               onKeyPress --> { event => if event.key == "Enter" then connect() },
             ),
           ),
+          label(
+            span("Bearer token (optional)"),
+            input(
+              tpe         := "password",
+              placeholder := "Kept only in this page's memory",
+              controlled(value <-- tokenVar.signal, onInput.mapToValue --> tokenVar.writer),
+            ),
+          ),
           button(cls := "btn-secondary", "Connect", onClick --> { _ => connect() }),
-          small("Changing the endpoint reloads the console. No offline data is substituted."),
+          small("The token is never saved to local or session storage. Changing the endpoint reloads the console and clears it."),
         ),
         HtmlTag("nav")(
           cls := "app-nav",

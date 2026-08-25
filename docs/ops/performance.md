@@ -1,73 +1,70 @@
 # Performance Measurement
 
-Graviton does not publish a throughput or latency claim yet. The repository does not contain a controlled benchmark harness, so hardware-independent targets would be misleading.
+Graviton includes real HTTP measurement and soak tools. The repository does not publish a universal throughput or latency claim because backend, hardware, network, payload distribution, concurrency, and duplication materially change results.
 
-This page defines how to collect useful measurements without turning a local timing into a product claim.
+## One verified measurement
 
-## What to record
-
-Every result should include:
-
-- the exact commit SHA and whether the worktree was clean
-- JDK, operating system, CPU, memory, and filesystem
-- the selected block and manifest backends
-- all non-default Graviton configuration
-- dataset size, file-size distribution, and expected duplication
-- warm-up policy, measured iterations, and concurrency
-- whether clients and storage ran on the same host
-- raw timing output and the script used to produce it
-
-Report throughput from measured bytes and elapsed time. Report latency as a distribution, including at least p50, p95, and p99. Do not infer either value from block sizes, deduplication ratios, or a single HTTP request.
-
-## Reproducible local smoke measurement
-
-Start the default filesystem server:
+Start a server, then run:
 
 ```bash
-./sbt 'server/run'
+GRAVITON_BENCHMARK_BACKEND_DESCRIPTION='filesystem, APFS, local process, 1 MiB chunks' \
+  ./scripts/benchmark-http.sh \
+  http://localhost:8081 \
+  ./representative-payload.bin \
+  > benchmark.json
 ```
 
-In another shell, create a fixture and time one upload:
+For a secured server, export `GRAVITON_BEARER_TOKEN`. The token is used as an HTTP header and is not written to the result.
+
+The script performs a real upload, byte-for-byte download comparison, and server-side verification. Its JSON includes:
+
+- schema version and UTC timestamp
+- exact Git revision and dirty-worktree state
+- operating system, Python, and Java version
+- operator-supplied backend description
+- payload byte count and SHA-256
+- upload and download duration and MiB/s
+- verification duration
+- returned blob content ID
+
+This is one measured sample, not a distribution.
+
+## Soak loop
 
 ```bash
-fixture=$(mktemp)
-headers=$(mktemp)
-response=$(mktemp)
-
-dd if=/dev/zero of="$fixture" bs=1048576 count=128
-
-/usr/bin/time -p \
-  curl --fail --silent --show-error \
-    --dump-header "$headers" \
-    --output "$response" \
-    --data-binary @"$fixture" \
-    http://localhost:8081/api/blobs
-
-cat "$response"
-curl --fail --silent --show-error http://localhost:8081/api/stats
+./scripts/soak-http.sh http://localhost:8081 1000 1048576 \
+  > soak.json
 ```
 
-This is a smoke measurement, not a benchmark. A single zero-filled file strongly favors deduplication and `/usr/bin/time` combines client, HTTP, runtime, and local storage costs.
+Every iteration uploads real bytes and compares the downloaded stream. The command fails if any iteration fails and emits machine-readable iteration, payload, duration, and failure counts. It intentionally uses a repeated payload to exercise duplicate-block behavior. Use a representative corpus for broader qualification.
 
-## Comparing changes
+## Required benchmark record
 
-For a useful before-and-after comparison:
+Before publishing a result, retain:
 
-1. Use two clean clones built with the same JDK.
-2. Use a fresh storage root for every measured run.
-3. Generate one immutable fixture set and record its checksum.
-4. Warm up each build with the same unmeasured workload.
-5. Randomize the order of measured runs.
-6. Capture raw samples instead of reporting only an average.
-7. Repeat retrieval tests with both cold and warm filesystem caches, and label them.
-8. Treat a change as meaningful only when it is larger than run-to-run variation.
+- raw JSON and command line
+- exact commit and clean/dirty state
+- server and client host topology
+- CPU, memory, operating system, JDK, filesystem, object store, and database versions
+- Graviton backend, chunk size, security mode, and non-default limits
+- dataset source, checksum, size distribution, and duplication ratio
+- warm-up, iterations, concurrency, ordering, and cache state
+- p50, p95, and p99 from retained raw samples
+- error and retry counts
+
+Never infer throughput from block size or a single process counter. Never compare two revisions using different data, hosts, caches, or backend settings without labeling the difference.
+
+## Comparing revisions
+
+1. Use two clean clones with the same JDK.
+2. Use immutable payloads and record checksums.
+3. Use fresh storage roots or equivalent backend namespaces.
+4. Warm both revisions with the same unmeasured workload.
+5. Randomize run order.
+6. Capture individual samples rather than only an average.
+7. Test cold and warm reads separately.
+8. Treat changes smaller than run-to-run variation as inconclusive.
 
 ## Current observability boundary
 
-The server exposes process-local ingest counters at `/api/stats` and Prometheus text at `/metrics`. Counters restart with the process. They prove what the current process observed, but they do not measure durable capacity, request latency, or backend health.
-
-The runtime records successful ingests, ingested bytes, fresh blocks, and duplicate blocks. Backend-specific latency histograms and RocksDB health gauges are not implemented.
-
-## Before publishing results
-
-The release backlog requires a benchmark harness with fixed fixtures, warm-up, sampling, machine-readable output, and documented environments. Until that exists, keep performance data attached to its command and environment rather than presenting it as a Graviton guarantee.
+`/api/stats` and `/metrics` expose process-local ingest, deduplication, HTTP request, error, and latency observations. They reset on restart and do not establish durable capacity or a service-level objective. Backend-specific histograms and retained dashboards remain deployment work.

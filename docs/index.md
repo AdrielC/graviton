@@ -23,11 +23,13 @@ features:
   - title: Restart-safe filesystem CAS
     details: Blocks and versioned manifests survive fresh CLI and server processes.
   - title: Real HTTP lifecycle
-    details: Upload, inventory, manifest inspection, verification, download, HEAD, and delete operate on the configured store.
+    details: Versioned upload, pagination, inspection, verification, ranges, preconditions, download, HEAD, and delete operate on the configured store.
   - title: Streaming runtime
     details: ZIO Streams bound ingestion and retrieval without buffering complete payloads.
   - title: External backend proof
     details: CI exercises S3-compatible blocks with PostgreSQL manifests using MinIO and Postgres.
+  - title: Production controls
+    details: OIDC, capabilities, request limits, audit chains, readiness, backup drills, reversible GC, SBOMs, and attestations are executable.
 ---
 
 ## Run the complete lifecycle
@@ -69,9 +71,12 @@ The public site has no hosted Graviton backend. This worksheet stays useful by p
 | --- | --- |
 | Filesystem blocks and manifests | Restart-safe round-trip and inventory tests in `FsBlobManifestRepoSpec` |
 | CLI ingest, stat, get, verify, and delete | `scripts/verify-local-lifecycle.sh` uses separate JVM invocations |
-| HTTP upload, inventory, manifest, verify, download, HEAD, and delete | Contract coverage in `HttpApiSpec` |
+| HTTP v1 lifecycle, pagination, ranges, preconditions, and deprecated aliases | Contract coverage in `HttpApiSpec` |
+| OIDC, capabilities, request controls, and chained audit | Security and packaged-server suites |
 | Browser operations console | Compiled Scala.js client calls the same HTTP routes directly |
 | S3-compatible blocks and PostgreSQL manifests | Container-backed integration suites in CI |
+| Quorum replication, fallback, and repair | `ReplicatedBlockStoreSpec` |
+| Conservative block collection and restore | `GarbageCollectorSpec` plus S3 quarantine integration |
 | RocksDB key-value adapter | Close and reopen persistence test |
 
 ## Storage flow
@@ -90,7 +95,7 @@ flowchart LR
 
 ## Explicit limits
 
-Graviton is pre-1.0. Authentication assembly, range reads, distributed placement and repair, retention and garbage collection, and published benchmark envelopes remain open work. The documentation does not replace those gaps with modeled numbers or fictional status data.
+Graviton is pre-1.0. The packaged server does not yet mount gRPC, RocksDB is not a complete block backend, resumable uploads are not implemented, and automatic replica placement/repair scheduling is not wired into `Main`. Single-node filesystem mode is not HA. Shared S3 plus PostgreSQL needs target-environment concurrent-process and rolling-upgrade qualification. Published benchmark envelopes require retained representative samples.
 
 ## Continue
 

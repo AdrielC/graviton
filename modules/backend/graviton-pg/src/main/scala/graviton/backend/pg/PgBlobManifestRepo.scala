@@ -14,6 +14,20 @@ import javax.sql.DataSource
 
 final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestRepo:
 
+  override def healthCheck: ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking {
+      val conn = ds.getConnection()
+      try
+        val statement = conn.prepareStatement("SELECT 1")
+        try
+          val result = statement.executeQuery()
+          try
+            if !result.next() || result.getInt(1) != 1 then throw new IllegalStateException("Postgres readiness query failed")
+          finally result.close()
+        finally statement.close()
+      finally conn.close()
+    }
+
   override def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): ZIO[Any, Throwable, Unit] =
     withTransaction { conn =>
       upsertBlob(conn, blob, manifest, ingestedAt) *>

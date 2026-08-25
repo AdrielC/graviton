@@ -40,5 +40,8 @@ trait BlobManifestRepo:
   def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
     ZIO.fail(new UnsupportedOperationException(s"BlobManifestRepo.delete is not implemented for blob ${blob.bits.digest.value}"))
 
+  /** Verify that manifest persistence is reachable. */
+  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+
 object BlobManifestRepo:
   val service: ZIO[BlobManifestRepo, Nothing, BlobManifestRepo] = ZIO.service[BlobManifestRepo]
