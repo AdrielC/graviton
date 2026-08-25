@@ -3,6 +3,14 @@ export type PageIdentity = {
   dispose(): void
 }
 
+const normalizeRoutePath = (path: string) => {
+  const withoutIndex = path.replace(/\/index\.html$/, '/')
+  const withoutTrailingSlash = withoutIndex.replace(/\/+$/, '')
+  return withoutTrailingSlash || '/'
+}
+
+const homeRoutePath = normalizeRoutePath(import.meta.env.BASE_URL)
+
 /**
  * Restore the original route sigil and scroll trace as decorative UI. Both are
  * derived from real browser state and never imply server activity or telemetry.
@@ -51,7 +59,7 @@ export function mountPageIdentity(initialPath: string): PageIdentity {
   const updateRoute = (routePath: string) => {
     const routeHash = hashPath(routePath)
     const hue = 120 + (Math.abs(routeHash) % 201)
-    const isHome = routePath === '/' || routePath === '/index.html'
+    const isHome = normalizeRoutePath(routePath) === homeRoutePath
     document.documentElement.style.setProperty('--graviton-accent-hue', hue.toString())
     document.body.classList.toggle('graviton-home', isHome)
     hash.textContent = (routeHash >>> 0).toString(16).padStart(8, '0')
