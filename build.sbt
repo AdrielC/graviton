@@ -83,10 +83,9 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.2 intentionally replaces the experimental byte-materializing SDK shapes
-// with refined, stream-first APIs. Reset this to BinaryAndSourceCompatible
-// immediately after the v0.2.0 release.
-ThisBuild / versionPolicyIntention := Compatibility.None
+// v0.2.0 established the refined, stream-first public API baseline. Patch
+// development must preserve binary and source compatibility with that release.
+ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
