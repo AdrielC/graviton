@@ -10,6 +10,9 @@ hero:
     alt: Graviton Logo
   actions:
     - theme: brand
+      text: Quickstart
+      link: guide/getting-started
+    - theme: alt
       text: Run Graviton
       link: guide/run-locally
     - theme: alt
@@ -115,6 +118,10 @@ Graviton is pre-1.0. The RocksDB module deliberately provides typed durable key-
 ## Continue
 
 <div class="grid-container">
+  <a href="guide/getting-started" class="feature-card">
+    <h3>Quickstart</h3>
+    <p>Add the library, choose a storage profile, and run your first CAS lifecycle.</p>
+  </a>
   <a href="guide/run-locally" class="feature-card">
     <h3>Run locally</h3>
     <p>Start the filesystem server and exercise every live endpoint.</p>
