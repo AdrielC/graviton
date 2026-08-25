@@ -1,7 +1,6 @@
 package graviton.core.locator
 
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
-import graviton.core.types.given
 import zio.schema.{DeriveSchema, Schema}
 
 /**

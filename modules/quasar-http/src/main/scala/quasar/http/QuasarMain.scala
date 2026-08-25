@@ -5,7 +5,7 @@ import zio.*
 import zio.http.*
 import zio.json.*
 
-import java.net.{HttpURLConnection, InetSocketAddress, Socket, URL}
+import java.net.{HttpURLConnection, InetSocketAddress, Socket, URI}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
@@ -74,7 +74,7 @@ object QuasarMain extends ZIOAppDefault:
   private def httpReady(url: String): IO[Throwable, Unit] =
     ZIO
       .attemptBlocking {
-        val conn = URL(url).openConnection().asInstanceOf[HttpURLConnection]
+        val conn = URI.create(url).toURL.openConnection().asInstanceOf[HttpURLConnection]
         conn.setConnectTimeout(1000)
         conn.setReadTimeout(1000)
         conn.setRequestMethod("GET")

@@ -1,8 +1,23 @@
 package graviton.runtime.kv
 
-import zio.ZIO
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
+import zio.{Chunk, ZIO}
+
+type KvKey = KvKey.T
+object KvKey extends RefinedType[String, MinLength[1] & MaxLength[1024]]
+
+type KvValue = Chunk[Byte] :| MaxLength[33554432]
+object KvValue:
+  val MaxBytes: Int = 32 * 1024 * 1024
+
+  def fromChunk(value: Chunk[Byte]): Either[String, KvValue] =
+    value.refineEither[MaxLength[33554432]]
+
+  def fromArray(value: Array[Byte]): Either[String, KvValue] =
+    fromChunk(Chunk.fromArray(value))
 
 trait KeyValueStore:
-  def put(key: String, value: Array[Byte]): ZIO[Any, Throwable, Unit]
-  def get(key: String): ZIO[Any, Throwable, Option[Array[Byte]]]
-  def delete(key: String): ZIO[Any, Throwable, Unit]
+  def put(key: KvKey, value: KvValue): ZIO[Any, Throwable, Unit]
+  def get(key: KvKey): ZIO[Any, Throwable, Option[KvValue]]
+  def delete(key: KvKey): ZIO[Any, Throwable, Unit]

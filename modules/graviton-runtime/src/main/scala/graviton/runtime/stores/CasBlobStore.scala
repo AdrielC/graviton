@@ -242,41 +242,27 @@ final class CasBlobStore(
         }
     }
 
-  override def get(key: BinaryKey): ZStream[Any, Throwable, Byte] =
-    key match
-      case blob: BinaryKey.Blob =>
-        BlobStreamer.streamBlob(manifests.streamBlockRefs(blob), blockStore, streamerConfig)
-      case other                =>
-        ZStream.fail(new UnsupportedOperationException(s"CasBlobStore.get only supports blob keys, got $other"))
+  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+    BlobStreamer.streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
 
-  override def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]] =
-    key match
-      case blob: BinaryKey.Blob =>
-        manifests.get(blob).map {
-          case None         => None
-          case Some(stored) =>
-            val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, e) =>
-              acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
-            }
-            Some(BlobStat(FileSize.unsafe(totalSize), blob.bits.digest, stored.ingestedAt))
+  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+    manifests.get(key).map {
+      case None         => None
+      case Some(stored) =>
+        val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, e) =>
+          acc + (e.span.endInclusive.value - e.span.startInclusive.value + 1L)
         }
-      case _                    => ZIO.succeed(None)
+        Some(BlobStat(FileSize.unsafe(totalSize), key.bits.digest, stored.ingestedAt))
+    }
 
   override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
     manifests.list.map(_.map { case (key, stored) => listing(key, stored) })
 
-  override def inspect(key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
-    key match
-      case blob: BinaryKey.Blob =>
-        manifests.get(blob).map(_.map(stored => description(blob, stored)))
-      case _                    => ZIO.succeed(None)
+  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+    manifests.get(key).map(_.map(stored => description(key, stored)))
 
-  override def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
-    key match
-      case blob: BinaryKey.Blob =>
-        manifests.delete(blob).unit
-      case other                =>
-        ZIO.fail(new UnsupportedOperationException(s"CasBlobStore.delete only supports blob keys, got $other"))
+  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+    manifests.delete(key).unit
 
   override def healthCheck: ZIO[Any, Throwable, Unit] =
     blockStore.healthCheck *> manifests.healthCheck

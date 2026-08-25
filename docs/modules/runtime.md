@@ -20,9 +20,9 @@ The ports are intentionally minimal—backends compose them to express capabilit
 
 ## Indexes and range tracking
 
-- `ReplicaIndex`: maps a logical blob ID to the set of locators where data lives. Backends such as PostgreSQL will provide durable implementations.
+- `ReplicaIndex`: maps a logical blob ID to the set of locators where data lives. PostgreSQL provides a transactional implementation.
 - `RangeTracker`: tracks byte spans that have been persisted, enabling resumable uploads and repair jobs.
-- `SchemaStore`: placeholder for schema evolution metadata, ensuring manifests remain forward-compatible.
+- `SchemaStore`: a typed facade over bounded `KvKey` and `KvValue` metadata storage.
 
 ## Constraints and throttling
 

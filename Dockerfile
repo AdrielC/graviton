@@ -6,8 +6,9 @@ COPY --chown=65532:65532 modules/server/graviton-server/target/scala-3.8.2/gravi
 
 ENV GRAVITON_BLOB_BACKEND=fs \
     GRAVITON_FS_ROOT=/data \
-    GRAVITON_HTTP_PORT=8080
+    GRAVITON_HTTP_PORT=8080 \
+    GRAVITON_GRPC_PORT=9090
 
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65532:65532
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/graviton.jar"]

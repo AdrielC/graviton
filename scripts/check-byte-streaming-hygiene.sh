@@ -32,7 +32,7 @@ record_unexpected \
 record_unexpected \
   "Every production runCollect requires an explicit non-byte or bounded helper classification" \
   '\.runCollect' \
-  'graviton-streams/.*/BoundedByteStream\.scala|GarbageCollector\.scala|GravitonUploadGatewayClientZIO\.scala'
+  'graviton-streams/.*/BoundedByteStream\.scala|GarbageCollector\.scala|S3BlobStore\.scala'
 
 record_unexpected \
   "HTTP request payloads must be constructed from streams" \
@@ -44,4 +44,3 @@ if [[ -n "${failures}" ]]; then
 fi
 
 printf 'Byte-streaming hygiene check passed.\n'
-

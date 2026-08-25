@@ -180,6 +180,18 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         .map(entries => Chunk.fromIterable(entries.flatten))
     }
 
+  override def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
+    ZIO
+      .fromEither(toDbAlg(blob.bits.algo))
+      .mapError(message => new IllegalArgumentException(message))
+      .flatMap { blobAlg =>
+        withTransaction { conn =>
+          deleteRows(conn, "graviton.blob_manifest_page", blobAlg, blob) *>
+            deleteRows(conn, "graviton.blob_block", blobAlg, blob) *>
+            deleteRows(conn, "graviton.blob", blobAlg, blob).map(_ > 0)
+        }
+      }
+
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
     val sql =
       """
@@ -215,6 +227,27 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
               _ => ZIO.attemptBlocking(conn.commit()).unit,
             )
         }
+    }
+
+  private def deleteRows(
+    conn: Connection,
+    table: String,
+    blobAlg: String,
+    blob: BinaryKey.Blob,
+  ): Task[Int] =
+    ZIO.attemptBlocking {
+      val statement = conn.prepareStatement(
+        s"""DELETE FROM $table
+           |WHERE alg = ?::core.hash_alg
+           |  AND hash_bytes = ?
+           |  AND byte_length = ?""".stripMargin
+      )
+      try
+        statement.setString(1, blobAlg)
+        statement.setBytes(2, blob.bits.digest.bytes)
+        statement.setLong(3, blob.bits.size)
+        statement.executeUpdate()
+      finally statement.close()
     }
 
   private def openCursor(sql: String, blob: BinaryKey.Blob): Task[Cursor] =

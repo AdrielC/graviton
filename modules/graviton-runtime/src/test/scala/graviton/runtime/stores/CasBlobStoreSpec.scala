@@ -1,7 +1,6 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.keys.BinaryKey
 import graviton.core.types.*
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, IngestProgram}
@@ -30,14 +29,8 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                       ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = BinaryAttributes.empty)))
                     }
 
-          blobKey <- ZIO
-                       .fromEither(
-                         result.key match
-                           case b: BinaryKey.Blob => Right(b)
-                           case other             => Left(s"Expected blob key, got $other")
-                       )
-                       .mapError(msg => new IllegalStateException(msg))
-          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey = result.key
+          stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           spans = stored.manifest.entries.map(_.span)
         yield assertTrue(
@@ -78,14 +71,8 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                         )
                     }
 
-          blobKey <- ZIO
-                       .fromEither(
-                         result.key match
-                           case b: BinaryKey.Blob => Right(b)
-                           case other             => Left(s"Expected blob key, got $other")
-                       )
-                       .mapError(msg => new IllegalStateException(msg))
-          stored  <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
+          blobKey = result.key
+          stored <- repo.get(blobKey).someOrFail(new NoSuchElementException("Manifest missing"))
 
           bytes <- blobStore.get(blobKey).runCollect
         yield assertTrue(
@@ -120,13 +107,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                         .run(blobStore.put(BlobWritePlan(program = program)))
                     }
 
-          blobKey <- ZIO
-                       .fromEither(
-                         result.key match
-                           case b: BinaryKey.Blob => Right(b)
-                           case other             => Left(s"Expected blob key, got $other")
-                       )
-                       .mapError(msg => new IllegalStateException(msg))
+          blobKey = result.key
 
           bytes <- blobStore.get(blobKey).runCollect
 

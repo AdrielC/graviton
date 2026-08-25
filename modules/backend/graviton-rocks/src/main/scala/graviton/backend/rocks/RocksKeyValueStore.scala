@@ -1,6 +1,6 @@
 package graviton.backend.rocks
 
-import graviton.runtime.kv.KeyValueStore
+import graviton.runtime.kv.{KeyValueStore, KvKey, KvValue}
 import org.rocksdb.{Options, RocksDB as JRocksDB}
 import zio.*
 
@@ -11,14 +11,21 @@ final class RocksKeyValueStore private[rocks] (
   private val options: Options,
 ) extends KeyValueStore:
 
-  override def put(key: String, value: Array[Byte]): ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking(db.put(key.getBytes("UTF-8"), value))
+  override def put(key: KvKey, value: KvValue): ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking(db.put(key.value.getBytes("UTF-8"), value.toArray))
 
-  override def get(key: String): ZIO[Any, Throwable, Option[Array[Byte]]] =
-    ZIO.attemptBlocking(Option(db.get(key.getBytes("UTF-8"))))
+  override def get(key: KvKey): ZIO[Any, Throwable, Option[KvValue]] =
+    ZIO.attemptBlocking(Option(db.get(key.value.getBytes("UTF-8")))).flatMap {
+      case None        => ZIO.succeed(None)
+      case Some(value) =>
+        ZIO
+          .fromEither(KvValue.fromArray(value))
+          .mapError(message => new IllegalStateException(s"RocksDB value for '${key.value}' exceeds ${KvValue.MaxBytes} bytes: $message"))
+          .map(Some(_))
+    }
 
-  override def delete(key: String): ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking(db.delete(key.getBytes("UTF-8")))
+  override def delete(key: KvKey): ZIO[Any, Throwable, Unit] =
+    ZIO.attemptBlocking(db.delete(key.value.getBytes("UTF-8")))
 
   private[rocks] def close(): Unit =
     try db.close()

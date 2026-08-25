@@ -12,7 +12,7 @@ Graviton provides an ingest and retrieval pipeline for large binary payloads. Th
 - **Modular Architecture**: Pure domain logic separated from effectful runtime code
 - **Multiple Backends**: Restart-safe filesystem blocks and manifests, S3-compatible blocks, PostgreSQL manifests, and in-memory helpers
 - **ZIO-Powered**: Built on ZIO for composable, type-safe effects
-- **Protocol Flexibility**: HTTP blob API today; gRPC contracts and libraries exist, but the main server entrypoint is HTTP (see [HTTP API](../api/http.md) and [gRPC](../api/grpc.md))
+- **Protocol Flexibility**: HTTP on `8081` and streaming gRPC on `9090` are mounted by the same server process (see [HTTP API](../api/http.md) and [gRPC](../api/grpc.md))
 - **Observable**: Prometheus-style metrics and structured logging (distributed tracing is not wired as a first-class feature yet)
 
 ## Quick Start
@@ -49,7 +49,7 @@ TESTCONTAINERS=1 GRAVITON_IT=1 GRAVITON_MINIO_IT=1 ./sbt test
 
 This runs ingest, stat, get, and verify through separate CLI JVMs, then compares the retrieved file byte-for-byte.
 
-### Run the local HTTP API
+### Run the local server
 
 The default server is self-contained and persists blocks plus manifests below `.graviton/`:
 
@@ -63,6 +63,8 @@ curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
 curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
 cmp README.md /tmp/graviton-readme.md
 ```
+
+The same process serves the gRPC blob lifecycle on `localhost:9090`. Its upload stream is the session, so clients do not manage a separate session identifier.
 
 Use the S3 or MinIO backend when you want S3-compatible blocks with PostgreSQL manifests.
 

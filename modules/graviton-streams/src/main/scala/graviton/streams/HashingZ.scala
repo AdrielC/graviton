@@ -1,6 +1,6 @@
 package graviton.streams
 
-import graviton.core.bytes.{Hasher, MultiHasher, Digest, Provider, HashAlgo}
+import graviton.core.bytes.{HashAlgo, Hasher, MultiHasher, Provider}
 import zio.ZIO
 import zio.stream.{ZPipeline, ZSink}
 

@@ -19,8 +19,8 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
 | Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
 | Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
-| Runnable gRPC lifecycle | Partial | Contracts, generated code, clients, interceptors, and adapters exist; the packaged server currently exposes HTTP |
-| RocksDB CAS backend | Partial | Durable key-value adapter exists; it is not yet a complete `BlockStore` backend |
+| Streaming gRPC lifecycle | Operational | Packaged listener, typed SDK, 12 MiB socket lifecycle, bounded frames, public health, authentication, capabilities, rate limiting, and audit |
+| RocksDB key-value module | Operational in scope | Durable typed key-value storage with close/reopen persistence tests; it is not advertised as a blob backend |
 
 ## Prove it locally
 
@@ -34,15 +34,17 @@ cd graviton
 ./sbt server/assembly
 ./scripts/smoke-packaged-server.sh
 ./scripts/verify-external-consumer.sh
+./scripts/audit-published-artifacts.sh
 ```
 
-Those commands prove three separate boundaries:
+Those commands prove four separate boundaries:
 
 - durable CLI operations across fresh JVM processes
-- the packaged JAR running both open and authenticated HTTP lifecycles
+- the packaged JAR running the HTTP and gRPC listeners, including open and authenticated HTTP lifecycles
 - published module metadata consumed from an unrelated sbt build
+- every public binary artifact contains executable definitions and no unsupported-operation markers
 
-The packaged smoke uploads real bytes, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload. The SDK suite separately proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket.
+The packaged smoke uploads real bytes over HTTP, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload. It also runs open and bearer-protected 3 MiB gRPC lifecycles through the assembled JAR, validates every streamed byte, and exercises health, metadata, inventory, inspection, and deletion. The HTTP SDK suite separately proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket.
 
 ## Run the server
 
@@ -130,11 +132,11 @@ The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix
 - [HTTP API](docs/api/http.md)
 - [Performance measurement](docs/ops/performance.md)
 
-A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations, multi-architecture GHCR image, and GitHub release. Maven Central publication runs only after the repository owner configures Sonatype and signing secrets.
+A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations, multi-architecture GHCR image, GitHub release, and signed Maven Central modules. The release workflow fails closed when publication credentials are configured but invalid.
 
 ## Remaining boundaries
 
-The highest-value remaining work is runnable gRPC parity, a complete RocksDB block backend, resumable upload contracts, long-duration failure injection, and multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The highest-value remaining work is resumable HTTP upload contracts, automated replica maintenance, long-duration failure injection, and target-environment multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 

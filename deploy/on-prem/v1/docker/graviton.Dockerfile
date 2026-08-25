@@ -12,7 +12,7 @@ RUN chmod +x ./sbt
 RUN ./sbt -batch -no-colors "server/compile"
 
 ENV GRAVITON_HTTP_PORT=8081
-EXPOSE 8081
+ENV GRAVITON_GRPC_PORT=9090
+EXPOSE 8081 9090
 
 CMD ["bash", "-lc", "./sbt -batch -no-colors \"server/runMain graviton.server.Main\""]
-

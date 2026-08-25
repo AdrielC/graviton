@@ -1,9 +1,7 @@
 package graviton.core.scan
 
-import graviton.core.scan.FreeScan.*
 import graviton.core.scan.Prim.*
 import graviton.core.scan.SafeFunction.*
-import graviton.core.scan.SafeFunction.given
 import kyo.Tag
 
 import scala.collection.mutable

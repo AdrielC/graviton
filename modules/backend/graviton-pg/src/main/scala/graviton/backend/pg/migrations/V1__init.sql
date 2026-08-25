@@ -1,7 +1,0 @@
--- NOTE: historical placeholder, not used by the current build.
---
--- The deployable Postgres DDL lives at:
---   modules/backend/graviton-pg/src/main/resources/ddl.sql
---
--- Keep it in sync with:
---   modules/pg/ddl.sql

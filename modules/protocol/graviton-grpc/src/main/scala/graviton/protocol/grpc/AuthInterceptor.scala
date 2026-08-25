@@ -10,12 +10,13 @@ import java.util.UUID
  * gRPC server interceptor that:
  *   1. extracts `authorization: Bearer <jwt>` from the call's metadata,
  *   2. validates it via [[JwtVerifier]],
- *   3. stores the resulting [[CallerContext]] on a ThreadLocal so the
- *      service handler can pick it up through
- *      [[AuthInterceptor.currentCallContext]] and install it on the
- *      fiber with `CallerContext.scopedWith`,
- *   4. aborts the call with `UNAUTHENTICATED` / `PERMISSION_DENIED` on
- *      failure and records an audit event.
+ *   3. stores the resulting [[CallerContext]] in grpc-java's scoped
+ *      [[Context]] so downstream transport interceptors can capture it
+ *      synchronously through [[AuthInterceptor.currentCallContext]],
+ *   4. records authentication acceptance before dispatch, failing closed if
+ *      durable audit rejects the event,
+ *   5. aborts invalid calls with `UNAUTHENTICATED` / `PERMISSION_DENIED` and
+ *      records an authentication-failure event.
  *
  * The interceptor is ZIO-aware via an unsafe boundary: it runs the
  * verifier effect synchronously using [[Unsafe]] because grpc-java's
@@ -35,23 +36,28 @@ final class AuthInterceptor(verifier: JwtVerifier, auditSink: AuditSink, runtime
     val requestId = UUID.randomUUID()
     val method    = call.getMethodDescriptor.getFullMethodName
 
-    Option(headers.get(AuthorizationKey)).flatMap(parseBearer) match
-      case None        =>
-        fail(call, Status.UNAUTHENTICATED, method, requestId, "missing bearer token")
-      case Some(token) =>
-        verifySync(verifier, token, requestId) match
-          case Left(err)  =>
-            auditFailAsync(auditSink, method, requestId, err.message)
-            fail(call, toGrpcStatus(err), method, requestId, err.message)
-          case Right(ctx) =>
-            val callCtx = Context.current.withValue(CallContextKey, ctx)
-            Contexts.interceptCall(callCtx, call, headers, next)
+    if method.endsWith("/Health") then next.startCall(call, headers)
+    else
+      Option(headers.get(AuthorizationKey)).flatMap(parseBearer) match
+        case None        =>
+          auditFailAsync(auditSink, method, requestId, "missing bearer token")
+          fail(call, Status.UNAUTHENTICATED, "missing bearer token")
+        case Some(token) =>
+          verifySync(verifier, token, requestId) match
+            case Left(err)  =>
+              auditFailAsync(auditSink, method, requestId, err.message)
+              fail(call, toGrpcStatus(err), err.message)
+            case Right(ctx) =>
+              auditAllowSync(auditSink, ctx, method) match
+                case Left(_)  =>
+                  fail(call, Status.INTERNAL, "audit recording failed")
+                case Right(_) =>
+                  val callCtx = Context.current.withValue(CallContextKey, ctx)
+                  Contexts.interceptCall(callCtx, call, headers, next)
 
   private def fail[ReqT, RespT](
     call: ServerCall[ReqT, RespT],
     status: Status,
-    method: String,
-    requestId: UUID,
     message: String,
   ): ServerCall.Listener[ReqT] =
     call.close(status.withDescription(message), new Metadata())
@@ -66,10 +72,22 @@ final class AuthInterceptor(verifier: JwtVerifier, auditSink: AuditSink, runtime
 
   private def auditFailAsync(auditSink: AuditSink, method: String, requestId: UUID, reason: String): Unit =
     Unsafe.unsafe { implicit u =>
-      runtime.unsafe.fork(
+      val _ = runtime.unsafe.fork(
         auditSink.authFail(s"grpc.$method", requestId, reason, None).ignore
       )
-      ()
+    }
+
+  private def auditAllowSync(auditSink: AuditSink, context: CallerContext, method: String): Either[SecurityError, Unit] =
+    Unsafe.unsafe { implicit unsafe =>
+      runtime.unsafe
+        .run(
+          CallerContext
+            .scopedWith(context)(
+              auditSink.allow(s"grpc.authenticate.$method", ResourceRef.blobCollection)
+            )
+            .either
+        )
+        .getOrThrowFiberFailure()
     }
 
 object AuthInterceptor:
@@ -77,7 +95,7 @@ object AuthInterceptor:
   val AuthorizationKey: Metadata.Key[String] =
     Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER)
 
-  /** gRPC context key used to carry the resolved [[CallerContext]] to handlers. */
+  /** gRPC context key used to carry the resolved [[CallerContext]] through the interceptor chain. */
   val CallContextKey: Context.Key[CallerContext] =
     Context.key[CallerContext]("graviton-caller-context")
 
@@ -101,13 +119,3 @@ object AuthInterceptor:
   /** Read the CallerContext installed by the interceptor. */
   def currentCallContext: Option[CallerContext] =
     Option(CallContextKey.get())
-
-  /**
-   * Wrap a handler effect so it runs with the interceptor-supplied
-   * CallerContext on the fiber. Use inside service implementations
-   * where the handler returns a ZIO.
-   */
-  def scoped[R, E, A](zio: ZIO[R, E, A]): ZIO[R, E, A] =
-    currentCallContext match
-      case None      => zio
-      case Some(ctx) => CallerContext.scopedWith(ctx)(zio)

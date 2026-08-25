@@ -1,6 +1,6 @@
 package graviton.core.manifest
 
-import graviton.core.bytes.{Digest, HashAlgo, Hasher}
+import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
 import graviton.core.types.BlobOffset
@@ -81,13 +81,12 @@ object PagedManifest:
    * Split a logical manifest entries list into multiple page-manifests, each capped at
    * `FramedManifest.MaxManifestEntries`, and return a root index referencing those pages.
    *
-   * Note: the returned root uses placeholder keys; use `materializeKeys` to compute stable
-   * content-addressed manifest-page keys once you choose an algorithm.
+   * Every returned page reference is content-addressed with the selected algorithm.
    */
-  def paginate(entries: List[ManifestEntry]): Either[String, PagedManifest] =
+  def paginate(entries: List[ManifestEntry], algo: HashAlgo = HashAlgo.runtimeDefault): Either[String, PagedManifest] =
     for
       validated <- Manifest.fromEntries(entries)
-      pages     <- paginateValidated(validated)
+      pages     <- paginateValidated(validated, algo)
     yield pages
 
   /**
@@ -131,7 +130,7 @@ object PagedManifest:
       refsEither.flatMap(refs => ManifestRoot.fromPages(refs).map(root => root.copy(size = paged.root.size)).map(root => (root, keyed)))
     }
 
-  private def paginateValidated(manifest: Manifest): Either[String, PagedManifest] =
+  private def paginateValidated(manifest: Manifest, algo: HashAlgo): Either[String, PagedManifest] =
     val max = FramedManifest.MaxManifestEntries
 
     val grouped = manifest.entries.grouped(max).toList
@@ -144,27 +143,21 @@ object PagedManifest:
       }
 
     pagesEither.flatMap { pages =>
-      val placeholderDigest =
-        Digest.fromBytes(Array.fill(HashAlgo.Sha256.hashBytes)(0.toByte)).left.map(err => s"Failed to construct placeholder digest: $err")
-
-      placeholderDigest.map { d =>
-        val placeholderBits = graviton.core.keys.KeyBits(HashAlgo.Sha256, d, 0L)
-
-        val refs =
-          pages.map { page =>
-            // For an empty overall manifest, there are no pages (so this never sees Nil).
-            val head = page.entries.head
-            val last = page.entries.last
-
-            ManifestPageRef(
-              key = BinaryKey.Manifest(placeholderBits),
-              span = Span.unsafe(head.span.startInclusive, last.span.endInclusive),
-              entryCount = page.entries.length,
-            )
-          }
-
-        PagedManifest(root = ManifestRoot(pages = refs, size = manifest.size), pages = pages)
-      }
+      pages.zipWithIndex
+        .foldLeft[Either[String, List[ManifestPageRef]]](Right(Nil)) { case (acc, (page, index)) =>
+          for
+            refs <- acc
+            key  <- pageKey(page, algo).left.map(message => s"Failed to derive key for page $index: $message")
+            head <- page.entries.headOption.toRight(s"Manifest page $index cannot be empty")
+            last <- page.entries.lastOption.toRight(s"Manifest page $index cannot be empty")
+          yield refs :+ ManifestPageRef(
+            key = key,
+            span = Span.unsafe(head.span.startInclusive, last.span.endInclusive),
+            entryCount = page.entries.length,
+          )
+        }
+        .flatMap(refs => ManifestRoot.validate(ManifestRoot(refs, manifest.size)))
+        .map(root => PagedManifest(root = root, pages = pages))
     }
 
   private def pageKey(page: Manifest, algo: HashAlgo): Either[String, BinaryKey.Manifest] =

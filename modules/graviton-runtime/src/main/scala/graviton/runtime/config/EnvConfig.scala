@@ -11,6 +11,7 @@ import zio.Config
  */
 final case class GravitonConfig(
   httpPort: Int = 8081,
+  grpcPort: Int = 9090,
   blobBackend: String = "fs",
   dataDir: String = ".graviton",
   chunkSize: Int = 1048576,
@@ -70,12 +71,13 @@ object GravitonConfig:
 
   val config: Config[GravitonConfig] =
     (Config.int("http-port").withDefault(8081) ++
+      Config.int("grpc-port").withDefault(9090) ++
       Config.string("blob-backend").withDefault("fs") ++
       Config.string("data-dir").withDefault(".graviton") ++
       Config.int("chunk-size").withDefault(1048576) ++
       fsConfig ++ s3Config ++ pgConfig)
-      .map { case (port, backend, dataDir, chunk, fs, s3, pg) =>
-        GravitonConfig(port, backend, dataDir, chunk, fs, s3, pg)
+      .map { case (httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg) =>
+        GravitonConfig(httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg)
       }
       .nested("graviton")
 

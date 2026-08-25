@@ -1,14 +1,12 @@
 package graviton.core.scan
 
-import graviton.core.bytes.*
-import kyo.Record
-import kyo.Record.`~`
 import zio.*
 import zio.stream.*
 import zio.test.*
 import zio.test.TestAspect.ignore
 
 import java.security.MessageDigest
+import scala.annotation.nowarn
 
 /**
  * Microbenchmarks comparing Transducer composition against alternatives
@@ -128,6 +126,7 @@ object TransducerBench extends ZIOSpecDefault:
     (summary.totalBytes, summary.digestHex, summary.blockCount + (if out.nonEmpty && out.last.length < blockSize then 1L else 0L))
   }
 
+  @nowarn("msg=unused private member")
   private def bench1_rawZPipeline: ZIO[Any, Throwable, (Long, Long)] =
     // Raw ZPipeline: rechunk + count via runFold
     ZStream

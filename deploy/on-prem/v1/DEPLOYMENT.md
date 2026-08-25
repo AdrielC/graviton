@@ -71,6 +71,7 @@ docker compose up --build
 - **Quasar API**: `http://localhost:8080/v1/health`
 - **Quasar readiness (deps)**: `http://localhost:8080/v1/ready`
 - **Graviton demo API**: `http://localhost:8081/api/health`
+- **Graviton gRPC**: `localhost:9090`
 - **Graviton metrics**: `http://localhost:8081/metrics`
 - **MinIO console**: `http://localhost:9001`
 

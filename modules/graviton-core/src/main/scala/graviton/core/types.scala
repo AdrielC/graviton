@@ -1,6 +1,5 @@
 package graviton.core
 
-import graviton.core.model.ByteConstraints
 import graviton.core.ranges.DiscreteDomain
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.IronType
@@ -8,7 +7,6 @@ import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
 import zio.schema.Schema
 
-import java.util.regex.Pattern
 import scala.collection.immutable.ListMap
 import scala.compiletime
 
@@ -368,7 +366,6 @@ object types:
   private val Sha256HexLength = 64
   private val Sha1HexLength   = 40
   private val Md5HexLength    = 32
-  private val KekIdPattern    = Pattern.compile("^[A-Za-z0-9:_-]{4,128}$")
 
   def validateDigest(algo: Algo, hex: HexLower): Either[String, Unit] =
     algo.value match

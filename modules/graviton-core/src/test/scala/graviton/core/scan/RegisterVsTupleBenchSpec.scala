@@ -1,6 +1,5 @@
 package graviton.core.scan
 
-import graviton.core.bytes.HashAlgo
 import zio.*
 import zio.test.*
 
@@ -59,8 +58,8 @@ object RegisterVsTupleBenchSpec extends ZIOSpecDefault:
       // Measured runs
       // Warm up both paths (3 warm-up runs each)
       (1 to 3).foreach { _ =>
-        benchTuple(data)
-        benchRegisters(data)
+        val _ = benchTuple(data)
+        val _ = benchRegisters(data)
       }
 
       // Measured runs

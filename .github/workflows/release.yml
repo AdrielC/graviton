@@ -32,6 +32,8 @@ jobs:
         run: ./scripts/verify-backup-restore.sh
       - name: Prove external consumption
         run: ./scripts/verify-external-consumer.sh
+      - name: Audit publishable JAR contents
+        run: ./scripts/audit-published-artifacts.sh
       - name: Generate checksums
         shell: bash
         run: |
@@ -118,18 +120,18 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
-      - name: Publish signed modules when Central credentials are configured
+      - name: Require publication credentials and publish signed modules
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "${SONATYPE_USERNAME}" ] || [ -z "${SONATYPE_PASSWORD}" ] || [ -z "${PGP_SECRET}" ] || [ -z "${PGP_PASSPHRASE}" ]; then
-            echo 'Maven Central credentials are not configured; release artifacts remain available from GitHub.'
-            exit 0
+            echo 'Maven Central and PGP credentials are required for a Graviton release.' >&2
+            exit 1
           fi
           ./sbt versionCheck ci-release
 
   github-release:
-    needs: [validate-package, container]
+    needs: [validate-package, container, maven-central]
     runs-on: ubuntu-latest
     permissions:
       contents: write

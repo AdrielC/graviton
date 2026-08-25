@@ -3,12 +3,7 @@ package quasar.http
 import zio.*
 import zio.http.*
 
-/**
- * Placeholder Quasar HTTP surface.
- *
- * The repository currently has a Graviton-focused server and protocol stack; this module
- * is the landing spot for the tenant-implicit document API described in docs.
- */
+/** Liveness and optional operational legacy-import routes for the Quasar process. */
 final case class QuasarHttpApi(
   legacyImport: Option[LegacyImportHttpApi] = None
 ):

@@ -1,170 +1,92 @@
 # Graviton Blobstore v1 gRPC API
 
-> Status: the protobuf contracts are the source of truth, but server-side implementations are still being wired through to the runtime ports. Use this page as an API reference for the *intended* shape, and check the `protocol/graviton-grpc` module for what is currently implemented.
+Graviton serves the operational gRPC API on port `9090` by default, alongside HTTP on `8081`. Set `GRAVITON_GRPC_PORT` to change the listener.
 
-Graviton Blobstore v1 exposes three coordinated gRPC services beneath the package `io.graviton.blobstore.v1`:
+The package `io.graviton.blobstore.v1` exposes two generated services:
 
-- **UploadGateway** – the frames-first ingestion pipe with schema-aware metadata, raw chunk fallback, events, and keepalives.
-- **UploadService** – classic multipart parity for clients mirroring the REST API.
-- **Catalog** – search, dedupe, export, and subscription capabilities over the blob catalogue.
+- `BlobService` for streaming put/get plus stat, list, inspect, and delete
+- `AdminService` for storage-backed readiness
 
-Every upload can carry structured metadata via `MetadataNamespace`, providing optional schema bytes/content-types alongside the payload bytes/content-type. This powers validation during ingest and rich catalog queries later.
+The Scala client is `graviton.protocol.grpc.GravitonGrpcClient` from `graviton-grpc_3`. It accepts and returns ZIO streams and uses ZIO Blocks `MediaType` values at the API boundary.
 
----
+## Upload
 
-## UploadGateway – Frames-First Streaming
+`PutBlob` is client-streaming. The first frame must contain metadata. Every following frame contains at most 1 MiB of data.
 
 ```protobuf
-service UploadGateway {
-  rpc Stream (stream ClientFrame) returns (stream ServerFrame);
+rpc PutBlob(stream PutBlobRequest) returns (PutBlobResponse);
+
+message PutBlobMetadata {
+  optional uint64 expected_size = 1;
+  string content_type = 2;
 }
 
-message ClientFrame {
+message PutBlobRequest {
   oneof kind {
-    StartUpload start    = 1;
-    DataFrame   frame     = 2;
-    RawChunk    chunk     = 3;
-    Complete    complete  = 4;
-    Subscribe   subscribe = 5;
-    Cancel      cancel    = 6;
-    Ping        ping      = 7;
-  }
-}
-
-message ServerFrame {
-  oneof kind {
-    StartAck start_ack = 1;
-    Ack      ack       = 2;
-    Progress progress  = 3;
-    Completed completed= 4;
-    Event    event     = 5;
-    Error    error     = 6;
-    Pong     pong      = 7;
+    PutBlobMetadata metadata = 1;
+    bytes data = 2;
   }
 }
 ```
 
-### Workflow
-
-```text
-1. StartUpload – declare object content-type, TTL hints, and schema-aware metadata namespaces.
-2. DataFrame / RawChunk – stream Graviton frames (preferred) or raw chunks (fallback).
-3. Subscribe – opt into topics such as metadata validation or ingest lifecycle.
-4. Ping / Pong – keep the session alive beyond the negotiated TTL.
-5. Complete – supply optional manifest bytes and expected object hash.
-6. StartAck / Ack / Progress – the server confirms session id, supported frame types, windows, and tracked byte counts.
-7. Event – validation results, dedupe hints, or catalog notifications.
-8. Completed – final document id, canonical blob hash, object MIME type, and optional URL.
-```
-
-`GravitonUploadGatewayClientZIO` (package `ai.hylo.graviton.client`) orchestrates this flow, enforcing ack ordering and surfacing events:
+The stream itself is the upload session. There is no caller-managed session string to lose, reuse, or thread through application code. The server streams request bytes directly into `BlobStore.put`; it does not collect the upload. An optional expected size is checked after hashing and persistence. On mismatch, the newly written manifest is deleted and the call fails.
 
 ```scala
-val gatewayClient = new GravitonUploadGatewayClientZIO(gatewayStub, uploadServiceStub)
+import graviton.protocol.grpc.GravitonGrpcClient
+import zio.*
+import zio.blocks.mediatype.MediaType
+import zio.stream.*
 
-val start = StartUpload(
-  objectContentType = "application/pdf",
-  metadata = List(
-    MetadataNamespace(
-      namespace = "document",
-      schemaContentType = Some("application/json; profile=json-schema"),
-      schemaBytes = Some(Chunk.fromArray(schemaBytes)),
-      dataContentType = "application/json",
-      dataBytes = Chunk.fromArray(metadataBytes),
-    )
-  ),
-)
-
-val frames = ZStream.fromIterable(frameBytes.zipWithIndex).map { case (bytes, idx) =>
-  Left(
-    DataFrame(
-      sessionId = "pending",
-      sequence = idx,
-      offsetBytes = idx.toLong * bytes.length,
-      contentType = "application/graviton-frame",
-      bytes = Chunk.fromArray(bytes),
-      last = idx == frameBytes.length - 1,
-    ),
-  )
+val upload = ZIO.scoped {
+  for
+    client <- GravitonGrpcClient.scoped("127.0.0.1", 9090)
+    result <- client.put(
+                ZStream.fromFileName("archive.tar"),
+                MediaType.unsafeFromString("application/x-tar"),
+              )
+  yield result.key
 }
-
-for {
-  outcome <- gatewayClient.uploadFrames(start, frames, complete = Complete(sessionId = "pending"))
-  _       <- ZIO.logInfo(s"Stored ${outcome.completed.documentId} hash=${outcome.completed.blobHash}")
-} yield outcome
 ```
 
-### Error Semantics
-
-- `SESSION_EXPIRED` – TTL elapsed; register a fresh session.
-- `INVALID_CHECKSUM` – checksum mismatch detected immediately.
-- `PROTOCOL_VIOLATION` – out-of-order sequence numbers, unsupported content-types, or invalid transitions.
-- `UNSUPPORTED_TYPE` – attempted to stream a content-type absent from `StartAck.accepted_content_types`.
-
-The helper client translates these into `UploadGatewayError` variants and ensures that `Ack.acknowledged_sequence` is strictly monotonic.
-
----
-
-## UploadService – Classic Multipart Parity
+## Download and lifecycle
 
 ```protobuf
-service UploadService {
-  rpc RegisterUpload (RegisterUploadRequest) returns (RegisterUploadResponse);
-  rpc UploadParts    (stream UploadPartRequest) returns (UploadPartsResponse);
-  rpc CompleteUpload (CompleteUploadRequest) returns (CompleteUploadResponse);
-}
+rpc GetBlob(GetBlobRequest) returns (stream BlobChunk);
+rpc StatBlob(BlobKey) returns (StatBlobResponse);
+rpc ListBlobs(ListBlobsRequest) returns (stream BlobSummary);
+rpc InspectBlob(InspectBlobRequest) returns (stream BlobBlock);
+rpc DeleteBlob(DeleteBlobRequest) returns (DeleteBlobResponse);
 ```
 
-Use the classic service when mirroring REST multipart behaviour or integrating existing chunked upload tooling. `RegisterUploadRequest` carries the object MIME type, optional size, metadata namespaces, and an optional client session id. `UploadPartRequest` includes sequence, offset, checksum, and `last` flags. `CompleteUploadRequest` can embed manifests and expected hashes for parity with frames ingest.
-
-`GravitonUploadGatewayClientZIO.uploadViaClassic` bridges to this API, while `GravitonUploadHttpClient` (zio-http based) offers a JSON+streaming alternative for HTTP callers.
-
----
-
-## Catalog – Search, Dedupe, Export, Subscribe
-
-```protobuf
-service Catalog {
-  rpc Search         (SearchRequest)          returns (stream SearchResult);
-  rpc List           (ListRequest)            returns (ListResponse);
-  rpc Get            (GetRequest)             returns (GetResponse);
-  rpc FindDuplicates (FindDuplicatesRequest)  returns (stream DuplicateGroup);
-  rpc Export         (ExportRequest)          returns (stream ExportChunk);
-  rpc Subscribe      (SubscribeRequest)       returns (stream CatalogEvent);
-}
-```
-
-Highlights:
-
-- **Search** – Combine deterministic filters (hash, content-type, size ranges, namespaces) with OR groups and optional full-text hooks. Results include namespace summaries.
-- **FindDuplicates** – Group objects by hash or hash-prefix+size for dedupe workflows.
-- **Export** – Stream manifests and Graviton frames for migrations; pipe the frames straight into `UploadGateway`.
-- **Subscribe** – Receive catalog events (validation, ingest completion, dedupe findings) for reactive automation.
-
-`GravitonCatalogClientZIO` provides ergonomic wrappers:
+`GetBlob` emits frames no larger than 1 MiB. Each frame carries an absolute offset, and the Scala client rejects gaps or reordering as `DATA_LOSS` before exposing bytes downstream.
 
 ```scala
-val catalog = new GravitonCatalogClientZIO(catalogStub)
-
-val results = catalog
-  .search(SearchFilters(hashes = Chunk("sha256:..."), contentTypes = Chunk("application/pdf"), sizeRange = Some(0L -> 1048576L)))
-  .runCollect
-
-val duplicates = catalog.findDuplicates(FindDuplicatesRequest(hashPrefix = "sha256:abcd"))
-
-val exportPlan = ExportPlan(documentIds = Chunk("doc-001"), includeFrames = true)
-val exportStream = catalog.export(exportPlan)
+ZIO.scoped {
+  for
+    client <- GravitonGrpcClient.scoped("127.0.0.1", 9090)
+    _      <- client.get(key).run(ZSink.fromFileName("archive-restored.tar"))
+    stat   <- client.stat(key)
+    blocks <- client.inspect(key).runCollect
+  yield (stat, blocks)
+}
 ```
 
-Pair `exportStream` with `GravitonUploadGatewayClientZIO.uploadFrames` to migrate content without decoding frames.
+`ListBlobs` and `InspectBlob` are server-streaming so callers can consume results incrementally. The current runtime inventory port returns a bounded collection internally; the wire contract does not force clients to collect it.
 
----
+## Security and audit
 
-## Practical Guidance
+When security is enabled, the packaged listener validates the bearer token, requires the matching blob capability, and records authentication and authorization decisions before service execution. It charges each RPC against the caller's request budget, each received `PutBlob` data frame against the upload-byte budget, and each emitted `GetBlob` frame against the download-byte budget. Byte accounting happens at the transport boundary without collecting payloads. A denied frame closes the call with `RESOURCE_EXHAUSTED` before that frame reaches storage or the client. Audit persistence is fail-closed: an authenticated RPC does not begin if its audit decision cannot be stored. `AdminService.Health` remains public so orchestrators can probe backend readiness without a token.
 
-- Prefer `UploadGateway` for new ingest paths; reserve `RawChunk` for legacy fallbacks.
-- Attach JSON/CBOR schemas inside `MetadataNamespace` to receive `metadata.validation` events.
-- Subscribe to event topics to power dedupe quarantines or compliance checks.
-- Use `Catalog.FindDuplicates` before finalising uploads and leverage `Catalog.Export` + `UploadGateway` for parity checks or migrations.
+## Limits and errors
 
-For HTTP parity and JSON payloads, see [HTTP API](./http.md). For module wiring and build notes, consult [Protocol Modules](../modules/protocol.md).
+- Data frames are capped at 1 MiB with an Iron-refined `Chunk[Byte]` boundary.
+- The server and client cap inbound gRPC messages at 2 MiB.
+- Invalid keys, media types, frame order, or expected sizes return `INVALID_ARGUMENT`.
+- Missing blobs return `NOT_FOUND`.
+- Broken download offsets return `DATA_LOSS` in the Scala client.
+- Backend health failures return `UNAVAILABLE` from `AdminService.Health`.
+- Unexpected storage failures return `INTERNAL` without exposing arbitrary exception messages.
+
+The loopback integration suite starts the real Netty gRPC server on an ephemeral port and proves a 12 MiB put/get/stat/list/inspect/delete lifecycle through generated stubs. It separately proves authenticated allow and deny decisions, exact upload/download byte metering, and rejected-frame behavior through the complete interceptor chain. The packaged-server smoke repeats a 3 MiB lifecycle against both open and authenticated assembled JAR processes. Backend integration suites separately prove PostgreSQL and S3 multipart behavior.
+
+For JSON/HTTP clients, ranges, conditional requests, and server-side verification, see the [HTTP API](./http.md).

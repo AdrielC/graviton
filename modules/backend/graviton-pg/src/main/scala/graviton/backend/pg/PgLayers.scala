@@ -1,6 +1,9 @@
 package graviton.backend.pg
 
-import zio.{Layer, ZLayer}
+import zio.ZLayer
+
+import javax.sql.DataSource
 
 object PgLayers:
-  val live: Layer[Nothing, PgMutableObjectStore] = ZLayer.succeed(new PgMutableObjectStore)
+  val live: ZLayer[DataSource, Nothing, PgMutableObjectStore] =
+    ZLayer.fromFunction((dataSource: DataSource) => new PgMutableObjectStore(dataSource))

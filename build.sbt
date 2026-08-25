@@ -83,9 +83,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.2.0 established the refined, stream-first public API baseline. Patch
-// development must preserve binary and source compatibility with that release.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryAndSourceCompatible
+// v0.3 removes aspirational transport and framing APIs that could not execute,
+// narrows keys to their semantic variants, and makes every published backend
+// operation real. This is an intentional early-semver compatibility boundary.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -424,13 +425,14 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"          % V.zio,
       "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
-      "io.grpc" % "grpc-netty" % V.grpc,
+      "io.grpc" % "grpc-netty-shaded" % V.grpc,
       "io.grpc" % "grpc-api" % V.grpc,
       "com.google.protobuf" % "protobuf-java-util" % V.protobuf,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"         % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
-    ) ++ nettyGrpcDependencies,
+    ),
   )
 
 lazy val http = (project in file("modules/protocol/graviton-http"))
@@ -502,7 +504,7 @@ lazy val security = (project in file("modules/security/graviton-security"))
 
 lazy val server = (project in file("modules/server/graviton-server"))
   .enablePlugins(AssemblyPlugin)
-  .dependsOn(runtime, http, s3, pg, rocks, security)
+  .dependsOn(runtime, http, grpc, s3, pg, rocks, security)
   .settings(
     baseSettings,
     name := "graviton-server",

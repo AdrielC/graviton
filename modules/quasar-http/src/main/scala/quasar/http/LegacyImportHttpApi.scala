@@ -41,7 +41,7 @@ final case class LegacyImportHttpApi(service: LegacyImportService):
               case Right(parsed) =>
                 service
                   .importIfNeeded(parsed.legacyRepo, parsed.legacyDocId)
-                  .map(out => LegacyImportResponse(out.documentId, out.blobKey.value))
+                  .map(out => LegacyImportResponse(out.documentId, out.blobKey.bits.render))
                   .map(resp => Response.json(resp.toJson))
                   .catchAll(th =>
                     ZIO.succeed(

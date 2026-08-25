@@ -15,24 +15,22 @@ trait BlobStore:
   def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink
 
   /** Retrieve the bytes for a blob by logical key (reassembling blocks as needed). */
-  def get(key: BinaryKey): ZStream[Any, Throwable, Byte]
+  def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte]
 
   /** Return metadata (size, etag, timestamps) when supported by the backend. */
-  def stat(key: BinaryKey): ZIO[Any, Throwable, Option[BlobStat]]
+  def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]]
 
   /** List persisted logical blobs, newest first. */
-  def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
-    ZIO.fail(new UnsupportedOperationException("BlobStore.list is not implemented"))
+  def list: ZIO[Any, Throwable, Chunk[BlobListing]]
 
   /** Inspect the persisted manifest for a logical blob. */
-  def inspect(_key: BinaryKey): ZIO[Any, Throwable, Option[BlobDescription]] =
-    ZIO.fail(new UnsupportedOperationException("BlobStore.inspect is not implemented"))
+  def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]]
 
   /** Remove the blob and any associated manifest/attribute entries. */
-  def delete(key: BinaryKey): ZIO[Any, Throwable, Unit]
+  def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit]
 
   /** Readiness probe for every backing service required by this store. */
-  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+  def healthCheck: ZIO[Any, Throwable, Unit]
 
 object BlobStore:
   val service: ZIO[BlobStore, Nothing, BlobStore] = ZIO.service[BlobStore]

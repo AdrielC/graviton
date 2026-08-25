@@ -1,10 +1,20 @@
 syntax = "proto3";
 
-package graviton;
+package io.graviton.blobstore.v1;
+
+option java_multiple_files = true;
+option java_package = "io.graviton.blobstore.v1";
+option java_outer_classname = "AdminServiceProto";
 
 message HealthRequest {}
+
 message HealthResponse {
-  string status = 1;
+  enum ServingStatus {
+    SERVING_STATUS_UNSPECIFIED = 0;
+    SERVING = 1;
+  }
+
+  ServingStatus status = 1;
 }
 
 service AdminService {

@@ -54,5 +54,7 @@ object Slf4jZLogger:
             if throwable == null then logger.error(renderedWithCause) else logger.error(rendered, throwable)
           case LogLevel.Fatal   =>
             if throwable == null then logger.error(renderedWithCause) else logger.error(rendered, throwable)
+          case _                =>
+            if throwable == null then logger.info(renderedWithCause) else logger.info(rendered, throwable)
       }
     }

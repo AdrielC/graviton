@@ -84,37 +84,33 @@ final class Graviton private (
    * Retrieve a small blob in memory, rejecting values larger than 16 MiB.
    * Arbitrary-size consumers must use [[stream]].
    */
-  def retrieve(key: BinaryKey): ZIO[Any, Throwable, InMemoryBytes] =
+  def retrieve(key: BinaryKey.Blob): ZIO[Any, Throwable, InMemoryBytes] =
     BoundedByteStream.collectInMemory(blobStore.get(key))
 
   /** Stream bytes for a stored blob (memory-efficient for large blobs). */
-  def stream(key: BinaryKey): ZStream[Any, Throwable, Byte] =
+  def stream(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     blobStore.get(key)
 
   /** Check if a blob exists and get its metadata. */
-  def stat(key: BinaryKey): ZIO[Any, Throwable, Option[model.BlobStat]] =
+  def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[model.BlobStat]] =
     blobStore.stat(key)
 
   /** Delete a blob's manifest (blocks remain for dedup). */
-  def delete(key: BinaryKey): ZIO[Any, Throwable, Unit] =
+  def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
     blobStore.delete(key)
 
   /** Verify a blob by reading it back and comparing the digest. */
-  def verify(key: BinaryKey): ZIO[Any, Throwable, Boolean] =
-    key match
-      case blob: BinaryKey.Blob =>
-        for
-          hasher <- ZIO
-                      .fromEither(graviton.core.bytes.Hasher.hasher(blob.bits.algo))
-                      .mapError(msg => new IllegalStateException(msg))
-          bytes  <- blobStore
-                      .get(blob)
-                      .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
-                      .runCount
-          digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-        yield digest.hex.value == blob.bits.digest.hex.value && bytes == blob.bits.size
-      case _                    =>
-        ZIO.succeed(false)
+  def verify(key: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
+    for
+      hasher <- ZIO
+                  .fromEither(graviton.core.bytes.Hasher.hasher(key.bits.algo))
+                  .mapError(msg => new IllegalStateException(msg))
+      bytes  <- blobStore
+                  .get(key)
+                  .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
+                  .runCount
+      digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+    yield digest.hex.value == key.bits.digest.hex.value && bytes == key.bits.size
 
 object Graviton:
 
@@ -176,6 +172,8 @@ object Graviton:
           }
         override def delete(blob: BinaryKey.Blob)                                                                        =
           ref.modify(m => (m.contains(blob), m - blob))
+        override def healthCheck                                                                                         =
+          ZIO.unit
     }
 
   /** Transducer pipelines for composition. */

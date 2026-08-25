@@ -11,7 +11,7 @@ import graviton.core.locator.BlobLocator
  * optional ingest statistics (block counts, dedup info, duration).
  */
 final case class BlobWriteResult(
-  key: BinaryKey,
+  key: BinaryKey.Blob,
   locator: BlobLocator,
   attributes: BinaryAttributes,
   stats: IngestStats = IngestStats.empty,

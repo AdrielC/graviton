@@ -2,6 +2,8 @@
 
 Graviton 0.2 is an intentional pre-1.0 compatibility boundary. It replaces byte-materializing convenience shapes and unchecked SDK primitives with streaming APIs, refined values, and scoped transport lifetimes.
 
+> This page documents the historical 0.2 line. Graviton 0.3 removes the experimental resumable client because no matching server contract shipped. See [Migrating from 0.2 to 0.3](./migration-0.3.md).
+
 ## What changed
 
 | 0.1 surface | 0.2 surface | Reason |
@@ -28,7 +30,7 @@ client.withUploadSession(registerRequest) {
 }
 ```
 
-The session is inherited by child fibers and restored when the regional scope exits. The packaged server still does not advertise resumable routes, so this client remains experimental until matching routes have end-to-end acceptance.
+The session was inherited by child fibers and restored when the regional scope exited. This experimental client was removed in 0.3 rather than published alongside a server that did not implement its routes.
 
 ## Dependency alignment
 

@@ -4,7 +4,7 @@ object Dependencies {
    * Central version catalog.
    *
    * Keep this in sync with the constraints of the existing codebase:
-   * - Scala 3.8.2 (bumped 2026-04-20 to consume zio-blocks-schema 0.0.32.
+   * - Scala 3.8.2 (required by the ZIO Blocks 0.0.51 schema and media-type modules.
    *   The Iron `RefinedSubtype` + zio-json `derives JsonCodec` regression
    *   this bump exposes is worked around by switching graviton-shared's
    *   JSON codecs to zio-schema-json's Schema-based derivation.)

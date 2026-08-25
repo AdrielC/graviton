@@ -1,14 +1,15 @@
 package quasar.legacy.db
 
+import graviton.core.keys.{BinaryKey, KeyBits}
 import zio.*
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.sql.Connection
 import java.util.UUID
 import javax.sql.DataSource
 
 final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
 
-  override def lookupDoc(orgId: UUID, ref: LegacyDocRef): UIO[Option[(UUID, LegacyImportStatus)]] =
+  override def lookupDoc(orgId: UUID, ref: LegacyDocRef): IO[Throwable, Option[(UUID, LegacyImportStatus)]] =
     ZIO
       .attemptBlocking {
         withConnection { conn =>
@@ -31,7 +32,6 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
           else None
         }
       }
-      .orElseSucceed(None)
 
   override def upsertDoc(
     orgId: UUID,
@@ -62,7 +62,7 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
       }
     }
 
-  override def lookupBinary(orgId: UUID, ref: LegacyBinaryRef): UIO[Option[BlobKey]] =
+  override def lookupBinary(orgId: UUID, ref: LegacyBinaryRef): IO[Throwable, Option[BlobKey]] =
     ZIO
       .attemptBlocking {
         withConnection { conn =>
@@ -78,10 +78,16 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
           ps.setString(2, ref.repo)
           ps.setString(3, ref.binaryHash)
           val rs = ps.executeQuery()
-          if rs.next() then Some(BlobKey(rs.getString(1))) else None
+          if rs.next() then
+            Some(
+              KeyBits
+                .fromString(rs.getString(1))
+                .flatMap(BinaryKey.blob)
+                .fold(message => throw new IllegalStateException(s"Invalid persisted blob key: $message"), identity)
+            )
+          else None
         }
       }
-      .orElseSucceed(None)
 
   override def upsertBinary(orgId: UUID, ref: LegacyBinaryRef, blob: BlobKey): IO[Throwable, Unit] =
     ZIO.attemptBlocking {
@@ -99,7 +105,7 @@ final class JdbcLegacyMappings(dataSource: DataSource) extends LegacyMappings:
         ps.setObject(1, orgId)
         ps.setString(2, ref.repo)
         ps.setString(3, ref.binaryHash)
-        ps.setString(4, blob.value)
+        ps.setString(4, blob.bits.render)
         val _  = ps.executeUpdate()
         ()
       }

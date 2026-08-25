@@ -1,12 +1,12 @@
 # Storage Backends
 
-Graviton keeps storage contracts in `graviton-runtime` and vendor code in backend modules. This table distinguishes an operational path from a useful adapter and from a scaffold.
+Graviton keeps storage contracts in `graviton-runtime` and vendor code in backend modules. This table distinguishes an operational server composition from reusable storage adapters.
 
 | Module | Current capability | Status |
 | --- | --- | --- |
 | `graviton-runtime` | In-memory CAS plus filesystem blocks and versioned filesystem manifests | Operational and covered by restart tests |
-| `backend/graviton-pg` | Transactional PostgreSQL blob manifests | Operational S3/MinIO server manifest path; several generic ports remain scaffolds |
-| `backend/graviton-s3` | S3/MinIO content-addressed block `put/get/exists` | Operational server block path with integration coverage |
+| `backend/graviton-pg` | Transactional manifests, object streams, bounded KV, ranges, and replicas | Operational adapters with embedded PostgreSQL coverage |
+| `backend/graviton-s3` | S3/MinIO content-addressed blocks and multipart objects | Operational adapters with MinIO integration coverage |
 | `backend/graviton-rocks` | Scoped RocksDB `put/get/delete` | Durable KV adapter with reopen coverage; not a CAS backend |
 
 ## Local filesystem CAS
@@ -25,14 +25,7 @@ Deleting a blob removes its manifest. Shared content-addressed blocks remain ava
 
 `PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. The server combines it with `S3BlockStore` for the S3/MinIO deployment path. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
 
-These PostgreSQL types are not production storage implementations yet:
-
-- `PgImmutableObjectStore`
-- `PgMutableObjectStore`
-- `PgKeyValueStore`
-- `PgReplicaIndex`
-
-`PgRangeTracker` does implement in-process range merging with a pluggable KV persistence hook, but its durability depends on the supplied `KeyValueStore`.
+`PgImmutableObjectStore` and `PgMutableObjectStore` stream objects through ordered rows capped at 1 MiB. Writes, replacement, copy, and cleanup are transactional. `PgKeyValueStore`, `PgReplicaIndex`, and `PgRangeTracker` use the same schema and propagate database failures rather than silently degrading to empty state.
 
 See [Postgres schema notes](../ops/postgres-schema.md) for the database layout.
 
@@ -40,7 +33,7 @@ See [Postgres schema notes](../ops/postgres-schema.md) for the database layout.
 
 `S3BlockStore` implements content-addressed block writes, reads, existence checks, and duplicate detection. The server uses it with `PgBlobManifestRepo` for the S3/MinIO deployment path.
 
-`S3BlobStore` is a separate full-object adapter. It implements multipart upload, retrieval, and deletion, but `stat` is not implemented. `S3ImmutableObjectStore` and `S3MutableObjectStore` remain interface scaffolds. Those types are not part of the server's CAS path.
+`S3BlobStore` is a separate full-object adapter with adaptive bounded multipart upload, server-side multipart promotion for large content-addressed objects, retrieval, stat, inventory, inspection, deletion, health, and interrupted-upload abort. `S3ImmutableObjectStore` and `S3MutableObjectStore` provide prefix-isolated locator operations, including adaptive multipart put, list, copy, and delete. Those generic object types are reusable adapters rather than the server's block-oriented CAS path.
 
 ## RocksDB
 

@@ -75,13 +75,13 @@ object StoreOps:
     /**
      * Retrieve blob bytes with errors mapped to `GravitonError`.
      */
-    def getTyped(key: BinaryKey): ZStream[Any, GravitonError, Byte] =
+    def getTyped(key: BinaryKey.Blob): ZStream[Any, GravitonError, Byte] =
       store.get(key).mapError(GravitonError.fromThrowable)
 
     /**
      * Delete a blob with errors mapped to `GravitonError`.
      */
-    def deleteTyped(key: BinaryKey): ZIO[Any, GravitonError, Unit] =
+    def deleteTyped(key: BinaryKey.Blob): ZIO[Any, GravitonError, Unit] =
       store.delete(key).mapError(GravitonError.fromThrowable)
 
   extension (store: BlockStore)

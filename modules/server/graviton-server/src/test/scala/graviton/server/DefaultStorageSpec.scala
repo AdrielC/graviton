@@ -31,13 +31,13 @@ object DefaultStorageSpec extends ZIOSpecDefault:
       }
     )
 
-  private def ingest(cfg: GravitonConfig, data: Chunk[Byte]): Task[BinaryKey] =
+  private def ingest(cfg: GravitonConfig, data: Chunk[Byte]): Task[BinaryKey.Blob] =
     (for
       store  <- ZIO.service[BlobStore]
       result <- ZStream.fromChunk(data).run(store.put())
     yield result.key).provide(InMemoryMetricsRegistry.layer, Main.blobLayer(cfg))
 
-  private def retrieve(cfg: GravitonConfig, key: BinaryKey): Task[Chunk[Byte]] =
+  private def retrieve(cfg: GravitonConfig, key: BinaryKey.Blob): Task[Chunk[Byte]] =
     (for
       store <- ZIO.service[BlobStore]
       bytes <- store.get(key).runCollect

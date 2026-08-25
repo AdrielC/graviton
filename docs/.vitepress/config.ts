@@ -124,6 +124,7 @@ export default withMermaid(defineConfig({
           { text: 'Storage Backends', link: '/guide/storage-backends' },
           { text: 'CLI & Server Usage', link: '/guide/cli' },
           { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
+          { text: 'Migrate to 0.3', link: '/guide/migration-0.3' },
           { text: 'Migrate to 0.2', link: '/guide/migration-0.2' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' }
         ]

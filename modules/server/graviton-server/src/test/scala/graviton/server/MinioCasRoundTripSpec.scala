@@ -1,14 +1,16 @@
 package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
-import graviton.backend.s3.S3BlockStore
-import graviton.core.types.UploadChunkSize
+import graviton.backend.s3.{S3BlockStore, S3ClientLayer, S3Config, S3MutableObjectStore, S3ObjectStoreConfig}
+import graviton.core.locator.BlobLocator
+import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, UploadChunkSize}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
+import software.amazon.awssdk.services.s3.S3Client
 
 import java.nio.charset.StandardCharsets
 
@@ -39,6 +41,18 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
       s3StoreLayer,
       CasBlobStore.layer,
     )
+
+  private val objectClientLayer: ZLayer[Any, Throwable, S3Client] =
+    ZLayer.scoped {
+      for
+        bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
+        config <- ZIO.fromEither(S3Config.fromEnvironment(bucket)).mapError(new IllegalArgumentException(_))
+        client <- ZIO.acquireRelease(S3ClientLayer.make(config))(value => ZIO.attemptBlocking(value.close()).orDie)
+      yield client
+    }
+
+  private val integrationLayer: ZLayer[Any, Throwable, BlobStore & S3BlockStore & S3Client] =
+    blobLayer ++ objectClientLayer
 
   override def spec: Spec[TestEnvironment, Any] =
     if !enabled then
@@ -79,4 +93,57 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
             readBack    <- store.get(written.key).runCollect
           yield assertTrue(!absent, present, readBack == data)
         },
-      ).provideShared(blobLayer) @@ TestAspect.sequential
+        test("S3 object backend performs real multipart put/get/list/copy/delete") {
+          val bucket = sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks")
+          val source = BlobLocator(
+            LocatorScheme.applyUnsafe("s3"),
+            LocatorBucket.applyUnsafe(bucket),
+            LocatorPath.applyUnsafe("objects/source"),
+          )
+          val copy   = source.copy(path = LocatorPath.applyUnsafe("objects/copy"))
+          val data   = Chunk.fromIterable(0 until (12 * 1024 * 1024 + 37)).map(index => (index % 251).toByte)
+
+          for
+            client  <- ZIO.service[S3Client]
+            config  <- ZIO
+                         .fromEither(S3Config.fromEnvironment(bucket, prefix = "graviton-object-it"))
+                         .mapError(new IllegalArgumentException(_))
+            store    = new S3MutableObjectStore(client, S3ObjectStoreConfig(config))
+            _       <- ZStream.fromChunk(data).rechunk(73 * 1024 + 11).run(store.put(source))
+            size    <- store.head(source)
+            loaded  <- store.get(source).runCollect
+            _       <- store.copy(source, copy)
+            copied  <- store.get(copy).runCollect
+            listed  <- store.list("objects/").runCollect
+            _       <- store.delete(source)
+            deleted <- store.head(source)
+            _       <- store.delete(copy)
+          yield assertTrue(
+            size.contains(data.length.toLong),
+            loaded == data,
+            copied == data,
+            listed.toSet == Set(source, copy),
+            deleted.isEmpty,
+          )
+        },
+        test("S3 multipart upload aborts when its source stream fails") {
+          val bucket  = sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks")
+          val locator = BlobLocator(
+            LocatorScheme.applyUnsafe("s3"),
+            LocatorBucket.applyUnsafe(bucket),
+            LocatorPath.applyUnsafe("objects/interrupted"),
+          )
+
+          for
+            client <- ZIO.service[S3Client]
+            config <- ZIO
+                        .fromEither(S3Config.fromEnvironment(bucket, prefix = "graviton-object-it"))
+                        .mapError(new IllegalArgumentException(_))
+            store   = new S3MutableObjectStore(client, S3ObjectStoreConfig(config))
+            exit   <- (ZStream.fromChunk(Chunk.fill(6 * 1024 * 1024)(1.toByte)) ++ ZStream.fail(new RuntimeException("boom")))
+                        .run(store.put(locator))
+                        .exit
+            head   <- store.head(locator)
+          yield assertTrue(exit.isFailure, head.isEmpty)
+        },
+      ).provideShared(integrationLayer) @@ TestAspect.sequential

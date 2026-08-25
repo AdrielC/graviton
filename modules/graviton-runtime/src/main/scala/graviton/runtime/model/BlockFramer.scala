@@ -12,9 +12,7 @@ object BlockFramer:
     plan: BlockWritePlan,
     context: FrameContext,
   ): Either[String, BlockFrame] =
-    plan.frame.layout match
-      case FrameLayout.BlockPerFrame => frameSingle(block, index, plan, context)
-      case FrameLayout.Aggregate(_)  => Left("Frame layout Aggregate is not implemented yet")
+    frameSingle(block, index, plan, context)
 
   private def frameSingle(
     block: CanonicalBlock,
@@ -29,7 +27,7 @@ object BlockFramer:
       aadBytes                                    <- BlockFrameCodec.renderAadBytes(aadModel)
       compressed                                  <- applyCompression(block.bytes, plan.frame.compression)
       (ciphertext, tag, headerKeyId, headerNonce) <- applyEncryption(compressed, plan.frame.encryption)
-      algorithm                                    = algorithmFor(plan.frame)
+      algorithm                                    = FrameAlgorithm.Plain
       header                                       = FrameHeader(
                                                        version = FrameVersion,
                                                        frameType = FrameType.Block,
@@ -63,27 +61,15 @@ object BlockFramer:
     compression: CompressionPlan,
   ): Either[String, Chunk[Byte]] =
     compression match
-      case CompressionPlan.Disabled   => Right(payload)
-      case CompressionPlan.Zstd(_, _) =>
-        Left("Zstd compression is not implemented yet for frame synthesis")
+      case CompressionPlan.Disabled => Right(payload)
 
   private def applyEncryption(
     payload: Chunk[Byte],
     encryption: EncryptionPlan,
   ): Either[String, (Chunk[Byte], Option[Chunk[Byte]], Option[String], Option[Chunk[Byte]])] =
     encryption match
-      case EncryptionPlan.Disabled                => Right((payload, None, None, None))
-      case EncryptionPlan.Aead(mode, keyId, _, _) =>
-        Left(s"Encryption mode $mode is not implemented yet for frame synthesis")
-
-  private def algorithmFor(frame: FrameSynthesis): FrameAlgorithm =
-    (frame.compression, frame.encryption) match
-      case (CompressionPlan.Disabled, EncryptionPlan.Disabled) => FrameAlgorithm.Plain
-      case (CompressionPlan.Disabled, _: EncryptionPlan.Aead)  => FrameAlgorithm.Encrypted
-      case (_: CompressionPlan.Zstd, EncryptionPlan.Disabled)  => FrameAlgorithm.Compressed
-      case (_: CompressionPlan.Zstd, _: EncryptionPlan.Aead)   => FrameAlgorithm.CompressedThenEncrypted
+      case EncryptionPlan.Disabled => Right((payload, None, None, None))
 
   private def aadPlanFor(encryption: EncryptionPlan): FrameAadPlan =
     encryption match
-      case EncryptionPlan.Disabled               => FrameAadPlan()
-      case EncryptionPlan.Aead(_, _, _, aadPlan) => aadPlan
+      case EncryptionPlan.Disabled => FrameAadPlan()

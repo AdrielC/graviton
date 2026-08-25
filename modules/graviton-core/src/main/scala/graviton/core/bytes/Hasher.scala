@@ -8,8 +8,6 @@ import scala.util.Try
 import scodec.bits.ByteVector
 import graviton.core.keys.KeyBits
 import java.util.concurrent.atomic.AtomicLong
-import graviton.core.types.BlockSize
-import scodec.bits.Bases.Alphabets.HexLowercase
 
 trait Hasher:
   def algo: HashAlgo
@@ -45,10 +43,6 @@ private[graviton] final class HasherImpl(
         val arr = chunk.toArray
         _inputSize.addAndGet(arr.length.toLong)
         md.update(arr)
-      case digest: Digest     =>
-        val arr = digest.bytes
-        _inputSize.addAndGet(arr.length.toLong)
-        md.update(arr)
       case s: String          =>
         val arr = s.getBytes(StandardCharsets.UTF_8)
         _inputSize.addAndGet(arr.length.toLong)
@@ -60,7 +54,7 @@ private[graviton] final class HasherImpl(
 
 object Hasher:
 
-  type Digestable = ByteVector | Chunk[Byte] | Array[Byte] | String | Digest
+  type Digestable = ByteVector | Chunk[Byte] | Array[Byte] | String
 
   import scala.quoted.*
 
@@ -70,7 +64,6 @@ object Hasher:
       case array: Array[Byte]     => '{ zio.Chunk.fromArray(${ Expr(array) }) }
       case byteVector: ByteVector => '{ zio.Chunk.fromArray(${ Expr(byteVector.toArray) }) }
       case string: String         => '{ zio.Chunk.fromArray(${ Expr(string.getBytes(StandardCharsets.UTF_8)) }) }
-      case digest: Digest         => '{ zio.Chunk.fromArray(${ Expr(digest.bytes) }) }
   }
   given FromExpr[Digestable] = new FromExpr[Digestable] {
     def unapply(value: Expr[Digestable])(using Quotes): Option[Digestable] = value match
@@ -78,7 +71,6 @@ object Hasher:
       case '{ ${ Expr(array: Array[Byte]) } }     => Some(array)
       case '{ ${ Expr(byteVector: ByteVector) } } => Some(byteVector)
       case '{ ${ Expr(string: String) } }         => Some(string)
-      case '{ ${ Expr(digest: Digest) } }         => Some(digest)
       case _                                      => None
   }
 

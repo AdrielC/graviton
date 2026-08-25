@@ -194,6 +194,36 @@ AS $$
   );
 $$;
 
+-- Bounded control-plane values. The Scala API retains the same 32 MiB
+-- maximum in KvValue, and PostgreSQL rejects oversized values independently.
+CREATE TABLE IF NOT EXISTS graviton.key_value (
+  key        text PRIMARY KEY CHECK (length(key) BETWEEN 1 AND 1024),
+  value      bytea NOT NULL CHECK (octet_length(value) <= 33554432),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+-- Direct object storage is intentionally chunked. PostgreSQL never receives a
+-- whole arbitrary-size object as one bytea value, and an interrupted upload is
+-- rolled back as a single transaction.
+CREATE TABLE IF NOT EXISTS graviton.object_data (
+  locator     text PRIMARY KEY CHECK (locator ~ '^[a-z][a-z0-9+.-]*://'),
+  scheme      core.nonempty_text NOT NULL,
+  bucket      core.nonempty_text NOT NULL,
+  path        core.nonempty_text NOT NULL,
+  byte_length core.byte_size NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT core.now_utc(),
+  updated_at  timestamptz NOT NULL DEFAULT core.now_utc(),
+  UNIQUE (scheme, bucket, path)
+);
+CREATE INDEX IF NOT EXISTS object_data_prefix_idx ON graviton.object_data (locator text_pattern_ops);
+
+CREATE TABLE IF NOT EXISTS graviton.object_chunk (
+  locator text NOT NULL REFERENCES graviton.object_data(locator) ON DELETE CASCADE,
+  ordinal bigint NOT NULL CHECK (ordinal >= 0),
+  bytes   bytea NOT NULL CHECK (octet_length(bytes) BETWEEN 1 AND 1048576),
+  PRIMARY KEY (locator, ordinal)
+);
+
 -- 1.2 Storage topology
 CREATE TABLE graviton.blob_store (
   blob_store_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

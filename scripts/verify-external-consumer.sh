@@ -6,7 +6,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONSUMER_DIR="${REPO_ROOT}/tests/consumer"
 PROOF_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/graviton-consumer-proof.XXXXXX")"
 LOCAL_REPO="${PROOF_ROOT}/repository"
-CONSUMER_CACHE="${PROOF_ROOT}/coursier-cache"
+CONSUMER_CACHE="${GRAVITON_CONSUMER_CACHE:-${PROOF_ROOT}/coursier-cache}"
 CONSUMER_IVY="${PROOF_ROOT}/ivy"
 mkdir -p "${LOCAL_REPO}" "${CONSUMER_CACHE}" "${CONSUMER_IVY}"
 cleanup() { find "${PROOF_ROOT}" -depth -delete 2>/dev/null || true; }
@@ -25,9 +25,15 @@ PUBLISH_SETTING="set ThisBuild / publishTo := Some(Resolver.file(\"graviton-cons
   'core/publish' \
   'streams/publish' \
   'sharedProtocolJVM/publish' \
+  'sharedProtocolJS/publish' \
   'runtime/publish' \
+  'proto/publish' \
   'security/publish' \
-  'http/publish'
+  'grpc/publish' \
+  'http/publish' \
+  's3/publish' \
+  'pg/publish' \
+  'rocks/publish'
 
 cd "${CONSUMER_DIR}"
 COURSIER_CACHE="${CONSUMER_CACHE}" ../../sbt -batch \
