@@ -81,17 +81,31 @@ The public site has no hosted Graviton backend. This worksheet stays useful by p
 
 ## Storage flow
 
-```mermaid
-flowchart LR
-  Client[Client bytes] --> HTTP[HTTP or CLI]
-  HTTP --> Chunker[Bounded chunker]
-  Chunker --> Hash[Cryptographic block keys]
-  Hash --> Blocks[Filesystem or S3 blocks]
-  Hash --> Manifest[Versioned manifest]
-  Manifest --> ManifestStore[Filesystem or PostgreSQL]
-  ManifestStore --> Read[Retrieve and verify]
-  Blocks --> Read
-```
+<div class="storage-flow" role="group" aria-label="Graviton storage flow from client bytes through retrieval and verification">
+  <div class="storage-flow__stage">
+    <span>01 · INPUT</span>
+    <strong>Client bytes</strong>
+    <small>Bounded request body</small>
+  </div>
+  <span class="storage-flow__arrow" aria-hidden="true">→</span>
+  <div class="storage-flow__stage">
+    <span>02 · INGEST</span>
+    <strong>HTTP / CLI</strong>
+    <small>Stream, chunk, hash</small>
+  </div>
+  <span class="storage-flow__arrow" aria-hidden="true">→</span>
+  <div class="storage-flow__stage storage-flow__stage--split">
+    <span>03 · DURABLE CAS</span>
+    <strong>Blocks + manifest</strong>
+    <small>Filesystem or S3 · Filesystem or PostgreSQL</small>
+  </div>
+  <span class="storage-flow__arrow" aria-hidden="true">→</span>
+  <div class="storage-flow__stage">
+    <span>04 · READ</span>
+    <strong>Retrieve + verify</strong>
+    <small>Rehash persisted bytes</small>
+  </div>
+</div>
 
 ## Explicit limits
 
@@ -151,5 +165,75 @@ Graviton is pre-1.0. The packaged server does not yet mount gRPC, RocksDB is not
 .feature-card h3 {
   color: var(--vp-c-brand-1);
   margin-top: 0;
+}
+
+.storage-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.65rem;
+  margin: 1.5rem 0 2rem;
+  overflow-x: auto;
+  padding: 0.25rem 0.1rem 0.75rem;
+}
+
+.storage-flow__stage {
+  display: flex;
+  flex: 1 0 175px;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: center;
+  min-height: 120px;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 60%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--vp-c-bg-soft) 92%, var(--vp-c-brand-1));
+}
+
+.storage-flow__stage span {
+  color: var(--vp-c-brand-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.storage-flow__stage strong {
+  color: var(--vp-c-text-1);
+  font-size: 1rem;
+}
+
+.storage-flow__stage small {
+  color: var(--vp-c-text-2);
+  line-height: 1.45;
+}
+
+.storage-flow__stage--split {
+  border-color: var(--vp-c-brand-1);
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--vp-c-brand-1) 8%, transparent);
+}
+
+.storage-flow__arrow {
+  align-self: center;
+  color: var(--vp-c-brand-1);
+  flex: 0 0 auto;
+  font-family: var(--vp-font-family-mono);
+  font-size: 1.25rem;
+}
+
+@media (max-width: 700px) {
+  .storage-flow {
+    align-items: stretch;
+    flex-direction: column;
+    overflow-x: visible;
+  }
+
+  .storage-flow__stage {
+    flex-basis: auto;
+    min-height: 0;
+  }
+
+  .storage-flow__arrow {
+    transform: rotate(90deg);
+  }
 }
 </style>
