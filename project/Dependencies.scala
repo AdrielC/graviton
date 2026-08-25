@@ -40,12 +40,18 @@ object Dependencies {
     val awsV2      = "2.25.54"
     val blake3     = "3.1.2"
     val rocksdbJni = "8.11.3"
-    val pg         = "42.7.4"
-    val embeddedPg = "2.0.4"
+    val pg         = "42.7.13"
+    val embeddedPg = "2.2.2"
     val laminar    = "17.1.0"
     val waypoint   = "8.0.0"
     val scalajsDom = "2.8.0"
     val grpc       = "1.65.1"
+    val netty      = "4.2.17.Final"
+    val nettyGrpc  = "4.1.137.Final"
+    val protobuf   = "3.25.9"
+
+    // Runtime logging
+    val log4j = "2.25.5"
 
     // Security
     val zioJwt     = "0.2.0"

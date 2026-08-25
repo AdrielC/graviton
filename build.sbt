@@ -24,6 +24,39 @@ lazy val checkDocSnippets =
 
 lazy val V = Dependencies.V
 
+lazy val nettyHttpDependencies = Seq(
+  "netty-buffer",
+  "netty-codec-base",
+  "netty-codec-compression",
+  "netty-codec-http",
+  "netty-codec-socks",
+  "netty-common",
+  "netty-handler",
+  "netty-handler-proxy",
+  "netty-pkitesting",
+  "netty-resolver",
+  "netty-transport",
+  "netty-transport-classes-epoll",
+  "netty-transport-classes-kqueue",
+  "netty-transport-native-epoll",
+  "netty-transport-native-kqueue",
+  "netty-transport-native-unix-common",
+).map("io.netty" % _ % V.netty)
+
+lazy val nettyGrpcDependencies = Seq(
+  "netty-buffer",
+  "netty-codec",
+  "netty-codec-http",
+  "netty-codec-http2",
+  "netty-codec-socks",
+  "netty-common",
+  "netty-handler",
+  "netty-handler-proxy",
+  "netty-resolver",
+  "netty-transport",
+  "netty-transport-native-unix-common",
+).map("io.netty" % _ % V.nettyGrpc)
+
 ThisBuild / scalaVersion := V.scala3
 ThisBuild / organization := "io.github.adrielc"
 ThisBuild / resolvers += Resolver.mavenCentral
@@ -34,7 +67,15 @@ ThisBuild / versionScheme := Some("early-semver")
 ThisBuild / libraryDependencySchemes ++= Seq(
   "dev.zio" %% "zio-json" % VersionScheme.Always,
   "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
-)
+  // checker-qual contains compile-time annotations and no runtime behavior.
+  "org.checkerframework" % "checker-qual" % VersionScheme.Always,
+  // Protobuf's numeric train is not parsed correctly by sbt-version-policy.
+  "com.google.protobuf" % "protobuf-java" % VersionScheme.Always,
+) ++ (nettyHttpDependencies ++ nettyGrpcDependencies)
+  // Netty's x.y.z.Final versions are likewise rejected as ordinary patch bumps.
+  .map(module => module.organization % module.name % VersionScheme.Always)
+  .distinct
+ThisBuild / dependencyOverrides += "com.google.protobuf" % "protobuf-java" % V.protobuf
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
 ThisBuild / scmInfo := Some(
   ScmInfo(
@@ -351,7 +392,8 @@ lazy val proto = (project in file("modules/protocol/graviton-proto"))
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % Version.scalapbVersion,
       "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0" % "protobuf",
-      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0"
+      "com.thesamet.scalapb.common-protos" %% "proto-google-common-protos-scalapb_0.11" % "2.9.6-0",
+      "com.google.protobuf" % "protobuf-java" % V.protobuf,
     ),
     Compile / PB.targets := Seq(
       scalapb.gen(
@@ -376,10 +418,11 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
       "com.thesamet.scalapb.zio-grpc" %% "zio-grpc-core" % V.zioGrpc,
       "io.grpc" % "grpc-netty" % V.grpc,
       "io.grpc" % "grpc-api" % V.grpc,
+      "com.google.protobuf" % "protobuf-java-util" % V.protobuf,
       "dev.zio" %% "zio-test"         % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
-    ),
+    ) ++ nettyGrpcDependencies,
   )
 
 lazy val http = (project in file("modules/protocol/graviton-http"))
@@ -396,7 +439,7 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
-    )
+    ) ++ nettyHttpDependencies
   )
 
 lazy val s3 = (project in file("modules/backend/graviton-s3"))
@@ -491,9 +534,9 @@ lazy val server = (project in file("modules/server/graviton-server"))
     }.taskValue,
     libraryDependencies ++= Seq(
       // Route all SLF4J logs (including dependencies) through Log4j2.
-      "org.apache.logging.log4j" % "log4j-api" % "2.24.3",
-      "org.apache.logging.log4j" % "log4j-core" % "2.24.3",
-      "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.24.3",
+      "org.apache.logging.log4j" % "log4j-api" % V.log4j,
+      "org.apache.logging.log4j" % "log4j-core" % V.log4j,
+      "org.apache.logging.log4j" % "log4j-slf4j2-impl" % V.log4j,
       "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
     ),
   )
