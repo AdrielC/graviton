@@ -23,7 +23,11 @@ object Chunker:
 
   /** Convert a chunker error to a `Throwable` (for untyped error channels). */
   def toThrowable(err: Err): Throwable =
-    err.toGravitonError.toThrowable
+    err match
+      case violation: ChunkerCore.Err.FormatViolation =>
+        new IllegalArgumentException(violation.toGravitonError.message)
+      case _                                          =>
+        err.toGravitonError.toThrowable
 
   private val defaultChunkSize: UploadChunkSize =
     // Compile-time refined (Iron) for a compile-time constant.

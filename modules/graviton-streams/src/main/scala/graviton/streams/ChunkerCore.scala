@@ -24,9 +24,12 @@ object ChunkerCore:
     case object EmptyDelimiter extends Err:
       def message: String = "Delimiter cannot be empty"
 
-    final case class InvalidBounds(message: String)    extends Err
-    final case class InvalidBlock(message: String)     extends Err
-    final case class InvalidDelimiter(message: String) extends Err
+    final case class InvalidBounds(message: String)                   extends Err
+    final case class InvalidBlock(message: String)                    extends Err
+    final case class InvalidDelimiter(message: String)                extends Err
+    final case class FormatViolation(format: String, message: String) extends Err:
+      override def toGravitonError: GravitonError.ChunkerError =
+        GravitonError.ChunkerError(s"$format: $message")
 
   enum Mode:
     case Fixed(chunkBytes: Int)

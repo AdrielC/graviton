@@ -1,6 +1,9 @@
 package graviton.protocol.http
 
 import graviton.core.bytes.Hasher
+import graviton.core.attributes.BinaryAttributes
+import graviton.core.types.Mime
+import graviton.pdf.PdfIngest
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.stores.BlobStore
@@ -11,6 +14,7 @@ import zio.*
 import zio.http.*
 import zio.json.EncoderOps
 import zio.json.ast.Json
+import zio.blocks.mediatype.{MediaType as BlocksMediaType, MediaTypes as BlocksMediaTypes}
 
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -23,6 +27,9 @@ final case class HttpApi(
   metrics: Option[MetricsHttpApi] = None,
   security: Option[HttpSecurityPolicy] = None,
 ) {
+  private val defaultUploadMediaType: BlocksMediaType =
+    BlocksMediaTypes.application.`octet-stream`
+
   private def error(status: Status, code: String, message: String): Response =
     Response(
       status = status,
@@ -44,6 +51,22 @@ final case class HttpApi(
       bits    <- KeyBits.fromString(id.value)
       blob    <- BinaryKey.blob(bits)
     yield blob
+
+  private def uploadMediaType(request: Request): Either[IllegalArgumentException, BlocksMediaType] =
+    request.headers.get("Content-Type") match
+      case None      => Right(defaultUploadMediaType)
+      case Some(raw) =>
+        BlocksMediaType
+          .parse(raw)
+          .left
+          .map(message => new IllegalArgumentException(s"Invalid Content-Type: $message"))
+
+  private def uploadPlan(mediaType: BlocksMediaType): Either[IllegalArgumentException, BlobWritePlan] =
+    Mime
+      .either(mediaType.fullType)
+      .left
+      .map(message => new IllegalArgumentException(s"Invalid Content-Type: $message"))
+      .map(mime => BlobWritePlan(attributes = BinaryAttributes.empty.advertiseMime(mime)))
 
   private def secured(
     request: Request,
@@ -103,8 +126,16 @@ final case class HttpApi(
         case Some(policy) => policy.checkedUpload(req)
 
       secured(req, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection, contentLength) {
-        body
-          .flatMap(_.run(blobStore.put(BlobWritePlan())))
+        ZIO
+          .fromEither(uploadMediaType(req))
+          .flatMap { mediaType =>
+            ZIO.fromEither(uploadPlan(mediaType)).flatMap { plan =>
+              body.flatMap { bytes =>
+                if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, bytes, plan)
+                else bytes.run(blobStore.put(plan))
+              }
+            }
+          }
           .flatMap { result =>
             blobStore.inspect(result.key).flatMap {
               case Some(description) =>

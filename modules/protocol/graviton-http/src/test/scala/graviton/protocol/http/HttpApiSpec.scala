@@ -114,6 +114,51 @@ object HttpApiSpec extends ZIOSpecDefault:
           body.contains("invalid_blob"),
         )
       },
+      test("application/pdf uploads run through zio-pdf and round-trip") {
+        val pdf         =
+          "%PDF-1.7\n" +
+            "1 0 obj\n<</Type /Catalog>>\nendobj\n" +
+            "trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
+        val contentType = Headers(Header.Custom("Content-Type", "application/pdf"))
+
+        for
+          api          <- makeApi
+          upload       <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(pdf), contentType)
+          uploadBody   <- upload.body.asString
+          uploadResult <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          downloaded   <- call(api, Method.GET, s"/api/v1/blobs/${uploadResult.blob.id.value}")
+          restored     <- downloaded.body.asString
+        yield assertTrue(
+          upload.status == Status.Created,
+          restored == pdf,
+          uploadResult.blob.size.value == pdf.getBytes(StandardCharsets.UTF_8).length.toLong,
+        )
+      },
+      test("application/pdf rejects a mismatched byte signature") {
+        val contentType = Headers(Header.Custom("Content-Type", "application/pdf"))
+
+        for
+          api      <- makeApi
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("this is not a PDF"), contentType)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.BadRequest,
+          body.contains("invalid_blob"),
+          body.contains("%PDF-"),
+        )
+      },
+      test("malformed Content-Type is rejected before upload") {
+        val contentType = Headers(Header.Custom("Content-Type", "not-a-media-type"))
+
+        for
+          api      <- makeApi
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("bytes"), contentType)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.BadRequest,
+          body.contains("Invalid Content-Type"),
+        )
+      },
       test("v1 supports byte ranges and conditional reads") {
         val text = "0123456789abcdefghij"
         for
