@@ -139,10 +139,10 @@ For an in-depth look at framing guarantees, encryption plans, and forward compat
 
 - **Fixed-size** chunking maximizes throughput and predictable offsets. Use for append-only logs or when deduplication is irrelevant.
 - **FastCDC** balances speed and deduplication. Adjust normalization to bias toward smaller or larger blocks.
-- **Anchored CDC** lets you split on format-aware anchors (PDF `endobj`, ZIP headers) for structured documents.
+- **PDF-aware chunking** uses zio-pdf's incremental structural scanner to prefer complete indirect-object boundaries while retaining a hard maximum block size.
 - **BuzHash / Rabin** provide classic rolling-hash behavior when cross-language parity matters.
 
-The [Chunking Strategies guide](../ingest/chunking.md) provides detailed configuration snippets, decision trees, and performance notes.
+The [Chunking Strategies guide](../ingest/chunking.md) provides the implemented APIs, selection guidance, memory bounds, and verification commands.
 
 ## Retrieval & reassembly
 

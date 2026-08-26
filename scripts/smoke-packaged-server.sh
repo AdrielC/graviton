@@ -59,6 +59,16 @@ wait_ready() {
 run_open_smoke() {
   mkdir -p "${SMOKE_DIR}/open"
   printf '%s' 'packaged-open-server-proof' > "${SMOKE_DIR}/open/input.bin"
+  printf '%s' '%PDF-1.7
+1 0 obj
+<</Type /Catalog>>
+endobj
+trailer
+<</Root 1 0 R>>
+startxref
+0
+%%EOF
+' > "${SMOKE_DIR}/open/input.pdf"
 
   env \
     GRAVITON_HTTP_PORT="${BASE_PORT}" \
@@ -70,7 +80,7 @@ run_open_smoke() {
   OPEN_PID="$!"
   wait_ready "${BASE_PORT}"
 
-  local health upload blob_id etag conditional_status range_body
+  local health upload blob_id etag conditional_status range_body pdf_upload pdf_blob_id invalid_pdf_status
   health="$(curl --fail --silent --show-error "http://127.0.0.1:${BASE_PORT}/api/health/ready")"
   jq -e --arg expected "${EXPECTED_VERSION}" '.status == "ready" and .version == $expected' <<<"${health}" >/dev/null
 
@@ -89,6 +99,13 @@ run_open_smoke() {
 
   curl --fail --silent --show-error -X POST "http://127.0.0.1:${BASE_PORT}/api/v1/blobs/${blob_id}/verify" | jq -e '.verified == true' >/dev/null
 
+  pdf_upload="$(curl --fail --silent --show-error -X POST -H 'Content-Type: application/pdf' --data-binary @"${SMOKE_DIR}/open/input.pdf" "http://127.0.0.1:${BASE_PORT}/api/v1/blobs")"
+  pdf_blob_id="$(jq -er '.blob.id' <<<"${pdf_upload}")"
+  curl --fail --silent --show-error "http://127.0.0.1:${BASE_PORT}/api/v1/blobs/${pdf_blob_id}" > "${SMOKE_DIR}/open/output.pdf"
+  cmp "${SMOKE_DIR}/open/input.pdf" "${SMOKE_DIR}/open/output.pdf"
+  invalid_pdf_status="$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Content-Type: application/pdf' --data-binary @"${SMOKE_DIR}/open/input.bin" "http://127.0.0.1:${BASE_PORT}/api/v1/blobs")"
+  [[ "${invalid_pdf_status}" == "400" ]]
+
   env \
     GRAVITON_GRPC_HOST=127.0.0.1 \
     GRAVITON_GRPC_PORT="${OPEN_GRPC_PORT}" \
@@ -97,7 +114,7 @@ run_open_smoke() {
   kill "${OPEN_PID}"
   wait "${OPEN_PID}" || true
   OPEN_PID=""
-  echo "open packaged-server smoke passed: ${blob_id}"
+  echo "open packaged-server smoke passed: blob=${blob_id} pdf=${pdf_blob_id}"
 }
 
 run_secure_smoke() {

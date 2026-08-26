@@ -8,7 +8,7 @@ This section contains detailed design documents for major Graviton features and 
 
 - **Scan Composition Model** — Event-driven stream processing (see [Scans & Events](../core/scans.md))
 - **Range Algebra** — Byte range operations and tracking (see [Ranges & Boundaries](../core/ranges.md))
-- **Content-Defined Chunking** — FastCDC and anchored chunking strategies (see [Chunking Strategies](../ingest/chunking.md))
+- **Content-Defined Chunking** — Operational FastCDC and PDF-aware structural chunking, with generic anchored strategies remaining design work (see [Chunking Strategies](../ingest/chunking.md))
 - **Replication Model** — Replica index + roadmap (see [Replication & Replica Index](../runtime/replication.md))
 
 ### Quasar integration

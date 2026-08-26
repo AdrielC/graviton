@@ -128,6 +128,7 @@ export default withMermaid(defineConfig({
           { text: 'Storage Backends', link: '/guide/storage-backends' },
           { text: 'CLI & Server Usage', link: '/guide/cli' },
           { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
+          { text: 'Migrate to 0.4', link: '/guide/migration-0.4' },
           { text: 'Migrate to 0.3', link: '/guide/migration-0.3' },
           { text: 'Migrate to 0.2', link: '/guide/migration-0.2' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' }
@@ -167,6 +168,7 @@ export default withMermaid(defineConfig({
           { text: 'Backend Adapters', link: '/modules/backend' },
           { text: 'Runtime Module', link: '/modules/runtime' },
           { text: 'Streams Utilities', link: '/modules/streams' },
+          { text: 'PDF-aware Ingest', link: '/modules/pdf' },
           { text: 'Protocol Stack', link: '/modules/protocol' },
           { text: 'Scala.js Frontend', link: '/modules/frontend' },
           { text: 'Apache Tika Module', link: '/modules/tika' }

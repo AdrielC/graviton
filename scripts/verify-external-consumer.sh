@@ -27,6 +27,7 @@ PUBLISH_SETTING="set ThisBuild / publishTo := Some(Resolver.file(\"graviton-cons
   'sharedProtocolJVM/publish' \
   'sharedProtocolJS/publish' \
   'runtime/publish' \
+  'pdf/publish' \
   'proto/publish' \
   'security/publish' \
   'grpc/publish' \

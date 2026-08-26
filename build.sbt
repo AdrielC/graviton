@@ -83,10 +83,11 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.3 established the first fully operational compatibility boundary. Changes
-// after that release must preserve backward binary compatibility within the
-// current early-semver minor line while still allowing additive public APIs.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
+// The next 0.4 release adopts ZIO Blocks schema/chunk 0.017 so graviton-pdf can
+// use the published zio-pdf API. Public Graviton APIs remain MiMa-compatible,
+// but the early-semver dependency transition is an intentional minor boundary
+// documented in docs/guide/migration-0.4.md.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -114,6 +115,7 @@ copyGeneratedDocs := {
     "core"            -> (LocalProject("core") / Compile / doc).value,
     "streams"         -> (LocalProject("streams") / Compile / doc).value,
     "runtime"         -> (LocalProject("runtime") / Compile / doc).value,
+    "graviton-pdf"    -> (LocalProject("pdf") / Compile / doc).value,
 
     // Protocol stack (JVM)
     "graviton-shared" -> (sharedProtocol.jvm / Compile / doc).value,
@@ -162,6 +164,7 @@ copyGeneratedDocs := {
       |      <li><a href="./core/index.html">core</a></li>
       |      <li><a href="./streams/index.html">streams</a></li>
       |      <li><a href="./runtime/index.html">runtime</a></li>
+      |      <li><a href="./graviton-pdf/index.html">graviton-pdf</a></li>
       |      <li><a href="./graviton-shared/index.html">graviton-shared</a></li>
       |      <li><a href="./graviton-proto/index.html">graviton-proto</a></li>
       |      <li><a href="./graviton-grpc/index.html">graviton-grpc</a></li>
@@ -183,6 +186,7 @@ generateDocs := Def.sequential(
   LocalProject("core") / Compile / doc,
   LocalProject("streams") / Compile / doc,
   LocalProject("runtime") / Compile / doc,
+  LocalProject("pdf") / Compile / doc,
   sharedProtocol.jvm / Compile / doc,
   LocalProject("proto") / Compile / doc,
   LocalProject("grpc") / Compile / doc,
@@ -313,6 +317,7 @@ lazy val root = (project in file(".")).aggregate(
   core,
   streams,
   runtime,
+  pdf,
   cli,
   quasarCore,
   quasarHttp,
@@ -374,7 +379,7 @@ lazy val core = (project in file("modules/graviton-core"))
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
       "pt.kcry" %% "blake3" % V.blake3,
-      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocksSchema,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -416,6 +421,23 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
     )
   )
 
+lazy val pdf = (project in file("modules/graviton-pdf"))
+  .dependsOn(runtime)
+  .settings(
+    baseSettings,
+    name := "graviton-pdf",
+    // New in 0.4: no artifact with this module name exists in the 0.3 baseline.
+    versionPolicyPreviousArtifacts := Seq.empty,
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "io.github.adrielc" %% "zio-pdf" % V.zioPdf,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
+      "dev.zio" %% "zio-test"          % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
+    ),
+  )
+
 lazy val proto = (project in file("modules/protocol/graviton-proto"))
   .settings(
     baseSettings,
@@ -450,7 +472,7 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
       "io.grpc" % "grpc-netty-shaded" % V.grpc,
       "io.grpc" % "grpc-api" % V.grpc,
       "com.google.protobuf" % "protobuf-java-util" % V.protobuf,
-      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
       "dev.zio" %% "zio-test"         % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -460,7 +482,7 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
 lazy val http = (project in file("modules/protocol/graviton-http"))
   // The HTTP runtime is transport-independent. gRPC is needed only by the
   // parity test and must not leak Netty 4.1 into the zio-http/Netty 4.2 server.
-  .dependsOn(runtime, security, grpc % "test->compile")
+  .dependsOn(runtime, pdf, security, grpc % "test->compile")
   .settings(baseSettings,
     name := "graviton-http",
     libraryDependencies ++= Seq(
@@ -468,7 +490,7 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio-http"   % V.zioHttp,
       "dev.zio" %% "zio-schema" % V.zioSchema,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
-      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test

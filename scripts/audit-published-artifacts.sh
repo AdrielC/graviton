@@ -10,6 +10,7 @@ projects=(
   sharedProtocolJVM
   sharedProtocolJS
   runtime
+  pdf
   proto
   security
   grpc
@@ -31,6 +32,7 @@ directories=(
   "modules/protocol/graviton-shared/jvm"
   "modules/protocol/graviton-shared/js"
   "modules/graviton-runtime"
+  "modules/graviton-pdf"
   "modules/protocol/graviton-proto"
   "modules/security/graviton-security"
   "modules/protocol/graviton-grpc"

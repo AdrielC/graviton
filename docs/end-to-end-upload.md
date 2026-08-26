@@ -57,4 +57,4 @@ Every field in the summary is accessed by name (not index), and the composition 
 - [Binary Streaming Guide](./guide/binary-streaming.md) — detailed walkthrough of blocks, manifests, and attributes
 - [Transducer Algebra](./core/transducers.md) — the composable pipeline engine
 - [Connect Your Server](./demo.md) to operate the implemented HTTP storage lifecycle against an endpoint you provide
-- [Chunking Strategies](./ingest/chunking.md) — FastCDC, fixed, and delimiter algorithms
+- [Chunking Strategies](./ingest/chunking.md) — fixed, FastCDC, delimiter, and PDF-aware algorithms

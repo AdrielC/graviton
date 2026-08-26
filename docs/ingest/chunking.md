@@ -1,497 +1,197 @@
 # Chunking Strategies
 
-Graviton supports multiple chunking algorithms for content-defined deduplication. Choosing the right strategy impacts storage efficiency and retrieval performance.
+Graviton turns an input byte stream into bounded `Block` values before it hashes and stores them. The selected chunker changes block boundaries and deduplication behavior. It does not change the logical bytes or the blob key.
 
-## Overview
+## Implemented chunkers
 
-Chunking divides byte streams into addressable blocks. Graviton supports:
+| Strategy | Artifact | Boundary | Upper bound |
+| --- | --- | --- | --- |
+| Fixed | `graviton-streams` | Every configured number of bytes | Configured size |
+| FastCDC | `graviton-streams` | Rolling content fingerprint | Configured maximum |
+| Delimiter | `graviton-streams` | Streaming KMP match | Configured maximum |
+| PDF-aware | `graviton-pdf` | Complete PDF indirect object near the target | Configured maximum |
 
-- **Fixed-size chunking** — Simple, predictable boundaries (`Chunker.fixed`)
-- **FastCDC** — Fast content-defined chunking (`Chunker.fastCdc`)
-- **Delimiter chunking** — Split on a byte delimiter using a streaming KMP matcher (`Chunker.delimiter`)
+Anchored CDC, BuzHash, Rabin, ZIP-aware cuts, and adaptive format detection are not public Graviton APIs today.
 
-::: tip
-This page also mentions a few *planned* chunkers (Anchored CDC, BuzHash, Rabin). The runtime APIs you can use today are `Chunker.fixed`, `Chunker.fastCdc`, and `Chunker.delimiter`.
-:::
+## Streaming contract
 
-## Streaming API (what you actually use)
+Every strategy implements the same interface:
 
-### ZIO streams
+```scala
+trait Chunker:
+  def name: String
+  def pipeline: ZPipeline[Any, Chunker.Err, Byte, Block]
+```
 
-`graviton.streams.Chunker` exposes chunkers as a typed `ZPipeline[Any, Chunker.Err, Byte, Block]`:
+The pipeline is incremental. It may receive transport chunks of any size, preserves byte order, emits blocks before the upload completes, and retains no more than its configured maximum in-flight block. The final partial block is emitted at end of input.
+
+Use Iron-refined sizes where the API accepts them:
 
 ```scala
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
-import zio._
-import zio.stream._
+import zio.stream.ZStream
 
-val chunkSize = UploadChunkSize(1024 * 1024) // compile-time refined
+val blockSize = UploadChunkSize(1024 * 1024)
 
-val blocks: ZStream[Any, Throwable | Chunker.Err, graviton.core.model.Block] =
-  ZStream.fromFileName("data.bin")
-    .via(Chunker.fixed(chunkSize).pipeline)
+val blocks =
+  ZStream
+    .fromFileName("archive.bin", chunkSize = 64 * 1024)
+    .via(Chunker.fixed(blockSize).pipeline)
 ```
 
-### “Pure” state machine (no ZIO)
+`Chunker.Err` reports configuration, block, delimiter, and format violations. `Chunker.toThrowable` bridges this typed channel at an API boundary such as `BlobStore`.
 
-If you want to run the chunker logic without streams (e.g. tests, benchmarks, non-ZIO integrations), use `ChunkerCore`:
+## Fixed size
+
+```scala
+val chunker = Chunker.fixed(UploadChunkSize(1024 * 1024))
+```
+
+Fixed boundaries are predictable and cheap. An insertion near the beginning of a document shifts every later boundary, so fixed chunking is usually weaker for deduplicating edited files.
+
+Use it for append-only data, fixed records, already-compressed content, or workloads where predictable storage requests matter more than shift resistance.
+
+## FastCDC
+
+```scala
+val chunker = Chunker.fastCdc(
+  min = 256 * 1024,
+  avg = 1024 * 1024,
+  max = 4 * 1024 * 1024,
+)
+```
+
+FastCDC advances a rolling fingerprint byte by byte and cuts when the fingerprint matches a mask. It never emits a block larger than `max`. The constructor normalizes invalid runtime values into a safe range, but applications should still validate configuration before startup rather than rely on normalization.
+
+Use FastCDC when insertions or deletions should preserve many later block identities. Measure the result on representative data because smaller blocks improve boundary granularity while increasing manifest entries and backend requests.
+
+## Delimiter
+
+```scala
+import zio.Chunk
+
+val newline = Chunk('\n'.toByte)
+val chunker = Chunker.delimiter(
+  delim = newline,
+  includeDelimiter = true,
+  minBytes = 1,
+  maxBytes = 1024 * 1024,
+)
+```
+
+Delimiter matching uses an incremental KMP state machine, so a delimiter split across upstream transport chunks is still found. `maxBytes` forces a cut when no delimiter arrives. Empty delimiters are rejected.
+
+Use it for line-oriented or framed formats whose delimiters are stable and unambiguous.
+
+## PDF-aware
+
+Add the module to an embedded application:
+
+```scala
+libraryDependencies += "io.github.adrielc" %% "graviton-pdf" % gravitonVersion
+```
+
+Then stream an advertised PDF into the CAS:
+
+```scala
+import graviton.pdf.PdfIngest
+import zio.pdf.PdfMime
+import zio.stream.ZStream
+
+val result = PdfIngest.put(
+  store = graviton.blobStore,
+  advertised = PdfMime.mimeType,
+  bytes = ZStream.fromFileName("report.pdf", chunkSize = 64 * 1024),
+)
+```
+
+`PdfAwareChunker` feeds each transport chunk into zio-pdf's incremental object scanner. It prefers the first complete indirect-object boundary at or after the target size. It forces a cut at the maximum size even when one PDF object is larger.
+
+The default configuration is:
+
+| Setting | Default |
+| --- | ---: |
+| Target block | 1 MiB |
+| Maximum block | 4 MiB |
+| zio-pdf structural carry | 1 MiB |
+| Unsupported structure | Bounded fixed-size fallback |
+
+The chunker validates the `%PDF-` signature. At an emission boundary it owns at most 9 MiB plus 5 bytes per active upload: one mutable 4 MiB block, one immutable emitted 4 MiB block, 1 MiB of parser carry, and the signature. Upstream chunks and application queues are additional. Strict callers can select `UnsupportedStructurePolicy.Reject` instead of the fallback.
+
+HTTP clients do not need to select the chunker directly. `POST /api/v1/blobs` routes `Content-Type: application/pdf` through `PdfIngest`; other media types use the server's configured general-purpose chunker.
+
+See [PDF-aware ingest](../modules/pdf.md) for configuration, failure behavior, and executable proof.
+
+## Fiber-local selection
+
+`Chunker.current` is a `FiberRef`. Runtime writes read the current value, and `Chunker.locally` changes it only for a region:
+
+```scala
+Chunker.locally(chunker) {
+  byteStream.run(blobStore.put())
+}
+```
+
+The previous value is restored on success, failure, or interruption. This makes concurrent request-specific policies safe without threading a chunker argument through every internal method.
+
+## Pure state machine
+
+`ChunkerCore` exposes fixed, FastCDC, and delimiter logic without ZIO effects:
 
 ```scala
 import graviton.streams.ChunkerCore
 import zio.Chunk
 
-val st0 = ChunkerCore.init(ChunkerCore.Mode.FastCdc(minBytes = 256, avgBytes = 1024, maxBytes = 4096)).toOption.get
-val (st1, blocks1) = st0.step(Chunk.fromArray(Array[Byte](1,2,3,4))).toOption.get
-val (_, blocks2)   = st1.finish.toOption.get
+val initial = ChunkerCore
+  .init(ChunkerCore.Mode.FastCdc(256, 1024, 4096))
+  .toOption
+  .get
+
+val (next, emitted) = initial.step(Chunk(1, 2, 3, 4)).toOption.get
+val (_, finalBlocks) = next.finish.toOption.get
 ```
 
-`step` returns an updated state and **0..N** emitted `Block`s, exactly like a “parse state machine” that you can lift into a stream.
+This is useful for tests, benchmarks, or adapters to another streaming runtime. It has the same bounded buffer and block invariants as the ZIO pipeline.
 
-### Typed Blocks & Upload Chunks
+## Choosing a strategy
 
-All chunkers in Graviton emit opaque `Block` values (backed by `Chunk[Byte]`) so that size invariants are enforced at the type level.
+| Data shape | Start with | Reason |
+| --- | --- | --- |
+| PDF | PDF-aware | Stable structural boundaries with bounded fallback |
+| Edited documents or source archives | FastCDC | Better shift resistance |
+| Logs or newline records | Delimiter | Natural record boundaries |
+| Already-compressed or fixed records | Fixed | Low overhead and predictable I/O |
+| Unknown binary data | FastCDC or fixed | No format-specific assumptions |
 
-```scala
-import graviton.core.attributes.{BinaryAttributes, Source, Tracked}
-import graviton.core.model.{Block, BlockBuilder, ByteConstraints}
-import zio.Chunk
+Changing a chunker changes manifests and deduplication behavior for newly written blobs. Content keys remain based on the full logical bytes, so retrieval identity does not change.
 
-val bytes: Chunk[Byte]   = Chunk.fromArray(inputArray)
-val blocks: Chunk[Block] = BlockBuilder.chunkify(bytes)
+## What to measure
 
-// Strongly typed helpers
-val firstBlockSize = blocks.headOption.map(_.blockSize) // -> ByteConstraints.BlockSize
+Before changing production policy, record:
 
-val updatedAttributes = blocks.headOption
-  .fold(BinaryAttributes.empty) { block =>
-    BinaryAttributes.empty.confirmSize(Tracked.now(block.fileSize, Source.Derived))
-  }
+- total input bytes and input count
+- block count and block-size distribution
+- fresh and duplicate block counts
+- backend request count and latency
+- upload and retrieval throughput
+- peak heap under the intended concurrency
+- behavior after small insertions, deletions, and reordered sections
+
+Do not infer deduplication savings from average block size alone.
+
+## Verification
+
+```bash
+./sbt streams/test pdf/test
+./scripts/probe-pdf-ingest.sh path/to/document.pdf
 ```
 
-The same module exposes `ByteConstraints.refine*` helpers for validating raw sizes before constructing blocks or upload chunks. Downstream APIs continue to import `graviton.core.types.BlockSize` / `ChunkCount` as before, but now benefit from these refined guarantees.
+The PDF probe uses a temporary filesystem CAS and compares the streamed retrieval's byte count and SHA-256 with the source. It never collects the document.
 
-## Fixed-Size Chunking
+## See also
 
-### Algorithm
-
-Split every N bytes:
-
-```scala
-import graviton.core.types.UploadChunkSize
-import graviton.streams.Chunker
-import zio.stream.ZStream
-
-val chunkSize = UploadChunkSize(1024 * 1024) // compile-time refined
-
-ZStream.fromFileName("data.bin")
-  .via(Chunker.fixed(chunkSize).pipeline)
-```
-
-### Characteristics
-
-| Property | Value |
-|----------|-------|
-| Speed | Fastest |
-| Deduplication | Poor (boundary-sensitive) |
-| Predictability | Excellent |
-| Best for | Append-only logs, fixed-record data |
-
-### When to Use
-
-✅ **Good for:**
-- Append-only data (logs, time-series)
-- When deduplication isn't important
-- Predictable I/O patterns matter
-
-❌ **Avoid for:**
-- Documents with edits in the middle
-- Data with insertions/deletions
-- Maximum deduplication needed
-
-## FastCDC
-
-### Algorithm
-
-FastCDC is content-defined chunking using a rolling hash updated **byte-by-byte**. The implementation in `graviton-streams` is single-pass and bounded by `maxBytes`.
-
-```scala
-import graviton.streams.Chunker
-import zio.stream.ZStream
-
-val min = 256 * 1024
-val avg = 1024 * 1024
-val max = 4 * 1024 * 1024
-
-ZStream.fromFileName("data.bin")
-  .via(Chunker.fastCdc(min = min, avg = avg, max = max).pipeline)
-```
-
-### Bounds
-
-- `min`: don’t cut before this many bytes (avoids tiny blocks)
-- `avg`: controls the expected boundary rate
-- `max`: hard cap; forces a cut even if the content-defined boundary hasn’t triggered
-
-### Characteristics
-
-| Property | Value |
-|----------|-------|
-| Measured speed | Not benchmarked in this repository |
-| Deduplication | Very Good |
-| Chunk size variance | Low |
-| Best for | General-purpose storage |
-
-### Configuration Guide
-
-```scala
-// High throughput, lower dedup
-val highSpeed = FastCDCConfig(
-  minSize = 512 * 1024,
-  avgSize = 2 * 1024 * 1024,
-  maxSize = 8 * 1024 * 1024,
-  normalization = 1
-)
-
-// Balanced
-val balanced = FastCDCConfig(
-  minSize = 256 * 1024,
-  avgSize = 1024 * 1024,
-  maxSize = 4 * 1024 * 1024,
-  normalization = 2
-)
-
-// Maximum deduplication
-val maxDedup = FastCDCConfig(
-  minSize = 128 * 1024,
-  avgSize = 512 * 1024,
-  maxSize = 2 * 1024 * 1024,
-  normalization = 3
-)
-```
-
-## Anchored CDC
-
-::: warning
-Anchored CDC is a roadmap item. It is documented here as a design pattern, but is not currently exposed as a runtime `Chunker`.
-:::
-
-### Algorithm
-
-Uses content-defined anchors with rechunking:
-
-```scala
-final case class AnchoredCDCConfig(
-  anchorPattern: ByteString,     // Pattern to search for
-  minSize: Int = 256 * 1024,
-  avgSize: Int = 1024 * 1024,
-  maxSize: Int = 4 * 1024 * 1024,
-  rechunkThreshold: Double = 0.8  // Rechunk if chunk > threshold * maxSize
-)
-
-object AnchoredCDC:
-  def chunker(config: AnchoredCDCConfig): ZPipeline[Any, Nothing, Byte, Block] =
-    ZPipeline.fromSink(
-      ZSink.foldWeightedDecompose(Chunk.empty[Byte])(_.size.toLong)(config.maxSize.toLong) {
-        case (acc, chunk) =>
-          val combined = acc ++ chunk
-          val anchors = findAnchors(combined, config.anchorPattern)
-          
-          if anchors.nonEmpty then
-            // Split at anchor points
-            val (blocks, remaining) = splitAt Anchors(combined, anchors)
-            (blocks, remaining)
-          else if combined.size >= config.maxSize then
-            // Force split at max size
-            (Chunk.single(combined), Chunk.empty)
-          else
-            // Keep accumulating
-            (Chunk.empty, combined)
-      }
-    )
-```
-
-### Use Cases
-
-**Document formats:**
-```scala
-// PDF: Split at object boundaries
-val pdfAnchors = AnchoredCDCConfig(
-  anchorPattern = ByteString("endobj\n")
-)
-
-// ZIP: Split at file entries
-val zipAnchors = AnchoredCDCConfig(
-  anchorPattern = ByteString(0x50, 0x4B, 0x03, 0x04)  // PK.. signature
-)
-```
-
-## BuzHash CDC
-
-::: warning
-BuzHash CDC is a roadmap item. It is documented here as a design pattern, but is not currently exposed as a runtime `Chunker`.
-:::
-
-### Algorithm
-
-Classic rolling hash with simpler implementation:
-
-```scala
-final case class BuzHashConfig(
-  minSize: Int = 256 * 1024,
-  avgSize: Int = 1024 * 1024,
-  maxSize: Int = 4 * 1024 * 1024,
-  windowSize: Int = 64
-)
-
-object BuzHash:
-  def chunker(config: BuzHashConfig): ZPipeline[Any, Nothing, Byte, Block] =
-    val mask = maskFromAvgSize(config.avgSize)
-    
-    ZPipeline.mapAccumChunks(State.initial(config)) { (state, chunk) =>
-      chunk.foldLeft((state, Chunk.empty[Block])) { case ((s, blocks), byte) =>
-        val hash = s.hash.roll(byte)
-        
-        if s.size >= config.minSize && (hash & mask) == 0 then
-          // Boundary hit
-          val block = Block(s.buffer :+ byte, hash)
-          (State.initial(config), blocks :+ block)
-        else if s.size >= config.maxSize then
-          // Force boundary
-          val block = Block(s.buffer :+ byte, hash)
-          (State.initial(config), blocks :+ block)
-        else
-          // Keep accumulating
-          (s.copy(buffer = s.buffer :+ byte, hash = hash, size = s.size + 1), blocks)
-      }
-    }
-```
-
-### Characteristics
-
-| Property | Value |
-|----------|-------|
-| Measured speed | Not benchmarked in this repository |
-| Deduplication | Good |
-| Chunk size variance | Moderate |
-| Best for | Legacy compatibility |
-
-## Comparison Matrix
-
-| Algorithm | Boundary behavior | Chunk variance | Repository status |
-|-----------|-------------------|----------------|-------------------|
-| Fixed | Position-based | None except final block | Implemented |
-| FastCDC | Content-defined | Bounded by min/max | Implemented and property-tested |
-| Anchored | Format-aware anchors | Input-dependent | Planned |
-| BuzHash | Rolling-hash boundaries | Input-dependent | Design reference only |
-| Rabin | Rolling-fingerprint boundaries | Input-dependent | Design reference only |
-
-Graviton does not publish throughput rankings for these algorithms yet. Benchmark them on representative data and target hardware before selecting a production configuration.
-
-## Choosing an Algorithm
-
-### Decision Tree
-
-```mermaid
-flowchart TD
-    classDef decision fill:#fef3c7,stroke:#d97706,color:#78350f;
-    classDef action fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
-
-    need((Need chunking?)):::decision
-    direct[Stream directly]:::action
-    dedup{Need deduplication?}:::decision
-    format{Format-aware anchors available?}:::decision
-    priority{Priority?}:::decision
-
-    fixed[Fixed-size]:::action
-    anchored[Anchored CDC]:::action
-    fast1["FastCDC (speed)"]:::action
-    fast2["FastCDC (balanced)"]:::action
-    fast3["FastCDC (dedup)"]:::action
-
-    need -->|No| direct
-    need -->|Yes| dedup
-    dedup -->|No| fixed
-    dedup -->|Yes| format
-    format -->|Yes| anchored
-    format -->|No| priority
-    priority -->|Speed| fast1
-    priority -->|Balanced| fast2
-    priority -->|Dedup| fast3
-```
-
-### Recommendations
-
-**General-purpose:**
-```scala
-val chunker = FastCDC.chunker(FastCDCConfig(
-  minSize = 256.KB,
-  avgSize = 1.MB,
-  maxSize = 4.MB,
-  normalization = 2
-))
-```
-
-**High-throughput logs:**
-```scala
-val chunker = FixedChunker(1.MB)
-```
-
-**Structured documents:**
-```scala
-val chunker = AnchoredCDC.chunker(AnchoredCDCConfig(
-  anchorPattern = detectFormat(stream),
-  minSize = 128.KB,
-  avgSize = 512.KB,
-  maxSize = 2.MB
-))
-```
-
-**Maximum deduplication:**
-```scala
-val chunker = FastCDC.chunker(FastCDCConfig(
-  minSize = 64.KB,
-  avgSize = 256.KB,
-  maxSize = 1.MB,
-  normalization = 3
-))
-```
-
-## Advanced Patterns
-
-### Adaptive Chunking
-
-Switch algorithms based on detected content:
-
-```scala
-def adaptiveChunker: ZPipeline[Any, Throwable, Byte, Block] =
-  ZPipeline.fromSink(
-    for {
-      header <- ZSink.take(8192)  // Sample first 8KB
-      format <- detectFormat(header)
-      chunker = format match
-        case Format.PDF => AnchoredCDC.chunker(pdfConfig)
-        case Format.ZIP => AnchoredCDC.chunker(zipConfig)
-        case Format.Log => FixedChunker(1.MB)
-        case _ => FastCDC.chunker(defaultConfig)
-    } yield chunker
-  )
-```
-
-### Two-Level Chunking
-
-Chunk, then sub-chunk for better dedup:
-
-```scala
-val twoLevel = 
-  FastCDC.chunker(FastCDCConfig(avgSize = 4.MB))  // Coarse
-    .via(ZPipeline.mapChunks { chunk =>
-      // Sub-chunk each large block
-      chunk.flatMap { block =>
-        if block.size > 1.MB then
-          rechunk(block, FastCDCConfig(avgSize = 256.KB))
-        else
-          Chunk.single(block)
-      }
-    })
-```
-
-### Dedup-aware Compression
-
-Only compress non-deduped blocks:
-
-```scala
-def smartCompression(
-  chunker: ZPipeline[Any, Nothing, Byte, Block],
-  dedupIndex: DedupIndex
-): ZPipeline[Any, Throwable, Byte, StorableBlock] =
-  chunker
-    .mapZIO { block =>
-      for {
-        hash <- HashAlgo.SHA256.hash(block.bytes)
-        exists <- dedupIndex.contains(hash)
-        final <- if exists then
-          ZIO.succeed(StorableBlock.Ref(hash))  // Already stored
-        else
-          compress(block).map(StorableBlock.Compressed(_))  // New block
-      } yield final
-    }
-```
-
-## Chunk-size tradeoffs to measure
-
-### Chunk Size Impact
-
-**Small chunks (64-256 KB) may provide:**
-- finer-grained deduplication and retrieval
-- more manifest entries and storage lookups
-
-**Large chunks (2-8 MB) may provide:**
-- fewer manifest entries and storage lookups
-- coarser deduplication and retrieval granularity
-
-These are workload-dependent tradeoffs, not measured Graviton results. Use representative data and record the environment and raw samples.
-
-### Parallelization
-
-Chunk multiple streams concurrently:
-
-```scala
-val parallelChunking = ZStream.fromIterable(files)
-  .mapZIOPar(8) { file =>
-    ZStream.fromFile(file)
-      .via(FastCDC.chunker(config))
-      .foreach(block => store.put(block))
-  }
-```
-
-### Memory Management
-
-Use bounded queues:
-
-```scala
-def boundedChunking(
-  stream: ZStream[Any, Throwable, Byte],
-  chunker: ZPipeline[Any, Nothing, Byte, Block],
-  maxQueued: Int = 16
-): ZStream[Any, Throwable, Block] =
-  stream
-    .via(chunker)
-    .buffer(maxQueued)
-```
-
-## Testing
-
-### Property Tests
-
-```scala
-test("chunk boundaries are content-defined") {
-  check(Gen.chunkOf(Gen.byte)) { bytes =>
-    val chunks1 = chunkBytes(bytes)
-    val chunks2 = chunkBytes(bytes.take(100) ++ bytes.drop(100))
-    
-    // Boundaries after byte 100 should be identical
-    chunks1.drop(1) == chunks2.drop(1)
-  }
-}
-
-test("chunk sizes respect bounds") {
-  check(Gen.chunkOf(Gen.byte)) { bytes =>
-    val chunks = chunkBytes(bytes, config)
-    
-    chunks.forall { chunk =>
-      chunk.size >= config.minSize && chunk.size <= config.maxSize
-    }
-  }
-}
-```
-
-## See Also
-
-- **[Scans & Events](../core/scans.md)** — Boundary detection
-- **[End-to-end Upload](../end-to-end-upload.md)** — Complete ingest pipeline
-- **[Performance Measurement](../ops/performance.md)**: measurement protocol and evidence requirements
-
-::: tip
-Choose a chunker from your data shape and test it with representative fixtures before changing production data formats.
-:::
+- [Binary Streaming](../guide/binary-streaming.md)
+- [End-to-end Upload](../end-to-end-upload.md)
+- [Manifests and Frames](../manifests-and-frames.md)
+- [Performance Measurement](../ops/performance.md)

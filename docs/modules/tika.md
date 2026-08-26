@@ -1,6 +1,6 @@
 # Apache Tika Integration (Planned)
 
-Graviton does not currently ship a Tika module in this repository. This page is a **design note** for a future integration that enriches ingest with MIME detection, structured metadata, and (optionally) extracted text for indexing.
+Graviton does not currently ship a Tika module in this repository. This page is a **design note** for future non-PDF enrichment such as broad MIME detection, structured metadata, and optional extracted text for indexing. Operational PDF signature validation and structural block boundaries live in the [PDF-aware ingest module](./pdf.md).
 
 ## What it provides
 

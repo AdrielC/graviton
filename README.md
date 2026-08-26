@@ -14,6 +14,7 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Filesystem blocks and manifests | Operational | Fsync, atomic publication, restart-safe round trips, health checks, and reversible GC tests |
 | CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
 | Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
+| PDF-aware ingest | Operational | Typed `application/pdf` routing, signature validation, incremental zio-pdf object scanning, bounded fallback, filesystem-CAS probe, and external-consumer proof |
 | Scala streaming SDK | Operational | Typed lifecycle, logical 1 TiB laziness contract, real 32 MiB socket round trip, and clean external-consumer compilation |
 | Authentication and policy | Operational | RS256 OIDC/JWKS verification, dev HS256 proof, capabilities, CORS, TLS policy, size and rate controls, and chained audit events |
 | S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
@@ -63,6 +64,8 @@ Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-comp
 
 Scala applications can use `ai.hylo.graviton.client.GravitonClient` from the `graviton-http` artifact. Upload and download bodies remain streamed, media types use ZIO Blocks, and byte lengths are Iron-refined through 1 TiB. See the [Scala Streaming SDK guide](docs/guide/scala-sdk.md).
 
+`application/pdf` uploads sent to the HTTP API are routed through the `graviton-pdf` module. It validates the PDF signature and uses zio-pdf's incremental object scanner to prefer stable object boundaries without collecting the document. Embedded applications can call `PdfIngest.put` directly. See [PDF-aware ingest](docs/modules/pdf.md).
+
 Blob IDs are explicit and round-trippable:
 
 ```text
@@ -95,7 +98,7 @@ object Example extends ZIOAppDefault:
 ```text
 BlobStore
 └── CasBlobStore
-    ├── Chunker                fixed, FastCDC, or delimiter
+    ├── Chunker                fixed, FastCDC, delimiter, or PDF-aware
     ├── BlockStore
     │   ├── InMemoryBlockStore
     │   ├── FsBlockStore
