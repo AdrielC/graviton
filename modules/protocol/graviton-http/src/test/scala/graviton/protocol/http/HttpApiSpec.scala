@@ -114,12 +114,84 @@ object HttpApiSpec extends ZIOSpecDefault:
           body.contains("invalid_blob"),
         )
       },
+      test("Content-Length overflow and underflow fail before manifest commit") {
+        val overflowHeaders  = Headers(Header.Custom("Content-Length", "3"))
+        val underflowHeaders = Headers(Header.Custom("Content-Length", "5"))
+
+        for
+          api             <- makeApi
+          overflow        <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("four"), overflowHeaders)
+          overflowBody    <- overflow.body.asString
+          afterOverflow   <- call(api, Method.GET, "/api/v1/blobs")
+          overflowList    <- afterOverflow.body.asString
+          listedOverflow  <- ZIO.fromEither(overflowList.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
+          underflow       <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("four"), underflowHeaders)
+          underflowBody   <- underflow.body.asString
+          afterUnderflow  <- call(api, Method.GET, "/api/v1/blobs")
+          underflowList   <- afterUnderflow.body.asString
+          listedUnderflow <- ZIO.fromEither(underflowList.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
+        yield assertTrue(
+          overflow.status == Status.BadRequest,
+          overflowBody.contains("expected 3 bytes but received more"),
+          listedOverflow.blobs.isEmpty,
+          underflow.status == Status.BadRequest,
+          underflowBody.contains("expected 5 bytes but received 4"),
+          listedUnderflow.blobs.isEmpty,
+        )
+      },
+      test("an out-of-domain Content-Length is rejected before the body is pulled") {
+        for
+          api      <- makeApi
+          pulled   <- Ref.make(false)
+          body      = Body.fromStreamChunked(zio.stream.ZStream.fromZIO(pulled.set(true)).as(1.toByte))
+          headers   = Headers(Header.Custom("Content-Length", "1099511627777"))
+          response <- call(api, Method.POST, "/api/v1/blobs", body, headers)
+          observed <- pulled.get
+        yield assertTrue(
+          response.status == Status.BadRequest,
+          !observed,
+        )
+      },
+      test("Content-Length accepts leading zeros but rejects non-ASCII decimal syntax before body pull") {
+        val malformed = List("+1", "-1", " 1", "1 ", "1\t", "1e0", "١", "１")
+
+        for
+          api      <- makeApi
+          accepted <- call(
+                        api,
+                        Method.POST,
+                        "/api/v1/blobs",
+                        Body.fromString("four"),
+                        Headers(Header.Custom("Content-Length", "0004")),
+                      )
+          rejected <- ZIO.foreach(malformed) { raw =>
+                        for
+                          pulled       <- Ref.make(false)
+                          body          = Body.fromStreamChunked(zio.stream.ZStream.fromZIO(pulled.set(true)).as(1.toByte))
+                          response     <- call(
+                                            api,
+                                            Method.POST,
+                                            "/api/v1/blobs",
+                                            body,
+                                            Headers(Header.Custom("Content-Length", raw)),
+                                          )
+                          responseBody <- response.body.asString
+                          observed     <- pulled.get
+                        yield (response.status, responseBody, observed)
+                      }
+        yield assertTrue(
+          accepted.status == Status.Created,
+          rejected.forall { case (status, responseBody, observed) =>
+            status == Status.BadRequest && responseBody.contains("Invalid Content-Length") && !observed
+          },
+        )
+      },
       test("application/pdf uploads run through zio-pdf and round-trip") {
         val pdf         =
           "%PDF-1.7\n" +
             "1 0 obj\n<</Type /Catalog>>\nendobj\n" +
             "trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
-        val contentType = Headers(Header.Custom("Content-Type", "application/pdf"))
+        val contentType = Headers(Header.Custom("Content-Type", "application/pdf; profile=archive"))
 
         for
           api          <- makeApi
@@ -148,7 +220,7 @@ object HttpApiSpec extends ZIOSpecDefault:
         )
       },
       test("malformed Content-Type is rejected before upload") {
-        val contentType = Headers(Header.Custom("Content-Type", "not-a-media-type"))
+        val contentType = Headers(Header.Custom("Content-Type", "application/pdf; charset"))
 
         for
           api      <- makeApi

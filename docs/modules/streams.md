@@ -27,9 +27,9 @@ These types are pure and can be shared between JVM services and Scala.js visuali
 `interop/scodec/ZStreamDecoder` bridges scodec decoders with ZIO streams. It offers four entry points:
 
 - `once` / `many`: strict decoders that fail fast on errors.
-- `tryOnce` / `tryMany`: lenient variants that swallow recoverable errors and continue streaming.
+- `tryOnce` / `tryMany`: lenient variants that emit the successfully decoded prefix, then stop gracefully at the first unrecoverable decode error.
 
-The implementation keeps an internal `BitVector` buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. It is implemented and covered by unit tests in `modules/graviton-streams/src/test`.
+The implementation keeps an internal `BitVector` carry buffer, tracks `Err.InsufficientBits`, and emits decoded values as soon as a decoder consumes input. Strict decoding rejects truncated EOF instead of silently dropping the tail. The default carry limit is 32 MiB, configurable through the bounded overloads, so a decoder that never makes progress cannot buffer an unbounded input.
 
 ## Transducer integration
 

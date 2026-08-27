@@ -29,7 +29,7 @@ message PutBlobRequest {
 }
 ```
 
-The stream itself is the upload session. There is no caller-managed session string to lose, reuse, or thread through application code. The server streams request bytes directly into `BlobStore.put`; it does not collect the upload. An optional expected size is checked after hashing and persistence. On mismatch, the newly written manifest is deleted and the call fails.
+The stream itself is the upload session. There is no caller-managed session string to lose, reuse, or thread through application code. The server streams request bytes directly into `BlobStore.put`; it does not collect the upload. An optional expected size is enforced incrementally: overflow stops the byte stream immediately, and underflow fails at EOF before the manifest is committed. Blocks already written before a failed upload can remain unreferenced until orphan cleanup runs.
 
 ```scala
 import graviton.protocol.grpc.GravitonGrpcClient
@@ -71,7 +71,7 @@ ZIO.scoped {
 }
 ```
 
-`ListBlobs` and `InspectBlob` are server-streaming so callers can consume results incrementally. The current runtime inventory port returns a bounded collection internally; the wire contract does not force clients to collect it.
+`ListBlobs` and `InspectBlob` are server-streaming, so clients are not forced to collect response frames. The current server still materializes repository inventory and a blob's complete manifest before emitting those frames. Backend-pushed cursor pagination and streamed manifest references remain required for fixed-memory server behavior at repository scale.
 
 ## Security and audit
 

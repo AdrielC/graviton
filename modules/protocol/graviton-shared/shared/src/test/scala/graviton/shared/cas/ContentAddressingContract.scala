@@ -50,13 +50,21 @@ object ContentAddressingContract:
         )
       },
       test("round-trips the server and browser content-key text contract") {
-        val rendered = ContentKeyText.render("sha-256", "abc123", 42L)
+        val digest   = "a" * 64
+        val rendered = ContentKeyText.render("sha-256", digest, 42L)
 
         assertTrue(
-          rendered == "sha-256:abc123:42",
-          ContentKeyText.parse(rendered) == Right(ContentKeyText.Parts("sha-256", "abc123", 42L)),
-          ContentKeyText.parse("sha-256:abc123:-1").isLeft,
+          rendered == s"sha-256:$digest:42",
+          ContentKeyText.parse(rendered) == Right(ContentKeyText.Parts("sha-256", digest, 42L)),
+          ContentKeyText.parse(s"SHA256:$digest:42") == Right(ContentKeyText.Parts("sha-256", digest, 42L)),
+          ContentKeyText.parse(s"sha-256:$digest:-1").isLeft,
+          ContentKeyText.parse(s"sha-256:$digest:+1").isLeft,
+          ContentKeyText.parse(s"unknown:$digest:42").isLeft,
+          ContentKeyText.parse(s"sha-256:${"a" * 63}:42").isLeft,
+          ContentKeyText.parse(s"sha-256:${"A" * 64}:42").isLeft,
           ContentKeyText.parse("missing-fields").isLeft,
+          ContentKeyText.parse(null).isLeft,
+          ContentKeyText.parse("x" * (ContentKeyText.MaxWireLength + 1)).isLeft,
         )
       },
     )

@@ -23,7 +23,7 @@ object KeyBitsSpec extends ZIOSpecDefault:
       },
       test("fromString validates digest length for the selected algorithm") {
         assertTrue(
-          KeyBits.fromString(s"sha-256:${"a" * 40}:4").left.exists(_.contains("Digest length mismatch"))
+          KeyBits.fromString(s"sha-256:${"a" * 40}:4").left.exists(_.contains("requires 64 hexadecimal characters"))
         )
       },
     )

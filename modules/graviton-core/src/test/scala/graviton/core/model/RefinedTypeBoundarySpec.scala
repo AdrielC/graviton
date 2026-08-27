@@ -26,6 +26,22 @@ object RefinedTypeBoundarySpec extends ZIOSpecDefault:
       test("rejects max+1")(assertTrue(BlockSize.either(16 * 1024 * 1024 + 1).isLeft)),
       test("Min == 1")(assertTrue(BlockSize.Min.value == 1)),
       test("Max == 16_777_216")(assertTrue(BlockSize.Max.value == 16 * 1024 * 1024)),
+      test("adjacency is checked at both bounds") {
+        assertTrue(
+          BlockSize.Min.previous.isEmpty,
+          BlockSize.Min.next.exists(_.value == 2),
+          BlockSize.Max.previous.exists(_.value == 16 * 1024 * 1024 - 1),
+          BlockSize.Max.next.isEmpty,
+        )
+      },
+      test("checked multiplication rejects machine overflow before refinement") {
+        val result = for
+          value <- BlockSize.either(65537)
+          _     <- value.checkedMul(value)
+        yield ()
+
+        assertTrue(result.swap.exists(_.contains("multiplication overflow")))
+      },
     ),
     suite("UploadChunkSize (1 .. 16_777_216)")(
       test("accepts min (1)")(assertTrue(UploadChunkSize.either(1).isRight)),
@@ -38,6 +54,14 @@ object RefinedTypeBoundarySpec extends ZIOSpecDefault:
       test("accepts 1 TiB")(assertTrue(FileSize.either(1099511627776L).isRight)),
       test("rejects 0")(assertTrue(FileSize.either(0L).isLeft)),
       test("rejects 1 TiB + 1")(assertTrue(FileSize.either(1099511627776L + 1L).isLeft)),
+      test("long adjacency is checked at both bounds") {
+        assertTrue(
+          FileSize.Min.previous.isEmpty,
+          FileSize.Min.next.exists(_.value == 2L),
+          FileSize.Max.previous.exists(_.value == 1099511627775L),
+          FileSize.Max.next.isEmpty,
+        )
+      },
     ),
     suite("Size (1 .. Int.MaxValue)")(
       test("accepts 1")(assertTrue(Size.either(1).isRight)),

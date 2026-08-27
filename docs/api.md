@@ -1,6 +1,6 @@
 # API Surface
 
-Graviton exposes its operational content-addressable store through the embedded `BlobStore` API, the CLI, and an HTTP server. gRPC contracts and clients also exist, but they are not yet served by the default process.
+Graviton exposes its operational content-addressable store through the embedded `BlobStore` API, the CLI, and the packaged HTTP and gRPC listeners. The default server starts HTTP on port `8081` and gRPC on port `9090`.
 
 ## Runtime API
 
@@ -24,7 +24,7 @@ The default server uses durable filesystem storage. See the [HTTP API](./api/htt
 
 ## gRPC
 
-`upload.proto` defines a bidirectional streaming RPC that multiplexes control, credits, and data chunks. `blob_service.proto` and related definitions describe blob access. Server-side exposure from the default `server/run` process is still in progress, so use HTTP or embed `BlobStore` for operational deployments today.
+`blob_service.proto` defines the operational `BlobService` lifecycle: client-streaming put, server-streaming get, stat, list, streamed inspection results, and delete. `AdminService.Health` reports storage-backed readiness. The packaged process starts both services, and `GravitonGrpcClient` exposes the lifecycle with ZIO streams. See the [gRPC API](./api/grpc.md) for limits, security behavior, and executable proof.
 
 ## Security boundary
 

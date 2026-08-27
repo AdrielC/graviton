@@ -2,6 +2,7 @@ import ai.hylo.graviton.client.GravitonClient
 import graviton.backend.pg.PgMutableObjectStore
 import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
+import graviton.core.attributes.BinaryAttributes
 import graviton.pdf.PdfIngest
 import graviton.protocol.grpc.GravitonGrpcClient
 import graviton.runtime.Graviton
@@ -28,6 +29,8 @@ object ConsumerProof extends ZIOAppDefault:
 
     for
       graviton <- Graviton.inMemory(chunkSize = 8)
+      attributes = BinaryAttributes.empty
+      _          <- ZIO.fromEither(attributes.validate).unit.mapError(new IllegalStateException(_))
       written  <- ZStream.fromChunk(payload).run(graviton.blobStore.put())
       restored <- BoundedByteStream.collectInMemory(graviton.blobStore.get(written.key))
       _        <- ZIO.fail(new IllegalStateException("published artifact did not round-trip bytes")).unless(restored == payload)

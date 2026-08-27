@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString
 import graviton.core.keys.BinaryKey
 import graviton.core.types.FileSize
 import graviton.runtime.model.{BlobBlockDescription, BlobListing, BlobStat}
+import graviton.shared.MediaTypeText
 import io.grpc.*
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
@@ -26,26 +27,33 @@ final class GravitonGrpcClient private (stub: BlobServiceClient, admin: AdminSer
     contentType: MediaType,
     expectedSize: Option[FileSize] = None,
   ): IO[StatusException, PutResult] =
-    val metadata = PutBlobRequest(
-      PutBlobRequest.Kind.Metadata(PutBlobMetadata(expectedSize = expectedSize.map(_.value), contentType = contentType.fullType))
-    )
-    val chunks   = data
-      .rechunk(GrpcProtocol.MaxChunkBytes)
-      .chunks
-      .map(chunk => PutBlobRequest(PutBlobRequest.Kind.Data(ByteString.copyFrom(chunk.toArray))))
-      .mapError(error => Status.fromThrowable(error).asException())
+    ZIO
+      .fromEither(MediaTypeText.renderEither(contentType))
+      .mapError(message => Status.INVALID_ARGUMENT.withDescription(message).asException())
+      .flatMap { renderedType =>
+        val metadata = PutBlobRequest(
+          PutBlobRequest.Kind.Metadata(
+            PutBlobMetadata(expectedSize = expectedSize.map(_.value), contentType = renderedType)
+          )
+        )
+        val chunks   = data
+          .rechunk(GrpcProtocol.MaxChunkBytes)
+          .chunks
+          .map(chunk => PutBlobRequest(PutBlobRequest.Kind.Data(ByteString.copyFrom(chunk.toArray))))
+          .mapError(error => Status.fromThrowable(error).asException())
 
-    stub.putBlob(ZStream.succeed(metadata) ++ chunks).flatMap { response =>
-      for
-        key          <- parseKey(response.key.map(_.value).getOrElse(""))
-        size         <- ZIO
-                          .fromEither(FileSize.either(response.size))
-                          .mapError(message => Status.INTERNAL.withDescription(message).asException())
-        returnedType <- ZIO
-                          .fromEither(MediaType.parse(response.contentType))
-                          .mapError(message => Status.DATA_LOSS.withDescription(message).asException())
-      yield PutResult(key, size, returnedType)
-    }
+        stub.putBlob(ZStream.succeed(metadata) ++ chunks).flatMap { response =>
+          for
+            key          <- parseKey(response.key.map(_.value).getOrElse(""))
+            size         <- ZIO
+                              .fromEither(FileSize.either(response.size))
+                              .mapError(message => Status.INTERNAL.withDescription(message).asException())
+            returnedType <- ZIO
+                              .fromEither(MediaTypeText.parse(response.contentType))
+                              .mapError(message => Status.DATA_LOSS.withDescription(message).asException())
+          yield PutResult(key, size, returnedType)
+        }
+      }
 
   def get(key: BinaryKey.Blob): ZStream[Any, StatusException, Byte] =
     stub

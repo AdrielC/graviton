@@ -2,9 +2,10 @@ package graviton.protocol.grpc
 
 import com.google.protobuf.ByteString
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.types.{FileSize, Mime}
+import graviton.core.types.FileSize
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.BlobStore
+import graviton.shared.MediaTypeText
 import io.grpc.{Status, StatusException}
 import io.graviton.blobstore.v1.blob_service.*
 import io.graviton.blobstore.v1.blob_service.ZioBlobService.BlobService
@@ -20,18 +21,13 @@ final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
         request.peel(ZSink.head).flatMap { case (first, remaining) =>
           for
             metadata <- ZIO.fromOption(first.flatMap(_.kind.metadata)).orElseFail(invalid("first upload frame must be metadata"))
-            plan     <- writePlan(metadata)
-            bytes     = remaining.mapZIO(frameBytes).flattenChunks
-            result   <- bytes.run(blobStore.put(plan)).mapError(toStatus)
-            _        <- metadata.expectedSize match
-                          case Some(expected) if expected != result.key.bits.size =>
-                            blobStore.delete(result.key).ignore *>
-                              ZIO.fail(invalid(s"expected $expected bytes but received ${result.key.bits.size}"))
-                          case _                                                  => ZIO.unit
+            prepared <- prepareUpload(metadata)
+            bytes     = enforceExpectedSize(remaining.mapZIO(frameBytes).flattenChunks, prepared.expectedSize)
+            result   <- bytes.run(blobStore.put(prepared.plan)).mapError(toStatus)
           yield PutBlobResponse(
             key = Some(BlobKey(GrpcProtocol.render(result.key))),
             size = result.key.bits.size,
-            contentType = metadata.contentType,
+            contentType = MediaTypeText.render(prepared.mediaType),
           )
         }
       }
@@ -91,15 +87,50 @@ final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
       _   <- blobStore.delete(key).mapError(toStatus)
     yield DeleteBlobResponse()
 
-  private def writePlan(metadata: PutBlobMetadata): IO[StatusException, BlobWritePlan] =
+  private final case class PreparedUpload(
+    plan: BlobWritePlan,
+    mediaType: MediaType,
+    expectedSize: Option[FileSize],
+  )
+
+  private def prepareUpload(metadata: PutBlobMetadata): IO[StatusException, PreparedUpload] =
     for
-      mediaType <- ZIO.fromEither(MediaType.parse(metadata.contentType)).mapError(invalid)
-      mime      <- ZIO.fromEither(Mime.either(mediaType.fullType)).mapError(invalid)
-      expected  <- ZIO.foreach(metadata.expectedSize)(value => ZIO.fromEither(FileSize.either(value)).mapError(invalid))
-      attributes = expected
-                     .fold(BinaryAttributes.empty)(BinaryAttributes.empty.advertiseSize)
-                     .advertiseMime(mime)
-    yield BlobWritePlan(attributes = attributes)
+      mediaType  <- ZIO.fromEither(MediaTypeText.parse(metadata.contentType)).mapError(invalid)
+      expected   <- ZIO.foreach(metadata.expectedSize)(value => ZIO.fromEither(FileSize.either(value)).mapError(invalid))
+      base        = expected.fold(BinaryAttributes.empty)(BinaryAttributes.empty.advertiseSize)
+      attributes <- ZIO.fromEither(base.advertiseMediaType(mediaType)).mapError(invalid)
+    yield PreparedUpload(BlobWritePlan(attributes = attributes), mediaType, expected)
+
+  private def enforceExpectedSize(
+    bytes: ZStream[Any, StatusException, Byte],
+    expected: Option[FileSize],
+  ): ZStream[Any, StatusException, Byte] =
+    expected match
+      case None        => bytes
+      case Some(limit) =>
+        ZStream.unwrap {
+          Ref.make(0L).map { observed =>
+            val checked = bytes.mapChunksZIO { chunk =>
+              observed.modify { current =>
+                scala.util.Try(java.lang.Math.addExact(current, chunk.length.toLong)).toEither match
+                  case Left(_)       => Left(invalid("upload byte count overflow")) -> current
+                  case Right(actual) =>
+                    if actual > limit.value then Left(invalid(s"expected ${limit.value} bytes but received more")) -> actual
+                    else Right(chunk)                                                                              -> actual
+              }.absolve
+            }
+            val exact   = ZStream
+              .fromZIO(
+                observed.get.flatMap { actual =>
+                  ZIO
+                    .fail(invalid(s"expected ${limit.value} bytes but received $actual"))
+                    .unless(actual == limit.value)
+                }
+              )
+              .drain
+            checked ++ exact
+          }
+        }
 
   private def frameBytes(frame: PutBlobRequest): IO[StatusException, GrpcProtocol.DataChunk] =
     frame.kind match

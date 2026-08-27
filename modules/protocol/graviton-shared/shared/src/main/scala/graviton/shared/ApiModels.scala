@@ -2,15 +2,17 @@ package graviton.shared
 
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
+import zio.blocks.schema.Schema as BlocksSchema
 import zio.json.*
 import zio.schema.Schema
 
 /**
  * Shared API models for the Graviton HTTP API.
  *
- * Each refined primitive owns an explicit codec built from zio-json's
- * primitive codec. Keeping that small bridge here avoids leaking
- * iron-zio-json's zio-json version into every external consumer.
+ * A ZIO Blocks schema-derived JSON wire shape is the canonical cross-platform
+ * boundary used by the server, JVM SDK, and Scala.js client. Runtime mapping
+ * validates every refined public value. The zio-json codecs remain as a
+ * compatibility surface for existing Graviton consumers.
  */
 object ApiModels {
 
@@ -43,6 +45,107 @@ object ApiModels {
     given JsonCodec[Ratio] =
       summon[JsonCodec[Double]].transformOrFail(either, _.value)
 
+  /** Plain wire records avoid the opaque numeric wrapper defect in 0.0.51. */
+  private object Wire:
+    final case class SystemStats(
+      totalBlobs: Long,
+      totalBytes: Long,
+      uniqueChunks: Long,
+      deduplicationRatio: Double,
+    )
+    object SystemStats:
+      given BlocksSchema[SystemStats] = BlocksSchema.derived
+
+    final case class BlobSummary(
+      id: String,
+      size: Long,
+      createdAt: Long,
+      digest: String,
+      blockCount: Long,
+    )
+    object BlobSummary:
+      given BlocksSchema[BlobSummary] = BlocksSchema.derived
+
+    final case class BlobBlock(
+      index: Long,
+      contentId: String,
+      offset: Long,
+      size: Long,
+    )
+    object BlobBlock:
+      given BlocksSchema[BlobBlock] = BlocksSchema.derived
+
+    final case class BlobDetails(summary: BlobSummary, blocks: List[BlobBlock])
+    object BlobDetails:
+      given BlocksSchema[BlobDetails] = BlocksSchema.derived
+
+    final case class BlobListResponse(blobs: List[BlobSummary], nextCursor: Option[String])
+    object BlobListResponse:
+      given BlocksSchema[BlobListResponse] = BlocksSchema.derived
+
+    final case class BlobUploadResult(
+      blob: BlobSummary,
+      freshBlocks: Long,
+      duplicateBlocks: Long,
+      durationSeconds: Double,
+    )
+    object BlobUploadResult:
+      given BlocksSchema[BlobUploadResult] = BlocksSchema.derived
+
+    final case class BlobVerificationResult(id: String, verified: Boolean, bytesChecked: Long)
+    object BlobVerificationResult:
+      given BlocksSchema[BlobVerificationResult] = BlocksSchema.derived
+
+  private def validated[A](field: String, value: Either[String, A]): Either[String, A] =
+    value.left.map(message => s"$field: $message")
+
+  private def traverse[A, B](values: List[A])(f: A => Either[String, B]): Either[String, List[B]] =
+    @scala.annotation.tailrec
+    def loop(remaining: List[A], reversed: List[B]): Either[String, List[B]] =
+      remaining match
+        case head :: tail =>
+          f(head) match
+            case Left(error)  => Left(error)
+            case Right(value) => loop(tail, value :: reversed)
+        case Nil          => Right(reversed.reverse)
+
+    loop(values, Nil)
+
+  private def summaryToWire(value: BlobSummary): Wire.BlobSummary =
+    Wire.BlobSummary(
+      value.id.value,
+      value.size.value,
+      value.createdAt,
+      value.digest,
+      value.blockCount.value,
+    )
+
+  private def summaryFromWire(value: Wire.BlobSummary): Either[String, BlobSummary] =
+    for
+      id         <- validated("id", BlobId.either(value.id))
+      size       <- validated("size", SizeBytes.either(value.size))
+      blockCount <- validated("blockCount", Count.either(value.blockCount))
+    yield BlobSummary(id, size, value.createdAt, value.digest, blockCount)
+
+  private def blockToWire(value: BlobBlock): Wire.BlobBlock =
+    Wire.BlobBlock(value.index.value, value.contentId, value.offset.value, value.size.value)
+
+  private def blockFromWire(value: Wire.BlobBlock): Either[String, BlobBlock] =
+    for
+      index  <- validated("index", Count.either(value.index))
+      offset <- validated("offset", SizeBytes.either(value.offset))
+      size   <- validated("size", SizeBytes.either(value.size))
+    yield BlobBlock(index, value.contentId, offset, size)
+
+  /** Stable JSON error envelope returned by the HTTP API. */
+  final case class ApiError(
+    error: String,
+    message: String,
+  ) derives JsonCodec
+  object ApiError:
+    private given BlocksSchema[ApiError] = BlocksSchema.derived
+    given ApiJsonCodec[ApiError]         = ApiJsonCodec.derived
+
   /** System stats */
   final case class SystemStats(
     totalBlobs: Count,
@@ -50,6 +153,23 @@ object ApiModels {
     uniqueChunks: Count,
     deduplicationRatio: Ratio,
   ) derives JsonCodec
+  object SystemStats:
+    given ApiJsonCodec[SystemStats] =
+      ApiJsonCodec.mapped[SystemStats, Wire.SystemStats](value =>
+        Wire.SystemStats(
+          value.totalBlobs.value,
+          value.totalBytes.value,
+          value.uniqueChunks.value,
+          value.deduplicationRatio.value,
+        )
+      )(value =>
+        for
+          totalBlobs         <- validated("totalBlobs", Count.either(value.totalBlobs))
+          totalBytes         <- validated("totalBytes", SizeBytes.either(value.totalBytes))
+          uniqueChunks       <- validated("uniqueChunks", Count.either(value.uniqueChunks))
+          deduplicationRatio <- validated("deduplicationRatio", Ratio.either(value.deduplicationRatio))
+        yield SystemStats(totalBlobs, totalBytes, uniqueChunks, deduplicationRatio)
+      )
 
   /** Health check response */
   final case class HealthResponse(
@@ -57,6 +177,9 @@ object ApiModels {
     version: String,
     uptime: Long,
   ) derives JsonCodec
+  object HealthResponse:
+    private given BlocksSchema[HealthResponse] = BlocksSchema.derived
+    given ApiJsonCodec[HealthResponse]         = ApiJsonCodec.derived
 
   /** One blob currently persisted by the configured manifest repository. */
   final case class BlobSummary(
@@ -66,6 +189,9 @@ object ApiModels {
     digest: String,
     blockCount: Count,
   ) derives JsonCodec
+  object BlobSummary:
+    given ApiJsonCodec[BlobSummary] =
+      ApiJsonCodec.mapped[BlobSummary, Wire.BlobSummary](summaryToWire)(summaryFromWire)
 
   /** One real block reference from a persisted manifest. */
   final case class BlobBlock(
@@ -74,18 +200,36 @@ object ApiModels {
     offset: SizeBytes,
     size: SizeBytes,
   ) derives JsonCodec
+  object BlobBlock:
+    given ApiJsonCodec[BlobBlock] =
+      ApiJsonCodec.mapped[BlobBlock, Wire.BlobBlock](blockToWire)(blockFromWire)
 
   /** Persisted blob metadata and block layout. */
   final case class BlobDetails(
     summary: BlobSummary,
     blocks: List[BlobBlock],
   ) derives JsonCodec
+  object BlobDetails:
+    given ApiJsonCodec[BlobDetails] =
+      ApiJsonCodec.mapped[BlobDetails, Wire.BlobDetails](value =>
+        Wire.BlobDetails(summaryToWire(value.summary), value.blocks.map(blockToWire))
+      )(value =>
+        for
+          summary <- summaryFromWire(value.summary)
+          blocks  <- traverse(value.blocks)(blockFromWire)
+        yield BlobDetails(summary, blocks)
+      )
 
   /** Current durable blob inventory. */
   final case class BlobListResponse(
     blobs: List[BlobSummary],
     nextCursor: Option[String] = None,
   ) derives JsonCodec
+  object BlobListResponse:
+    given ApiJsonCodec[BlobListResponse] =
+      ApiJsonCodec.mapped[BlobListResponse, Wire.BlobListResponse](value =>
+        Wire.BlobListResponse(value.blobs.map(summaryToWire), value.nextCursor)
+      )(value => traverse(value.blobs)(summaryFromWire).map(BlobListResponse(_, value.nextCursor)))
 
   /** Result returned after the server has fully persisted an upload. */
   final case class BlobUploadResult(
@@ -94,6 +238,22 @@ object ApiModels {
     duplicateBlocks: Count,
     durationSeconds: Double,
   ) derives JsonCodec
+  object BlobUploadResult:
+    given ApiJsonCodec[BlobUploadResult] =
+      ApiJsonCodec.mapped[BlobUploadResult, Wire.BlobUploadResult](value =>
+        Wire.BlobUploadResult(
+          summaryToWire(value.blob),
+          value.freshBlocks.value,
+          value.duplicateBlocks.value,
+          value.durationSeconds,
+        )
+      )(value =>
+        for
+          blob            <- summaryFromWire(value.blob)
+          freshBlocks     <- validated("freshBlocks", Count.either(value.freshBlocks))
+          duplicateBlocks <- validated("duplicateBlocks", Count.either(value.duplicateBlocks))
+        yield BlobUploadResult(blob, freshBlocks, duplicateBlocks, value.durationSeconds)
+      )
 
   /** Result of reading and hashing a persisted blob on the server. */
   final case class BlobVerificationResult(
@@ -101,4 +261,14 @@ object ApiModels {
     verified: Boolean,
     bytesChecked: SizeBytes,
   ) derives JsonCodec
+  object BlobVerificationResult:
+    given ApiJsonCodec[BlobVerificationResult] =
+      ApiJsonCodec.mapped[BlobVerificationResult, Wire.BlobVerificationResult](value =>
+        Wire.BlobVerificationResult(value.id.value, value.verified, value.bytesChecked.value)
+      )(value =>
+        for
+          id           <- validated("id", BlobId.either(value.id))
+          bytesChecked <- validated("bytesChecked", SizeBytes.either(value.bytesChecked))
+        yield BlobVerificationResult(id, value.verified, bytesChecked)
+      )
 }

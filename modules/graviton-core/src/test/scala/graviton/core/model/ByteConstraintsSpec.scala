@@ -1,9 +1,13 @@
 package graviton.core.model
 
-import graviton.core.types.{BlockSize, ChunkCount, FileSize}
+import graviton.core.types.{BlockSize, ChunkCount, FileSize, SizeLongSubtype, SizeSubtype}
 import zio.test.*
 
 object ByteConstraintsSpec extends ZIOSpecDefault:
+
+  object LegacyBlockSize extends SizeSubtype.Trait[1, 1024, 0, 1]
+  object LegacyByteCount extends SizeLongSubtype.Trait[1L, 4096L, 0L, 1L]
+  object WideByteCount   extends SizeLongSubtype.Trait[1L, Long.MaxValue.type, 0L, 1L]
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("ByteConstraints")(
@@ -26,5 +30,17 @@ object ByteConstraintsSpec extends ZIOSpecDefault:
         val valid   = ChunkCount.either(1L)
         val invalid = ChunkCount.either(0L)
         assertTrue(valid.isRight && invalid.isLeft)
+      },
+      test("legacy SizeSubtype.Trait source extensions remain supported") {
+        val valid       = LegacyBlockSize.either(1024)
+        val invalid     = LegacyBlockSize.either(1025)
+        val longValid   = LegacyByteCount.either(4096L)
+        val longInvalid = LegacyByteCount.either(4097L)
+        assertTrue(valid.isRight && invalid.isLeft && longValid.isRight && longInvalid.isLeft)
+      },
+      test("checked Long multiplication rejects overflow before refinement") {
+        // (2^32 + 1)^2 wraps to 2^33 + 1 in a Long, which is otherwise inside this refinement.
+        val result = WideByteCount.either(4294967297L).flatMap(value => value.checkedMul(value))
+        assertTrue(result.isLeft)
       },
     )

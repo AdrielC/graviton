@@ -38,6 +38,22 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
                     )
       yield assertTrue(response.status == Status.RequestEntityTooLarge)
     },
+    test("rejects an explicit oversized Content-Length before pulling the body") {
+      val config = SecurityConfig.Default.copy(enabled = true, maxRequestBytes = FileSize.unsafe(3L))
+      for
+        fixture  <- makeFixture(config)
+        pulled   <- Ref.make(false)
+        body      = Body.fromStreamChunked(zio.stream.ZStream.fromZIO(pulled.set(true)).as(1.toByte))
+        request   = Request
+                      .post(URL.decode("http://localhost/api/v1/blobs").toOption.get, body)
+                      .addHeader(Header.Custom("Content-Length", "4"))
+        response <- callAs(fixture.api, context(Capability.BlobWrite), request)
+        observed <- pulled.get
+      yield assertTrue(
+        response.status == Status.RequestEntityTooLarge,
+        !observed,
+      )
+    },
     test("rejects browser origins outside the exact allow list") {
       val config = SecurityConfig.Default.copy(enabled = true, corsAllowedOrigins = List("https://console.example"))
       for

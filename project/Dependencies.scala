@@ -4,10 +4,9 @@ object Dependencies {
    * Central version catalog.
    *
    * Keep this in sync with the constraints of the existing codebase:
-   * - Scala 3.8.2 (compatible with the current ZIO Blocks schema and media-type modules.
-   *   The Iron `RefinedSubtype` + zio-json `derives JsonCodec` regression
-   *   this bump exposes is worked around by switching graviton-shared's
-   *   JSON codecs to zio-schema-json's Schema-based derivation.)
+   * - Scala 3.8.2, compatible with the current ZIO Blocks schema and media-type modules.
+   *   Until an official release includes zio-blocks PR #1578, shared Blocks
+   *   codecs use primitive wire records and validate conversion into Iron types.
    * - ZIO 2.x
    * - zio-http 3.x
    * - iron 3.x (required by `graviton.core.types` refinements)
@@ -25,12 +24,11 @@ object Dependencies {
     // Kyo
     val kyo = "1.0-RC1"
 
-    // ZIO Blocks moved schema and chunk to the 0.017 release line while the
-    // media-type and ring-buffer artifacts remain on 0.0.51.
-    val zioBlocksSchema    = "0.017"
-    val zioBlocksChunk     = "0.017"
-    val zioBlocksMediaType = "0.0.51"
-    val zioPdf             = "0.2.0-RC6"
+    // ZIO Blocks publishes the current release as 0.0.51. Maven metadata
+    // misorders an accidental 0.017 duplicate of the 0.0.17 code line above
+    // 0.0.51, even though 0.017 was published months earlier.
+    val zioBlocks = "0.0.51"
+    val zioPdf    = "0.2.0-RC7"
 
     // ZIO Config
     val zioConfig = "4.0.6"

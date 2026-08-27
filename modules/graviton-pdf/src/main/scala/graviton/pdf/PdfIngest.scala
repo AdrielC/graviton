@@ -4,6 +4,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.Mime
 import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
 import graviton.runtime.stores.BlobStore
+import graviton.shared.MediaTypeText
 import graviton.streams.Chunker
 import zio.{IO, ZIO}
 import zio.blocks.mediatype.MediaType
@@ -18,14 +19,15 @@ object PdfIngest:
   final case class UnsupportedMediaType(advertised: MediaType)
       extends Error(s"PDF ingest requires ${PdfMime.mimeType.fullType}, received ${advertised.fullType}")
 
+  /** Retained from 0.4.0 for binary and pattern-match compatibility. */
   final case class ConflictingMimeMetadata(existing: Mime) extends Error(s"PDF ingest plan already declares ${existing.value}")
 
-  private val ConfirmedPdfMime: Mime =
-    // SAFETY: PdfMime is the IANA application/pdf constant from zio-pdf.
-    Mime.applyUnsafe(PdfMime.mimeType.fullType)
+  final case class InvalidMediaTypeMetadata(reason: String) extends Error(s"Invalid PDF media type metadata: $reason")
 
   def accepts(advertised: MediaType): Boolean =
-    PdfMime.mimeType.matches(advertised, ignoreParameters = true)
+    advertised != null &&
+      PdfMime.mimeType.mainType.equalsIgnoreCase(advertised.mainType) &&
+      PdfMime.mimeType.subType.equalsIgnoreCase(advertised.subType)
 
   def put(
     store: BlobStore,
@@ -34,19 +36,26 @@ object PdfIngest:
     plan: BlobWritePlan = BlobWritePlan(),
     config: PdfAwareChunker.Config = PdfAwareChunker.Config.default,
   ): IO[Throwable, BlobWriteResult] =
-    if !accepts(advertised) then ZIO.fail(UnsupportedMediaType(advertised))
-    else
-      plan.attributes.mime match
-        case Some(existing) if existing.value != ConfirmedPdfMime.value =>
-          ZIO.fail(ConflictingMimeMetadata(existing))
-        case _                                                          =>
-          val attributes: BinaryAttributes =
-            plan.attributes
-              .advertiseMime(ConfirmedPdfMime)
-              .confirmMime(ConfirmedPdfMime)
+    val prepared: Either[Error, BinaryAttributes] =
+      for
+        rendered  <- MediaTypeText.renderEither(advertised).left.map(InvalidMediaTypeMetadata.apply)
+        canonical <- MediaTypeText.parse(rendered).left.map(InvalidMediaTypeMetadata.apply)
+        _         <- Either.cond(accepts(canonical), (), UnsupportedMediaType(canonical))
+        _         <- plan.attributes.mime match
+                       case Some(existing) =>
+                         MediaTypeText.parse(existing.value) match
+                           case Right(value) if MediaTypeText.renderEither(value).contains(rendered) => Right(())
+                           case _                                                                    =>
+                             Left(ConflictingMimeMetadata(existing))
+                       case None           => Right(())
+        next      <- plan.attributes.advertiseMediaType(canonical).left.map(InvalidMediaTypeMetadata.apply)
+        confirmed <- next.confirmMediaType(canonical).left.map(InvalidMediaTypeMetadata.apply)
+      yield confirmed
 
-          Chunker.locally(PdfAwareChunker(config)) {
-            bytes.run(store.put(plan.copy(attributes = attributes)))
-          }
+    ZIO.fromEither(prepared).flatMap { attributes =>
+      Chunker.locally(PdfAwareChunker(config)) {
+        bytes.run(store.put(plan.copy(attributes = attributes)))
+      }
+    }
 
 end PdfIngest

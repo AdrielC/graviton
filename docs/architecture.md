@@ -177,7 +177,7 @@ See the [Transducer Algebra](./core/transducers.md) page for the full API and im
 
 ## Streams
 
-`graviton-streams` bridges the pure types with ZIO Streams by providing chunkers, hashing sinks, and reusable combinators for fan-out and scanning. These helpers orchestrate the content-defined chunking primitives from the `zio-blocks-schema` library (published to Maven Central).
+`graviton-streams` bridges the pure types with ZIO Streams by providing bounded chunkers, hashing sinks, and reusable combinators for fan-out and scanning. The transfer engine remains on ZIO Streams. ZIO Blocks Schema is used for bounded cross-platform API contracts, not for arbitrary blob streams.
 
 ## Runtime
 

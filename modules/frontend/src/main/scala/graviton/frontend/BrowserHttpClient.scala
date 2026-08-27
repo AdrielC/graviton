@@ -1,7 +1,8 @@
 package graviton.frontend
 
-import graviton.shared.HttpClient
+import graviton.shared.{HttpClient, MediaTypeText}
 import zio.*
+import zio.blocks.mediatype.{MediaType, MediaTypes}
 import org.scalajs.dom
 import scala.scalajs.js
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -13,10 +14,13 @@ final case class BrowserHttpClient(
   bearerToken: () => Option[String] = () => None,
 ) extends HttpClient {
 
-  private def headers(contentType: String): js.Dictionary[String] =
+  private val jsonMediaType: MediaType   = MediaTypes.application.json
+  private val binaryMediaType: MediaType = MediaTypes.application.`octet-stream`
+
+  private def headers(contentType: MediaType): js.Dictionary[String] =
     val values = js.Dictionary(
-      "Content-Type" -> contentType,
-      "Accept"       -> "application/json",
+      "Content-Type" -> MediaTypeText.render(contentType),
+      "Accept"       -> MediaTypeText.render(jsonMediaType),
     )
     bearerToken().map(_.trim).filter(_.nonEmpty).foreach(token => values.update("Authorization", s"Bearer $token"))
     values
@@ -33,7 +37,7 @@ final case class BrowserHttpClient(
         case "DELETE" => dom.HttpMethod.DELETE
         case _        => dom.HttpMethod.GET
       }
-      init.headers = headers("application/json")
+      init.headers = headers(jsonMediaType)
       body.foreach(b => init.body = b)
 
       dom
@@ -61,7 +65,7 @@ final case class BrowserHttpClient(
     ZIO.fromPromiseJS {
       val init = new dom.RequestInit {}
       init.method = dom.HttpMethod.GET
-      init.headers = headers("application/octet-stream")
+      init.headers = headers(binaryMediaType)
       dom
         .fetch(s"$baseUrl$path", init)
         .toFuture
@@ -77,9 +81,10 @@ final case class BrowserHttpClient(
     val url = s"$baseUrl$path"
 
     ZIO.fromPromiseJS {
-      val init = new dom.RequestInit {}
+      val init        = new dom.RequestInit {}
       init.method = dom.HttpMethod.POST
-      init.headers = headers(Option(file.`type`).filter(_.nonEmpty).getOrElse("application/octet-stream"))
+      val contentType = Option(file.`type`).filter(_.nonEmpty).flatMap(MediaTypeText.parse(_).toOption).getOrElse(binaryMediaType)
+      init.headers = headers(contentType)
       init.body = file
 
       dom

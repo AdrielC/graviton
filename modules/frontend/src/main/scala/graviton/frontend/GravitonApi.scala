@@ -4,7 +4,6 @@ import graviton.shared.*
 import graviton.shared.ApiModels.*
 import org.scalajs.dom
 import zio.*
-import zio.json.*
 import scala.scalajs.js
 
 /** High-level API client for the live Graviton service. */
@@ -49,11 +48,11 @@ final case class GravitonApi(
       }
     }
 
-  private def getJson[A: JsonDecoder](path: String): Task[A] =
+  private def getJson[A: ApiJsonCodec](path: String): Task[A] =
     decode[A](client.get(path))
 
-  private def decode[A: JsonDecoder](effect: Task[String]): Task[A] =
-    effect.flatMap(json => ZIO.fromEither(json.fromJson[A]).mapError(message => new Exception(s"JSON decode error: $message")))
+  private def decode[A: ApiJsonCodec](effect: Task[String]): Task[A] =
+    effect.flatMap(json => ZIO.fromEither(ApiJson.decode[A](json)).mapError(message => new Exception(s"JSON decode error: $message")))
 
   private def encode(value: String): String =
     js.URIUtils.encodeURIComponent(value)

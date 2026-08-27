@@ -44,9 +44,12 @@ object BinaryKey:
    * We intentionally do NOT include tenancy/system ids in any view key derivation.
    */
   def view(base: BinaryKey, transform: ViewTransform): Either[String, View] =
-    for
-      validated <- ViewTransform.validateDeterministic(transform)
-      bits      <- ViewKeyDerivation.derive(base, validated)
-    yield View(bits = bits, base = base, transform = validated)
+    base match
+      case manifest: Manifest =>
+        for
+          validated <- ViewTransform.validateDeterministic(transform)
+          bits      <- ViewKeyDerivation.derive(manifest, validated)
+        yield View(bits = bits, base = manifest, transform = validated)
+      case _                  => Left("View base key must be a manifest key")
 
   given Schema[BinaryKey] = DeriveSchema.gen[BinaryKey]

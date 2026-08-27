@@ -12,6 +12,8 @@ import sbtassembly.AssemblyPlugin.autoImport.*
 import sbtassembly.MergeStrategy
 import sbtversionpolicy.Compatibility
 import sbtversionpolicy.SbtVersionPolicyPlugin.autoImport.*
+import com.typesafe.tools.mima.core.{MissingTypesProblem, ProblemFilters, ReversedMissingMethodProblem}
+import com.typesafe.tools.mima.plugin.MimaPlugin.autoImport.mimaBinaryIssueFilters
 
 lazy val docSnippetMappings =
   settingKey[Seq[DocSnippet]]("Mappings between documentation files and compiled snippet sources.")
@@ -67,6 +69,21 @@ ThisBuild / versionScheme := Some("early-semver")
 ThisBuild / libraryDependencySchemes ++= Seq(
   "dev.zio" %% "zio-json" % VersionScheme.Always,
   "dev.zio" % "zio-json_sjs1_3" % VersionScheme.Always,
+  // One-time 0.4.0 -> 0.5.0 repair: 0.017 is an older duplicate of the 0.0.17
+  // line whose malformed version sorts above 0.0.51. The exposed Register
+  // descriptors are verified compatible and Graviton's API still passes MiMa.
+  // Remove these Always schemes before the next ZIO Blocks version change so a
+  // future real incompatibility cannot be hidden.
+  "dev.zio" %% "zio-blocks-schema" % VersionScheme.Always,
+  "dev.zio" % "zio-blocks-schema_sjs1_3" % VersionScheme.Always,
+  "dev.zio" %% "zio-blocks-chunk" % VersionScheme.Always,
+  "dev.zio" % "zio-blocks-chunk_sjs1_3" % VersionScheme.Always,
+  "dev.zio" %% "zio-blocks-typeid" % VersionScheme.Always,
+  "dev.zio" % "zio-blocks-typeid_sjs1_3" % VersionScheme.Always,
+  // One-time RC6 -> RC7 repair published from the same zio-pdf API line. RC7's
+  // own compatibility and external-consumer gates pass. Remove before the next
+  // zio-pdf version change so future incompatibilities remain visible.
+  "io.github.adrielc" %% "zio-pdf" % VersionScheme.Always,
   // checker-qual contains compile-time annotations and no runtime behavior.
   "org.checkerframework" % "checker-qual" % VersionScheme.Always,
   // Protobuf's numeric train is not parsed correctly by sbt-version-policy.
@@ -82,6 +99,14 @@ ThisBuild / libraryDependencySchemes ++= Seq(
   .map(module => module.organization % module.name % VersionScheme.Always)
   .distinct
 ThisBuild / dependencyOverrides += "com.google.protobuf" % "protobuf-java" % V.protobuf
+// Ivy considers the older 0.017 artifact numerically newer than 0.0.51. Pin
+// the actual current ZIO Blocks release across the build so transitive
+// dependencies cannot silently move Graviton back to the legacy line.
+ThisBuild / dependencyOverrides ++= Seq(
+  "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+  "dev.zio" %% "zio-blocks-chunk" % V.zioBlocks,
+  "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
+)
 ThisBuild / homepage := Some(url("https://github.com/AdrielC/graviton"))
 ThisBuild / scmInfo := Some(
   ScmInfo(
@@ -89,9 +114,8 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.4.0 documented the ZIO Blocks dependency boundary. Development after that
-// release is binary-compatible unless a future 0.x minor migration guide
-// explicitly declares another boundary.
+// Keep MiMa active for every module. The v0.5 migration declares and narrowly
+// filters only core's cold-TASTy hierarchy repair below.
 ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
@@ -371,6 +395,21 @@ lazy val core = (project in file("modules/graviton-core"))
   .dependsOn(sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-core",
+    // v0.4.0 exposed these implementation traits with singleton-selected
+    // parents. Their TASTy crashes a separate Scala compilation when it follows
+    // BinaryAttributes into FileSize or ChunkCount. v0.5 keeps the names as
+    // markers and moves the implementation to the static SizeTrait companion.
+    // The static trait also requires sealed Int/Long evidence instead of an
+    // unsafe runtime cast. No unrelated MiMa issue is excluded. Remove these
+    // filters after v0.5.0 becomes the previous stable MiMa baseline.
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[MissingTypesProblem]("graviton.core.types$Size1"),
+      ProblemFilters.exclude[MissingTypesProblem]("graviton.core.types$SizeLong1"),
+      ProblemFilters.exclude[MissingTypesProblem]("graviton.core.types$IndexLong0"),
+      ProblemFilters.exclude[ReversedMissingMethodProblem](
+        "graviton.core.types#SizeTrait#Trait.graviton$core$types$SizeTrait$Trait$$sizeNumeric"
+      ),
+    ),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-schema"  % V.zioSchema,
       "dev.zio" %% "zio-schema-derivation" % V.zioSchema,
@@ -384,7 +423,8 @@ lazy val core = (project in file("modules/graviton-core"))
       "org.scodec" %% "scodec-core" % "2.3.3",
       "io.github.iltotore" %% "iron" % V.iron,
       "pt.kcry" %% "blake3" % V.blake3,
-      "dev.zio" %% "zio-blocks-schema" % V.zioBlocksSchema,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -431,12 +471,11 @@ lazy val pdf = (project in file("modules/graviton-pdf"))
   .settings(
     baseSettings,
     name := "graviton-pdf",
-    // New in 0.4: no artifact with this module name exists in the 0.3 baseline.
-    versionPolicyPreviousArtifacts := Seq.empty,
-    mimaPreviousArtifacts := Set.empty,
     libraryDependencies ++= Seq(
       "io.github.adrielc" %% "zio-pdf" % V.zioPdf,
-      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-chunk" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -477,7 +516,7 @@ lazy val grpc = (project in file("modules/protocol/graviton-grpc"))
       "io.grpc" % "grpc-netty-shaded" % V.grpc,
       "io.grpc" % "grpc-api" % V.grpc,
       "com.google.protobuf" % "protobuf-java-util" % V.protobuf,
-      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"         % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"     % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -495,7 +534,7 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio-http"   % V.zioHttp,
       "dev.zio" %% "zio-schema" % V.zioSchema,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
-      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocksMediaType,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -653,6 +692,8 @@ lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
       "dev.zio" %%% "zio-schema"            % V.zioSchema,
       "dev.zio" %%% "zio-schema-derivation" % V.zioSchema,
       "dev.zio" %%% "zio-schema-json"       % V.zioSchema,
+      "dev.zio" %%% "zio-blocks-schema"     % V.zioBlocks,
+      "dev.zio" %%% "zio-blocks-mediatype"  % V.zioBlocks,
       "io.github.iltotore" %%% "iron"        % V.iron,
       "dev.zio" %%% "zio-test"              % V.zio % Test,
       "dev.zio" %%% "zio-test-sbt"          % V.zio % Test,
