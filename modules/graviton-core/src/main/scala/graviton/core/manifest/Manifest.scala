@@ -36,7 +36,7 @@ object Manifest:
     val validated =
       entries.zipWithIndex.foldLeft[Either[String, (List[ManifestEntry], Option[BlobOffset])]](Right((Nil, None))) {
         case (acc, (entry, idx)) =>
-          acc.flatMap { case (accumulated, previousEnd) =>
+          acc.flatMap { case (reversed, previousEnd) =>
             val start = entry.span.startInclusive
             val end   = entry.span.endInclusive
 
@@ -46,11 +46,11 @@ object Manifest:
               Left(s"Entries must be strictly increasing and non-overlapping; entry $idx starts at $start after $prior")
             else
               val computedEnd = end
-              Right((accumulated :+ entry, Some(computedEnd)))
+              Right((entry :: reversed, Some(computedEnd)))
           }
       }
 
-    validated.flatMap { case (ordered, lastEnd) =>
+    validated.flatMap { case (reversed, lastEnd) =>
       val computedSize =
         lastEnd match
           case None      => Right(0L)
@@ -62,6 +62,6 @@ object Manifest:
         expectedSize match
           case Some(size) if size != total =>
             Left(s"Manifest size $size does not match computed span coverage $total")
-          case _                           => Right(Manifest(ordered, total))
+          case _                           => Right(Manifest(reversed.reverse, total))
       }
     }

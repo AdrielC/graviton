@@ -71,18 +71,11 @@ yield RangeSet.single(first).add(second)
 
 Adjacent spans merge when the selected `DiscreteDomain[A]` says they touch. Blob offsets use the non-negative refined `BlobOffset` domain.
 
-## Persisted manifest frames
+## Persisted manifests
 
-Filesystem manifests use explicit scodec frames rather than an inferred case-class layout. `FramedManifest` and `FramedManifestRoot` currently write version `1` and fail closed on unknown versions, malformed keys, invalid spans, duplicate annotation keys, trailing data, or bounds violations.
+Filesystem CAS writes use the incremental `GVM2` format. Its fixed header records total size and block count; each following record contains one length-delimited block key, absolute offset, and length. Readers reject invalid keys, non-contiguous offsets, length/key-size mismatches, unexpected entry counts, total-size drift, and trailing bytes. The executable ceiling is 1,048,576 entries.
 
-The defensive limits include:
-
-- 16,384 entries per manifest frame
-- 256 annotations per entry
-- 64 MiB per encoded manifest or root frame
-- 65,535 page references per manifest root
-
-These are executable codec checks, not roadmap targets.
+The older scodec `FramedManifest` and `FramedManifestRoot` version-1 codecs remain compatibility readers and bounded explicit codecs. Their defensive limits remain 16,384 entries per frame, 256 annotations per entry, 64 MiB per encoded frame, and 65,535 page references per root. Large `GVM2` manifests are reconstructed through streaming entry readers rather than converted to the legacy in-memory model.
 
 ## Schema-driven metadata
 

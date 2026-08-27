@@ -10,6 +10,9 @@ import scala.Conversion
 
 trait Chunker:
   def name: String
+
+  /** Maximum materialized block emitted by this chunker. */
+  def maximumBlockBytes: Int = graviton.core.model.Block.maxBytes
   def pipeline: ZPipeline[Any, Chunker.Err, Byte, Block]
 
 object Chunker:
@@ -44,7 +47,7 @@ object Chunker:
   def fixed(size: UploadChunkSize, label: Option[String] = None): Chunker =
     val sizeBytes = size.value
     val pipeline  = Incremental.pipeline(ChunkerCore.Mode.Fixed(chunkBytes = sizeBytes))
-    SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), pipeline)
+    SimpleChunker(label.getOrElse(s"fixed-$sizeBytes"), sizeBytes, pipeline)
 
   def fastCdc(
     min: Int,
@@ -53,7 +56,7 @@ object Chunker:
     label: Option[String] = None,
   ): Chunker =
     val pipeline = Incremental.pipeline(ChunkerCore.Mode.FastCdc(minBytes = min, avgBytes = avg, maxBytes = max))
-    SimpleChunker(label.getOrElse(s"fastcdc-$min-$avg-$max"), pipeline)
+    SimpleChunker(label.getOrElse(s"fastcdc-$min-$avg-$max"), math.min(math.max(1, max), Block.maxBytes), pipeline)
 
   def delimiter(
     delim: Chunk[Byte],
@@ -72,7 +75,11 @@ object Chunker:
         )
       )
     val dLen     = delim.length
-    SimpleChunker(label.getOrElse(s"delimiter-$dLen-${if includeDelimiter then "incl" else "excl"}"), pipeline)
+    SimpleChunker(
+      label.getOrElse(s"delimiter-$dLen-${if includeDelimiter then "incl" else "excl"}"),
+      math.min(math.max(1, maxBytes), Block.maxBytes),
+      pipeline,
+    )
 
   given chunkerToPipeline: Conversion[Chunker, ZPipeline[Any, Err, Byte, Block]] with
     def apply(chunker: Chunker): ZPipeline[Any, Err, Byte, Block] =
@@ -80,6 +87,7 @@ object Chunker:
 
 private final case class SimpleChunker(
   name: String,
+  override val maximumBlockBytes: Int,
   pipeline: ZPipeline[Any, Chunker.Err, Byte, Block],
 ) extends Chunker
 

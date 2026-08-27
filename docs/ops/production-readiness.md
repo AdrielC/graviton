@@ -1,12 +1,12 @@
 # Production Readiness
 
-Graviton 0.3 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL path is integration-tested and suitable for environment qualification. It is not a universal high-availability claim.
+Graviton 0.4 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL path is integration-tested and suitable for environment qualification. It is not a universal high-availability claim.
 
 ## Support matrix
 
 | Area | Implemented and tested | Deployment boundary |
 | --- | --- | --- |
-| Embedded runtime | In-memory and filesystem CAS, streaming ingest/read, deduplication, inspect, verify, and delete | Application owns lifecycle, capacity, backup, and access control |
+| Embedded runtime | In-memory and filesystem CAS, bounded-queue ingest, incremental manifests, verified streaming reads, deduplication, inspect, verify, and delete | Application owns lifecycle, capacity, backup, and access control |
 | Filesystem server | Fsync, atomic publication, readiness, versioned HTTP, auth policy, audit, backup and restore drill, reversible GC | One writer process per data root; use `Recreate`, not rolling replicas |
 | S3 plus PostgreSQL | Real MinIO/PostgreSQL CI, backend readiness, retries, replica index, S3 quarantine/restore API | Qualify provider semantics, migrations, concurrent processes, backup, and rollback |
 | Replication | Parallel writes, configurable quorum, validating fallback reads, repair, and health | Library primitive; automatic scheduling and placement policy are not mounted in `Main` |

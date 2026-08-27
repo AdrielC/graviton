@@ -27,7 +27,9 @@ private[graviton] final class HasherImpl(
   self: HasherImpl =>
 
   override def inputSize: Long                          = _inputSize.get()
-  override def reset: Unit                              = md.reset()
+  override def reset: Unit                              =
+    md.reset()
+    _inputSize.set(0L)
   override def update(chunk: Hasher.Digestable): Hasher =
     chunk match
       case chunk: Chunk[Byte] =>

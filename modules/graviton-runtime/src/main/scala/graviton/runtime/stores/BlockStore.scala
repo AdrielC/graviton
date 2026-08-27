@@ -1,7 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.model.{BlockBatchResult, BlockWritePlan, CanonicalBlock}
+import graviton.runtime.model.{BlockBatchResult, BlockWritePlan, CanonicalBlock, StoredBlock}
 import zio.*
 import zio.stream.*
 
@@ -10,6 +10,28 @@ trait BlockStore:
 
   /** Persist canonical blocks produced by the chunker + hashing pipeline. */
   def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink
+
+  /**
+   * Persist one already-bounded canonical block.
+   *
+   * CAS ingest uses this operation so a backend never has to retain payloads or
+   * a whole-blob batch result while the source is still arriving. Backends can
+   * override it with their native single-block write. The default remains
+   * source-compatible for third-party implementations and is bounded to one
+   * [[CanonicalBlock]].
+   */
+  def putBlock(
+    block: CanonicalBlock,
+    plan: BlockWritePlan = BlockWritePlan(),
+  ): ZIO[Any, Throwable, StoredBlock] =
+    ZStream
+      .succeed(block)
+      .run(putBlocks(plan))
+      .flatMap(result =>
+        ZIO
+          .fromOption(result.stored.headOption)
+          .mapError(_ => new IllegalStateException("Block store completed without a stored-block result"))
+      )
 
   /** Stream the bytes for a previously stored canonical block. */
   def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte]

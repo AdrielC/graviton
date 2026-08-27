@@ -35,9 +35,9 @@ sequenceDiagram
 ```
 
 1. A byte source (`ZStream` from files, HTTP bodies, etc.) feeds a chunker chosen for size vs deduplication trade-offs.
-2. Each canonical block is hashed, typed, and streamed into the `BlockStore` sink returned by `putBlocks`.
-3. The block batch result exposes stored vs duplicate blocks so manifests only list committed data.
-4. Blob assembly wires the manifest together, enriches attributes (size, chunk count, MIME), and persists the manifest frame beside the blob pointer.
+2. Each canonical block is hashed, typed, and persisted through `BlockStore.putBlock`; the CAS ingest path never retains a whole-upload block batch.
+3. Each successful write appends one key, offset, and length entry to a disk-backed manifest spool while retaining only scalar counters in memory.
+4. Once the full-stream digest is known, the runtime replays the spool into the selected manifest repository in bounded batches and confirms size and digest attributes for the write result.
 5. The caller receives a `BlobWriteResult` keyed by the logical blob hash and can immediately read the blob via `BlobStore.get`.
 
 ## Wiring chunkers, blocks, and manifests
@@ -98,6 +98,18 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 - **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` is currently SHA-256. SHA-1 remains a legacy key option; BLAKE3 execution requires an installed provider and is never substituted silently.
 - **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
 
+## Runtime memory contract
+
+`CasBlobStore` copies arbitrary caller-owned chunks into fixed 64 KiB I/O chunks before hashing or queueing them. Its default queues retain at most:
+
+```text
+4 × 64 KiB input chunks + 2 × selected chunker maximum block size
+```
+
+That is 2.25 MiB with a 1 MiB fixed chunker. Add the selected chunker's documented working set, one upstream chunk owned by the caller, and backend-local I/O buffers when sizing a deployment. Queue capacity never depends on how a transport happened to group bytes.
+
+The manifest does not grow in heap with the upload. Filesystem ingest stages entries in a scoped temporary file, then writes the `GVM2` manifest incrementally. PostgreSQL writes 512 entries per JDBC batch inside one transaction. Both formats support up to 1,048,576 entries, which covers the 1 TiB `FileSize` ceiling at 1 MiB blocks. This is a structural and logical bound, not a claim that CI physically transfers 1 TiB.
+
 ## Attribute lifecycle
 
 `BinaryAttributes` tracks provenance via `Tracked` values so the most trusted source wins. During ingest, write the best knowledge you have (advertised size, client MIME type). As the stream is chunked, confirm derived facts:
@@ -115,7 +127,7 @@ val confirmed = initial
   .confirmDigest(HashAlgo.Sha256, Tracked.now(blobDigest, Source.Verified))
 ```
 
-When the manifest is sealed, the confirmed attributes are persisted next to the blob key. Reads return the merged view so callers always see verified data when available.
+The write result returns confirmed attributes. The current CAS manifest repositories persist reconstruction data and ingestion time, not the full attribute map, so callers that need durable domain metadata should store it in their metadata system keyed by the returned blob ID.
 
 Need structured change reports? The [`Schema-driven diffs`](../core/schema.md#schema-driven-diffs) section shows how to hang `zio.schema.Schema` instances off each `BinaryAttributeKey`, convert the advertised/confirmed maps into `DynamicValue.Record`s, and run `zio.schema.diff.Diff` (or even JSON diff tools) without giving up the `Tracked` provenance we rely on during ingest.
 
@@ -148,11 +160,11 @@ The [Chunking Strategies guide](../ingest/chunking.md) provides the implemented 
 
 Fetching a blob reverses the ingest pipeline:
 
-1. `BlobStore.get` loads the manifest frame and attributes by blob key.
-2. The runtime streams block keys through the `BlockStore`, optionally verifying digests on the fly.
+1. `BlobStore.get` opens a streaming manifest reader by blob key.
+2. The runtime streams ordered block keys through the `BlockStore`, collects only one refined block per in-flight fetch, and verifies its declared length and digest before emitting any bytes from that block.
 3. Blocks are reassembled into a `ZStream[Byte]`. Partial reads use manifest offsets so large blobs can seek without decoding the entire payload.
 
-Because manifest offsets and chunk counts are validated during ingest, retrieval never needs to buffer the whole object; the runtime can resume from any block boundary and still honor encryption or compression frames.
+Because manifest offsets and block lengths are validated during ingest and decode, retrieval never buffers the whole object. The current `BlobStore.get` API reconstructs from the beginning; HTTP range handling is a separate protocol concern.
 
 Application code should keep arbitrary-size values on `Graviton.stream`. The `Graviton.retrieve` convenience method now returns an Iron-refined `InMemoryBytes` and rejects anything larger than 16 MiB. Internal block prefetch uses the same enforced block limit, so its worst-case payload memory is `maxInFlight × 16 MiB`.
 
@@ -164,17 +176,9 @@ For remote applications, use the [Scala Streaming SDK](./scala-sdk.md). It carri
 - **Typed helpers**: `DynamicRecordCodec.toRecord` / `fromRecord` wrap `Schema.toDynamic` and `Schema.fromDynamic` so system schemas can keep compiling down to DynamicValue while remaining typesafe.
 - **Encoding**: `DynamicJsonCodec.encodeDynamic/decodeDynamicRecord` bridge DynamicValue ↔ `zio.json.ast.Json`. For system namespaces the flow is JSON → typed meta → DynamicValue.Record; for tenant namespaces you can skip the typed hop and work directly with DynamicValue once validation succeeds.
 
-## Transducer-based ingest (next generation)
+## Transducer components
 
-The [Transducer algebra](../core/transducers.md) provides a cleaner, composable alternative to the manual queue/fiber orchestration in `CasBlobStore.put()`. The same ingest pipeline can be expressed as:
-
-```scala
-val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize) >>> blockKeyDeriver
-val (summary, blocks) = byteStream.run(pipeline.toSink)
-// summary.totalBytes, summary.digestHex, summary.blockCount — all named fields
-```
-
-This approach is testable in isolation (no ZIO needed for unit tests), produces typed Record summaries, and composes with verification and deduplication stages via `>>>` and `&&&`. See [Transducer Algebra](../core/transducers.md) for the supported operations.
+The [Transducer algebra](../core/transducers.md) supplies reusable pure stages such as block-key derivation and scans. `CasBlobStore` embeds those stages in a ZIO Stream pipeline while keeping persistence, backpressure, resource scopes, and failure propagation effectful. A transducer example is not a replacement for the operational storage orchestration.
 
 ## Next steps
 

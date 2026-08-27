@@ -1,7 +1,10 @@
 package graviton.runtime.stores
 
-import graviton.core.keys.BinaryKey
-import graviton.core.types.UploadChunkSize
+import graviton.core.bytes.Hasher
+import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.manifest.ManifestEntry
+import graviton.core.ranges.Span
+import graviton.core.types.{BlobOffset, FileSize, UploadChunkSize}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
@@ -31,7 +34,7 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
           )
         }
       },
-      test("writes a framed manifest and preserves its ingestion time") {
+      test("writes a versioned manifest and preserves its ingestion time") {
         withTempDir { root =>
           val data = Chunk.fromArray("durable-manifest".getBytes(StandardCharsets.UTF_8))
 
@@ -116,6 +119,61 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             _        <- ZIO.foreachParDiscard(1 to 12)(_ => repo.put(blob, stored.manifest, now))
             reloaded <- repo.get(blob)
           yield assertTrue(reloaded.exists(_.manifest == stored.manifest))
+        }
+      },
+      test("streams manifests larger than the materialized inspection limit") {
+        withTempDir { root =>
+          val entryCount = FsBlobManifestRepo.MaxMaterializedEntries + 1
+
+          for
+            hasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(new IllegalStateException(_))
+            _          = hasher.update(Array(1.toByte))
+            digest    <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
+            blockBits <- ZIO
+                           .fromEither(KeyBits.create(hasher.algo, digest, 1L))
+                           .mapError(new IllegalArgumentException(_))
+            block     <- ZIO.fromEither(BinaryKey.block(blockBits)).mapError(new IllegalArgumentException(_))
+            blobBits  <- ZIO
+                           .fromEither(KeyBits.create(hasher.algo, digest, entryCount.toLong))
+                           .mapError(new IllegalArgumentException(_))
+            blob      <- ZIO.fromEither(BinaryKey.blob(blobBits)).mapError(new IllegalArgumentException(_))
+            now       <- Clock.instant
+            repo       = new FsBlobManifestRepo(root)
+            entries    = ZStream.fromIterable(0 until entryCount).map { index =>
+                           val offset = BlobOffset.unsafe(index.toLong)
+                           ManifestEntry(block, Span.unsafe(offset, offset), Map.empty)
+                         }
+            _         <- repo.putStream(blob, FileSize.unsafe(entryCount.toLong), entryCount, entries, now)
+            summary   <- repo.getSummary(blob).someOrFail(new NoSuchElementException("manifest missing"))
+            refs      <- repo.streamBlockRefs(blob).runCount
+            inspect   <- repo.get(blob).exit
+          yield assertTrue(
+            summary.totalSize.value == entryCount.toLong,
+            summary.blockCount == entryCount,
+            refs == entryCount.toLong,
+            inspect.isFailure,
+          )
+        }
+      },
+      test("rejects an inconsistent stream header before pulling entries") {
+        withTempDir { root =>
+          val data = Chunk.single(1.toByte)
+
+          for
+            store    <- makeStore(root)
+            result   <- ZStream.fromChunk(data).run(store.put())
+            repo      = new FsBlobManifestRepo(root)
+            pulls    <- Ref.make(0)
+            entries   = ZStream.fromZIO(pulls.update(_ + 1)).drain
+            now      <- Clock.instant
+            exit     <- repo
+                          .putStream(result.key, FileSize.unsafe(2L), 1, entries, now)
+                          .exit
+            observed <- pulls.get
+          yield assertTrue(
+            exit.isFailure,
+            observed == 0,
+          )
         }
       },
     )

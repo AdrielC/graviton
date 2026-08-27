@@ -137,12 +137,13 @@ final case class HttpApi(
             }
           }
           .flatMap { result =>
-            blobStore.inspect(result.key).flatMap {
-              case Some(description) =>
+            blobStore.stat(result.key).flatMap {
+              case Some(stat) =>
                 val id       = BlobId.applyUnsafe(result.key.bits.render)
                 val basePath = if req.url.path.toString.startsWith("/api/v1/") then "/api/v1/blobs" else "/api/blobs"
+                val listing  = graviton.runtime.model.BlobListing(result.key, stat, result.stats.blockCount)
                 val payload  = BlobUploadResult(
-                  blob = toSummary(description.listing),
+                  blob = toSummary(listing),
                   freshBlocks = Count.applyUnsafe(result.stats.freshBlocks.toLong),
                   duplicateBlocks = Count.applyUnsafe(result.stats.duplicateBlocks.toLong),
                   durationSeconds = result.stats.durationSeconds,
@@ -158,8 +159,8 @@ final case class HttpApi(
                     body = Body.fromString(payload.toJson),
                   )
                 )
-              case None              =>
-                ZIO.fail(new IllegalStateException("Persisted upload is missing its manifest"))
+              case None       =>
+                ZIO.fail(new IllegalStateException("Persisted upload is missing its manifest summary"))
             }
           }
           .catchAll {
