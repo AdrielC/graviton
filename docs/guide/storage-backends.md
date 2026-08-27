@@ -10,7 +10,7 @@ This page explains how the current `graviton-server` stores bytes for each backe
 
 This means:
 
-- Default `fs` mode stores blocks and framed manifests under the same filesystem root.
+- Default `fs` mode stores blocks and streaming manifests under the same filesystem root.
 - `s3` and `minio` modes store blocks in S3-compatible object storage and manifests in PostgreSQL.
 
 Embedded applications and the CLI use the same `Graviton.fs(root)` composition as default server mode.
@@ -47,7 +47,9 @@ Example:
 
 - `<root>/cas/manifests/<algo>/<hex>-<size>.manifest`
 
-Writes use a temporary file plus atomic replacement. Reads enforce a maximum encoded size and fail closed if the versioned `FramedManifest` payload is corrupt.
+New CAS writes use the versioned `GVM2` format: a fixed header followed by length-delimited block-key, offset, and length records. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, and total-size checks. Writes use a temporary file, force contents, and atomically replace the destination.
+
+Legacy version-1 `FramedManifest` files remain readable. Their materialized decoder retains its 16,384-entry and 64 MiB safety limits. Large `GVM2` manifests remain available to `stat` and `BlobStore.get`; the explicitly materialized `inspect` operation rejects them above 16,384 entries.
 
 ## S3 / MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
@@ -86,7 +88,7 @@ Example:
 
 - **Block bytes** in the chosen block store
 - **Manifest references** in Postgres for the S3/MinIO server paths
-- **Framed manifest files** for `Graviton.fs`, `graviton-cli`, and default server mode
+- **Streaming `GVM2` manifest files**, with legacy framed-manifest reads, for `Graviton.fs`, `graviton-cli`, and default server mode
 - **BlobId** returned from the HTTP API is derived from the blob hash + total byte length
 
 ### Deletion and metadata semantics

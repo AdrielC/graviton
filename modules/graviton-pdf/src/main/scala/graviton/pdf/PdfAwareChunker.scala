@@ -72,6 +72,8 @@ object PdfAwareChunker:
       override val name: String =
         s"pdf-object-${config.targetBytes.value}-${config.maxBytes.value}"
 
+      override val maximumBlockBytes: Int = config.maxBytes.value
+
       override val pipeline: ZPipeline[Any, Chunker.Err, Byte, Block] =
         PdfAwareChunker.pipeline(config)
 

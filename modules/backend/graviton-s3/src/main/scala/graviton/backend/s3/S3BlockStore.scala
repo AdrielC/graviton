@@ -26,6 +26,12 @@ final class S3BlockStore(
 ) extends BlockStore,
       BlockMaintenance:
 
+  override def putBlock(
+    block: CanonicalBlock,
+    plan: BlockWritePlan = BlockWritePlan(),
+  ): IO[Throwable, StoredBlock] =
+    storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
+
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
       .foldLeftZIO(Acc.empty) { (acc, block: CanonicalBlock) =>

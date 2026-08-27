@@ -1,11 +1,14 @@
 package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgKeyValueStore, PgMutableObjectStore, PgReplicaIndex}
+import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
-import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme}
+import graviton.core.manifest.ManifestEntry
+import graviton.core.ranges.Span
+import graviton.core.types.{BlobOffset, FileSize, LocatorBucket, LocatorPath, LocatorScheme}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
-import graviton.runtime.stores.{BlobStore, CasBlobStore, FsBlockStore}
+import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore}
 import graviton.security.*
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
@@ -137,6 +140,41 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             details.listing.stat.size.value == data.length.toLong,
             details.blocks.nonEmpty,
             details.blocks.map(_.size).sum == data.length.toLong,
+          )
+        },
+        test("Postgres streams and replaces manifests above the inspection limit") {
+          val entryCount = BlobManifestRepo.MaxMaterializedEntries + 1
+          val data       = Chunk.fill(entryCount)(1.toByte)
+
+          for
+            store           <- ZIO.service[BlobStore]
+            ds              <- ZIO.service[javax.sql.DataSource]
+            repo             = new PgBlobManifestRepo(ds)
+            oneByte         <- Chunker.locally(Chunker.fixed(UploadChunkSize(1))) {
+                                 ZStream.succeed(1.toByte).run(store.put())
+                               }
+            oneByteManifest <- repo.get(oneByte.key).someOrFail(new NoSuchElementException("one-byte manifest not found"))
+            oneByteBlock     = oneByteManifest.manifest.entries.head.key.asInstanceOf[BinaryKey.Block]
+            original        <- Chunker.locally(Chunker.fixed(UploadChunkSize.applyUnsafe(entryCount))) {
+                                 ZStream.fromChunk(data).run(store.put())
+                               }
+            before          <- repo.getSummary(original.key).someOrFail(new NoSuchElementException("original summary not found"))
+            entries          = ZStream.fromIterable(0 until entryCount).map { index =>
+                                 val offset = BlobOffset.unsafe(index.toLong)
+                                 ManifestEntry(oneByteBlock, Span.unsafe(offset, offset), Map.empty)
+                               }
+            now             <- Clock.instant
+            _               <- repo.putStream(original.key, FileSize.unsafe(entryCount.toLong), entryCount, entries, now)
+            after           <- repo.getSummary(original.key).someOrFail(new NoSuchElementException("updated summary not found"))
+            refs            <- repo.streamBlockRefs(original.key).runCount
+            bytes           <- store.get(original.key).runCount
+            inspect         <- repo.get(original.key).exit
+          yield assertTrue(
+            before.blockCount == 1,
+            after.blockCount == entryCount,
+            refs == entryCount.toLong,
+            bytes == entryCount.toLong,
+            inspect.isFailure,
           )
         },
         test("Postgres manifest deletion removes the logical blob and is idempotent") {

@@ -19,6 +19,12 @@ final class ReplicatedBlockStore private (
 ) extends BlockStore:
   import ReplicatedBlockStore.*
 
+  override def putBlock(
+    block: CanonicalBlock,
+    plan: BlockWritePlan = BlockWritePlan(),
+  ): IO[Throwable, StoredBlock] =
+    writeOne(block, plan).map(status => StoredBlock(block.key, block.size, status))
+
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
       .foldLeftZIO(WriteAcc.empty) { (acc, block: CanonicalBlock) =>
@@ -73,12 +79,12 @@ final class ReplicatedBlockStore private (
   private def writeOne(block: CanonicalBlock, plan: BlockWritePlan): Task[BlockStoredStatus] =
     ZIO
       .foreachPar(replicas) { replica =>
-        ZStream.succeed(block).run(replica.store.putBlocks(plan)).either.map(replica.name -> _)
+        replica.store.putBlock(block, plan).either.map(replica.name -> _)
       }
       .flatMap { results =>
         val successes = results.collect { case (_, Right(result)) => result }
         if successes.length < writeQuorum then ZIO.fail(WriteQuorumFailed(writeQuorum, successes.length, replicas.length))
-        else if successes.exists(_.stored.exists(_.status == BlockStoredStatus.Fresh)) then ZIO.succeed(BlockStoredStatus.Fresh)
+        else if successes.exists(_.status == BlockStoredStatus.Fresh) then ZIO.succeed(BlockStoredStatus.Fresh)
         else ZIO.succeed(BlockStoredStatus.Duplicate)
       }
 
@@ -108,7 +114,7 @@ final class ReplicatedBlockStore private (
   private def repairReplica(replica: Replica, key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =
     for
       block <- ZIO.fromEither(CanonicalBlock.make(key, bytes)).mapError(new IllegalArgumentException(_))
-      _     <- ZStream.succeed(block).run(replica.store.putBlocks()).unit
+      _     <- replica.store.putBlock(block).unit
     yield ()
 
 object ReplicatedBlockStore:

@@ -1,10 +1,10 @@
 # Manifests & Frames
 
-Manifests describe how every blob is assembled inside Graviton. They list the ordered block keys, byte ranges, and derived attributes that the runtime needs to rehydrate a stream without re-reading the original upload. Frames wrap those manifests (and optional block payloads) in a versioned, authenticated binary envelope so different backends can share a single durability format.
+Manifests describe how every blob is assembled inside Graviton. They list ordered block keys and byte ranges so the runtime can rehydrate a stream without re-reading the original upload. Frames are a separate bounded model for block transport and future transforms; the operational filesystem CAS uses `GVM2` streaming manifests and PostgreSQL uses relational manifest rows.
 
 ## Manifest schema
 
-`graviton.runtime.model.BlockManifest` is a thin container over a chunk of `BlockManifestEntry` values plus the aggregate uncompressed size. Each entry captures the canonical block hash, its ordinal position, and where it lands in the contiguous blob space:
+During ingest, `BlockManifestEntry` captures the committed block hash, its ordinal position, and where it lands in the contiguous blob space:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Manifests describe how every blob is assembled inside Graviton. They list the or
 | `key` | `BinaryKey.Block` | Content-addressed key derived from the block payload. |
 | `size` | `BlockSize` | Refined size (max bounded by `MaxBlockBytes`). |
 
-Manifests also carry the merged `BinaryAttributes` map so consumers can see which metadata was advertised by the client and which fields were confirmed by the runtime (`BinaryAttributes.confirm*`). The manifest’s `totalUncompressed` value is recomputed from the entries every time `BlockManifest.build` runs, preventing mismatched attribute sizes from ever reaching disk.
+The runtime keeps these entries in a scoped disk spool until the full blob key is known. It then persists semantic `ManifestEntry` records. Confirmed `BinaryAttributes` are returned by the write operation but are not embedded in the current filesystem or PostgreSQL CAS manifest.
 
 ## Entry invariants and validation
 
@@ -21,9 +21,15 @@ Manifests also carry the merged `BinaryAttributes` map so consumers can see whic
 
 - `index` and `offset` must be non-negative refined types.
 - `size` is validated via `CanonicalBlock.refineBlockSize`, guaranteeing it never exceeds `MaxBlockBytes`.
-- `BlockManifest.build` folds over the entries and ensures the total uncompressed byte count matches the sum of individual sizes.
+- The streaming spool and durable writers enforce consecutive indices, contiguous offsets, exact block-key sizes, the declared entry count, and the declared total size.
 
-Writers are expected to append entries in increasing offset order—`BlockManifest` does not reorder blocks for you. The ingest path maintains a running `Size` counter while chunking so the offsets line up with the deduplicated stream. Readers can therefore treat manifests as trustable truth: once a manifest loads, offsets and chunk counts already satisfy the runtime’s refined constraints.
+Writers append entries in increasing offset order and never reorder blocks. Filesystem readers repeat the structural validation while streaming `GVM2`; PostgreSQL writes validate each 512-entry batch inside a transaction. Materialized inspection is capped at 16,384 entries, while reconstruction streams up to the 1,048,576-entry logical ceiling.
+
+## Operational persistence formats
+
+- Filesystem: `GVM2` magic, total-size and block-count header, then length-delimited key, offset, and length records. Publication uses a forced temporary file and atomic rename. Legacy `FramedManifest` version 1 remains readable.
+- PostgreSQL: one `graviton.blob` summary and ordered `graviton.blob_block` rows. Writes are transactional and batched; reads use a forward cursor with auto-commit disabled so JDBC fetch size is effective.
+- In-memory: a bounded compatibility implementation intended for tests and short-lived applications.
 
 ## Framing pipeline
 
@@ -76,14 +82,14 @@ Together these rules define the current plain-frame compatibility contract. New 
 
 ## Validation and decoding flow
 
-When framing is enabled for a deployment, the intended flow is:
+The implemented frame flow is:
 
 1. Chunk bytes through `BlockStore.putBlocks`, deriving canonical hashes and building `BlockManifestEntry` values.
 2. Run `BlockFramer.synthesizeBlock` for each canonical block where the write plan is supported (plain block-per-frame today).
-3. Persist frames and manifests according to the backend. Attributes are confirmed before the manifest is sealed so readers get the finalized metadata map.
-4. During reads, load the manifest, verify headers/AAD where applicable, and stream blocks via the refs recorded in the manifest.
+3. Persist the frame through a caller-selected frame path. The main CAS block stores persist canonical block bytes directly.
+4. CAS reads stream manifest refs, fetch each bounded block, and verify its declared length and digest before emission.
 
-**Today**, many installs persist **manifest rows and block bytes** via `CasBlobStore` without exercising the full frame decode path above; treat heavy “decode every frame” language as **forward-looking** until read-side framing is documented per backend.
+`CasBlobStore` does not silently enable compression or encryption. Those plans remain unavailable until matching write, read, key-management, and compatibility implementations exist.
 
 Because manifests, frames, and attributes use refined types from `graviton-core`, framer errors surface as `Either[String, _]` rather than thrown exceptions where the API returns `Either`.
 

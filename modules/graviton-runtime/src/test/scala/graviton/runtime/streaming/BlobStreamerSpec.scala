@@ -3,7 +3,7 @@ package graviton.runtime.streaming
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.runtime.model.CanonicalBlock
+import graviton.runtime.model.{BlockWritePlan, CanonicalBlock}
 import graviton.runtime.stores.InMemoryBlockStore
 import zio.*
 import zio.stream.ZStream
@@ -68,5 +68,26 @@ object BlobStreamerSpec extends ZIOSpecDefault:
           s2 == b2.bytes,
           s3 == b3.bytes,
         )
-      }
+      },
+      test("rejects a corrupt block before emitting any of its bytes") {
+        for
+          expected <- canonical("integrity-protected")
+          delegate <- InMemoryBlockStore.make
+          emitted  <- Ref.make(0L)
+          corrupt   = Chunk.fill(expected.bytes.length)('x'.toByte)
+          store     = new graviton.runtime.stores.BlockStore:
+                        override def putBlocks(plan: BlockWritePlan) = delegate.putBlocks(plan)
+                        override def exists(key: BinaryKey.Block)    = ZIO.succeed(true)
+                        override def get(key: BinaryKey.Block)       = ZStream.fromChunk(corrupt)
+          exit     <- BlobStreamer
+                        .streamBlob(ZStream.succeed(BlobStreamer.BlockRef(0L, expected.key)), store)
+                        .tap(_ => emitted.update(_ + 1L))
+                        .runDrain
+                        .exit
+          count    <- emitted.get
+        yield assertTrue(
+          exit.isFailure,
+          count == 0L,
+        )
+      },
     )

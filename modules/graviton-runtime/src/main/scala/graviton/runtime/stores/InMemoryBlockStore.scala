@@ -11,6 +11,12 @@ final class InMemoryBlockStore private (
   state: Ref[Map[BinaryKey.Block, CanonicalBlock]]
 ) extends BlockStore:
 
+  override def putBlock(
+    block: CanonicalBlock,
+    plan: BlockWritePlan = BlockWritePlan(),
+  ): IO[Throwable, StoredBlock] =
+    storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
+
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     val initial = Acc(
       entries = ChunkBuilder.make[BlockManifestEntry](),

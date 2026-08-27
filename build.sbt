@@ -83,11 +83,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// The next 0.4 release adopts ZIO Blocks schema/chunk 0.017 so graviton-pdf can
-// use the published zio-pdf API. Public Graviton APIs remain MiMa-compatible,
-// but the early-semver dependency transition is an intentional minor boundary
-// documented in docs/guide/migration-0.4.md.
-ThisBuild / versionPolicyIntention := Compatibility.None
+// v0.4.0 documented the ZIO Blocks dependency boundary. Development after that
+// release is binary-compatible unless a future 0.x minor migration guide
+// explicitly declares another boundary.
+ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(

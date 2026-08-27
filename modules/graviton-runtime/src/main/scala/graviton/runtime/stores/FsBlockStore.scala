@@ -27,6 +27,12 @@ final class FsBlockStore(
 ) extends BlockStore
     with BlockMaintenance:
 
+  override def putBlock(
+    block: CanonicalBlock,
+    plan: BlockWritePlan = BlockWritePlan(),
+  ): IO[Throwable, StoredBlock] =
+    storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
+
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
       .foldLeftZIO(FsBlockStore.Acc.empty) { (acc, block: CanonicalBlock) =>
