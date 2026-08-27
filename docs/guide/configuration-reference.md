@@ -76,6 +76,18 @@ S3/MinIO mode uses PostgreSQL for manifest metadata via `PgDataSource.layerFromE
 psql -U postgres -d graviton -f modules/pg/ddl.sql
 ```
 
+### Repository maintenance coordination
+
+Built-in blob operations hold shared permits for their complete stream lifetime. Garbage collection holds the exclusive form across the complete run. Filesystem mode uses `<GRAVITON_FS_ROOT>/cas/.maintenance.lock`; S3/MinIO mode uses PostgreSQL session advisory locks.
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_MAINTENANCE_NAMESPACE` | `graviton` | no | Refined non-empty repository lock namespace. Every process sharing one manifest and block repository must use the same value. |
+| `GRAVITON_MAINTENANCE_ACQUISITION_TIMEOUT` | `30s` | no | Maximum time to wait for a shared permit or exclusive lease. Must be positive. |
+| `GRAVITON_MAINTENANCE_POLL_INTERVAL` | `100ms` | no | Interruptible backend lock retry interval. Must be positive and no greater than the acquisition timeout. |
+
+The namespace separates repositories that share one PostgreSQL database. Filesystem coordination is rooted by the normalized repository path, so separate roots never share a lock even if they use the same namespace.
+
 ### Block backend selection
 
 | Name | Default | Required | Meaning |
@@ -210,6 +222,9 @@ This is produced on upload by `HttpApi` from the `BinaryKey.Blob`:
 - **Filesystem manifest layout**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FsBlobManifestRepo.scala`
 - **Filesystem block layout**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FsBlockStore.scala`
 - **S3 block layout**: `modules/backend/graviton-s3/src/main/scala/graviton/backend/s3/S3BlockStore.scala`
+- **Maintenance configuration**: `modules/graviton-runtime/src/main/scala/graviton/runtime/config/MaintenanceConfig.scala`
+- **Filesystem coordination**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FileMaintenanceCoordinator.scala`
+- **PostgreSQL coordination**: `modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgMaintenanceCoordinator.scala`
 - **Metrics endpoint**: `modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/MetricsHttpApi.scala`
 
 ## Common misconfigurations (symptoms → fix)

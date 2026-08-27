@@ -51,6 +51,7 @@ final class Graviton private (
   val blockStore: BlockStore,
   val manifests: BlobManifestRepo,
   val chunker: Chunker,
+  val maintenance: MaintenanceCoordinator,
 ):
 
   /** Ingest a file from the local filesystem. */
@@ -127,13 +128,14 @@ object Graviton:
     chunkSize: Int = 1024 * 1024,
     metrics: MetricsRegistry = MetricsRegistry.noop,
   ): ZIO[Any, Nothing, Graviton] =
-    ZIO.succeed {
-      val manifestRepo = new FsBlobManifestRepo(root)
-      val blockStore   = new FsBlockStore(root)
-      val blobStore    = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
-      val chunker      = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
-      new Graviton(blobStore, blockStore, manifestRepo, chunker)
-    }
+    for
+      maintenance <- FileMaintenanceCoordinator.make(root).orDie
+      manifestRepo = new FsBlobManifestRepo(root)
+      blockStore   = new FsBlockStore(root)
+      rawStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      blobStore    = new CoordinatedBlobStore(rawStore, maintenance)
+      chunker      = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
+    yield new Graviton(blobStore, blockStore, manifestRepo, chunker, maintenance)
 
   /**
    * Create an in-memory Graviton instance (useful for tests).
@@ -145,9 +147,11 @@ object Graviton:
     for
       blockStore   <- InMemoryBlockStore.make
       manifestRepo <- makeInlineManifestRepo
-      blobStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      maintenance  <- MaintenanceCoordinator.inProcess().orDie
+      rawStore      = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      blobStore     = new CoordinatedBlobStore(rawStore, maintenance)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
-    yield new Graviton(blobStore, blockStore, manifestRepo, chunker)
+    yield new Graviton(blobStore, blockStore, manifestRepo, chunker, maintenance)
 
   private def makeInlineManifestRepo: UIO[BlobManifestRepo] =
     zio.Ref.make(Map.empty[BinaryKey.Blob, stores.StoredManifest]).map { ref =>

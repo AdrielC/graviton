@@ -209,6 +209,7 @@ export default withMermaid(defineConfig({
           { text: 'ADR: Content Identity & GC', link: '/adr/0001-content-identity-deletion-and-gc' },
           { text: 'ADR: Compatibility & Releases', link: '/adr/0002-compatibility-and-releases' },
           { text: 'ADR: Deployment Profiles', link: '/adr/0003-deployment-profiles' },
+          { text: 'ADR: Maintenance Coordination', link: '/adr/0004-maintenance-coordination' },
           { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
           { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
           { text: 'Quasar metadata envelope v1.1 (Draft)', link: '/design/quasar-metadata-envelope-v1.1' },

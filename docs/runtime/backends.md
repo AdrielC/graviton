@@ -16,14 +16,15 @@ Graviton keeps storage contracts in `graviton-runtime` and vendor code in backen
 - `FsBlockStore`, which writes blocks below `cas/blocks/<algorithm>/...`
 - `FsBlobManifestRepo`, which writes bounded, versioned streaming `GVM2` manifests below `cas/manifests/<algorithm>/...` and retains read compatibility with legacy `FramedManifest` files
 - `CasBlobStore`, which streams ingestion, retrieval, metadata, verification, and manifest deletion
+- `FileMaintenanceCoordinator`, which holds shared or exclusive locks at `cas/.maintenance.lock`
 
-Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/verify-local-lifecycle.sh` to exercise that behavior through separate CLI JVMs.
+`Graviton.fs(root)` wraps the CAS with `CoordinatedBlobStore`. The shared permit spans the complete upload or download stream, and exclusive maintenance waits for all active operations to finish. JVM-local instances share one refcounted operating-system lock, while independent processes coordinate through the lock file. Manifest writes use a temporary file and atomic move where the filesystem supports it. A fresh `Graviton.fs(root)` instance can retrieve blobs written by an earlier process. Run `./scripts/verify-local-lifecycle.sh` to exercise that behavior through separate CLI JVMs.
 
 Deleting a blob removes its manifest. Shared content-addressed blocks remain available for other manifests. Garbage collection is a separate two-pass lifecycle with minimum-age filtering, dry-run, reversible quarantine, restore, and delayed purge. It streams the filesystem walk and manifest headers, spills an exact mark join to temporary disk, and keeps only one bounded digest partition in heap. The CLI exposes preview and quarantine for filesystem stores; S3 exposes the maintenance API but not an operator CLI yet.
 
 ## PostgreSQL manifests
 
-`PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. Its maintenance inventory uses a fetch-sized cursor, so it can feed the same streamed garbage-collection join without loading all manifests. The server combines it with `S3BlockStore` for the S3/MinIO deployment path. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
+`PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. Its maintenance inventory uses a fetch-sized cursor, so it can feed the same streamed garbage-collection join without loading all manifests. The server combines it with `S3BlockStore` and `PgMaintenanceCoordinator` for the S3/MinIO deployment path. Ordinary operations use a shared PostgreSQL session advisory lock and maintenance uses the exclusive form under one refined repository namespace. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
 
 `PgImmutableObjectStore` and `PgMutableObjectStore` stream objects through ordered rows capped at 1 MiB. Writes, replacement, copy, and cleanup are transactional. `PgKeyValueStore`, `PgReplicaIndex`, and `PgRangeTracker` use the same schema and propagate database failures rather than silently degrading to empty state.
 

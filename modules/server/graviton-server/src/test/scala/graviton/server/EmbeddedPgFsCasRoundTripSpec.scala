@@ -1,11 +1,12 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgKeyValueStore, PgMutableObjectStore, PgReplicaIndex}
+import graviton.backend.pg.{PgBlobManifestRepo, PgKeyValueStore, PgMaintenanceCoordinator, PgMutableObjectStore, PgReplicaIndex}
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.manifest.ManifestEntry
 import graviton.core.ranges.Span
-import graviton.core.types.{BlobOffset, FileSize, LocatorBucket, LocatorPath, LocatorScheme}
+import graviton.core.types.{BlobOffset, FileSize, LocatorBucket, LocatorPath, LocatorScheme, RepositoryNamespace}
+import graviton.runtime.config.MaintenanceConfig
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
 import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore}
@@ -266,6 +267,61 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
                       .exit
             head <- store.head(locator)
           yield assertTrue(exit.isFailure, head.isEmpty)
+        },
+        test("PostgreSQL advisory locks coordinate independent server instances") {
+          val config = MaintenanceConfig(
+            namespace = RepositoryNamespace.applyUnsafe("embedded-pg-shared"),
+            acquisitionTimeout = 2.seconds,
+            pollInterval = 50.millis,
+          )
+
+          for
+            ds                 <- ZIO.service[javax.sql.DataSource]
+            first              <- PgMaintenanceCoordinator.make(ds, config)
+            second             <- PgMaintenanceCoordinator.make(ds, config)
+            operationEntered   <- Promise.make[Nothing, Unit]
+            releaseOperation   <- Promise.make[Nothing, Unit]
+            maintenanceEntered <- Promise.make[Nothing, Unit]
+            operation          <- ZIO
+                                    .scoped(first.operationPermit *> operationEntered.succeed(()) *> releaseOperation.await)
+                                    .fork
+            _                  <- operationEntered.await
+            concurrentShared   <- second.withOperation(ZIO.succeed(true))
+            maintenance        <- ZIO
+                                    .scoped(second.maintenanceLease *> maintenanceEntered.succeed(()))
+                                    .fork
+            _                  <- ZIO.yieldNow.repeatN(20)
+            enteredBeforeEnd   <- maintenanceEntered.isDone
+            _                  <- releaseOperation.succeed(())
+            _                  <- operation.join
+            _                  <- TestClock.adjust(100.millis)
+            _                  <- maintenance.join
+          yield assertTrue(concurrentShared, !enteredBeforeEnd)
+        },
+        test("interrupting PostgreSQL lock acquisition closes the waiting lease") {
+          val config = MaintenanceConfig(
+            namespace = RepositoryNamespace.applyUnsafe("embedded-pg-interrupt"),
+            acquisitionTimeout = 2.seconds,
+            pollInterval = 50.millis,
+          )
+
+          for
+            ds               <- ZIO.service[javax.sql.DataSource]
+            holder           <- PgMaintenanceCoordinator.make(ds, config)
+            waiter           <- PgMaintenanceCoordinator.make(ds, config)
+            operationEntered <- Promise.make[Nothing, Unit]
+            releaseOperation <- Promise.make[Nothing, Unit]
+            operation        <- ZIO
+                                  .scoped(holder.operationPermit *> operationEntered.succeed(()) *> releaseOperation.await)
+                                  .fork
+            _                <- operationEntered.await
+            waiting          <- ZIO.scoped(waiter.maintenanceLease).fork
+            _                <- ZIO.yieldNow.repeatN(20)
+            interrupted      <- waiting.interrupt
+            _                <- releaseOperation.succeed(())
+            _                <- operation.join
+            reacquired       <- waiter.withMaintenance(ZIO.succeed(true))
+          yield assertTrue(interrupted.isInterrupted, reacquired)
         },
         test("JDBC audit sink persists one linear chain under concurrent writes") {
           val orgId       = UUID.fromString("00000000-0000-0000-0000-000000000101")

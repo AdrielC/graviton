@@ -12,19 +12,31 @@ import zio.stream.ZStream
  * or quarantine receipts in heap. It spills bounded key records to a temporary
  * workspace, partitions them by digest, and performs an exact join. Before a
  * mutation it re-marks the persisted candidate file, so a manifest committed
- * between preview and quarantine protects its blocks. Minimum age remains
- * necessary because a write can still commit after that second mark.
+ * between preview and quarantine protects its blocks. Production wiring also
+ * holds an exclusive repository maintenance lease across the full run, while
+ * minimum age and the second mark remain defense-in-depth controls.
  */
 final class GarbageCollector(
   manifests: BlobManifestRepo,
   blocks: BlockMaintenance,
   config: GarbageCollectionConfig = GarbageCollectionConfig.Default,
+  coordinator: MaintenanceCoordinator = MaintenanceCoordinator.uncoordinated,
 ) extends GarbageCollection:
   import GarbageCollector.*
 
-  /** Binary-compatible constructor retained for v0.5.0 callers. */
+  /**
+   * Binary-compatible constructors retained for v0.5.0 callers. They do not
+   * coordinate with concurrent writers; production code should supply a
+   * backend-wide [[MaintenanceCoordinator]].
+   */
   def this(manifests: BlobManifestRepo, blocks: BlockMaintenance) =
-    this(manifests, blocks, GarbageCollectionConfig.Default)
+    this(manifests, blocks, GarbageCollectionConfig.Default, MaintenanceCoordinator.uncoordinated)
+
+  def this(
+    manifests: BlobManifestRepo,
+    blocks: BlockMaintenance,
+    config: GarbageCollectionConfig,
+  ) = this(manifests, blocks, config, MaintenanceCoordinator.uncoordinated)
 
   /**
    * Run repository-scale collection with a streaming receipt sink.
@@ -83,8 +95,10 @@ final class GarbageCollector(
 
   /** Restore a durable quarantine receipt without first collecting it. */
   override def restore(quarantined: ZStream[Any, Throwable, QuarantinedBlock]): Task[Long] =
-    quarantined.runFoldZIO(0L) { (count, block) =>
-      blocks.restore(block).as(java.lang.Math.addExact(count, 1L))
+    coordinator.withMaintenance {
+      quarantined.runFoldZIO(0L) { (count, block) =>
+        blocks.restore(block).as(java.lang.Math.addExact(count, 1L))
+      }
     }
 
   def purge(quarantined: Chunk[QuarantinedBlock], minimumQuarantineAge: Duration): Task[Int] =
@@ -95,18 +109,29 @@ final class GarbageCollector(
     quarantined: ZStream[Any, Throwable, QuarantinedBlock],
     minimumQuarantineAge: Duration,
   ): Task[Long] =
-    ZIO
-      .fail(new IllegalArgumentException("minimumQuarantineAge must be non-negative"))
-      .when(minimumQuarantineAge < Duration.Zero) *>
-      Clock.instant.flatMap { now =>
-        val oldestEligible = now.minusMillis(minimumQuarantineAge.toMillis)
-        quarantined.runFoldZIO(0L) { (count, block) =>
-          if block.quarantinedAt.isAfter(oldestEligible) then ZIO.succeed(count)
-          else blocks.purge(block).as(java.lang.Math.addExact(count, 1L))
+    coordinator.withMaintenance {
+      ZIO
+        .fail(new IllegalArgumentException("minimumQuarantineAge must be non-negative"))
+        .when(minimumQuarantineAge < Duration.Zero) *>
+        Clock.instant.flatMap { now =>
+          val oldestEligible = now.minusMillis(minimumQuarantineAge.toMillis)
+          quarantined.runFoldZIO(0L) { (count, block) =>
+            if block.quarantinedAt.isAfter(oldestEligible) then ZIO.succeed(count)
+            else blocks.purge(block).as(java.lang.Math.addExact(count, 1L))
+          }
         }
-      }
+    }
 
   private def run(
+    minimumAge: Duration,
+    dryRun: Boolean,
+    compatibility: Option[CompatibilityLimits],
+  )(
+    onQuarantined: QuarantinedBlock => Task[Unit]
+  ): Task[RunResult] =
+    coordinator.withMaintenance(runUnlocked(minimumAge, dryRun, compatibility)(onQuarantined))
+
+  private def runUnlocked(
     minimumAge: Duration,
     dryRun: Boolean,
     compatibility: Option[CompatibilityLimits],

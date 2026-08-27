@@ -12,6 +12,7 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - Operational S3 content-addressed and generic object adapters with bounded multipart buffering, retry-safe publication, and explicit multipart abort finalizers
 - Durable RocksDB typed key-value adapter with close-and-reopen persistence coverage
 - Filesystem CAS with fsync, atomic publication, restart-safe manifests, conservative garbage collection, quarantine, and restore
+- Backend-wide shared/exclusive maintenance coordination for complete blob-operation stream lifetimes and garbage collection, implemented with filesystem locks and PostgreSQL advisory locks
 - RS256 OIDC/JWKS verification, capability authorization, trusted-proxy TLS policy, exact CORS origins, request and byte limits, gRPC interceptors, and hash-chained audit events
 - Clean external-consumer resolution for every published module plus a JAR-content gate that rejects empty or unsupported-operation artifacts
 - Packaged JAR smoke proof, non-root container, Kubernetes and on-prem examples, backup/restore tooling, SPDX SBOM, checksums, attestations, and signed Maven Central publication
@@ -44,6 +45,7 @@ These items depend on the deployment and cannot be completed once for every user
 
 ### Operations
 
+- Add a coordinated backup snapshot command that quiesces built-in writers while manifest and block snapshots are established
 - Publish benchmark envelopes after multiple controlled environments produce retained raw samples
 - Add dashboards and backend-specific latency distributions
 - Add signed migration sequencing beyond the initial schema ledger

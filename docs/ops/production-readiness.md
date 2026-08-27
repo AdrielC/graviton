@@ -7,8 +7,8 @@ Graviton 0.5 is a production candidate for controlled embedded and single-node f
 | Area | Implemented and tested | Deployment boundary |
 | --- | --- | --- |
 | Embedded runtime | In-memory and filesystem CAS, bounded-queue ingest, incremental manifests, verified streaming reads, deduplication, inspect, verify, and delete | Application owns lifecycle, capacity, backup, and access control |
-| Filesystem server | Fsync, atomic publication, readiness, versioned HTTP, auth policy, audit, backup and restore drill, exact streamed reversible GC | One writer process per data root; use `Recreate`, not rolling replicas |
-| S3 plus PostgreSQL | Real MinIO/PostgreSQL CI, backend readiness, retries, replica index, S3 quarantine/restore API | Qualify provider semantics, migrations, concurrent processes, backup, and rollback |
+| Filesystem server | Fsync, atomic publication, readiness, versioned HTTP, auth policy, audit, backup and restore drill, exact streamed reversible GC, and cross-process file-lock coordination | Every process must use the built-in coordinator against the same data root; qualify shared-volume lock semantics before overlapping replicas |
+| S3 plus PostgreSQL | Real MinIO/PostgreSQL CI, backend readiness, retries, replica index, S3 quarantine/restore API, and PostgreSQL advisory-lock coordination | Use one maintenance namespace per repository; qualify provider semantics, migrations, concurrent processes, backup, and rollback |
 | Replication | Parallel writes, configurable quorum, validating fallback reads, repair, and health | Library primitive; automatic scheduling and placement policy are not mounted in `Main` |
 | HTTP v1 | Upload, inventory, pagination, metadata, verify, GET, HEAD, ranges, preconditions, and delete | Multipart and resumable sessions are not implemented |
 | Scala SDK | Typed streaming upload/download plus list, metadata, verify, ranges, and delete; logical 1 TiB contract and real 32 MiB socket round trip | Physically qualify target object sizes, timeouts, and memory under production concurrency |
@@ -45,15 +45,15 @@ The direct S3 blob adapter uses adaptive multipart targets that begin at 5 MiB a
 
 ### Embedded
 
-Use `Graviton.inMemory` for ephemeral tests and `Graviton.fs` for a durable application-owned store. Do not share one filesystem root between uncoordinated writer processes.
+Use `Graviton.inMemory` for ephemeral tests and `Graviton.fs` for a durable application-owned store. `Graviton.fs` coordinates complete blob operations and maintenance through a lock file inside the repository. Do not mix it with raw, uncoordinated store construction against the same root.
 
 ### Single-node filesystem service
 
-Use one process, one writable volume, backend readiness probes, and a `Recreate` rollout. Stop writes or snapshot the volume atomically before backup. Run the restore drill on every backup class. Preview garbage collection before quarantine and retain quarantine long enough to restore errors.
+Use one writable volume, backend readiness probes, and a conservative `Recreate` rollout. The built-in server and CLI coordinate through `<root>/cas/.maintenance.lock`; every process must use the same root and a filesystem whose file locks work across its clients. Stop writes or snapshot the volume atomically before backup. Run the restore drill on every backup class. Preview garbage collection before quarantine and retain quarantine long enough to restore errors.
 
 ### Shared S3 plus PostgreSQL
 
-Use provider-native object durability, an existing bucket, PostgreSQL migrations, encrypted connections, least-privilege credentials, and coordinated backups. The repository proves real adapter integration, not a particular provider service level. Run concurrent upload, rolling restart, credential rotation, database failover, and object-store outage tests before declaring the deployment highly available.
+Use provider-native object durability, an existing bucket, PostgreSQL migrations, encrypted connections, least-privilege credentials, and coordinated backups. Configure the same `GRAVITON_MAINTENANCE_NAMESPACE` in every process that reaches the repository. Shared blob operations and exclusive maintenance use PostgreSQL session advisory locks. Drain traffic or retry if sustained activity from another process makes exclusive acquisition time out. The repository proves real adapter integration, not a particular provider service level. Run concurrent upload, rolling restart, credential rotation, database failover, and object-store outage tests before declaring the deployment highly available.
 
 ## Security acceptance
 
@@ -86,4 +86,4 @@ A `v*` tag validates the build, runs the packaged smoke, proves external consump
 
 ## Remaining product work
 
-The main product gaps are resumable HTTP uploads, automatic replica scheduling, long-duration fault injection, and a qualified multi-process upgrade story. RocksDB is deliberately scoped as a durable key-value module rather than advertised as a blob backend. These boundaries are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.
+The main product gaps are resumable HTTP uploads, automatic replica scheduling, coordinated backup snapshots, long-duration fault injection, and a qualified multi-process upgrade story. RocksDB is deliberately scoped as a durable key-value module rather than advertised as a blob backend. These boundaries are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.
