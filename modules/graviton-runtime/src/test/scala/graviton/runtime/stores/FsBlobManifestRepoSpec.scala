@@ -145,11 +145,13 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
                          }
             _         <- repo.putStream(blob, FileSize.unsafe(entryCount.toLong), entryCount, entries, now)
             summary   <- repo.getSummary(blob).someOrFail(new NoSuchElementException("manifest missing"))
+            summaries <- repo.streamSummaries.runCollect
             refs      <- repo.streamBlockRefs(blob).runCount
             inspect   <- repo.get(blob).exit
           yield assertTrue(
             summary.totalSize.value == entryCount.toLong,
             summary.blockCount == entryCount,
+            summaries.map(_._2.blockCount).contains(entryCount),
             refs == entryCount.toLong,
             inspect.isFailure,
           )

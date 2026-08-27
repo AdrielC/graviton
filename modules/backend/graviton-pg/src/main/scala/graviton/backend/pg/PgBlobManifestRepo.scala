@@ -299,6 +299,28 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       finally conn.close()
     }
 
+  /**
+   * Cursor-backed repository inventory for maintenance workflows. The result is
+   * intentionally not globally sorted: a database sort over the whole catalog
+   * would force PostgreSQL to materialize repository-scale state merely to make
+   * a display API prettier.
+   */
+  override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
+    val sql =
+      """
+        |SELECT alg, hash_bytes, byte_length, block_count, created_at
+        |FROM graviton.blob
+        |""".stripMargin
+
+    ZStream.acquireReleaseWith(openSummaryCursor(sql))(closeCursor).flatMap { cursor =>
+      ZStream.unfoldZIO(cursor) { current =>
+        ZIO.attemptBlocking(current.rs.next()).flatMap { hasNext =>
+          if !hasNext then ZIO.succeed(None)
+          else readSummary(current.rs).map(summary => Some(summary -> current))
+        }
+      }
+    }
+
   override def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
     ZIO
       .fromEither(toDbAlg(blob.bits.algo))
@@ -398,6 +420,27 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         }
       }
 
+  private def openSummaryCursor(sql: String): Task[Cursor] =
+    ZIO.attemptBlocking {
+      val conn = ds.getConnection()
+      try
+        conn.setReadOnly(true)
+        conn.setAutoCommit(false)
+        val ps = conn.prepareStatement(sql)
+        try
+          ps.setFetchSize(256)
+          val rs = ps.executeQuery()
+          Cursor(conn, ps, rs)
+        catch
+          case error: Throwable =>
+            ps.close()
+            throw error
+      catch
+        case error: Throwable =>
+          conn.close()
+          throw error
+    }
+
   private def closeCursor(cursor: Cursor): UIO[Unit] =
     ZIO.attemptBlocking {
       try cursor.rs.close()
@@ -421,6 +464,29 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       bits        <- ZIO.fromEither(KeyBits.create(blockAlg, digest, blockLen)).mapError(msg => new IllegalArgumentException(msg))
       key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
     yield BlobStreamer.BlockRef(ordinal, key)
+
+  private def readSummary(rs: ResultSet): Task[(BinaryKey.Blob, StoredManifestSummary)] =
+    for
+      algorithmText <- ZIO.attempt(rs.getString(1))
+      digestBytes   <- ZIO.attempt(rs.getBytes(2))
+      byteLength    <- ZIO.attempt(rs.getLong(3))
+      blockCount    <- ZIO.attempt(rs.getInt(4))
+      createdAt     <- ZIO.attempt(Option(rs.getTimestamp(5)).map(_.toInstant).getOrElse(Instant.EPOCH))
+      algorithm     <- ZIO
+                         .fromOption(parseDbAlg(algorithmText))
+                         .mapError(_ => new IllegalArgumentException(s"Unsupported hash algorithm '$algorithmText'"))
+      digest        <- ZIO.fromEither(Digest.fromBytes(digestBytes)).mapError(message => new IllegalArgumentException(message))
+      size          <- ZIO.fromEither(FileSize.either(byteLength)).mapError(message => new IllegalArgumentException(message))
+      bits          <- ZIO.fromEither(KeyBits.create(algorithm, digest, size.value)).mapError(message => new IllegalArgumentException(message))
+      blob          <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(message => new IllegalArgumentException(message))
+      _             <- ZIO
+                         .fail(
+                           new IllegalArgumentException(
+                             s"Manifest block count $blockCount is outside 1..${BlobManifestRepo.MaxEntries}"
+                           )
+                         )
+                         .unless(blockCount >= 1 && blockCount <= BlobManifestRepo.MaxEntries)
+    yield blob -> StoredManifestSummary(size, blockCount, createdAt)
 
   private def upsertBlobSummary(
     conn: Connection,

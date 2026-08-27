@@ -49,7 +49,7 @@ GRAVITON_DATABASE_URL=postgresql://.../graviton_restore ./scripts/migrate-postgr
 
 ## Filesystem garbage collection
 
-Logical deletion removes a manifest and leaves shared blocks in place. The filesystem CLI uses a two-pass mark, minimum object age, and reversible quarantine.
+Logical deletion removes a manifest and leaves shared blocks in place. The filesystem CLI uses a two-pass mark, minimum object age, and reversible quarantine. Each run streams manifest summaries and block inventory once into an exact temporary-disk join. The second mark streams manifests again and checks only the candidate spool before moving a block. Heap use is bounded by the configured digest partition, not by blob or block count.
 
 Preview candidates:
 
@@ -65,7 +65,9 @@ GRAVITON_DATA_DIR=/var/lib/graviton \
   ./sbt --error "cli/run gc --apply --min-age-hours 168"
 ```
 
-The library also exposes restore and delayed-purge APIs. The CLI intentionally does not purge immediately. Preserve the printed quarantine tokens in an operator change record.
+The library exposes the narrow `GarbageCollection` ZIO service rather than coupling an application to filesystem, PostgreSQL, or S3 classes. Its `sweep` operation delivers each `QuarantinedBlock` to a caller-provided effect as it is moved, and its restore and purge APIs consume receipt streams. The callback is compensation-safe: if recording a receipt fails, Graviton restores that just-quarantined block before returning the failure. The old `GarbageCollector.collect` convenience method is intentionally capped for small compatibility receipts and rejects a repository-scale result before mutation.
+
+The CLI intentionally does not purge immediately. Preserve the tokens it prints during `gc --apply` in an operator change record. Ensure the process has temporary-disk capacity for the reference, inventory, and candidate spools. `GarbageCollectionConfig.workspaceDirectory` can place that workspace on an operator-selected volume; otherwise it uses the process temporary directory and removes its child workspace on completion or interruption. The CLI loads this through ZIO Config as `GRAVITON_GC_WORKSPACE_DIRECTORY`; `GRAVITON_GC_MAX_REFERENCES_PER_PARTITION` controls the exact-mark heap bound (default `8192`). Minimum age and the second mark reduce concurrent-ingest risk, but they are not a substitute for stopping writes or acquiring a backend-wide maintenance lease when an atomic cross-store snapshot is required.
 
 ## S3 quarantine
 

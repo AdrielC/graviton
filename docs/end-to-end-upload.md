@@ -38,7 +38,7 @@ flowchart LR
 5. **Manifest staging** – one entry per stored block is appended to a scoped disk spool. Heap state remains scalar while the blob digest and total size are computed.
 6. **Manifest commit** – after successful EOF and any expected-size check, the spool is replayed into the filesystem or PostgreSQL `BlobManifestRepo` in bounded writes. Only then is the blob manifest published and `BlobWriteResult` returned.
 
-If an upload fails after blocks have been persisted, no manifest is committed, but those unreferenced blocks can remain until orphan cleanup. Repository-scale streaming garbage collection is tracked as a production gap in the [ZIO Blocks audit](./design/zio-blocks-audit.md).
+If an upload fails after blocks have been persisted, no manifest is committed, but those unreferenced blocks can remain until orphan cleanup. The collector now streams manifest summaries and block inventory into an exact, temporary disk-backed mark join. It does not load a repository-wide block set or inventory `Chunk` into heap. It re-marks the persisted candidate file immediately before quarantine, but a deployment that needs a fully atomic cross-store view must still stop writers or provide a storage-level maintenance lease.
 
 ## Transducer boundary
 

@@ -113,7 +113,7 @@ There is no released module, class, or format named `BIF`. The real abstractions
 
 | Priority | Gap | Required shape |
 | --- | --- | --- |
-| P0 | Garbage collection and backend inventory materialize repository-wide sets and chunks; interrupted or underflowed uploads can leave unreferenced blocks before manifest publication | Cursor/page ports pushed into each backend, plus a durable mark set or sorted streaming merge for GC and orphan cleanup. |
+| P1 | Built-in filesystem and PostgreSQL manifest inventory plus filesystem/S3 block inventory now feed an exact disk-spilled GC join, but there is no global cross-store write epoch. Legacy third-party `streamSummaries` implementations can still choose the compatibility materialization fallback. Interrupted or underflowed uploads can leave unreferenced blocks until the next sweep. | Add a backend-wide maintenance lease or snapshot protocol, require cursor-backed summary streams from third-party production adapters, and operationally size the temporary workspace. |
 | P0 | Per-blob inspection loads the full manifest and copies every block reference into HTTP/gRPC response models | `streamBlockRefs` or cursor/page inspection with a refined page limit. Keep full-manifest materialization out of server control paths. |
 | P0 | Blob metadata, including media type, is not durably persisted | Versioned bounded `BlobMetadataV1` with schema ID, codec version, canonical media type, chunker identity, and migration tests. |
 | P1 | `BlockStore.putBlocks` accumulates a complete batch result | Streaming acknowledgements or an Iron-refined maximum batch size. |
@@ -126,8 +126,8 @@ There is no released module, class, or format named `BIF`. The real abstractions
 
 ## Recommended next increments
 
-1. Build backend-pushed cursor pagination and streaming GC. Prove first-page latency and fixed-heap behavior on a million-reference fixture.
-2. Add `BlobMetadataV1` and persist it in filesystem and PostgreSQL manifests. Return the canonical media type from stat, HTTP, and gRPC.
+1. Add `BlobMetadataV1` and persist it in filesystem and PostgreSQL manifests. Return the canonical media type from stat, HTTP, and gRPC.
+2. Build backend-pushed cursor pagination for HTTP/gRPC list and inspect, then prove first-page latency and fixed-heap behavior on a million-reference fixture.
 3. Replace schema-agnostic dynamic JSON with a bounded schema descriptor plus migration registry.
 4. Pilot `zio-blocks-sql` in a separate metadata-index module. Generate parameterized JSONB fragments from validated dynamic optics and test them against live PostgreSQL.
 5. Revisit direct Iron schema derivation only after an official release containing the external opaque-wrapper fix. Remove the wire workaround only when JVM and Scala.js regression vectors pass.

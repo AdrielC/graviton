@@ -17,10 +17,14 @@ Deleting a blob removes its manifest. It does not synchronously delete blocks be
 5. permits restore during a retention window
 6. purges only through an explicit later operation
 
+The implementation streams backend inventories and manifest references into a temporary, exact disk-spilled join. It holds only one bounded digest partition in heap and rechecks the persisted candidate set against a fresh mark before quarantine. A receipt sink is invoked for each move; a receipt failure triggers a compensating restore for that block.
+
 ## Consequences
 
 - retries naturally converge on the same content identity
 - deduplication remains safe across logical blobs
 - logical deletion is fast but physical capacity is recovered later
 - operators must treat quarantine retention and purge as separate change controls
+- temporary workspace capacity is an explicit maintenance prerequisite
+- a minimum age and second mark are conservative concurrency controls, not a global cross-store snapshot or write lease
 - legal erasure requirements need an explicit retention and encryption design beyond manifest deletion
