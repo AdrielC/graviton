@@ -3,7 +3,7 @@ package graviton.cli
 import graviton.core.bytes.*
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.types.*
-import graviton.runtime.config.{GarbageCollectionConfig, GravitonConfig}
+import graviton.runtime.config.{GarbageCollectionConfig, GravitonConfig, MaintenanceConfig}
 import graviton.runtime.stores.*
 import graviton.streams.Chunker
 import zio.*
@@ -155,35 +155,41 @@ object GravitonCli extends ZIOAppDefault:
     val applyChanges = args.contains("--apply")
     val ageHours     = args.sliding(2).collectFirst { case List("--min-age-hours", raw) => raw.toLongOption }.flatten.getOrElse(24L)
     for
-      _         <- ZIO.fail(new IllegalArgumentException("--min-age-hours must be non-negative")).when(ageHours < 0L)
-      root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
-      blockStore = new FsBlockStore(root)
-      repo       = new FsBlobManifestRepo(root)
-      report    <- GarbageCollection
-                     .sweep(ageHours.hours, dryRun = !applyChanges) { block =>
-                       Console.printLine(s"  ${block.key.bits.render}\t${block.token}")
-                     }
-                     .provide(
-                       (ZLayer.succeed[BlobManifestRepo](repo) ++
-                         ZLayer.succeed[BlockMaintenance](blockStore) ++
-                         ZLayer.succeed[GarbageCollectionConfig](gcConfig)) >>>
-                         GarbageCollection.live
-                     )
-      _         <- Console.printLine(
-                     s"GC ${if report.dryRun then "DRY-RUN" else "QUARANTINED"}: " +
-                       s"scanned=${report.scannedBlocks} references=${report.referencedBlockRefs} " +
-                       s"candidates=${report.candidateBlocks} bytes=${report.candidateBytes} " +
-                       s"quarantined=${report.quarantinedBlocks}"
-                   )
+      _                 <- ZIO.fail(new IllegalArgumentException("--min-age-hours must be non-negative")).when(ageHours < 0L)
+      root              <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
+      maintenanceConfig <- ZIO.config(MaintenanceConfig.config)
+      coordinator       <- FileMaintenanceCoordinator.make(root, maintenanceConfig)
+      blockStore         = new FsBlockStore(root)
+      repo               = new FsBlobManifestRepo(root)
+      report            <- GarbageCollection
+                             .sweep(ageHours.hours, dryRun = !applyChanges) { block =>
+                               Console.printLine(s"  ${block.key.bits.render}\t${block.token}")
+                             }
+                             .provide(
+                               (ZLayer.succeed[BlobManifestRepo](repo) ++
+                                 ZLayer.succeed[BlockMaintenance](blockStore) ++
+                                 ZLayer.succeed[MaintenanceCoordinator](coordinator) ++
+                                 ZLayer.succeed[GarbageCollectionConfig](gcConfig)) >>>
+                                 GarbageCollection.live
+                             )
+      _                 <- Console.printLine(
+                             s"GC ${if report.dryRun then "DRY-RUN" else "QUARANTINED"}: " +
+                               s"scanned=${report.scannedBlocks} references=${report.referencedBlockRefs} " +
+                               s"candidates=${report.candidateBlocks} bytes=${report.candidateBytes} " +
+                               s"quarantined=${report.quarantinedBlocks}"
+                           )
     yield ()
 
   private def makeStore(cfg: GravitonConfig): ZIO[Any, Any, BlobStore] =
     for
-      root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
-      _         <- ZIO.attemptBlocking(Files.createDirectories(root))
-      blockStore = new FsBlockStore(root)
-      repo       = new FsBlobManifestRepo(root)
-      blobStore  = new CasBlobStore(blockStore, repo)
+      root              <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
+      _                 <- ZIO.attemptBlocking(Files.createDirectories(root))
+      maintenanceConfig <- ZIO.config(MaintenanceConfig.config)
+      coordinator       <- FileMaintenanceCoordinator.make(root, maintenanceConfig)
+      blockStore         = new FsBlockStore(root)
+      repo               = new FsBlobManifestRepo(root)
+      rawStore           = new CasBlobStore(blockStore, repo)
+      blobStore          = new CoordinatedBlobStore(rawStore, coordinator)
     yield blobStore
 
   private def parseBlobKey(value: String): ZIO[Any, Any, BinaryKey.Blob] =
@@ -232,5 +238,8 @@ object GravitonCli extends ZIOAppDefault:
         |  GRAVITON_CHUNK_SIZE    Block size in bytes (default: 1048576)
         |  GRAVITON_GC_MAX_REFERENCES_PER_PARTITION  GC heap bound per exact-mark partition (default: 8192)
         |  GRAVITON_GC_WORKSPACE_DIRECTORY           Optional parent directory for temporary GC spools
+        |  GRAVITON_MAINTENANCE_NAMESPACE            Shared repository lock namespace (default: graviton)
+        |  GRAVITON_MAINTENANCE_ACQUISITION_TIMEOUT  Lock acquisition timeout (default: 30s)
+        |  GRAVITON_MAINTENANCE_POLL_INTERVAL        Lock retry interval (default: 100ms)
         |""".stripMargin
     )

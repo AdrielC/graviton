@@ -54,11 +54,21 @@ A minimal KV port used for internal indexes/configurable metadata storage.
 
 See `graviton.runtime.kv.KeyValueStore`.
 
+## `MaintenanceCoordinator`
+
+This port coordinates ordinary blob work with destructive repository maintenance across independent manifest and block stores.
+
+- `operationPermit` is shared and scoped across the complete sink or stream lifetime.
+- `maintenanceLease` is exclusive and scoped across the complete maintenance run.
+- `healthCheck` verifies that the coordination backend can be reached.
+
+`CoordinatedBlobStore` decorates any `BlobStore` and applies the shared permit to uploads, downloads, metadata, inventory, inspection, and deletion. `GarbageCollection.live` requires the same coordinator explicitly. Filesystem and PostgreSQL implementations provide cross-process coordination; the in-process implementation is for embedded memory stores and deterministic tests.
+
 ## Reference implementations
 
 - **In-memory block store**: `InMemoryBlockStore` in `graviton.runtime.stores` (main sources) with a `layer` helper.
 - **Test-only blob store**: `InMemoryBlobStore` lives under **`src/test`** — useful in tests, not part of the published main API.
-- **App-friendly in-memory stack**: `Graviton.inMemory()` builds `CasBlobStore` over `InMemoryBlockStore` with an inline manifest repo.
+- **App-friendly in-memory stack**: `Graviton.inMemory()` builds a coordinated `CasBlobStore` over `InMemoryBlockStore` with an inline manifest repo.
 - **Backend adapters**: PostgreSQL object/KV/replica stores, S3 object/CAS stores, and RocksDB KV under `modules/backend/*`
 
 For a current inventory and status notes, see **[Storage backends](./backends.md)**.

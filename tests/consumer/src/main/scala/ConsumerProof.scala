@@ -1,5 +1,5 @@
 import ai.hylo.graviton.client.GravitonClient
-import graviton.backend.pg.PgMutableObjectStore
+import graviton.backend.pg.{PgMaintenanceCoordinator, PgMutableObjectStore}
 import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
 import graviton.core.attributes.BinaryAttributes
@@ -34,6 +34,7 @@ object ConsumerProof extends ZIOAppDefault:
       written  <- ZStream.fromChunk(payload).run(graviton.blobStore.put())
       restored <- BoundedByteStream.collectInMemory(graviton.blobStore.get(written.key))
       _        <- ZIO.fail(new IllegalStateException("published artifact did not round-trip bytes")).unless(restored == payload)
+      _        <- graviton.maintenance.withMaintenance(ZIO.unit)
       pdf      <- PdfIngest.put(graviton.blobStore, PdfMime.mimeType, ZStream.fromChunk(pdfPayload).rechunk(7))
       restoredPdf <- BoundedByteStream.collectInMemory(graviton.blobStore.get(pdf.key))
       _        <- ZIO
@@ -50,11 +51,13 @@ object ConsumerProof extends ZIOAppDefault:
       health    = HealthResponse("ok", "external-consumer", 0L)
       _        <- ZIO.fail(new IllegalStateException("backend modules did not resolve")).unless(
                     classOf[PgMutableObjectStore].getName.nonEmpty &&
+                      classOf[PgMaintenanceCoordinator].getName.nonEmpty &&
                       classOf[RocksKeyValueStore].getName.nonEmpty &&
                       S3BlobStore.PartSize.Default.value >= 5 * 1024 * 1024
                   )
       _        <- Console.printLine(
                     s"external-consumer-proof key=${protoKey.value} bytes=${restored.length} pdf=${pdf.key.bits.render}:${restoredPdf.length} " +
-                      s"media=${mediaType.fullType} max=$maxSize kv=${kvKey.value}:${kvValue.length} token-bytes=${token.value.length} health=${health.status}"
+                      s"media=${mediaType.fullType} max=$maxSize kv=${kvKey.value}:${kvValue.length} token-bytes=${token.value.length} " +
+                      s"maintenance=ok health=${health.status}"
                   )
     yield ()

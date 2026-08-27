@@ -1,12 +1,21 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
+import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
 import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
-import graviton.runtime.config.GravitonConfig
+import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
-import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore, FsBlobManifestRepo, FsBlockStore}
+import graviton.runtime.stores.{
+  BlobManifestRepo,
+  BlobStore,
+  BlockStore,
+  CasBlobStore,
+  FileMaintenanceCoordinator,
+  FsBlobManifestRepo,
+  FsBlockStore,
+  MaintenanceCoordinator,
+}
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
 import graviton.security.*
@@ -26,6 +35,7 @@ object Main extends ZIOAppDefault:
   override def run: ZIO[Any, Any, Any] =
     for
       cfg                                          <- ZIO.config(GravitonConfig.config)
+      maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- logSecurityPosture(sec)
@@ -183,7 +193,7 @@ object Main extends ZIOAppDefault:
 
       _ <- program.provide(
              Server.defaultWith(_.port(port).enableRequestStreaming),
-             blobLayer(cfg),
+             blobLayer(cfg, maintenance),
              auditLayer,
              capabilityLayer(sec),
              ZLayer.succeed(sec) >>> RateLimiter.live,
@@ -191,21 +201,26 @@ object Main extends ZIOAppDefault:
            )
     yield ()
 
-  private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
+  private[server] def blobLayer(
+    cfg: GravitonConfig,
+    maintenance: MaintenanceConfig,
+  ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
         case "s3" | "minio" =>
-          ZLayer.make[BlockStore & BlobManifestRepo](
+          ZLayer.make[BlockStore & BlobManifestRepo & MaintenanceCoordinator](
             PgDataSource.layerFromEnv,
             PgBlobManifestRepo.layer,
+            PgMaintenanceCoordinator.layer(maintenance),
             S3BlockStore.layerFromEnv,
           )
         case "fs"           =>
           val root   = Path.of(cfg.fs.root)
           val prefix = cfg.fs.blockPrefix
-          ZLayer.make[BlockStore & BlobManifestRepo](
+          ZLayer.make[BlockStore & BlobManifestRepo & MaintenanceCoordinator](
             ZLayer.succeed[BlockStore](new FsBlockStore(root, prefix)),
             ZLayer.succeed[BlobManifestRepo](new FsBlobManifestRepo(root)),
+            FileMaintenanceCoordinator.layer(root, maintenance),
           )
         case other          =>
           ZLayer.fail(
@@ -214,7 +229,11 @@ object Main extends ZIOAppDefault:
             )
           )
 
-    (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.layerWithMetrics
+    (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+
+  /** Compatibility entrypoint for embedded tests and callers using defaults. */
+  private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
+    blobLayer(cfg, MaintenanceConfig.Default)
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
     ZIO

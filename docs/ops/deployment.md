@@ -23,7 +23,7 @@ export GRAVITON_FS_BLOCK_PREFIX=cas/blocks
 java -jar modules/server/graviton-server/target/scala-3.8.2/graviton-server-*.jar
 ```
 
-Run only one writer process per filesystem root. Give the process access only to that root and a temporary directory. Use `Recreate` during upgrades, not overlapping replicas.
+The built-in server, CLI, and `Graviton.fs` facade coordinate complete blob operations and exclusive maintenance through `<root>/cas/.maintenance.lock`. Every process must use the same root, and the underlying filesystem must provide working cross-client file-lock semantics. Raw `CasBlobStore` construction bypasses that protection. Keep `Recreate` as the default upgrade policy until the target shared volume has passed overlapping-process and rollback tests.
 
 ## Container
 
@@ -78,11 +78,12 @@ export PG_PASSWORD='use-a-secret-source'
 export GRAVITON_S3_BLOCK_BUCKET=graviton-blocks
 export GRAVITON_S3_BLOCK_PREFIX=cas/blocks
 export GRAVITON_S3_REGION=us-east-1
+export GRAVITON_MAINTENANCE_NAMESPACE=production-cas
 
 java -jar graviton-server.jar
 ```
 
-With no `QUASAR_MINIO_URL`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md).
+With no `QUASAR_MINIO_URL`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
 
 ## Production OIDC
 

@@ -58,22 +58,32 @@ object GarbageCollection:
     ZIO.serviceWithZIO[GarbageCollection](_.purge(quarantined, minimumQuarantineAge))
 
   /**
-   * Production layer. The configuration dependency is a value service so
-   * applications can choose the ZIO Config layer, a deployment-specific
-   * layer, or a deterministic test value independently of storage adapters.
+   * Production layer. The explicit coordinator must match the blob-store
+   * coordinator for the same manifest and block stores. Configuration remains
+   * an independent value service so applications can use ZIO Config or a
+   * deterministic test value without coupling it to storage adapters.
    */
   val live: ZLayer[
-    BlobManifestRepo & BlockMaintenance & GarbageCollectionConfig,
+    BlobManifestRepo & BlockMaintenance & GarbageCollectionConfig & MaintenanceCoordinator,
     IllegalArgumentException,
     GarbageCollection,
   ] =
     ZLayer.fromZIO(ZIO.service[GarbageCollectionConfig].flatMap(make))
 
-  /** Deterministic default wiring for embedded tools and simple local use. */
+  /** Deterministic fiber-safe wiring for embedded tools and simple local use. */
   val default: URLayer[BlobManifestRepo & BlockMaintenance, GarbageCollection] =
-    ZLayer.fromFunction((manifests: BlobManifestRepo, blocks: BlockMaintenance) =>
-      new GarbageCollector(manifests, blocks, GarbageCollectionConfig.Default): GarbageCollection
-    )
+    ZLayer.fromZIO {
+      for
+        manifests   <- ZIO.service[BlobManifestRepo]
+        blocks      <- ZIO.service[BlockMaintenance]
+        coordinator <- MaintenanceCoordinator.inProcess().orDie
+      yield new GarbageCollector(
+        manifests,
+        blocks,
+        GarbageCollectionConfig.Default,
+        coordinator,
+      ): GarbageCollection
+    }
 
   /**
    * Build the service with one explicit configuration value. This is useful in
@@ -83,13 +93,21 @@ object GarbageCollection:
   def configured(
     config: GarbageCollectionConfig
   ): ZLayer[BlobManifestRepo & BlockMaintenance, IllegalArgumentException, GarbageCollection] =
-    ZLayer.fromZIO(make(config))
+    ZLayer.fromZIO {
+      for
+        manifests   <- ZIO.service[BlobManifestRepo]
+        blocks      <- ZIO.service[BlockMaintenance]
+        coordinator <- MaintenanceCoordinator.inProcess()
+        valid       <- ZIO.fromEither(config.validate).mapError(new IllegalArgumentException(_))
+      yield new GarbageCollector(manifests, blocks, valid, coordinator): GarbageCollection
+    }
 
   private def make(
     config: GarbageCollectionConfig
-  ): ZIO[BlobManifestRepo & BlockMaintenance, IllegalArgumentException, GarbageCollection] =
+  ): ZIO[BlobManifestRepo & BlockMaintenance & MaintenanceCoordinator, IllegalArgumentException, GarbageCollection] =
     for
-      manifests <- ZIO.service[BlobManifestRepo]
-      blocks    <- ZIO.service[BlockMaintenance]
-      valid     <- ZIO.fromEither(config.validate).mapError(new IllegalArgumentException(_))
-    yield new GarbageCollector(manifests, blocks, valid): GarbageCollection
+      manifests   <- ZIO.service[BlobManifestRepo]
+      blocks      <- ZIO.service[BlockMaintenance]
+      coordinator <- ZIO.service[MaintenanceCoordinator]
+      valid       <- ZIO.fromEither(config.validate).mapError(new IllegalArgumentException(_))
+    yield new GarbageCollector(manifests, blocks, valid, coordinator): GarbageCollection

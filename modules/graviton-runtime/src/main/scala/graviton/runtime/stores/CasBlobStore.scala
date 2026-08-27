@@ -441,3 +441,24 @@ object CasBlobStore:
 
   val layerWithMetrics: ZLayer[BlockStore & BlobManifestRepo & MetricsRegistry, Nothing, BlobStore] =
     ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, reg: MetricsRegistry) => new CasBlobStore(bs, repo, metrics = reg))
+
+  /**
+   * Production composition that coordinates complete blob operations with
+   * repository maintenance. The permit remains held while an upload sink
+   * consumes input or a download stream emits output.
+   */
+  val coordinatedLayer: ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator, Nothing, BlobStore] =
+    ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, coordinator: MaintenanceCoordinator) =>
+      new CoordinatedBlobStore(new CasBlobStore(bs, repo), coordinator): BlobStore
+    )
+
+  /** Coordinated production composition with an explicit metrics registry. */
+  val coordinatedLayerWithMetrics: ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator & MetricsRegistry, Nothing, BlobStore] =
+    ZLayer.fromFunction(
+      (
+        bs: BlockStore,
+        repo: BlobManifestRepo,
+        coordinator: MaintenanceCoordinator,
+        reg: MetricsRegistry,
+      ) => new CoordinatedBlobStore(new CasBlobStore(bs, repo, metrics = reg), coordinator): BlobStore
+    )

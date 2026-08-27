@@ -5,7 +5,7 @@ import graviton.core.bytes.{Digest, HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.types.FileSize
 import graviton.runtime.config.GarbageCollectionConfig
-import graviton.runtime.model.CanonicalBlock
+import graviton.runtime.model.{BlockWritePlan, CanonicalBlock, StoredBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.ZStream
@@ -118,6 +118,45 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
         observed == 0,
       )
     },
+    test("exclusive maintenance cannot observe blocks before their manifest commits") {
+      withTempDir { root =>
+        for
+          coordinator      <- FileMaintenanceCoordinator.make(root)
+          persisted        <- Promise.make[Nothing, Unit]
+          releaseCommit    <- Promise.make[Nothing, Unit]
+          inventoryTouched <- Promise.make[Nothing, Unit]
+          underlying        = new FsBlockStore(root)
+          blocks            = new CommitBlockingBlockStore(underlying, persisted, releaseCommit)
+          maintenance       = new InventorySignallingMaintenance(underlying, inventoryTouched)
+          manifests         = new FsBlobManifestRepo(root)
+          rawStore          = new CasBlobStore(blocks, manifests)
+          store             = new CoordinatedBlobStore(rawStore, coordinator)
+          collector         = new GarbageCollector(
+                                manifests,
+                                maintenance,
+                                GarbageCollectionConfig.Default,
+                                coordinator,
+                              )
+          upload           <- ZStream
+                                .fromIterable("manifest-commit-atomicity".getBytes(StandardCharsets.UTF_8))
+                                .run(store.put())
+                                .fork
+          _                <- persisted.await
+          sweep            <- collector.sweep(Duration.Zero, dryRun = false)().fork
+          _                <- ZIO.yieldNow.repeatN(20)
+          observedTooSoon  <- inventoryTouched.isDone
+          _                <- releaseCommit.succeed(())
+          written          <- upload.join
+          report           <- sweep.join
+          present          <- store.stat(written.key)
+        yield assertTrue(
+          !observedTooSoon,
+          report.candidateBlocks == 0L,
+          report.quarantinedBlocks == 0L,
+          present.nonEmpty,
+        )
+      }
+    },
     test("restores a block when writing the streaming quarantine receipt fails") {
       withTempDir { root =>
         for
@@ -175,11 +214,13 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
                          quarantines,
                        )
         manifests    = new StreamingOnlyManifestRepo(ZStream.empty, _ => ZStream.empty)
+        coordinator <- MaintenanceCoordinator.inProcess()
         report      <- GarbageCollection
                          .sweep(Duration.Zero, dryRun = true)
                          .provide(
                            (ZLayer.succeed[BlobManifestRepo](manifests) ++
                              ZLayer.succeed[BlockMaintenance](maintenance) ++
+                             ZLayer.succeed[MaintenanceCoordinator](coordinator) ++
                              ZLayer.succeed[GarbageCollectionConfig](GarbageCollectionConfig(maxReferencesPerPartition = 4))) >>>
                              GarbageCollection.live
                          )
@@ -259,6 +300,29 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
     override def restore(block: QuarantinedBlock): Task[Unit] = ZIO.unit
 
     override def purge(block: QuarantinedBlock): Task[Unit] = ZIO.unit
+
+  private final class CommitBlockingBlockStore(
+    delegate: BlockStore,
+    persisted: Promise[Nothing, Unit],
+    releaseCommit: Promise[Nothing, Unit],
+  ) extends BlockStore:
+    override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+      delegate.putBlock(block, plan).flatMap(stored => persisted.succeed(()) *> releaseCommit.await.as(stored))
+
+    override def putBlocks(plan: BlockWritePlan): BlockSink               = delegate.putBlocks(plan)
+    override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] = delegate.get(key)
+    override def exists(key: BinaryKey.Block): Task[Boolean]              = delegate.exists(key)
+    override def healthCheck: Task[Unit]                                  = delegate.healthCheck
+
+  private final class InventorySignallingMaintenance(
+    delegate: BlockMaintenance,
+    inventoryTouched: Promise[Nothing, Unit],
+  ) extends BlockMaintenance:
+    override val inventory: ZStream[Any, Throwable, BlockInventoryEntry]        =
+      ZStream.fromZIO(inventoryTouched.succeed(())).drain ++ delegate.inventory
+    override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] = delegate.quarantine(entry)
+    override def restore(block: QuarantinedBlock): Task[Unit]                   = delegate.restore(block)
+    override def purge(block: QuarantinedBlock): Task[Unit]                     = delegate.purge(block)
 
   private def canonical(value: String): Task[CanonicalBlock] =
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))

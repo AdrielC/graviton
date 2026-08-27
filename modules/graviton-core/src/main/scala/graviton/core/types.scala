@@ -378,6 +378,17 @@ object types:
   object Identifier extends RefinedTypeExt[String, IdentifierConstraint]
 
   /**
+   * Stable repository coordination namespace.
+   *
+   * Every writer, reader, and maintenance process that can touch the same
+   * manifest and block stores must use the same value. Keeping this distinct
+   * from a raw `String` prevents accidental lock-domain drift at configuration
+   * and backend boundaries.
+   */
+  type RepositoryNamespace = RepositoryNamespace.T
+  object RepositoryNamespace extends RefinedTypeExt[String, IdentifierConstraint]
+
+  /**
    * Custom binary attribute name.
    *
    * This is the validated form of the old `BinaryAttributes.customKeyPattern`.

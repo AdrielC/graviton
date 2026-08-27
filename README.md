@@ -6,12 +6,13 @@
 
 Graviton is a typed, streaming content-addressable storage runtime for Scala 3 and ZIO. It chunks blobs into bounded blocks, derives cryptographic content keys, deduplicates writes, persists versioned manifests, and streams bytes back through pluggable storage ports.
 
-This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
+This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage and backend-wide operation/maintenance coordination, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
 
 | Capability | Status | Executable evidence |
 | --- | --- | --- |
 | In-memory CAS | Operational | Round-trip, property, deduplication, stat, and delete suites |
 | Filesystem blocks and manifests | Operational | Fsync, atomic publication, restart-safe round trips, health checks, and reversible GC tests |
+| Cross-store maintenance atomicity | Operational in built-in compositions | Full-operation shared permits, exclusive GC leases, filesystem locks, PostgreSQL advisory locks, interruption cleanup, and an upload-versus-GC race proof |
 | CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
 | Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
 | PDF-aware ingest | Operational | Typed `application/pdf` routing, signature validation, incremental zio-pdf object scanning, bounded fallback, filesystem-CAS probe, and external-consumer proof |
@@ -97,17 +98,22 @@ object Example extends ZIOAppDefault:
 
 ```text
 BlobStore
-└── CasBlobStore
-    ├── Chunker                fixed, FastCDC, delimiter, or PDF-aware
-    ├── BlockStore
-    │   ├── InMemoryBlockStore
-    │   ├── FsBlockStore
-    │   ├── S3BlockStore
-    │   └── ReplicatedBlockStore
-    └── BlobManifestRepo
-        ├── in-memory reference implementation
-        ├── FsBlobManifestRepo
-        └── PgBlobManifestRepo
+└── CoordinatedBlobStore
+    ├── MaintenanceCoordinator
+    │   ├── in-process writer-preferring gate
+    │   ├── filesystem shared/exclusive lock
+    │   └── PostgreSQL shared/exclusive advisory lock
+    └── CasBlobStore
+        ├── Chunker                fixed, FastCDC, delimiter, or PDF-aware
+        ├── BlockStore
+        │   ├── InMemoryBlockStore
+        │   ├── FsBlockStore
+        │   ├── S3BlockStore
+        │   └── ReplicatedBlockStore
+        └── BlobManifestRepo
+            ├── in-memory reference implementation
+            ├── FsBlobManifestRepo
+            └── PgBlobManifestRepo
 ```
 
 The build keeps pure content types in `graviton-core`, stream transformations in `graviton-streams`, effectful ports in `graviton-runtime`, protocol adapters under `modules/protocol`, and deployment wiring in `graviton-server`.
@@ -139,7 +145,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-The highest-value remaining work is resumable HTTP upload contracts, automated replica maintenance, long-duration failure injection, and target-environment multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The highest-value remaining work is resumable HTTP upload contracts, automated replica maintenance, coordinated backup snapshots, long-duration failure injection, and target-environment multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 
