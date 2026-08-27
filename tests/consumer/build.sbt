@@ -1,4 +1,4 @@
-ThisBuild / scalaVersion := "3.8.2"
+ThisBuild / scalaVersion := "3.8.4"
 
 lazy val gravitonVersion = sys.props.getOrElse(
   "graviton.version",
@@ -51,6 +51,7 @@ lazy val root = project
       "io.github.adrielc" %% "graviton-shared" % gravitonVersion,
       "io.github.adrielc" %% "graviton-runtime" % gravitonVersion,
       "io.github.adrielc" %% "graviton-pdf" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-shardcake" % gravitonVersion,
       "io.github.adrielc" %% "graviton-proto" % gravitonVersion,
       "io.github.adrielc" %% "graviton-security" % gravitonVersion,
       "io.github.adrielc" %% "graviton-grpc" % gravitonVersion,

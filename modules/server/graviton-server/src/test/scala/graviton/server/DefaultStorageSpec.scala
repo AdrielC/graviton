@@ -4,6 +4,7 @@ import graviton.core.keys.BinaryKey
 import graviton.runtime.config.GravitonConfig
 import graviton.runtime.metrics.InMemoryMetricsRegistry
 import graviton.runtime.stores.BlobStore
+import graviton.integration.shardcake.ShardcakeUploadConfig
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -28,7 +29,24 @@ object DefaultStorageSpec extends ZIOSpecDefault:
             restored == data,
           )
         }
-      }
+      },
+      test("rejects Shardcake locality with a node-local filesystem backend") {
+        for exit <- Main.validateShardcakeTopology(GravitonConfig(), ShardcakeUploadConfig.Default.copy(enabled = true)).exit
+        yield assertTrue(
+          exit.causeOption
+            .flatMap(_.failureOption)
+            .exists(_.isInstanceOf[Main.ConfigurationError.ShardcakeRequiresSharedStorage])
+        )
+      },
+      test("accepts Shardcake locality with the shared S3 and PostgreSQL composition") {
+        for result <- Main
+                        .validateShardcakeTopology(
+                          GravitonConfig(blobBackend = "s3"),
+                          ShardcakeUploadConfig.Default.copy(enabled = true),
+                        )
+                        .exit
+        yield assertTrue(result.isSuccess)
+      },
     )
 
   private def ingest(cfg: GravitonConfig, data: Chunk[Byte]): Task[BinaryKey.Blob] =

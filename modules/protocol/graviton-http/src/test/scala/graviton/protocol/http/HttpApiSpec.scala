@@ -1,6 +1,7 @@
 package graviton.protocol.http
 
 import graviton.runtime.Graviton
+import graviton.runtime.upload.*
 import graviton.shared.ApiModels.*
 import zio.*
 import zio.http.*
@@ -13,6 +14,53 @@ object HttpApiSpec extends ZIOSpecDefault:
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("HttpApi")(
+      test("typed tenant and session headers opt into one locality-aware upload") {
+        val tenant  = TenantId.applyUnsafe("9f2f172c-8e6b-4aef-8be8-4c750420d971")
+        val session = UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c")
+        val node    = UploadNode.fromEndpoints(
+          UploadNodeHost.applyUnsafe("node-a"),
+          UploadNodePort.applyUnsafe(54321),
+          UploadNodePort.applyUnsafe(54322),
+        )
+        val headers = Headers(
+          Header.Custom("X-Graviton-Tenant-Id", tenant.value),
+          Header.Custom("X-Graviton-Upload-Session-Id", session.value),
+        )
+
+        for
+          graviton <- Graviton.inMemory(chunkSize = 64)
+          calls    <- Ref.make(0)
+          localized = new LocalityAwareUpload:
+                        override def upload(
+                          key: UploadSessionKey,
+                          intent: UploadIntent,
+                          bytes: zio.stream.ZStream[Any, Throwable, Byte],
+                        ): IO[LocalityAwareUpload.Error, LocalizedUploadResult] =
+                          calls.update(_ + 1) *>
+                            bytes
+                              .run(graviton.blobStore.put())
+                              .map(result => LocalizedUploadResult(result.key, result.stats, node))
+                              .mapError(cause => LocalityAwareUpload.Error.LocalIngest(UploadNodeIngest.Error.StorageFailure(cause)))
+          api       = HttpApi(graviton.blobStore, localizedUpload = Some(localized))
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("localized"), headers)
+          count    <- calls.get
+        yield assertTrue(response.status == Status.Created, count == 1)
+      },
+      test("locality headers fail explicitly when the server has no locality runtime") {
+        val headers = Headers(
+          Header.Custom(UploadHttpHeaders.TenantId, "9f2f172c-8e6b-4aef-8be8-4c750420d971"),
+          Header.Custom(UploadHttpHeaders.UploadSession, "ab573594-abaa-44fa-867a-8c733bf87f6c"),
+        )
+
+        for
+          api      <- makeApi
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("not silently downgraded"), headers)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.ServiceUnavailable,
+          body.contains("locality_unavailable"),
+        )
+      },
       test("POST, GET, and HEAD expose a round-trippable immutable blob") {
         val text = "http round trip"
         for

@@ -41,7 +41,7 @@ export GRAVITON_S3_REGION="us-east-1"
 | Path | Meaning | Notes |
 | --- | --- | --- |
 | `GET /api/health/live` | liveness | Always available when the process is up |
-| `GET /api/health/ready` | backend readiness | Checks the configured block and manifest stores |
+| `GET /api/health/ready` | backend readiness | Checks the configured block and manifest stores; with Shardcake enabled, also requires the local upload node to own at least one shard |
 | `GET /metrics` | Prometheus scrape | Exposes `text/plain; version=0.0.4` (metric names are evolving) |
 | `POST /api/v1/blobs` | upload | Uses the selected storage composition |
 | `GET /api/v1/blobs/:id` | download | Supports ranges and conditional requests |
@@ -173,6 +173,53 @@ docker run --rm --network host minio/mc \
   mb local/"$GRAVITON_S3_BLOCK_BUCKET"
 ```
 
+## Shardcake upload locality
+
+Shardcake is disabled by default. Enable it only when every node uses the same S3-compatible block repository, PostgreSQL manifest database, maintenance namespace, and Shardcake placement database. Filesystem CAS roots are not a shared multi-node topology.
+
+Node configuration:
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_SHARDCAKE_ENABLED` | `false` | no | Mount session-locality routing and the internal streamed owner endpoint. |
+| `GRAVITON_SHARDCAKE_HOST` | `localhost` | when enabled | DNS name or IP reachable by the manager and peer nodes. |
+| `GRAVITON_SHARDCAKE_CONTROL_PORT` | `54321` | no | Authenticated Shardcake gRPC control port. |
+| `GRAVITON_SHARDCAKE_UPLOAD_PORT` | `54322` | no | Authenticated direct streaming data-plane port. Must differ from the control port. |
+| `GRAVITON_SHARDCAKE_MANAGER_URI` | `http://localhost:8080/api/graphql` | no | Absolute manager GraphQL endpoint. |
+| `GRAVITON_SHARDCAKE_NUMBER_OF_SHARDS` | `1024` | no | Stable shard count, from 16 through 65536. Keep it identical across manager and nodes. |
+| `GRAVITON_SHARDCAKE_SERVER_VERSION` | `development` | no | Node compatibility label, 1 through 64 characters. |
+| `GRAVITON_SHARDCAKE_ENTITY_MAX_IDLE_TIME` | `5m` | no | Idle lifetime for session entities. |
+| `GRAVITON_SHARDCAKE_ENTITY_TERMINATION_TIMEOUT` | `10s` | no | Grace period for entity termination. |
+| `GRAVITON_SHARDCAKE_SEND_TIMEOUT` | `10s` | no | Bounded control-message timeout. It does not retry upload bytes. |
+| `GRAVITON_SHARDCAKE_REFRESH_ASSIGNMENTS_RETRY_INTERVAL` | `5s` | no | Assignment refresh retry interval. |
+| `GRAVITON_SHARDCAKE_UNHEALTHY_POD_REPORT_INTERVAL` | `5s` | no | Failed-pod report interval. |
+| `GRAVITON_SHARDCAKE_HOT_MAX_SESSIONS` | `4096` | no | Maximum reconstructable hot-state entries on one node. |
+| `GRAVITON_SHARDCAKE_INTERNAL_TOKEN` | none | yes when enabled | Iron-refined 32 to 256 character internal bearer token. |
+
+Placement storage:
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_SHARDCAKE_POSTGRES_JDBC_URL` | none | yes | JDBC URL for the Shardcake assignment database. |
+| `GRAVITON_SHARDCAKE_POSTGRES_USERNAME` | none | yes | Database user with access to the two Shardcake tables. |
+| `GRAVITON_SHARDCAKE_POSTGRES_PASSWORD` | none | yes | Database password. |
+| `GRAVITON_SHARDCAKE_STORAGE_POLL_INTERVAL` | `1s` | no | Cross-process assignment observation interval, from 100 ms through 1 minute. |
+
+Manager configuration:
+
+| Name | Default | Meaning |
+| --- | --- | --- |
+| `GRAVITON_SHARDCAKE_MANAGER_API_PORT` | `8080` | Authenticated manager HTTP port. |
+| `GRAVITON_SHARDCAKE_MANAGER_REBALANCE_INTERVAL` | `20s` | Normal rebalance cadence. |
+| `GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RETRY_INTERVAL` | `10s` | Failed rebalance retry cadence. |
+| `GRAVITON_SHARDCAKE_MANAGER_PING_TIMEOUT` | `3s` | Node health ping timeout. |
+| `GRAVITON_SHARDCAKE_MANAGER_PERSIST_RETRY_INTERVAL` | `3s` | Durable-state retry interval. |
+| `GRAVITON_SHARDCAKE_MANAGER_PERSIST_RETRY_COUNT` | `100` | Maximum persistence retries. |
+| `GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RATE` | `0.02` | Fraction of shards moved per rebalance, greater than zero and at most one. |
+| `GRAVITON_SHARDCAKE_MANAGER_POD_HEALTH_CHECK_INTERVAL` | `1m` | Registered-node health cadence. |
+
+Apply `modules/pg/ddl.sql` before starting the manager. It creates `graviton.shardcake_assignment` and `graviton.shardcake_pod`. The manager holds a PostgreSQL session lease for its complete process lifetime, so a second manager fails at startup instead of competing.
+
 ## Security
 
 Security is disabled by default. When enabled, issuer and audience are required. Configure an HTTPS JWKS URI for production RS256 verification, or a development shared secret only for local proof.
@@ -226,6 +273,7 @@ This is produced on upload by `HttpApi` from the `BinaryKey.Blob`:
 - **Filesystem coordination**: `modules/graviton-runtime/src/main/scala/graviton/runtime/stores/FileMaintenanceCoordinator.scala`
 - **PostgreSQL coordination**: `modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgMaintenanceCoordinator.scala`
 - **Metrics endpoint**: `modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/MetricsHttpApi.scala`
+- **Shardcake node and manager configuration**: `modules/integration/graviton-shardcake/src/main/scala/graviton/integration/shardcake/`
 
 ## Common misconfigurations (symptoms → fix)
 

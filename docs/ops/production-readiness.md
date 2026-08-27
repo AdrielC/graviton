@@ -11,6 +11,7 @@ Graviton 0.5 is a production candidate for controlled embedded and single-node f
 | S3 plus PostgreSQL | Real MinIO/PostgreSQL CI, backend readiness, retries, replica index, S3 quarantine/restore API, and PostgreSQL advisory-lock coordination | Use one maintenance namespace per repository; qualify provider semantics, migrations, concurrent processes, backup, and rollback |
 | Replication | Parallel writes, configurable quorum, validating fallback reads, repair, and health | Library primitive; automatic scheduling and placement policy are not mounted in `Main` |
 | HTTP v1 | Upload, inventory, pagination, metadata, verify, GET, HEAD, ranges, preconditions, and delete | Multipart and resumable sessions are not implemented |
+| Upload locality | Shardcake 2.8.1 session ownership, direct one-shot owner streaming, bounded hot state, durable PostgreSQL placement, authenticated internode control, and node-drain reassignment | Opt-in; target clusters still require workload and rolling-upgrade qualification |
 | Scala SDK | Typed streaming upload/download plus list, metadata, verify, ranges, and delete; logical 1 TiB contract and real 32 MiB socket round trip | Physically qualify target object sizes, timeouts, and memory under production concurrency |
 | Security | RS256 OIDC/JWKS, issuer/audience checks, capabilities, rate and size controls, exact origins, trusted proxy policy, audit chain | Operator must configure and test the real IdP, ingress, TLS, proxy trust, and retention |
 | Packaging | Fat JAR, distroless non-root image, Kubernetes example, SBOM, checksums, attestations, and Maven Central publication | Release secrets and target repositories remain operator-owned |
@@ -76,7 +77,7 @@ Those properties do not replace environment tests. Each deployment still needs a
 
 ## Observability
 
-`/api/health/live` proves the process is alive. `/api/health/ready` checks the active storage composition with a timeout. `/api/stats` and `/metrics` expose process-local counters plus HTTP request, error, and latency observations. When security is enabled, stats and metrics require `observability.read`.
+`/api/health/live` proves the process is alive. `/api/health/ready` checks the active storage composition with a timeout and, when upload locality is enabled, fails until the local node owns a Shardcake assignment. `/api/stats` and `/metrics` expose process-local counters plus HTTP request, error, and latency observations. When security is enabled, stats and metrics require `observability.read`.
 
 Treat these as operational signals, not a capacity guarantee. Alerts and service levels must be derived from the target workload and retained measurements.
 

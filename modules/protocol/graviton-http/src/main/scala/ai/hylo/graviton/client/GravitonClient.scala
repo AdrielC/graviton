@@ -3,6 +3,7 @@ package ai.hylo.graviton.client
 import graviton.shared.ApiModels.*
 import graviton.shared.{ApiJson, ApiJsonCodec, MediaTypeText}
 import graviton.streams.BoundedByteStream
+import graviton.runtime.upload.{UploadHttpHeaders, UploadSessionKey}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import zio.*
@@ -24,6 +25,16 @@ final class GravitonClient private (
   /** Persist a stream without materializing it in the SDK. */
   def upload(upload: Upload): IO[Error, BlobUploadResult] =
     ZIO.fromEither(validatedUploadRequest(upload)).flatMap(executeJson[BlobUploadResult])
+
+  /** Persist through a stable tenant-scoped upload owner without exposing cluster routing. */
+  def uploadLocalized(upload: Upload, session: UploadSessionKey): IO[Error, BlobUploadResult] =
+    ZIO
+      .fromEither(validatedUploadRequest(upload))
+      .map(
+        _.addHeader(Header.Custom(UploadHttpHeaders.TenantId, s"${session.tenantId.value}"))
+          .addHeader(Header.Custom(UploadHttpHeaders.UploadSession, s"${session.uploadSessionId.value}"))
+      )
+      .flatMap(executeJson[BlobUploadResult])
 
   /** Lazily download a full blob or one byte range while retaining response scope. */
   def download(id: BlobId, range: Option[DownloadRange] = None): ZStream[Any, Error, Byte] =

@@ -22,6 +22,7 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
 | Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
 | Streaming gRPC lifecycle | Operational | Packaged listener, typed SDK, 12 MiB socket lifecycle, bounded frames, public health, authentication, capabilities, rate limiting, and audit |
+| Shardcake upload locality | Operational opt-in integration | Typed tenant/session ownership, one-shot direct ZIO HTTP streams, ZIO Blocks MessagePack control envelopes, authenticated manager and node traffic, durable PostgreSQL assignments, two-node drain/reassignment proof, and a singleton manager lease |
 | RocksDB key-value module | Operational in scope | Durable typed key-value storage with close/reopen persistence tests; it is not advertised as a blob backend |
 
 ## Prove it locally
@@ -114,6 +115,12 @@ BlobStore
             ├── in-memory reference implementation
             ├── FsBlobManifestRepo
             └── PgBlobManifestRepo
+
+Optional multi-node ingress
+└── LocalityAwareUpload
+    ├── Shardcake control-plane placement
+    ├── direct streamed owner transport
+    └── owner-local PDF-aware or generic CAS ingest
 ```
 
 The build keeps pure content types in `graviton-core`, stream transformations in `graviton-streams`, effectful ports in `graviton-runtime`, protocol adapters under `modules/protocol`, and deployment wiring in `graviton-server`.
@@ -140,6 +147,7 @@ The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix
 - [Configuration](docs/guide/configuration-reference.md)
 - [HTTP API](docs/api/http.md)
 - [Performance measurement](docs/ops/performance.md)
+- [Shardcake upload locality](docs/modules/shardcake.md)
 
 A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations, multi-architecture GHCR image, GitHub release, and signed Maven Central modules. The release workflow fails closed when publication credentials are configured but invalid.
 

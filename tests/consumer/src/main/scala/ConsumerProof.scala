@@ -3,10 +3,12 @@ import graviton.backend.pg.{PgMaintenanceCoordinator, PgMutableObjectStore}
 import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
 import graviton.core.attributes.BinaryAttributes
+import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeUploadConfig}
 import graviton.pdf.PdfIngest
 import graviton.protocol.grpc.GravitonGrpcClient
 import graviton.runtime.Graviton
 import graviton.runtime.kv.{KvKey, KvValue}
+import graviton.runtime.upload.{TenantId, UploadSessionId, UploadSessionKey}
 import graviton.shared.ApiModels.HealthResponse
 import graviton.streams.BoundedByteStream
 import io.graviton.blobstore.v1.blob_service.BlobKey
@@ -47,6 +49,17 @@ object ConsumerProof extends ZIOAppDefault:
       kvKey     = KvKey.applyUnsafe("consumer/proof")
       kvValue  <- ZIO.fromEither(KvValue.fromChunk(payload)).mapError(new IllegalArgumentException(_))
       token     = GravitonGrpcClient.BearerToken.applyUnsafe("consumer-proof-token")
+      localityToken = ShardcakeInternalToken.applyUnsafe("external-consumer-shardcake-token-0001")
+      tenant        = TenantId.applyUnsafe("9f2f172c-8e6b-4aef-8be8-4c750420d971")
+      session       = UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c")
+      sessionKey    = UploadSessionKey(tenant, session)
+      locality      <- ZIO
+                         .fromEither(
+                           ShardcakeUploadConfig.Default
+                             .copy(enabled = true, internalToken = Some(localityToken))
+                             .validate
+                         )
+                         .mapError(new IllegalStateException(_))
       protoKey  = BlobKey(written.key.bits.render)
       health    = HealthResponse("ok", "external-consumer", 0L)
       _        <- ZIO.fail(new IllegalStateException("backend modules did not resolve")).unless(
@@ -58,6 +71,6 @@ object ConsumerProof extends ZIOAppDefault:
       _        <- Console.printLine(
                     s"external-consumer-proof key=${protoKey.value} bytes=${restored.length} pdf=${pdf.key.bits.render}:${restoredPdf.length} " +
                       s"media=${mediaType.fullType} max=$maxSize kv=${kvKey.value}:${kvValue.length} token-bytes=${token.value.length} " +
-                      s"maintenance=ok health=${health.status}"
+                      s"maintenance=ok health=${health.status} locality=${sessionKey.tenantId.value}/${sessionKey.uploadSessionId.value}:${locality.numberOfShards}"
                   )
     yield ()

@@ -1,6 +1,7 @@
 package graviton.protocol.http
 
 import graviton.runtime.Graviton
+import graviton.runtime.upload.UploadHttpHeaders
 import graviton.security.*
 import graviton.core.types.FileSize
 import zio.*
@@ -72,12 +73,39 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
                       .options(URL.decode("http://localhost/api/v1/blobs").toOption.get)
                       .addHeader(Header.Custom("Origin", "https://console.example"))
                       .addHeader(Header.Custom("Access-Control-Request-Method", "POST"))
-                      .addHeader(Header.Custom("Access-Control-Request-Headers", "authorization, content-type"))
+                      .addHeader(
+                        Header.Custom(
+                          "Access-Control-Request-Headers",
+                          s"authorization, content-type, ${UploadHttpHeaders.TenantId}, ${UploadHttpHeaders.UploadSession}",
+                        )
+                      )
         response <- ZIO.scoped(fixture.api.preflightApp(request))
       yield assertTrue(
         response.status == Status.NoContent,
         response.headers.get("Access-Control-Allow-Origin").contains("https://console.example"),
         response.headers.get("Access-Control-Allow-Headers").exists(_.contains("authorization")),
+        response.headers.get("Access-Control-Allow-Headers").exists(_.contains(UploadHttpHeaders.TenantId.toLowerCase)),
+        response.headers.get("Access-Control-Allow-Headers").exists(_.contains(UploadHttpHeaders.UploadSession.toLowerCase)),
+      )
+    },
+    test("rejects an upload session for a different tenant before pulling bytes") {
+      val caller  = context(Capability.BlobWrite)
+      val session = UUID.randomUUID()
+      for
+        fixture      <- makeFixture(SecurityConfig.Default.copy(enabled = true))
+        pulled       <- Ref.make(false)
+        body          = Body.fromStreamChunked(zio.stream.ZStream.fromZIO(pulled.set(true)).as(1.toByte))
+        request       = Request
+                          .post(URL.decode("http://localhost/api/v1/blobs").toOption.get, body)
+                          .addHeader(Header.Custom(UploadHttpHeaders.TenantId, UUID.randomUUID().toString))
+                          .addHeader(Header.Custom(UploadHttpHeaders.UploadSession, session.toString))
+        response     <- callAs(fixture.api, caller, request)
+        observed     <- pulled.get
+        responseBody <- response.body.asString
+      yield assertTrue(
+        response.status == Status.Forbidden,
+        responseBody.contains("tenant_mismatch"),
+        !observed,
       )
     },
     test("rejects disallowed preflight origins, methods, and headers") {

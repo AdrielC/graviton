@@ -6,7 +6,16 @@ import graviton.pdf.PdfIngest
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.stores.BlobStore
-import graviton.security.{Capability, ResourceRef, SecurityError}
+import graviton.runtime.upload.{
+  LocalityAwareUpload,
+  TenantId,
+  UploadByteStream,
+  UploadHttpHeaders,
+  UploadIntent,
+  UploadSessionId,
+  UploadSessionKey,
+}
+import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
 import graviton.core.keys.{BinaryKey, KeyBits}
@@ -25,7 +34,29 @@ final case class HttpApi(
   blobStore: BlobStore,
   metrics: Option[MetricsHttpApi] = None,
   security: Option[HttpSecurityPolicy] = None,
+  localizedUpload: Option[LocalityAwareUpload] = None,
 ) {
+
+  /** Binary-compatible constructor retained for the published 0.5.0 API. */
+  def this(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+  ) = this(blobStore, metrics, security, None)
+
+  /** Binary-compatible copy retained for the published 0.5.0 API. */
+  def copy(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+  ): HttpApi =
+    new HttpApi(blobStore, metrics, security, None)
+
+  private final case class UploadOutcome(
+    key: BinaryKey.Blob,
+    stats: graviton.core.attributes.IngestStats,
+  )
+  private case object UploadLocalityUnavailable extends RuntimeException("Upload locality is not enabled on this server")
   private val defaultUploadMediaType: BlocksMediaType =
     BlocksMediaTypes.application.`octet-stream`
 
@@ -64,6 +95,37 @@ final case class HttpApi(
             value <- raw.toLongOption.toRight(new IllegalArgumentException("Invalid Content-Length: value exceeds a signed 64-bit integer"))
             size  <- FileSize.either(value).left.map(message => new IllegalArgumentException(s"Invalid Content-Length: $message"))
           yield Some(size)
+
+  private def uploadSession(request: Request): Either[IllegalArgumentException, Option[UploadSessionKey]] =
+    val tenant  = request.headers.get(UploadHttpHeaders.TenantId)
+    val session = request.headers.get(UploadHttpHeaders.UploadSession)
+    (tenant, session) match
+      case (None, None)                          => Right(None)
+      case (Some(tenantText), Some(sessionText)) =>
+        for
+          tenantId  <- TenantId.either(tenantText).left.map(message => new IllegalArgumentException(s"Invalid tenant ID: $message"))
+          sessionId <-
+            UploadSessionId.either(sessionText).left.map(message => new IllegalArgumentException(s"Invalid upload session ID: $message"))
+        yield Some(UploadSessionKey(tenantId, sessionId))
+      case _                                     =>
+        Left(
+          new IllegalArgumentException(
+            s"Both ${UploadHttpHeaders.TenantId} and ${UploadHttpHeaders.UploadSession} are required"
+          )
+        )
+
+  private def authorizeUploadSessionTenant(session: Option[UploadSessionKey]): IO[Response, Unit] =
+    (security, session) match
+      case (Some(_), Some(key)) =>
+        CallerContext.required
+          .mapError(_ => error(Status.Unauthorized, "unauthenticated", "Authentication required"))
+          .flatMap { caller =>
+            ZIO
+              .fail(error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization"))
+              .unless(key.tenantId.value == caller.orgId.toString)
+              .unit
+          }
+      case _                    => ZIO.unit
 
   private def uploadPlan(
     mediaType: BlocksMediaType,
@@ -138,11 +200,23 @@ final case class HttpApi(
           .fromEither(contentLength)
           .flatMap { expectedSize =>
             ZIO.fromEither(uploadMediaType(req)).flatMap { mediaType =>
-              ZIO.fromEither(uploadPlan(mediaType, expectedSize)).flatMap { plan =>
-                body.flatMap { bytes =>
-                  val checked = enforceExpectedSize(bytes, expectedSize)
-                  if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, checked, plan)
-                  else checked.run(blobStore.put(plan))
+              ZIO.fromEither(uploadSession(req)).flatMap { session =>
+                authorizeUploadSessionTenant(session) *> body.flatMap { bytes =>
+                  (session, localizedUpload) match
+                    case (Some(key), Some(localized)) =>
+                      localized
+                        .upload(key, UploadIntent(mediaType, expectedSize), bytes)
+                        .map(result => UploadOutcome(result.key, result.stats))
+                    case (Some(_), None)              =>
+                      ZIO.fail(UploadLocalityUnavailable)
+                    case _                            =>
+                      ZIO.fromEither(uploadPlan(mediaType, expectedSize)).flatMap { plan =>
+                        val checked = UploadByteStream.enforceExpectedSize(bytes, expectedSize)
+                        val stored  =
+                          if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, checked, plan)
+                          else checked.run(blobStore.put(plan))
+                        stored.map(result => UploadOutcome(result.key, result.stats))
+                      }
                 }
               }
             }
@@ -185,6 +259,10 @@ final case class HttpApi(
                   ZIO.succeed(error(Status.Forbidden, "forbidden", "Request denied"))
             case err: IllegalArgumentException             =>
               ZIO.succeed(error(Status.BadRequest, "invalid_blob", Option(err.getMessage).getOrElse("Invalid blob")))
+            case UploadLocalityUnavailable                 =>
+              ZIO.succeed(error(Status.ServiceUnavailable, "locality_unavailable", "Upload locality is not enabled"))
+            case _: LocalityAwareUpload.Error              =>
+              ZIO.succeed(error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream"))
             case response: Response                        =>
               ZIO.succeed(response)
             case _                                         =>
@@ -192,38 +270,6 @@ final case class HttpApi(
           }
       }
     }
-
-  private def enforceExpectedSize(
-    bytes: zio.stream.ZStream[Any, Throwable, Byte],
-    expected: Option[FileSize],
-  ): zio.stream.ZStream[Any, Throwable, Byte] =
-    expected match
-      case None        => bytes
-      case Some(limit) =>
-        zio.stream.ZStream.unwrap {
-          Ref.make(0L).map { observed =>
-            val checked = bytes.mapChunksZIO { chunk =>
-              observed.modify { current =>
-                scala.util.Try(java.lang.Math.addExact(current, chunk.length.toLong)).toEither match
-                  case Left(_)       => Left(new IllegalArgumentException("upload byte count overflow")) -> current
-                  case Right(actual) =>
-                    if actual > limit.value then
-                      Left(new IllegalArgumentException(s"expected ${limit.value} bytes but received more")) -> actual
-                    else Right(chunk)                                                                        -> actual
-              }.absolve
-            }
-            val exact   = zio.stream.ZStream
-              .fromZIO(
-                observed.get.flatMap { actual =>
-                  ZIO
-                    .fail(new IllegalArgumentException(s"expected ${limit.value} bytes but received $actual"))
-                    .unless(actual == limit.value)
-                }
-              )
-              .drain
-            checked ++ exact
-          }
-        }
 
   private val listBlobsHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
@@ -509,3 +555,12 @@ final case class HttpApi(
       digest <- ZIO.fromEither(hasher.digest).mapError(message => new IllegalArgumentException(message))
     yield digest.hex.value == key.bits.digest.hex.value && bytes == key.bits.size
 }
+
+object HttpApi:
+  /** Binary-compatible factory retained for the published 0.5.0 API. */
+  def apply(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+  ): HttpApi =
+    new HttpApi(blobStore, metrics, security, None)

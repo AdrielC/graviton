@@ -4,7 +4,7 @@ object Dependencies {
    * Central version catalog.
    *
    * Keep this in sync with the constraints of the existing codebase:
-   * - Scala 3.8.2, compatible with the current ZIO Blocks schema and media-type modules.
+   * - Scala 3.8.4, aligned with the current ZIO Blocks schema and media-type modules.
    *   Until an official release includes zio-blocks PR #1578, shared Blocks
    *   codecs use primitive wire records and validate conversion into Iron types.
    * - ZIO 2.x
@@ -12,7 +12,7 @@ object Dependencies {
    * - iron 3.x (required by `graviton.core.types` refinements)
    */
   object V {
-    val scala3     = "3.8.2"
+    val scala3     = "3.8.4"
     val zio        = "2.1.26"
     val zioJson    = "0.10.0"
     val zioSchema  = "1.8.6"
@@ -32,6 +32,7 @@ object Dependencies {
 
     // ZIO Config
     val zioConfig = "4.0.6"
+    val shardcake = "2.8.1"
 
     // Misc
     val iron       = "3.3.2"

@@ -11,10 +11,11 @@ record_unexpected() {
   local label="$1"
   local pattern="$2"
   local allow_pattern="${3:-^$}"
+  local search_root="${4:-modules}"
   local matches
   local unexpected
 
-  matches="$(rg -n "${pattern}" modules --glob '*.scala' --glob '!**/src/test/**' --glob '!**/target/**' || true)"
+  matches="$(rg -n "${pattern}" "${search_root}" --glob '*.scala' --glob '!**/src/test/**' --glob '!**/target/**' || true)"
   unexpected="$(printf '%s\n' "${matches}" | rg -v "${allow_pattern}" || true)"
   if [[ -n "${unexpected}" ]]; then
     failures+="${label}"$'\n'"${unexpected}"$'\n'
@@ -37,6 +38,12 @@ record_unexpected \
 record_unexpected \
   "HTTP request payloads must be constructed from streams" \
   'Body\.from(Array|Chunk)'
+
+record_unexpected \
+  "Shardcake raw arrays are confined to the upstream Serialization ABI adapter" \
+  'Array\[Byte\]|new Array\[Byte\]' \
+  'modules/integration/graviton-shardcake/src/main/scala/graviton/integration/shardcake/ZioBlocksShardcakeSerialization\.scala' \
+  'modules/integration/graviton-shardcake'
 
 if [[ -n "${failures}" ]]; then
   printf 'Byte-streaming hygiene check failed:\n%s' "${failures}" >&2
