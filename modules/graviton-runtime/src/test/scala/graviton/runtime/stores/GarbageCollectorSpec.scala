@@ -1,9 +1,12 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.Hasher
+import graviton.core.bytes.{Digest, HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.types.FileSize
+import graviton.runtime.config.GarbageCollectionConfig
 import graviton.runtime.model.CanonicalBlock
+import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -48,8 +51,214 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
           livePresent.forall(identity),
         )
       }
-    }
+    },
+    test("sweep uses streamed manifests and spill partitions instead of list") {
+      val blockCount = 4096
+      val blob       = blobKey(blockCount)
+      val summary    = StoredManifestSummary(FileSize.unsafe(blockCount.toLong), blockCount, Instant.EPOCH)
+
+      for
+        quarantines <- Ref.make(0)
+        maintenance  = new CountingMaintenance(
+                         ZStream.range(0, blockCount).map(index => BlockInventoryEntry(blockKey(index), 1L, Instant.EPOCH)),
+                         quarantines,
+                       )
+        manifests    = new StreamingOnlyManifestRepo(
+                         ZStream.succeed(blob -> summary),
+                         _ => ZStream.range(0, blockCount).map(index => BlobStreamer.BlockRef(index.toLong, blockKey(index))),
+                       )
+        collector    = new GarbageCollector(
+                         manifests,
+                         maintenance,
+                         GarbageCollectionConfig(maxReferencesPerPartition = 4, maximumPartitionDepth = 64),
+                       )
+        report      <- collector.sweep(Duration.Zero, dryRun = true)()
+        observed    <- quarantines.get
+      yield assertTrue(
+        report.scannedBlocks == blockCount.toLong,
+        report.referencedBlockRefs == blockCount.toLong,
+        report.candidateBlocks == 0L,
+        observed == 0,
+      )
+    },
+    test("sub-millisecond negative age fails before touching the inventory") {
+      for
+        inventoryTouches <- Ref.make(0)
+        quarantines      <- Ref.make(0)
+        maintenance       = new CountingMaintenance(
+                              ZStream.fromZIO(inventoryTouches.update(_ + 1)).drain,
+                              quarantines,
+                            )
+        manifests         = new StreamingOnlyManifestRepo(ZStream.empty, _ => ZStream.empty)
+        exit             <- new GarbageCollector(manifests, maintenance).sweep(Duration.fromNanos(-1L), dryRun = true)().exit
+        observed         <- inventoryTouches.get
+      yield assertTrue(exit.isFailure, observed == 0)
+    },
+    test("second mark protects a candidate that becomes referenced before quarantine") {
+      val block   = blockKey(9)
+      val blob    = blobKey(1)
+      val summary = StoredManifestSummary(FileSize.unsafe(1L), 1, Instant.EPOCH)
+
+      for
+        markPasses  <- Ref.make(0)
+        quarantines <- Ref.make(0)
+        manifests    = new SwitchingManifestRepo(markPasses, blob, summary, block)
+        maintenance  = new CountingMaintenance(
+                         ZStream.succeed(BlockInventoryEntry(block, 1L, Instant.EPOCH)),
+                         quarantines,
+                       )
+        collector    = new GarbageCollector(manifests, maintenance)
+        report      <- collector.sweep(Duration.Zero, dryRun = false)()
+        passes      <- markPasses.get
+        observed    <- quarantines.get
+      yield assertTrue(
+        report.candidateBlocks == 1L,
+        report.quarantinedBlocks == 0L,
+        passes == 2,
+        observed == 0,
+      )
+    },
+    test("restores a block when writing the streaming quarantine receipt fails") {
+      withTempDir { root =>
+        for
+          blocks    <- ZIO.succeed(new FsBlockStore(root))
+          manifests <- ZIO.succeed(new FsBlobManifestRepo(root))
+          orphan    <- canonical("receipt-compensation")
+          _         <- ZStream.succeed(orphan).run(blocks.putBlocks())
+          now        = Instant.parse("2030-01-01T00:00:00Z")
+          _         <- ZIO.attemptBlocking(Files.setLastModifiedTime(blocks.pathFor(orphan.key), FileTime.from(now.minusSeconds(60))))
+          _         <- TestClock.setTime(now)
+          collector  = new GarbageCollector(manifests, blocks)
+          exit      <- collector
+                         .sweep(1.minute, dryRun = false)(_ => ZIO.fail(new RuntimeException("receipt sink unavailable")))
+                         .exit
+          present   <- blocks.exists(orphan.key)
+        yield assertTrue(exit.isFailure, present)
+      }
+    },
+    test("interrupting a sweep closes and removes its temporary workspace") {
+      withTempDir { root =>
+        for
+          inventoryStarted <- Promise.make[Nothing, Unit]
+          quarantines      <- Ref.make(0)
+          workspace         = root.resolve("gc-workspace")
+          maintenance       = new CountingMaintenance(
+                                ZStream.fromZIO(inventoryStarted.succeed(())).drain ++ ZStream.never,
+                                quarantines,
+                              )
+          manifests         = new StreamingOnlyManifestRepo(ZStream.empty, _ => ZStream.empty)
+          collector         = new GarbageCollector(
+                                manifests,
+                                maintenance,
+                                GarbageCollectionConfig(workspaceDirectory = Some(workspace)),
+                              )
+          fiber            <- collector.sweep(Duration.Zero, dryRun = true)().fork
+          _                <- inventoryStarted.await
+          _                <- fiber.interrupt
+          children         <- ZIO.attemptBlocking {
+                                if !Files.exists(workspace) then 0L
+                                else
+                                  val paths = Files.list(workspace)
+                                  try paths.count()
+                                  finally paths.close()
+                              }
+        yield assertTrue(children == 0L)
+      }
+    },
+    test("service layer is orthogonal to storage implementations and configuration source") {
+      val block = blockKey(42)
+
+      for
+        quarantines <- Ref.make(0)
+        maintenance  = new CountingMaintenance(
+                         ZStream.succeed(BlockInventoryEntry(block, 1L, Instant.EPOCH)),
+                         quarantines,
+                       )
+        manifests    = new StreamingOnlyManifestRepo(ZStream.empty, _ => ZStream.empty)
+        report      <- GarbageCollection
+                         .sweep(Duration.Zero, dryRun = true)
+                         .provide(
+                           (ZLayer.succeed[BlobManifestRepo](manifests) ++
+                             ZLayer.succeed[BlockMaintenance](maintenance) ++
+                             ZLayer.succeed[GarbageCollectionConfig](GarbageCollectionConfig(maxReferencesPerPartition = 4))) >>>
+                             GarbageCollection.live
+                         )
+        observed    <- quarantines.get
+      yield assertTrue(report.candidateBlocks == 1L, report.quarantinedBlocks == 0L, observed == 0)
+    },
+    test("ZIO Config rejects invalid GC memory bounds before a service is built") {
+      val provider = ConfigProvider.fromMap(
+        Map("graviton.gc.max-references-per-partition" -> "0")
+      )
+
+      for exit <- ZIO.withConfigProvider(provider)(ZIO.config(GarbageCollectionConfig.config)).exit
+      yield assertTrue(exit.isFailure)
+    },
+    test("explicit service wiring rejects invalid configuration before any sweep runs") {
+      for
+        quarantines <- Ref.make(0)
+        manifests    = new StreamingOnlyManifestRepo(ZStream.empty, _ => ZStream.empty)
+        maintenance  = new CountingMaintenance(ZStream.empty, quarantines)
+        exit        <- GarbageCollection.service
+                         .provide(
+                           (ZLayer.succeed[BlobManifestRepo](manifests) ++ ZLayer.succeed[BlockMaintenance](maintenance)) >>>
+                             GarbageCollection.configured(GarbageCollectionConfig(maxReferencesPerPartition = 0))
+                         )
+                         .exit
+      yield assertTrue(exit.isFailure)
+    },
   )
+
+  private class StreamingOnlyManifestRepo(
+    summaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)],
+    refs: BinaryKey.Blob => ZStream[Any, Throwable, BlobStreamer.BlockRef],
+  ) extends BlobManifestRepo:
+    override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest, ingestedAt: Instant): Task[Unit] =
+      ZIO.fail(new UnsupportedOperationException("test repository is read-only"))
+
+    override def get(blob: BinaryKey.Blob): Task[Option[StoredManifest]] = ZIO.none
+
+    override def list: Task[Chunk[(BinaryKey.Blob, StoredManifest)]] =
+      ZIO.dieMessage("GarbageCollector.sweep must not call BlobManifestRepo.list")
+
+    override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] = summaries
+
+    override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] = refs(blob)
+
+    override def delete(blob: BinaryKey.Blob): Task[Boolean] = ZIO.succeed(false)
+
+    override def healthCheck: Task[Unit] = ZIO.unit
+
+  private final class SwitchingManifestRepo(
+    markPasses: Ref[Int],
+    blob: BinaryKey.Blob,
+    summary: StoredManifestSummary,
+    referenced: BinaryKey.Block,
+  ) extends StreamingOnlyManifestRepo(
+        ZStream.empty,
+        _ => ZStream.succeed(BlobStreamer.BlockRef(0L, referenced)),
+      ):
+    override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
+      ZStream.unwrap {
+        markPasses.updateAndGet(_ + 1).map { pass =>
+          if pass == 1 then ZStream.empty else ZStream.succeed(blob -> summary)
+        }
+      }
+
+  private final class CountingMaintenance(
+    override val inventory: ZStream[Any, Throwable, BlockInventoryEntry],
+    quarantines: Ref[Int],
+  ) extends BlockMaintenance:
+    override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
+      Clock.instant.flatMap { now =>
+        quarantines.updateAndGet(_ + 1).map { count =>
+          QuarantinedBlock(entry.key, s"test-$count", entry.size, now)
+        }
+      }
+
+    override def restore(block: QuarantinedBlock): Task[Unit] = ZIO.unit
+
+    override def purge(block: QuarantinedBlock): Task[Unit] = ZIO.unit
 
   private def canonical(value: String): Task[CanonicalBlock] =
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))
@@ -61,6 +270,20 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
       block  <- ZIO.fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty)).mapError(new IllegalArgumentException(_))
     yield block
+
+  private def blockKey(index: Int): BinaryKey.Block =
+    val digest = Digest.fromString(f"$index%064x").fold(message => throw new IllegalArgumentException(message), identity)
+    val bits   = KeyBits
+      .create(HashAlgo.Sha256, digest, 1L)
+      .fold(message => throw new IllegalArgumentException(message), identity)
+    BinaryKey.block(bits).fold(message => throw new IllegalArgumentException(message), identity)
+
+  private def blobKey(index: Int): BinaryKey.Blob =
+    val digest = Digest.fromString(f"${index + 1000000}%064x").fold(message => throw new IllegalArgumentException(message), identity)
+    val bits   = KeyBits
+      .create(HashAlgo.Sha256, digest, math.max(1, index).toLong)
+      .fold(message => throw new IllegalArgumentException(message), identity)
+    BinaryKey.blob(bits).fold(message => throw new IllegalArgumentException(message), identity)
 
   private def withTempDir[A](effect: Path => ZIO[Any, Throwable, A]): ZIO[Any, Throwable, A] =
     ZIO.acquireReleaseWith(ZIO.attemptBlocking(Files.createTempDirectory("graviton-gc-")))(path =>

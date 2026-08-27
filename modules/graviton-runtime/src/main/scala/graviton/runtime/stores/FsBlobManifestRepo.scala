@@ -96,21 +96,7 @@ final class FsBlobManifestRepo(
     val path = pathFor(blob)
     ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
       case false => ZIO.none
-      case true  =>
-        StreamingManifestFile.isStreaming(path).flatMap {
-          case true  =>
-            for
-              header     <- StreamingManifestFile.readHeader(path)
-              ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
-            yield Some(StoredManifestSummary(header.totalSize, header.blockCount, ingestedAt))
-          case false =>
-            ZIO
-              .attemptBlocking {
-                val stored = readLegacyManifest(path)
-                StoredManifestSummary(FileSize.unsafe(stored.manifest.size), stored.manifest.entries.length, stored.ingestedAt)
-              }
-              .map(Some(_))
-        }
+      case true  => readSummary(path).map(Some(_))
     }
 
   override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
@@ -134,6 +120,20 @@ final class FsBlobManifestRepo(
           )
         )
     )
+
+  /**
+   * Directory-backed maintenance cursor. Unlike [[listSummaries]], this keeps
+   * only the active walk entry and one manifest header in memory. The walk has
+   * no global ordering because obtaining newest-first order would require
+   * materializing the repository inventory.
+   */
+  override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
+    manifestPaths.mapZIO { path =>
+      for
+        blob    <- ZIO.fromEither(keyFromPath(path)).mapError(message => new IllegalArgumentException(message))
+        summary <- readSummary(path)
+      yield blob -> summary
+    }
 
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
     val path = pathFor(blob)
@@ -221,6 +221,25 @@ final class FsBlobManifestRepo(
                       .mapError(message => new IllegalArgumentException(message))
       ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
     yield StoredManifest(manifest, ingestedAt)
+
+  private def readSummary(path: Path): Task[StoredManifestSummary] =
+    StreamingManifestFile.isStreaming(path).flatMap {
+      case true  =>
+        for
+          header     <- StreamingManifestFile.readHeader(path)
+          ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
+        yield StoredManifestSummary(header.totalSize, header.blockCount, ingestedAt)
+      case false =>
+        ZIO.attemptBlocking {
+          val stored = readLegacyManifest(path)
+          StoredManifestSummary(FileSize.unsafe(stored.manifest.size), stored.manifest.entries.length, stored.ingestedAt)
+        }
+    }
+
+  private def manifestPaths: ZStream[Any, Throwable, Path] =
+    FsBlobManifestRepo.walkFiles(root.resolve(prefix)) { path =>
+      Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && path.getFileName.toString.endsWith(".manifest")
+    }
 
   private def manifestKeys: Task[Chunk[BinaryKey.Blob]] =
     ZIO.attemptBlocking {
@@ -316,6 +335,44 @@ object FsBlobManifestRepo:
   val MaxManifestBytes: Int       = 64 * 1024 * 1024
   val MaxMaterializedEntries: Int = BlobManifestRepo.MaxMaterializedEntries
   private val WriteBatchEntries   = 512
+
+  private final class FileWalker(
+    paths: java.util.stream.Stream[Path],
+    iterator: java.util.Iterator[Path],
+    include: Path => Boolean,
+  ):
+    def next(): Option[Path] =
+      var found: Option[Path] = None
+      while found.isEmpty && iterator.hasNext do
+        val path = iterator.next()
+        if include(path) then found = Some(path)
+      found
+
+    def close(): Unit = paths.close()
+
+  /** Lazily walk regular files and close the JVM directory stream on interruption. */
+  private[stores] def walkFiles(root: Path)(include: Path => Boolean): ZStream[Any, Throwable, Path] =
+    ZStream.unwrap {
+      ZIO
+        .attemptBlocking {
+          if !Files.exists(root, LinkOption.NOFOLLOW_LINKS) then None
+          else if !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS) then
+            throw new IllegalStateException(s"Manifest root is not a directory: $root")
+          else Some(())
+        }
+        .map {
+          case None    => ZStream.empty
+          case Some(_) =>
+            ZStream
+              .acquireReleaseWith(
+                ZIO.attemptBlocking {
+                  val paths = Files.walk(root)
+                  new FileWalker(paths, paths.iterator(), include)
+                }
+              )(walker => ZIO.attemptBlocking(walker.close()).orDie)
+              .flatMap(walker => ZStream.unfoldZIO(walker)(current => ZIO.attemptBlocking(current.next().map(_ -> current))))
+        }
+    }
 
   def layer(root: Path, prefix: String = "cas/manifests"): ULayer[BlobManifestRepo] =
     ZLayer.succeed(new FsBlobManifestRepo(root, prefix))

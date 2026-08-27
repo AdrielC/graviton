@@ -11,7 +11,6 @@ import zio.stream.*
 import java.nio.channels.{Channels, FileChannel}
 import java.nio.file.{Files, LinkOption, Path, StandardCopyOption, StandardOpenOption}
 import java.util.UUID
-import scala.jdk.CollectionConverters.*
 
 /**
  * Filesystem-backed block store.
@@ -81,28 +80,17 @@ final class FsBlockStore(
     }
 
   override def inventory: ZStream[Any, Throwable, BlockInventoryEntry] =
-    ZStream
-      .fromZIO(ZIO.attemptBlocking {
-        val base = root.resolve(prefix)
-        if !Files.exists(base, LinkOption.NOFOLLOW_LINKS) then Chunk.empty
-        else
-          val paths = Files.walk(base)
-          try
-            Chunk.fromIterable(
-              paths
-                .iterator()
-                .asScala
-                .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
-                .filterNot(_.getFileName.toString.endsWith(".tmp"))
-                .map { path =>
-                  val key = keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity)
-                  BlockInventoryEntry(key, Files.size(path), Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
-                }
-                .toVector
-            )
-          finally paths.close()
-      })
-      .flatMap(ZStream.fromChunk)
+    val base = root.resolve(prefix)
+    FsBlobManifestRepo
+      .walkFiles(base) { path =>
+        Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && !path.getFileName.toString.endsWith(".tmp")
+      }
+      .mapZIO { path =>
+        ZIO.attemptBlocking {
+          val key = keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity)
+          BlockInventoryEntry(key, Files.size(path), Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
+        }
+      }
 
   override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
     Clock.instant.flatMap { now =>

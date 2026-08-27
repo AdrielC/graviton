@@ -2,6 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.{Manifest, ManifestEntry}
+import graviton.core.types.FileSize
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.ZStream
@@ -26,6 +27,14 @@ final class InMemoryBlobManifestRepo private (
   override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
     ref.get.map { manifests =>
       Chunk.fromIterable(manifests.toList.sortWith { case ((_, left), (_, right)) => left.ingestedAt.isAfter(right.ingestedAt) })
+    }
+
+  override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
+    ZStream.fromZIO(ref.get).flatMap { manifests =>
+      ZStream.fromIterable(manifests).map { case (blob, stored) =>
+        val size = FileSize.unsafe(stored.manifest.size)
+        blob -> StoredManifestSummary(size, stored.manifest.entries.length, stored.ingestedAt)
+      }
     }
 
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =

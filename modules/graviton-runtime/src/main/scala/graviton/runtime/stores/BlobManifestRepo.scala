@@ -111,6 +111,18 @@ trait BlobManifestRepo:
       }
     )
 
+  /**
+   * Stream persisted blob summaries without loading their block references.
+   *
+   * Implementations that back production repository maintenance must override
+   * this with a cursor or directory walk whose resources remain alive for the
+   * lifetime of the returned stream. The default keeps source compatibility for
+   * legacy repositories, but inherits the boundedness of [[listSummaries]] and
+   * is therefore not suitable for repository-scale maintenance.
+   */
+  def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
+    ZStream.fromZIO(listSummaries).flatMap(ZStream.fromChunk)
+
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]
 

@@ -3,7 +3,7 @@ package graviton.cli
 import graviton.core.bytes.*
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.types.*
-import graviton.runtime.config.GravitonConfig
+import graviton.runtime.config.{GarbageCollectionConfig, GravitonConfig}
 import graviton.runtime.stores.*
 import graviton.streams.Chunker
 import zio.*
@@ -39,7 +39,8 @@ object GravitonCli extends ZIOAppDefault:
                 case "verify" :: blobKeyHex :: _     => verify(blobKeyHex, cfg)
                 case "delete" :: blobKeyHex :: _     => delete(blobKeyHex, cfg)
                 case "list" :: Nil                   => list(cfg)
-                case "gc" :: rest                    => gc(rest, cfg)
+                case "gc" :: rest                    =>
+                  ZIO.config(GarbageCollectionConfig.config).flatMap(gc(rest, cfg, _))
                 case "help" :: _                     => printUsage
                 case other                           =>
                   Console.printLineError(s"Unknown command: ${other.mkString(" ")}") *> printUsage *> ZIO.fail(ExitCode.failure)
@@ -146,7 +147,11 @@ object GravitonCli extends ZIOAppDefault:
                }
     yield ()
 
-  private def gc(args: List[String], cfg: GravitonConfig): ZIO[Any, Any, Unit] =
+  private def gc(
+    args: List[String],
+    cfg: GravitonConfig,
+    gcConfig: GarbageCollectionConfig,
+  ): ZIO[Any, Any, Unit] =
     val applyChanges = args.contains("--apply")
     val ageHours     = args.sliding(2).collectFirst { case List("--min-age-hours", raw) => raw.toLongOption }.flatten.getOrElse(24L)
     for
@@ -154,14 +159,22 @@ object GravitonCli extends ZIOAppDefault:
       root      <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
       blockStore = new FsBlockStore(root)
       repo       = new FsBlobManifestRepo(root)
-      collector  = new GarbageCollector(repo, blockStore)
-      report    <- collector.collect(ageHours.hours, dryRun = !applyChanges)
+      report    <- GarbageCollection
+                     .sweep(ageHours.hours, dryRun = !applyChanges) { block =>
+                       Console.printLine(s"  ${block.key.bits.render}\t${block.token}")
+                     }
+                     .provide(
+                       (ZLayer.succeed[BlobManifestRepo](repo) ++
+                         ZLayer.succeed[BlockMaintenance](blockStore) ++
+                         ZLayer.succeed[GarbageCollectionConfig](gcConfig)) >>>
+                         GarbageCollection.live
+                     )
       _         <- Console.printLine(
                      s"GC ${if report.dryRun then "DRY-RUN" else "QUARANTINED"}: " +
-                       s"scanned=${report.scannedBlocks} referenced=${report.referencedBlocks} " +
-                       s"candidates=${report.candidateBlocks} bytes=${report.candidateBytes}"
+                       s"scanned=${report.scannedBlocks} references=${report.referencedBlockRefs} " +
+                       s"candidates=${report.candidateBlocks} bytes=${report.candidateBytes} " +
+                       s"quarantined=${report.quarantinedBlocks}"
                    )
-      _         <- ZIO.foreachDiscard(report.quarantined)(block => Console.printLine(s"  ${block.key.bits.render}\t${block.token}"))
     yield ()
 
   private def makeStore(cfg: GravitonConfig): ZIO[Any, Any, BlobStore] =
@@ -217,5 +230,7 @@ object GravitonCli extends ZIOAppDefault:
         |Environment (via ZIO Config, GRAVITON_ prefix):
         |  GRAVITON_DATA_DIR      Data directory (default: .graviton)
         |  GRAVITON_CHUNK_SIZE    Block size in bytes (default: 1048576)
+        |  GRAVITON_GC_MAX_REFERENCES_PER_PARTITION  GC heap bound per exact-mark partition (default: 8192)
+        |  GRAVITON_GC_WORKSPACE_DIRECTORY           Optional parent directory for temporary GC spools
         |""".stripMargin
     )
