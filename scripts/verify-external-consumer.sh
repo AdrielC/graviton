@@ -34,6 +34,7 @@ if [[ -z "${CONSUMER_REPOSITORY}" ]]; then
     'sharedProtocolJS/publish' \
     'runtime/publish' \
     'pdf/publish' \
+    'shardcakeIntegration/publish' \
     'proto/publish' \
     'security/publish' \
     'grpc/publish' \

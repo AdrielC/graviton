@@ -3,7 +3,7 @@
 Graviton separates pure domain logic from effectful runtime code.
 
 ::: tip Diagram scope
-The **High-Level System View** below reflects modules that exist in this repository. The **Quasar + Graviton** topology is a **planned product architecture** (control plane, job runner, multi-node CAS): useful for direction, not a guarantee of what is deployed or wired end-to-end today.
+The **High-Level System View** below reflects modules that exist in this repository. In the **Quasar + Graviton** topology, Shardcake upload locality is an operational opt-in Graviton integration. Quasar workflows, Redis, and plugin job orchestration remain product direction rather than a claim about the default deployment.
 :::
 
 ## High-Level System View
@@ -91,7 +91,7 @@ flowchart TB
   PG["PostgreSQL\nDocs • Versions • Metadata • Jobs"]
 
   %% ===== Storage Routing =====
-  SC["Shardcake\nShard Routing"]
+  SC["Shardcake Manager\nAssignments Only"]
 
   %% ===== CAS Layer =====
   subgraph Graviton["Graviton CAS Layer"]
@@ -125,10 +125,12 @@ flowchart TB
   QAPI --> R
 
   %% ===== Storage Flow =====
-  QAPI -->|Stream blobs| SC
-  SC --> G1
-  SC --> G2
-  SC --> G3
+  QAPI -->|Stream blobs to any node| G1
+  G1 -->|Resolve typed session| SC
+  G2 -->|Register and refresh| SC
+  G3 -->|Register and refresh| SC
+  G1 -->|Direct owner stream| G2
+  G1 -->|Direct owner stream| G3
 
   %% ===== CAS to Object Store =====
   G1 -->|Blocks / Blobs| MIO
@@ -138,7 +140,7 @@ flowchart TB
   %% ===== Job Execution =====
   QAPI -->|Enqueue jobs| PG
   JR -->|Claim jobs| PG
-  JR -->|Read / Write content| SC
+  JR -->|Read / Write content| G1
   JR --> OCR
   JR --> CLS
   OCR -->|Derived views| QAPI
@@ -199,4 +201,4 @@ Each backend implements the runtime ports using specific technologies:
 
 ## Server
 
-`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects filesystem storage or S3 blocks plus PostgreSQL manifests, starts the versioned HTTP and streaming gRPC listeners, enforces optional OIDC and capability policy on both transports, exposes backend-aware readiness, and registers process metrics. Shardcake placement and resumable HTTP session coordination are not mounted in the packaged process.
+`graviton-server` assembles the runtime into a deployable process. It wires configuration, selects filesystem storage or S3 blocks plus PostgreSQL manifests, starts the versioned HTTP and streaming gRPC listeners, enforces optional OIDC and capability policy on both transports, exposes backend-aware readiness, and registers process metrics. When `GRAVITON_SHARDCAKE_ENABLED=true`, it also registers the node, starts authenticated control and direct-stream listeners, and routes typed upload sessions to stable owners. This is locality for one-pass streams, not a resumable multipart protocol.

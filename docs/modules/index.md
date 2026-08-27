@@ -8,6 +8,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - **Runtime**: storage ports, policies, and operational concerns that wire pure logic to effectful infrastructure.
 - **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives — designed to compose with Transducers.
 - **PDF**: typed, bounded-memory PDF ingest backed by zio-pdf's incremental structural scanner.
+- **Shardcake integration**: opt-in session ownership and direct streamed upload locality for multi-node deployments.
 - **Protocol**: shared API models and transport-specific servers (gRPC + HTTP).
 - **Backend adapters**: concrete integrations (PostgreSQL, S3, RocksDB) that satisfy runtime ports.
 - **Frontend**: Scala.js operations console for the live HTTP service.
@@ -18,6 +19,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - [Runtime module](./runtime.md)
 - [Streams utilities](./streams.md)
 - [PDF-aware ingest](./pdf.md)
+- [Shardcake upload locality](./shardcake.md)
 - [Protocol stack](./protocol.md)
 - [Scala.js frontend](../modules/frontend.md)
 - [Apache Tika module](./tika.md)

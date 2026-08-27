@@ -2,6 +2,7 @@ package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
+import graviton.integration.shardcake.{ShardcakeNode, ShardcakeUploadConfig}
 import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
@@ -36,8 +37,10 @@ object Main extends ZIOAppDefault:
     for
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
+      shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
       _                                            <- validateSecurityOrFail(sec)
+      _                                            <- validateShardcakeTopology(cfg, shardcake)
       _                                            <- logSecurityPosture(sec)
       port                                          = cfg.httpPort
       started                                      <- Clock.currentTime(TimeUnit.MILLISECONDS)
@@ -46,6 +49,7 @@ object Main extends ZIOAppDefault:
       program                                       = ZIO.scoped {
                                                         for
                                                           blobStore       <- ZIO.service[BlobStore]
+                                                          shardcakeNode   <- ZIO.service[Option[ShardcakeNode]]
                                                           auditSink       <- ZIO.service[AuditSink]
                                                           capabilityCheck <- ZIO.service[CapabilityCheck]
                                                           rateLimiter     <- ZIO.service[RateLimiter]
@@ -76,6 +80,7 @@ object Main extends ZIOAppDefault:
                                                                                          blobStore = blobStore,
                                                                                          metrics = Some(MetricsHttpApi(metrics, policy)),
                                                                                          security = policy,
+                                                                                         localizedUpload = shardcakeNode.map(_.locality),
                                                                                        )
 
                                                                                        val publicRoutes: Routes[Any, Nothing] =
@@ -109,21 +114,27 @@ object Main extends ZIOAppDefault:
                                                                                              )
                                                                                            },
                                                                                            Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
-                                                                                             blobStore.healthCheck.timeout(5.seconds).either.map {
-                                                                                               case Right(Some(_)) =>
-                                                                                                 Response.json(
-                                                                                                   Json
-                                                                                                     .Obj(
-                                                                                                       "status"  -> Json.Str("ready"),
-                                                                                                       "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
-                                                                                                     )
-                                                                                                     .toJson
-                                                                                                 )
-                                                                                               case _              =>
-                                                                                                 Response
-                                                                                                   .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
-                                                                                                   .copy(status = Status.ServiceUnavailable)
-                                                                                             }
+                                                                                             val shardcakeHealth =
+                                                                                               ZIO.foreachDiscard(shardcakeNode)(_.healthCheck)
+                                                                                             blobStore.healthCheck
+                                                                                               .zipRight(shardcakeHealth)
+                                                                                               .timeout(5.seconds)
+                                                                                               .either
+                                                                                               .map {
+                                                                                                 case Right(Some(_)) =>
+                                                                                                   Response.json(
+                                                                                                     Json
+                                                                                                       .Obj(
+                                                                                                         "status"  -> Json.Str("ready"),
+                                                                                                         "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
+                                                                                                       )
+                                                                                                       .toJson
+                                                                                                   )
+                                                                                                 case _              =>
+                                                                                                   Response
+                                                                                                     .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
+                                                                                                     .copy(status = Status.ServiceUnavailable)
+                                                                                               }
                                                                                            },
                                                                                          )
 
@@ -194,12 +205,39 @@ object Main extends ZIOAppDefault:
       _ <- program.provide(
              Server.defaultWith(_.port(port).enableRequestStreaming),
              blobLayer(cfg, maintenance),
+             shardcakeNodeLayer(shardcake),
              auditLayer,
              capabilityLayer(sec),
              ZLayer.succeed(sec) >>> RateLimiter.live,
              InMemoryMetricsRegistry.layer,
            )
     yield ()
+
+  sealed trait ConfigurationError extends Exception
+
+  object ConfigurationError:
+    final case class ShardcakeRequiresSharedStorage(blobBackend: String)
+        extends Exception(
+          s"Shardcake upload locality requires the shared S3 plus PostgreSQL composition, not '$blobBackend'"
+        )
+        with ConfigurationError
+
+  private[server] def validateShardcakeTopology(
+    cfg: GravitonConfig,
+    shardcake: ShardcakeUploadConfig,
+  ): IO[ConfigurationError, Unit] =
+    ZIO
+      .fail(ConfigurationError.ShardcakeRequiresSharedStorage(cfg.blobBackend))
+      .when(shardcake.enabled && !Set("s3", "minio").contains(cfg.blobBackend.toLowerCase))
+      .unit
+
+  private[server] def shardcakeNodeLayer(
+    config: ShardcakeUploadConfig
+  ): ZLayer[BlobStore & MetricsRegistry, Throwable, Option[ShardcakeNode]] =
+    if config.enabled then
+      ((ZLayer.service[BlobStore] ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(config)) >>> ShardcakeNode.live)
+        .map(environment => ZEnvironment[Option[ShardcakeNode]](Some(environment.get[ShardcakeNode])))
+    else ZLayer.succeed(None)
 
   private[server] def blobLayer(
     cfg: GravitonConfig,

@@ -30,6 +30,26 @@ END $$;
 -- ----------------------- Schemas --------------------------------
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS graviton;
+
+-- Shardcake placement state. The manager lease rejects overlapping managers,
+-- while transaction advisory locks serialize complete assignment and pod
+-- replacements. Upload bytes and session hot state never live here.
+CREATE TABLE IF NOT EXISTS graviton.shardcake_assignment (
+  shard_id integer PRIMARY KEY CHECK (shard_id >= 1),
+  pod_host varchar(120) NULL,
+  pod_port integer NULL CHECK (pod_port BETWEEN 1 AND 65535),
+  CONSTRAINT shardcake_assignment_owner_pair CHECK (
+    (pod_host IS NULL AND pod_port IS NULL) OR
+    (pod_host IS NOT NULL AND pod_port IS NOT NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS graviton.shardcake_pod (
+  pod_host varchar(120) NOT NULL,
+  pod_port integer NOT NULL CHECK (pod_port BETWEEN 1 AND 65535),
+  server_version varchar(64) NOT NULL CHECK (length(server_version) >= 1),
+  PRIMARY KEY (pod_host, pod_port)
+);
 CREATE SCHEMA IF NOT EXISTS quasar;
 
 -- ----------------- Core domains + enums -------------------------

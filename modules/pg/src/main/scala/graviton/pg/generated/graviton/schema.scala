@@ -36,6 +36,27 @@ object ViewStatus {
   private val byValue: Map[String, ViewStatus] = ViewStatus.values.iterator.map(v => v.value -> v).toMap
   given DbCodec[ViewStatus] = DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown view_status value '" + str + "'")), _.value)
 }
+@Table(PostgresDbType) final case class ShardcakeAssignment(@Id @SqlName("shard_id") shardId: Int, @SqlName("pod_host") podHost: Option[String], @SqlName("pod_port") podPort: Option[Int]) derives DbCodec, Schema
+object ShardcakeAssignment {
+  opaque type Id = Int
+  object Id {
+    def apply(shardId: Int): Id = shardId
+    def unwrap(id: Id): Int = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[Int]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[Int]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(shardId: Int, podHost: Option[String] = None, podPort: Option[Int] = None) derives DbCodec, Schema
+  val repo = Repo[ShardcakeAssignment.Creator, ShardcakeAssignment, ShardcakeAssignment.Id]
+}
+@Table(PostgresDbType) final case class ShardcakePod(@Id @SqlName("pod_host") podHost: String, @Id @SqlName("pod_port") podPort: Int, @SqlName("server_version") serverVersion: String) derives DbCodec, Schema
+object ShardcakePod {
+  opaque type Id = (podHost: String, podPort: Int)
+  object Id { def apply(podHost: String, podPort: Int): Id = (podHost = podHost, podPort = podPort) }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[(String, Int)]].biMap(value => (podHost = value._1, podPort = value._2), id => (id.podHost, id.podPort))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[(String, Int)]].transform(value => (podHost = value._1, podPort = value._2), id => (id.podHost, id.podPort))
+  final case class Creator(podHost: String, podPort: Int, serverVersion: String) derives DbCodec, Schema
+  val repo = Repo[ShardcakePod.Creator, ShardcakePod, ShardcakePod.Id]
+}
 @Table(PostgresDbType) final case class VBestBlockLocation(@SqlName("alg") alg: Option[graviton.pg.generated.core.HashAlg], @SqlName("hash_bytes") hashBytes: Option[Chunk[Byte]], @SqlName("byte_length") byteLength: Option[NonNegLong], @SqlName("sector_priority") sectorPriority: Option[Int], @SqlName("sector_id") sectorId: Option[java.util.UUID], @SqlName("blob_store_id") blobStoreId: Option[java.util.UUID], @SqlName("block_location_id") blockLocationId: Option[java.util.UUID], @SqlName("status") status: Option[graviton.pg.generated.core.PresentStatus], @SqlName("locator") locator: Option[Json], @SqlName("locator_canonical") locatorCanonical: Option[String], @SqlName("stored_length") storedLength: Option[NonNegLong], @SqlName("frame_format") frameFormat: Option[Int], @SqlName("encryption") encryption: Option[Json], @SqlName("written_at") writtenAt: Option[java.time.OffsetDateTime], @SqlName("verified_at") verifiedAt: Option[java.time.OffsetDateTime]) derives DbCodec, Schema
 object VBestBlockLocation {
   type Id = Null

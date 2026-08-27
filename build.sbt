@@ -24,6 +24,9 @@ lazy val syncDocSnippets =
 lazy val checkDocSnippets =
   taskKey[Unit]("Verify that documentation snippet blocks are up to date.")
 
+lazy val verifyShardcakeDependencyGraph =
+  taskKey[Unit]("Verify the audited Shardcake integration dependency graph.")
+
 lazy val V = Dependencies.V
 
 lazy val nettyHttpDependencies = Seq(
@@ -128,7 +131,7 @@ ThisBuild / developers := List(
   )
 )
 
-// Generate Scaladoc one module at a time. Scala 3.8.2's renderer is not safe
+// Generate Scaladoc one module at a time. Scala 3.8's renderer is not safe
 // when these projects render concurrently in the same sbt process.
 lazy val generateDocs     = taskKey[Unit]("Generate Scaladoc and copy to docs folder")
 lazy val copyGeneratedDocs = taskKey[Unit]("Copy generated Scaladoc into the docs site")
@@ -145,6 +148,7 @@ copyGeneratedDocs := {
     "streams"         -> (LocalProject("streams") / Compile / doc).value,
     "runtime"         -> (LocalProject("runtime") / Compile / doc).value,
     "graviton-pdf"    -> (LocalProject("pdf") / Compile / doc).value,
+    "graviton-shardcake" -> (LocalProject("shardcakeIntegration") / Compile / doc).value,
 
     // Protocol stack (JVM)
     "graviton-shared" -> (sharedProtocol.jvm / Compile / doc).value,
@@ -194,6 +198,7 @@ copyGeneratedDocs := {
       |      <li><a href="./streams/index.html">streams</a></li>
       |      <li><a href="./runtime/index.html">runtime</a></li>
       |      <li><a href="./graviton-pdf/index.html">graviton-pdf</a></li>
+      |      <li><a href="./graviton-shardcake/index.html">graviton-shardcake</a></li>
       |      <li><a href="./graviton-shared/index.html">graviton-shared</a></li>
       |      <li><a href="./graviton-proto/index.html">graviton-proto</a></li>
       |      <li><a href="./graviton-grpc/index.html">graviton-grpc</a></li>
@@ -358,6 +363,7 @@ lazy val root = (project in file(".")).aggregate(
   pg,
   rocks,
   security,
+  shardcakeIntegration,
   server,
   sharedProtocol.jvm,
   sharedProtocol.js,
@@ -387,6 +393,48 @@ lazy val root = (project in file(".")).aggregate(
       docSnippetMappings.value,
       (ThisBuild / baseDirectory).value,
       Keys.streams.value.log
+    )
+  },
+  verifyShardcakeDependencyGraph := {
+    val log     = Keys.streams.value.log
+    val modules = (shardcakeIntegration / Compile / update).value.allModules
+
+    val scala3Libraries = modules.filter(_.name == "scala3-library_3")
+    val zioBlocks       = modules.filter(module =>
+      module.organization == "dev.zio" && module.name.startsWith("zio-blocks-")
+    )
+    val grpcNetty       = modules.filter(module =>
+      module.organization == "io.grpc" && module.name == "grpc-netty"
+    )
+    val grpcNettyShaded = modules.filter(module =>
+      module.organization == "io.grpc" && module.name == "grpc-netty-shaded"
+    )
+    val kryo = modules.filter(_.name == "kryo")
+
+    def revisions(dependencies: Seq[ModuleID]): Set[String] = dependencies.map(_.revision).toSet
+    def coordinates(dependencies: Seq[ModuleID]): String =
+      dependencies.map(module => s"${module.organization}:${module.name}:${module.revision}").mkString(", ")
+
+    if (revisions(scala3Libraries) != Set(V.scala3))
+      sys.error(
+        s"Shardcake integration must resolve only Scala ${V.scala3}; found ${coordinates(scala3Libraries)}"
+      )
+    if (zioBlocks.isEmpty || revisions(zioBlocks) != Set(V.zioBlocks))
+      sys.error(
+        s"Shardcake integration must resolve only ZIO Blocks ${V.zioBlocks}; found ${coordinates(zioBlocks)}"
+      )
+    if (grpcNetty.nonEmpty)
+      sys.error(s"Unshaded grpc-netty is forbidden; found ${coordinates(grpcNetty)}")
+    if (revisions(grpcNettyShaded) != Set(V.grpc))
+      sys.error(
+        s"Shardcake integration must resolve only grpc-netty-shaded ${V.grpc}; found ${coordinates(grpcNettyShaded)}"
+      )
+    if (kryo.nonEmpty)
+      sys.error(s"Kryo is forbidden in the Shardcake integration; found ${coordinates(kryo)}")
+
+    log.info(
+      s"Verified Shardcake graph: Scala ${V.scala3}, ZIO Blocks ${V.zioBlocks}, " +
+        s"grpc-netty-shaded ${V.grpc}, no grpc-netty, no Kryo."
     )
   }
 )
@@ -458,6 +506,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio-nio"     % V.zioNio,
       "dev.zio" %% "zio-config"          % V.zioConfig,
       "dev.zio" %% "zio-config-typesafe" % V.zioConfig,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
@@ -590,9 +639,38 @@ lazy val security = (project in file("modules/security/graviton-security"))
     ),
   )
 
+lazy val shardcakeIntegration = (project in file("modules/integration/graviton-shardcake"))
+  .dependsOn(runtime, pdf)
+  .settings(
+    baseSettings,
+    name := "graviton-shardcake",
+    // This is the first release line for the optional integration artifact.
+    // Begin MiMa comparison after it has a published baseline.
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "com.devsisters" %% "shardcake-entities" % V.shardcake,
+      "com.devsisters" %% "shardcake-manager" % V.shardcake,
+      ("com.devsisters" %% "shardcake-protocol-grpc" % V.shardcake)
+        .exclude("io.grpc", "grpc-netty"),
+      "io.grpc" % "grpc-netty-shaded" % V.grpc,
+      "dev.zio" %% "zio" % V.zio,
+      "dev.zio" %% "zio-streams" % V.zio,
+      "dev.zio" %% "zio-http" % V.zioHttp,
+      "dev.zio" %% "zio-config" % V.zioConfig,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-schema-messagepack" % V.zioBlocks,
+      "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
+      "org.postgresql" % "postgresql" % V.pg,
+      "dev.zio" %% "zio-test" % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt" % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
+      "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
+    ),
+  )
+
 lazy val server = (project in file("modules/server/graviton-server"))
   .enablePlugins(AssemblyPlugin)
-  .dependsOn(runtime, http, grpc, s3, pg, rocks, security)
+  .dependsOn(runtime, http, grpc, s3, pg, rocks, security, shardcakeIntegration)
   .settings(
     baseSettings,
     name := "graviton-server",

@@ -57,6 +57,17 @@ Empty bodies return `400`. The configured maximum is enforced while streaming ev
 
 The packaged server explicitly enables ZIO HTTP request streaming. Scala applications can use the [typed streaming SDK](../guide/scala-sdk.md), which selects known-length or chunked streaming bodies without collecting payload bytes.
 
+### Session-localized upload
+
+When the optional Shardcake runtime is enabled, send both typed headers:
+
+```http
+X-Graviton-Tenant-Id: 9f2f172c-8e6b-4aef-8be8-4c750420d971
+X-Graviton-Upload-Session-Id: ab573594-abaa-44fa-867a-8c733bf87f6c
+```
+
+The tenant and session values are canonical lowercase UUIDs. The same pair resolves to one live owner, and the request body streams directly to that owner once. If security is enabled, the tenant must equal the authenticated JWT organization. Supplying locality headers to a server without the locality runtime returns `503 locality_unavailable`; the server never silently downgrades the request.
+
 ## Inventory and pagination
 
 ```http
@@ -155,6 +166,8 @@ Liveness reports the packaged build version and uptime. Readiness checks active 
 | 413 | `payload_too_large` | The streamed upload exceeded its configured maximum |
 | 416 | `invalid_range` | The requested single range is malformed or unsatisfiable |
 | 429 | `rate_limited` | A per-principal request or byte budget was exhausted |
+| 503 | `locality_unavailable` | Typed locality headers were supplied to a server without the Shardcake runtime |
+| 503 | `locality_failed` | Placement or the selected owner could not complete the one-pass stream |
 | 500 | `inventory_failure` | Durable inventory could not be read |
 | 500 | `storage_failure` | Metadata lookup, retrieval, or deletion failed |
 | 500 | `verification_failure` | Persisted bytes could not be read and hashed |

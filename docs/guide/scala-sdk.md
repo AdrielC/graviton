@@ -41,6 +41,23 @@ val program = uploadFile(java.nio.file.Path.of("archive.bin"))
 
 `BlobByteLength` is an Iron-refined positive `Long` capped at 1 TiB. A known length becomes a streaming HTTP body with `Content-Length`; use `None` to send an unknown-length chunked body. Neither path calls `runCollect`.
 
+## Keep one upload session on one node
+
+When the server enables Shardcake locality, use the typed session API:
+
+```scala
+import graviton.runtime.upload.{TenantId, UploadSessionId, UploadSessionKey}
+
+val session = UploadSessionKey(
+  TenantId.applyUnsafe("9f2f172c-8e6b-4aef-8be8-4c750420d971"),
+  UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c"),
+)
+
+client.uploadLocalized(upload, session)
+```
+
+This API adds only the typed control headers. It does not buffer or make the source replayable. A transport failure leaves retry policy with the caller, which knows whether it can reopen the file or regenerate the stream. Reusing the same session keeps later attempts sticky while content addressing keeps duplicate bytes safe.
+
 ## Download without collecting
 
 ```scala

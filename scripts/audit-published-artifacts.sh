@@ -11,6 +11,7 @@ projects=(
   sharedProtocolJS
   runtime
   pdf
+  shardcakeIntegration
   proto
   security
   grpc
@@ -33,6 +34,7 @@ directories=(
   "modules/protocol/graviton-shared/js"
   "modules/graviton-runtime"
   "modules/graviton-pdf"
+  "modules/integration/graviton-shardcake"
   "modules/protocol/graviton-proto"
   "modules/security/graviton-security"
   "modules/protocol/graviton-grpc"

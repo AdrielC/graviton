@@ -1,5 +1,6 @@
 package graviton.protocol.http
 
+import graviton.runtime.upload.UploadHttpHeaders
 import graviton.security.*
 import zio.*
 import zio.http.*
@@ -24,6 +25,8 @@ final class HttpSecurityPolicy(
     "if-range",
     "if-unmodified-since",
     "range",
+    UploadHttpHeaders.TenantId.toLowerCase,
+    UploadHttpHeaders.UploadSession.toLowerCase,
   )
 
   def authorize(

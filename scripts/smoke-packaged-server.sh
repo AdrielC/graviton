@@ -36,12 +36,17 @@ EXPECTED_VERSION="$(basename "${JAR_PATH}")"
 EXPECTED_VERSION="${EXPECTED_VERSION#graviton-server-}"
 EXPECTED_VERSION="${EXPECTED_VERSION%.jar}"
 
-for command in curl jq cmp java; do
+for command in curl jq cmp java jar; do
   command -v "${command}" >/dev/null || {
     echo "required command is missing: ${command}" >&2
     exit 1
   }
 done
+
+if ! jar tf "${JAR_PATH}" | grep 'graviton/integration/shardcake/ShardcakeManagerMain' >/dev/null; then
+  echo "packaged server JAR does not contain the Shardcake manager entry point" >&2
+  exit 1
+fi
 
 wait_ready() {
   local port="$1"

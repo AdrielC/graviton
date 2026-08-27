@@ -47,7 +47,7 @@ object BuildHelper {
       "-source-links:github://AdrielC/graviton",
       "-revision", "main",
       "-doc-root-content", "docs/scaladoc-root.md",
-      // Scala 3.8.2 Scaladoc crashes while rendering FS's deeply inferred
+      // Scala 3.8 Scaladoc crashes while rendering FS's deeply inferred
       // higher-kinded signatures. Keep the API compiled and tested, but omit
       // only that generated page until the upstream renderer is fixed.
       "-skip-by-id:graviton.core.scan.FS",
