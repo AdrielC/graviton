@@ -71,6 +71,12 @@ ThisBuild / libraryDependencySchemes ++= Seq(
   "org.checkerframework" % "checker-qual" % VersionScheme.Always,
   // Protobuf's numeric train is not parsed correctly by sbt-version-policy.
   "com.google.protobuf" % "protobuf-java" % VersionScheme.Always,
+  // These are transport-private gRPC implementation dependencies. They do not
+  // appear in Graviton's public signatures; MiMa and the real listener tests
+  // remain authoritative for the published Graviton API and runtime behavior.
+  "com.google.guava" % "guava" % VersionScheme.Always,
+  "com.google.j2objc" % "j2objc-annotations" % VersionScheme.Always,
+  "io.perfmark" % "perfmark-api" % VersionScheme.Always,
 ) ++ (nettyHttpDependencies ++ nettyGrpcDependencies)
   // Netty's x.y.z.Final versions are likewise rejected as ordinary patch bumps.
   .map(module => module.organization % module.name % VersionScheme.Always)

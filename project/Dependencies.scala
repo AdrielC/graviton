@@ -45,7 +45,7 @@ object Dependencies {
     val laminar    = "17.1.0"
     val waypoint   = "8.0.0"
     val scalajsDom = "2.8.0"
-    val grpc       = "1.65.1"
+    val grpc       = "1.83.1"
     val netty      = "4.2.17.Final"
     val nettyGrpc  = "4.1.137.Final"
     val protobuf   = "3.25.9"
