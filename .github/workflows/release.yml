@@ -129,6 +129,55 @@ jobs:
             exit 1
           fi
           ./sbt versionCheck ci-release
+      - name: Verify signed release artifacts and a Central-resolved consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          artifacts=(
+            graviton-core_3
+            graviton-streams_3
+            graviton-shared_3
+            graviton-shared_sjs1_3
+            graviton-runtime_3
+            graviton-pdf_3
+            graviton-proto_3
+            graviton-security_3
+            graviton-grpc_3
+            graviton-http_3
+            graviton-s3_3
+            graviton-pg_3
+            graviton-rocks_3
+          )
+
+          for attempt in $(seq 1 45); do
+            missing=()
+            for artifact in "${artifacts[@]}"; do
+              base="https://repo.maven.apache.org/maven2/io/github/adrielc/${artifact}/${version}/${artifact}-${version}"
+              for suffix in .pom .jar -sources.jar -javadoc.jar; do
+                for proof in "" .asc .sha1; do
+                  if ! curl -fsSI --retry 2 "${base}${suffix}${proof}" >/dev/null; then
+                    missing+=("${artifact}${suffix}${proof}")
+                  fi
+                done
+              done
+            done
+            if [[ "${#missing[@]}" -eq 0 ]]; then
+              break
+            fi
+            echo "Waiting for Maven Central: ${missing[*]}"
+            sleep 20
+          done
+
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            echo "Maven Central did not expose every signed Graviton ${version} artifact within 15 minutes." >&2
+            exit 1
+          fi
+
+          GRAVITON_CONSUMER_VERSION="${version}" \
+          GRAVITON_CONSUMER_REPOSITORY="https://repo.maven.apache.org/maven2" \
+            ./scripts/verify-external-consumer.sh
+          echo "Verified signed Graviton ${version} artifacts and an external Maven Central consumer."
 
   github-release:
     needs: [validate-package, container, maven-central]

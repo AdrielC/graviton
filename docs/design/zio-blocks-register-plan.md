@@ -1,8 +1,10 @@
 # Plan: Adopt zio-blocks Typed Registers for Transducer Hot State
 
-**Status**: Research / proposal  
+**Status**: Archived research proposal, not the production pipeline
 **Author**: generated from codebase analysis  
 **Date**: 2026-02-09
+
+> Current reality: `RegisterIngestPipeline` implements individual register-backed stages for an ignored benchmark, but ordinary `Transducer.>>>` still composes nested hot-state tuples. The repository does not contain the flat-composition implementation proposed below, and the production CAS path does not invoke this benchmark pipeline. ZIO Blocks 0.0.51 also has an unreleased external opaque-wrapper layout fix, so broad schema/register migration is deferred. See [the current ZIO Blocks audit](./zio-blocks-audit.md).
 
 ---
 
@@ -192,7 +194,7 @@ Replace `toSummary` methods that return `Record[...]` with:
 ```scala
 case class IngestSummary(totalBytes: Long, digestHex: String, blockCount: Long, rechunkFill: Int)
 object IngestSummary:
-  given schema: zio.blocks.schema.Schema[IngestSummary] = ??? // derived
+  given schema: zio.blocks.schema.Schema[IngestSummary] = zio.blocks.schema.Schema.derived
   
   val constructor: Constructor[IngestSummary] = schema.reflect.binding.constructor
 ```

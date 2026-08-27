@@ -1,13 +1,13 @@
 package ai.hylo.graviton.client
 
 import graviton.shared.ApiModels.*
+import graviton.shared.{ApiJson, ApiJsonCodec, MediaTypeText}
 import graviton.streams.BoundedByteStream
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import zio.*
 import zio.blocks.mediatype.MediaType as BlocksMediaType
 import zio.http.*
-import zio.json.*
 import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets
@@ -23,7 +23,7 @@ final class GravitonClient private (
 
   /** Persist a stream without materializing it in the SDK. */
   def upload(upload: Upload): IO[Error, BlobUploadResult] =
-    executeJson[BlobUploadResult](uploadRequest(upload))
+    ZIO.fromEither(validatedUploadRequest(upload)).flatMap(executeJson[BlobUploadResult])
 
   /** Lazily download a full blob or one byte range while retaining response scope. */
   def download(id: BlobId, range: Option[DownloadRange] = None): ZStream[Any, Error, Byte] =
@@ -56,23 +56,34 @@ final class GravitonClient private (
   def delete(id: BlobId): IO[Error, Unit] =
     execute(Request(method = Method.DELETE, url = blobUrl(id), headers = config.defaultHeaders))(_ => ZIO.unit)
 
+  /** Retained for binary compatibility with the 0.4.0 SDK implementation. */
   private[client] def uploadRequest(upload: Upload): Request =
+    buildUploadRequest(upload, upload.contentType.fullType)
+
+  private def validatedUploadRequest(upload: Upload): Either[Error, Request] =
+    MediaTypeText
+      .renderEither(upload.contentType)
+      .left
+      .map(Error.InvalidMediaType.apply)
+      .map(buildUploadRequest(upload, _))
+
+  private def buildUploadRequest(upload: Upload, contentType: String): Request =
     val body = upload.contentLength match
       case Some(length) => Body.fromStream(upload.bytes, length.value)
       case None         => Body.fromStreamChunked(upload.bytes)
     Request(
       method = Method.POST,
       url = blobsUrl,
-      headers = config.defaultHeaders ++ Headers(Header.Custom("Content-Type", upload.contentType.fullType)),
+      headers = config.defaultHeaders ++ Headers(Header.Custom("Content-Type", contentType)),
       body = body,
     )
 
   private def blobUrl(id: BlobId): URL = blobsUrl / id.value
 
-  private def executeJson[A: JsonDecoder](request: Request): IO[Error, A] =
+  private def executeJson[A: ApiJsonCodec](request: Request): IO[Error, A] =
     execute(request) { response =>
       responseText(response).flatMap { text =>
-        ZIO.fromEither(text.fromJson[A]).mapError(reason => Error.DecodingFailure(response.status, text, reason))
+        ZIO.fromEither(ApiJson.decode[A](text)).mapError(reason => Error.DecodingFailure(response.status, text, reason))
       }
     }
 
@@ -146,6 +157,9 @@ object GravitonClient {
 
     final case class ResponseTooLarge(limit: Long) extends Error:
       override def message: String = s"Control-plane response exceeds $limit bytes"
+
+    final case class InvalidMediaType(reason: String) extends Error:
+      override def message: String = s"Invalid upload media type: $reason"
 
   def make(config: Config): ZIO[Client, Nothing, GravitonClient] =
     ZIO.service[Client].map(new GravitonClient(_, config))

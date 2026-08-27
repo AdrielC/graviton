@@ -7,8 +7,8 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | Artifact | Description | Defined in |
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
-| **Blob** | Logical object addressable via `BinaryKey`. Blobs reference manifests and carry attributes that survive deduplication. | `graviton.runtime.stores.BlobStore` |
-| **Manifest** | Ordered list of block entries (`index`, `offset`, `key`, `size`) plus total length. Serialized as frames for durability and encryption. | `BlockManifest`, [`manifests-and-frames`](../manifests-and-frames.md) |
+| **Blob** | Logical object addressable via `BinaryKey`. Its manifest survives block deduplication; confirmed attributes are returned to the caller but are not yet durably stored in the CAS manifest. | `graviton.runtime.stores.BlobStore` |
+| **Manifest** | Ordered block references (`index`, `offset`, `key`, `size`) plus total length. Filesystem storage uses `GVM2`; PostgreSQL uses relational rows. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
 | **Chunker** | A `ZPipeline[Any, Chunker.Err, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
@@ -96,7 +96,7 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Incremental chunking core**: `graviton.streams.Chunker` is backed by a small, bounded incremental cutter and can also be used as a plain state machine via `graviton.streams.ChunkerCore` (useful for tests/benchmarks or lifting into non-ZIO runtimes).
 - **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` is currently SHA-256. SHA-1 remains a legacy key option; BLAKE3 execution requires an installed provider and is never substituted silently.
-- **`BlockWritePlan` controls framing**: choose compression, encryption, and whether duplicates should be forwarded downstream for multi-tenant replication.
+- **`BlockWritePlan` controls ingest metadata and program selection**: the operational CAS path supports optional ingest pipelines/scans, attributes, and a locator hint. The separate `BlockFramer` supports only plain block-per-frame synthesis in this release.
 
 ## Runtime memory contract
 
@@ -137,14 +137,14 @@ Manifests enumerate blocks in order so retrieval is a pure streaming exercise:
 
 1. `BlockManifestEntry` records the block index, byte offset, canonical block key, and uncompressed size.
 2. `BlockManifest.build` validates that offsets never go backwards and that totals match the confirmed size.
-3. `FrameSynthesis` chooses how the manifest and block frames are serialized (plain, compressed, encrypted) before shipping to a `BlobStore` implementation.
+3. `FrameSynthesis` validates the currently supported plain block-per-frame plan. Compression and encryption are not executable plan options in this release.
 
 For an in-depth look at framing guarantees, encryption plans, and forward compatibility, see [`Manifests & Frames`](../manifests-and-frames.md).
 
 ## Frame codecs & streaming
 
 - **Structured frame encoding**: `graviton.runtime.model.BlockFrameCodec.codec` is the canonical `scodec.Codec[BlockFrame]`. It keeps `FrameHeader` lengths honest (payload vs. AAD) and normalizes the authenticated data to a compact binary layout rather than ad-hoc JSON blobs.
-- **Streaming transforms**: `BlockFrameStreams.encode`/`decode` expose `ZPipeline`s so you can push `ZStream[BlockFrame]` over the wire (gRPC, WebSocket, files) without buffering entire manifests. Compose them with compression/encryption pipelines to keep ingestion and replication purely streaming.
+- **Streaming frame I/O**: `BlockFrameStreams.encode`/`decode` expose `ZPipeline`s so callers can push bounded plain `BlockFrame` values over a byte transport without buffering an entire manifest. Compression and encryption require matching versioned write/read codecs and key-management boundaries before they can be composed here.
 - **Aad helpers**: `BlockFrameCodec.renderAadBytes` mirrors the runtime encoder so external producers (Rust, Go, etc.) can stay byte-for-byte compatible by mimicking the emitted binary format.
 
 ## Chunking strategy quick reference

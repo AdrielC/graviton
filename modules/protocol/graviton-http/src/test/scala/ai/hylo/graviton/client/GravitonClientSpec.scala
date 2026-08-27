@@ -41,6 +41,31 @@ object GravitonClientSpec extends ZIOSpecDefault:
 
         program.provideLayer(Client.default)
       },
+      test("invalid programmatic media types fail before transport or source pull") {
+        val invalid = BlocksMediaType("application", "pdf", parameters = Map("name" -> "\"line\nfeed\""))
+        val program =
+          for
+            client   <- GravitonClient.make(
+                          GravitonClient.Config(URL.decode("http://127.0.0.1:1").toOption.get)
+                        )
+            pulled   <- Ref.make(false)
+            exit     <- client
+                          .upload(
+                            GravitonClient.Upload(
+                              bytes = ZStream.fromZIO(pulled.set(true)).as(1.toByte),
+                              contentType = invalid,
+                              contentLength = None,
+                            )
+                          )
+                          .exit
+            observed <- pulled.get
+          yield assertTrue(
+            exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[GravitonClient.Error.InvalidMediaType]),
+            !observed,
+          )
+
+        program.provideLayer(Client.default)
+      },
       test("real SDK and streaming server round-trip 32 MiB over a socket") {
         val chunk       = Chunk.fromArray(Array.tabulate[Byte](64 * 1024)(index => (index % 251).toByte))
         val repetitions = 512

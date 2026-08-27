@@ -66,8 +66,56 @@ object types:
     case Long => Long.MinValue.type & T
 
   // ---------------------------
-  // Size traits (clever, but safe)
+  // Bounded integer refinements
   // ---------------------------
+
+  sealed trait SizeNumeric[Tpe <: Int | Long]:
+    def integral: Integral[Tpe]
+    def addExact(left: Tpe, right: Tpe): Option[Tpe]
+    def subtractExact(left: Tpe, right: Tpe): Option[Tpe]
+    def multiplyExact(left: Tpe, right: Tpe): Option[Tpe]
+    def negateExact(value: Tpe): Option[Tpe]
+    def quotient(left: Tpe, right: Tpe): Option[Tpe]
+    def remainder(left: Tpe, right: Tpe): Option[Tpe]
+
+  object SizeNumeric:
+    given SizeNumeric[Int] with
+      val integral: Integral[Int]                           = summon[Integral[Int]]
+      def addExact(left: Int, right: Int): Option[Int]      =
+        try Some(Math.addExact(left, right))
+        catch case _: ArithmeticException => None
+      def subtractExact(left: Int, right: Int): Option[Int] =
+        try Some(Math.subtractExact(left, right))
+        catch case _: ArithmeticException => None
+      def multiplyExact(left: Int, right: Int): Option[Int] =
+        try Some(Math.multiplyExact(left, right))
+        catch case _: ArithmeticException => None
+      def negateExact(value: Int): Option[Int]              =
+        try Some(Math.negateExact(value))
+        catch case _: ArithmeticException => None
+      def quotient(left: Int, right: Int): Option[Int]      =
+        Option.when(right != 0 && !(left == Int.MinValue && right == -1))(left / right)
+      def remainder(left: Int, right: Int): Option[Int]     =
+        Option.when(right != 0)(left % right)
+
+    given SizeNumeric[Long] with
+      val integral: Integral[Long]                             = summon[Integral[Long]]
+      def addExact(left: Long, right: Long): Option[Long]      =
+        try Some(Math.addExact(left, right))
+        catch case _: ArithmeticException => None
+      def subtractExact(left: Long, right: Long): Option[Long] =
+        try Some(Math.subtractExact(left, right))
+        catch case _: ArithmeticException => None
+      def multiplyExact(left: Long, right: Long): Option[Long] =
+        try Some(Math.multiplyExact(left, right))
+        catch case _: ArithmeticException => None
+      def negateExact(value: Long): Option[Long]               =
+        try Some(Math.negateExact(value))
+        catch case _: ArithmeticException => None
+      def quotient(left: Long, right: Long): Option[Long]      =
+        Option.when(right != 0L && !(left == Long.MinValue && right == -1L))(left / right)
+      def remainder(left: Long, right: Long): Option[Long]     =
+        Option.when(right != 0L)(left % right)
 
   trait SizeTrait[Tpe <: Int | Long]:
     type TotalMax = TotalMaxT[Tpe]
@@ -79,13 +127,32 @@ object types:
     protected given integral: Integral[Tpe]
     protected given discrete: DiscreteDomain[Tpe]
 
-    trait Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
+    /** Source-compatible alias for the statically owned refinement implementation. */
+    type Trait[Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe] = SizeTrait.Trait[Tpe, Mn, Mx, Z, O]
+
+  end SizeTrait
+
+  object SizeTrait:
+
+    trait Trait[Tpe <: Int | Long, Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
       using mnV: ValueOf[Mn],
       mxV: ValueOf[Mx],
       zV: ValueOf[Z],
       oV: ValueOf[O],
+      private val sizeNumeric: SizeNumeric[Tpe],
     ) extends RefinedTypeExt[Tpe, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]]:
       self =>
+
+      protected final given integral: Integral[Tpe] = sizeNumeric.integral
+
+      private def refineExact(operation: String, result: Option[Tpe]): Either[String, self.T] =
+        result.toRight(s"$operation overflow").flatMap(self.either)
+
+      type TotalMax = TotalMaxT[Tpe]
+      inline def TotalMax: TotalMax = compiletime.constValue[TotalMaxT[Tpe]]
+
+      type TotalMin = TotalMinT[Tpe]
+      inline def TotalMin: TotalMin = compiletime.constValue[TotalMinT[Tpe]]
 
       type Max  = self.T
       type Min  = self.T
@@ -108,10 +175,10 @@ object types:
 
       given DiscreteDomain[self.T] with
         def next(v: self.T): self.T =
-          option(integral.plus(v.value, One.value)).getOrElse(v)
+          sizeNumeric.addExact(v.value, integral.one).flatMap(option).getOrElse(v)
 
         def previous(v: self.T): self.T =
-          option(integral.minus(v.value, One.value)).getOrElse(v)
+          sizeNumeric.subtractExact(v.value, integral.one).flatMap(option).getOrElse(v)
 
       given Integral[self.T] with
         def fromInt(n: Int): self.T =
@@ -129,31 +196,28 @@ object types:
           integral.compare(x.value, y.value)
 
         def plus(x: self.T, y: self.T): self.T =
-          // fail closed: if out of range, clamp to Max is not allowed; return x (caller can use checkedAdd)
-          option(integral.plus(x.value, y.value)).getOrElse(x)
+          sizeNumeric.addExact(x.value, y.value).flatMap(option).getOrElse(x)
 
         def minus(x: self.T, y: self.T): self.T =
-          option(integral.minus(x.value, y.value)).getOrElse(x)
+          sizeNumeric.subtractExact(x.value, y.value).flatMap(option).getOrElse(x)
 
         def times(x: self.T, y: self.T): self.T =
-          option(integral.times(x.value, y.value)).getOrElse(x)
+          sizeNumeric.multiplyExact(x.value, y.value).flatMap(option).getOrElse(x)
 
         def negate(x: self.T): self.T =
-          option(integral.negate(x.value)).getOrElse(Zero)
+          sizeNumeric.negateExact(x.value).flatMap(option).getOrElse(Zero)
 
         def quot(x: self.T, y: self.T): self.T =
-          if y.value == integral.zero then Zero
-          else option(integral.quot(x.value, y.value)).getOrElse(Zero)
+          sizeNumeric.quotient(x.value, y.value).flatMap(option).getOrElse(Zero)
 
         def rem(x: self.T, y: self.T): self.T =
-          if y.value == integral.zero then Zero
-          else option(integral.rem(x.value, y.value)).getOrElse(Zero)
+          sizeNumeric.remainder(x.value, y.value).flatMap(option).getOrElse(Zero)
 
       extension (value: self.T)
 
         // increment means add, not multiply
         inline def increment(n: Int :| numeric.GreaterEqual[0]): Either[String, self.T] =
-          self.either(integral.plus(value.value, integral.fromInt(n)))
+          refineExact("addition", sizeNumeric.addExact(value.value, integral.fromInt(n)))
 
         infix def >==(other: self.T): Boolean = integral.gteq(value.value, other.value)
         infix def <==(other: self.T): Boolean = integral.lteq(value.value, other.value)
@@ -161,20 +225,20 @@ object types:
         infix def lt(other: self.T): Boolean  = integral.lt(value.value, other.value)
 
         def next: Option[self.T] =
-          option(integral.plus(value.value, One.value))
+          sizeNumeric.addExact(value.value, integral.one).flatMap(option)
 
         def previous: Option[self.T] =
-          option(integral.minus(value.value, One.value))
+          sizeNumeric.subtractExact(value.value, integral.one).flatMap(option)
 
         // explicit checked ops (no saturation)
         def checkedAdd(other: self.T): Either[String, self.T] =
-          self.either(integral.plus(value.value, other.value))
+          refineExact("addition", sizeNumeric.addExact(value.value, other.value))
 
         def checkedSub(other: self.T): Either[String, self.T] =
-          self.either(integral.minus(value.value, other.value))
+          refineExact("subtraction", sizeNumeric.subtractExact(value.value, other.value))
 
         def checkedMul(other: self.T): Either[String, self.T] =
-          self.either(integral.times(value.value, other.value))
+          refineExact("multiplication", sizeNumeric.multiplyExact(value.value, other.value))
 
   end SizeTrait
 
@@ -197,15 +261,18 @@ object types:
   // - Sizes/counts/bytes are 1-based (min = 1)
   // ---------------------------
 
-  trait Size1 extends SizeTraitInt.Trait[1, Int.MaxValue.type, 0, 1]
-  object Size extends Size1
+  sealed trait Size1:
+    self: SizeTrait.Trait[Int, 1, Int.MaxValue.type, 0, 1] =>
+  object Size extends SizeTrait.Trait[Int, 1, Int.MaxValue.type, 0, 1] with Size1
   type Size = Size.T
 
-  trait SizeLong1 extends SizeTraitLong.Trait[1L, Long.MaxValue.type, 0L, 1L]
-  object SizeLong extends SizeLong1
+  sealed trait SizeLong1:
+    self: SizeTrait.Trait[Long, 1L, Long.MaxValue.type, 0L, 1L] =>
+  object SizeLong extends SizeTrait.Trait[Long, 1L, Long.MaxValue.type, 0L, 1L] with SizeLong1
   type SizeLong = SizeLong.T
 
-  trait IndexLong0 extends SizeTraitLong.Trait[0L, Long.MaxValue.type, 0L, 1L]
+  sealed trait IndexLong0:
+    self: SizeTrait.Trait[Long, 0L, Long.MaxValue.type, 0L, 1L] =>
 
   object SizeSubtype     extends IntSizeTrait[Int]
   object SizeLongSubtype extends LongSizeTrait[Long]
@@ -216,13 +283,13 @@ object types:
   // Upload chunk size is the upstream chunk boundary used by streaming ingest. It must be positive
   // and must not exceed the maximum block size.
   type UploadChunkSize = UploadChunkSize.T
-  object UploadChunkSize extends SizeSubtype.Trait[1, 16777216, 0, 1] // 16 MiB
+  object UploadChunkSize extends SizeTrait.Trait[Int, 1, 16777216, 0, 1] // 16 MiB
 
   type BlockSize = BlockSize.T
-  object BlockSize extends SizeSubtype.Trait[1, 16777216, 0, 1] // 16 MiB
+  object BlockSize extends SizeTrait.Trait[Int, 1, 16777216, 0, 1] // 16 MiB
 
   type FileSize = FileSize.T
-  object FileSize extends SizeLongSubtype.Trait[1L, 1099511627776L, 0L, 1L] // 1 TiB
+  object FileSize extends SizeTrait.Trait[Long, 1L, 1099511627776L, 0L, 1L] // 1 TiB
 
   type Algo = Algo.T
   object Algo extends RefinedTypeExt[String, AlgoConstraint]
@@ -240,11 +307,11 @@ object types:
     type Constraint = HexUpperConstraint
 
   type BlockIndex = BlockIndex.T
-  object BlockIndex extends IndexLong0
+  object BlockIndex extends SizeTrait.Trait[Long, 0L, Long.MaxValue.type, 0L, 1L] with IndexLong0
 
   // Offsets are 0-based byte positions within a logical blob/manifest.
   type Offset = Offset.T
-  object Offset extends IndexLong0
+  object Offset extends SizeTrait.Trait[Long, 0L, Long.MaxValue.type, 0L, 1L] with IndexLong0
 
   /**
    * Blob-wide byte offset (0-based).
@@ -273,13 +340,13 @@ object types:
       summon[Schema[Offset]].asInstanceOf[Schema[BlobOffset]]
 
   type CompressionLevel = CompressionLevel.T
-  object CompressionLevel extends SizeSubtype.Trait[-1, 22, 0, 1]
+  object CompressionLevel extends SizeTrait.Trait[Int, -1, 22, 0, 1]
 
   type KekId = KekId.T
   object KekId extends HexTrait[KekIdConstraint]
 
   type NonceLength = NonceLength.T
-  object NonceLength extends SizeTraitInt.Trait[1, 32, 0, 1]
+  object NonceLength extends SizeTrait.Trait[Int, 1, 32, 0, 1]
 
   type LocatorScheme = LocatorScheme.T
   object LocatorScheme extends RefinedTypeExt[String, Match["[a-z0-9+.-]+"] & MinLength[1] & MaxLength[64]]
@@ -353,9 +420,9 @@ object types:
   object FileSegment extends RefinedTypeExt[String, Match["[^/]+"] & MinLength[1]]
 
   type ChunkCount = ChunkCount.T
-  object ChunkCount extends SizeLong1
+  object ChunkCount extends SizeTrait.Trait[Long, 1L, Long.MaxValue.type, 0L, 1L] with SizeLong1
 
-  // MIME type (very light validation; tighten if/when a stricter policy is required).
+  // Stored wire representation. External boundaries parse this as a ZIO Blocks MediaType.
   type Mime = Mime.T
   object Mime extends RefinedTypeExt[String, MinLength[1] & MaxLength[256]]
 

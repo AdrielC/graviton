@@ -2,18 +2,17 @@ package graviton.protocol.http
 
 import graviton.core.bytes.Hasher
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.types.Mime
 import graviton.pdf.PdfIngest
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.stores.BlobStore
 import graviton.security.{Capability, ResourceRef, SecurityError}
+import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.types.FileSize
 import zio.*
 import zio.http.*
-import zio.json.EncoderOps
-import zio.json.ast.Json
 import zio.blocks.mediatype.{MediaType as BlocksMediaType, MediaTypes as BlocksMediaTypes}
 
 import java.net.URLDecoder
@@ -34,14 +33,7 @@ final case class HttpApi(
     Response(
       status = status,
       headers = Headers(Header.Custom("Content-Type", "application/json; charset=utf-8")),
-      body = Body.fromString(
-        Json
-          .Obj(
-            "error"   -> Json.Str(code),
-            "message" -> Json.Str(message),
-          )
-          .toJson
-      ),
+      body = Body.fromString(ApiJson.encode(ApiError(code, message))),
     )
 
   private def blobKeyFromId(rawId: String): Either[String, BinaryKey.Blob] =
@@ -56,17 +48,33 @@ final case class HttpApi(
     request.headers.get("Content-Type") match
       case None      => Right(defaultUploadMediaType)
       case Some(raw) =>
-        BlocksMediaType
+        MediaTypeText
           .parse(raw)
           .left
           .map(message => new IllegalArgumentException(s"Invalid Content-Type: $message"))
 
-  private def uploadPlan(mediaType: BlocksMediaType): Either[IllegalArgumentException, BlobWritePlan] =
-    Mime
-      .either(mediaType.fullType)
+  private def uploadContentLength(request: Request): Either[IllegalArgumentException, Option[FileSize]] =
+    request.headers.get("Content-Length") match
+      case None      => Right(None)
+      case Some(raw) =>
+        if raw.isEmpty || !raw.forall(character => character >= '0' && character <= '9') then
+          Left(new IllegalArgumentException("Invalid Content-Length: expected one or more ASCII decimal digits"))
+        else
+          for
+            value <- raw.toLongOption.toRight(new IllegalArgumentException("Invalid Content-Length: value exceeds a signed 64-bit integer"))
+            size  <- FileSize.either(value).left.map(message => new IllegalArgumentException(s"Invalid Content-Length: $message"))
+          yield Some(size)
+
+  private def uploadPlan(
+    mediaType: BlocksMediaType,
+    expectedSize: Option[FileSize],
+  ): Either[IllegalArgumentException, BlobWritePlan] =
+    expectedSize
+      .fold(BinaryAttributes.empty)(BinaryAttributes.empty.advertiseSize)
+      .advertiseMediaType(mediaType)
       .left
       .map(message => new IllegalArgumentException(s"Invalid Content-Type: $message"))
-      .map(mime => BlobWritePlan(attributes = BinaryAttributes.empty.advertiseMime(mime)))
+      .map(attributes => BlobWritePlan(attributes = attributes))
 
   private def secured(
     request: Request,
@@ -120,19 +128,22 @@ final case class HttpApi(
 
   private val uploadBlobHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
-      val contentLength = req.headers.get("Content-Length").flatMap(_.toLongOption)
+      val contentLength = uploadContentLength(req)
       val body          = security match
         case None         => ZIO.succeed(req.body.asStream)
         case Some(policy) => policy.checkedUpload(req)
 
-      secured(req, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection, contentLength) {
+      secured(req, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection, contentLength.toOption.flatten.map(_.value)) {
         ZIO
-          .fromEither(uploadMediaType(req))
-          .flatMap { mediaType =>
-            ZIO.fromEither(uploadPlan(mediaType)).flatMap { plan =>
-              body.flatMap { bytes =>
-                if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, bytes, plan)
-                else bytes.run(blobStore.put(plan))
+          .fromEither(contentLength)
+          .flatMap { expectedSize =>
+            ZIO.fromEither(uploadMediaType(req)).flatMap { mediaType =>
+              ZIO.fromEither(uploadPlan(mediaType, expectedSize)).flatMap { plan =>
+                body.flatMap { bytes =>
+                  val checked = enforceExpectedSize(bytes, expectedSize)
+                  if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, checked, plan)
+                  else checked.run(blobStore.put(plan))
+                }
               }
             }
           }
@@ -156,7 +167,7 @@ final case class HttpApi(
                       Header.Custom("Location", s"$basePath/${id.value}"),
                       Header.Custom("ETag", s"\"${result.key.bits.render}\""),
                     ),
-                    body = Body.fromString(payload.toJson),
+                    body = Body.fromString(ApiJson.encode(payload)),
                   )
                 )
               case None       =>
@@ -174,11 +185,45 @@ final case class HttpApi(
                   ZIO.succeed(error(Status.Forbidden, "forbidden", "Request denied"))
             case err: IllegalArgumentException             =>
               ZIO.succeed(error(Status.BadRequest, "invalid_blob", Option(err.getMessage).getOrElse("Invalid blob")))
+            case response: Response                        =>
+              ZIO.succeed(response)
             case _                                         =>
               ZIO.succeed(error(Status.InternalServerError, "ingest_failed", "Blob ingest failed"))
           }
       }
     }
+
+  private def enforceExpectedSize(
+    bytes: zio.stream.ZStream[Any, Throwable, Byte],
+    expected: Option[FileSize],
+  ): zio.stream.ZStream[Any, Throwable, Byte] =
+    expected match
+      case None        => bytes
+      case Some(limit) =>
+        zio.stream.ZStream.unwrap {
+          Ref.make(0L).map { observed =>
+            val checked = bytes.mapChunksZIO { chunk =>
+              observed.modify { current =>
+                scala.util.Try(java.lang.Math.addExact(current, chunk.length.toLong)).toEither match
+                  case Left(_)       => Left(new IllegalArgumentException("upload byte count overflow")) -> current
+                  case Right(actual) =>
+                    if actual > limit.value then
+                      Left(new IllegalArgumentException(s"expected ${limit.value} bytes but received more")) -> actual
+                    else Right(chunk)                                                                        -> actual
+              }.absolve
+            }
+            val exact   = zio.stream.ZStream
+              .fromZIO(
+                observed.get.flatMap { actual =>
+                  ZIO
+                    .fail(new IllegalArgumentException(s"expected ${limit.value} bytes but received $actual"))
+                    .unless(actual == limit.value)
+                }
+              )
+              .drain
+            checked ++ exact
+          }
+        }
 
   private val listBlobsHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
@@ -202,7 +247,7 @@ final case class HttpApi(
                       case Some(value) => summaries.dropWhile(_.id.value != value).drop(1)
                     val page      = remaining.take(limit)
                     val next      = Option.when(remaining.length > limit)(page.last.id.value)
-                    Response.json(BlobListResponse(page.toList, next).toJson)
+                    Response.json(ApiJson.encode(BlobListResponse(page.toList, next)))
               }
               .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "inventory_failure", "Blob inventory lookup failed")))
       }
@@ -219,7 +264,7 @@ final case class HttpApi(
               .inspect(key)
               .map {
                 case None              => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
-                case Some(description) => Response.json(toDetails(description).toJson)
+                case Some(description) => Response.json(ApiJson.encode(toDetails(description)))
               }
               .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "storage_failure", "Blob manifest lookup failed")))
           }
@@ -239,11 +284,13 @@ final case class HttpApi(
                 case Some(stat) =>
                   verify(key).map { verified =>
                     Response.json(
-                      BlobVerificationResult(
-                        id = BlobId.applyUnsafe(key.bits.render),
-                        verified = verified,
-                        bytesChecked = SizeBytes.applyUnsafe(stat.size.value),
-                      ).toJson
+                      ApiJson.encode(
+                        BlobVerificationResult(
+                          id = BlobId.applyUnsafe(key.bits.render),
+                          verified = verified,
+                          bytesChecked = SizeBytes.applyUnsafe(stat.size.value),
+                        )
+                      )
                     )
                   }
               }

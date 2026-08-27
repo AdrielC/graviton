@@ -1,6 +1,6 @@
 # End-to-end Upload
 
-The upload path streams bytes from clients to durable storage while computing content hashes and building manifests.
+The packaged HTTP and gRPC listeners stream request bytes into the same `CasBlobStore` sink. The upload stream is the session: callers do not create or thread a session identifier.
 
 ## Pipeline overview
 
@@ -10,47 +10,48 @@ flowchart LR
   classDef io fill:#0f1419,stroke:#00c8ff,color:#e6e6e6;
 
   Client["Client"]:::io
-  Count["countBytes"]:::stage
-  Hash["hashBytes"]:::stage
-  Chunk["rechunk"]:::stage
-  Key["blockKey"]:::stage
+  Transport["HTTP body / gRPC frames"]:::io
+  Normalize["64 KiB bounded input"]:::stage
+  Chunk["Selected Chunker"]:::stage
+  Key["Hash + block key"]:::stage
   Store["BlockStore"]:::io
-  Manifest["Manifest"]:::io
+  Spool["Scoped manifest spool"]:::stage
+  Manifest["BlobManifestRepo"]:::io
+  Result["BlobWriteResult"]:::io
 
-  Client -->|"Chunk[Byte]"| Count
-  Count -->|">>>"| Hash
-  Hash -->|">>>"| Chunk
-  Chunk -->|">>>"| Key
+  Client --> Transport
+  Transport -->|"ZStream[Byte]"| Normalize
+  Normalize --> Chunk
+  Chunk --> Key
   Key -->|"CanonicalBlock"| Store
-  Key -->|"ManifestEntry"| Manifest
+  Store -->|"key + offset + size"| Spool
+  Spool -->|"bounded replay after blob hash"| Manifest
+  Manifest --> Result
 ```
 
 ## Upload stages
 
-1. **Session negotiation** – a client opens a gRPC bidi stream or HTTP session. The server allocates a shard-backed session entity with spill buffers and MultiHasher state.
-2. **Chunking** – `graviton-streams` chunkers split the byte stream using either fixed-size or content-defined boundaries. Chunks feed incremental hashers from `graviton-core`.
-3. **Storage layout** – the runtime derives `BinaryKey` values for blocks, chunks, and manifests. Locator strategies map these keys to backend-specific paths.
-4. **Persistence** – the `MutableObjectStore` implementation uploads parts, respecting backend-specific minimum sizes (for example, 5 MiB for S3 multipart uploads). Range trackers record which spans succeeded.
-5. **Manifest emission** – once all blocks are written, a manifest describing order, sizes, and attributes is persisted. The blob key is returned to the client alongside metadata captured in `BlobWriteResult`.
-6. **Replication** – optional background jobs use `ReplicaIndex` and `UnionFind` utilities to drive additional copies or repairs.
+1. **Transport boundary** – HTTP accepts the request body and gRPC `PutBlob` accepts a metadata frame followed by data frames. Both preserve backpressure, enforce media type and length limits, and pass a `ZStream[Byte]` into `BlobStore.put`.
+2. **Bounded input** – `CasBlobStore` copies arbitrary upstream chunks into fixed 64 KiB chunks and feeds bounded queues. It hashes the logical blob incrementally and rejects the 1 TiB public limit without collecting the body.
+3. **Chunking and keying** – the fiber-local selected `Chunker` emits refined blocks. `CasIngest.blockKeyDeriver` hashes one block at a time and constructs its `BinaryKey.Block`.
+4. **Block persistence** – each `CanonicalBlock` is written through the configured `BlockStore`. Filesystem writes are atomic; the S3 adapter uses scoped multipart streaming where required. Duplicate block keys reuse existing content.
+5. **Manifest staging** – one entry per stored block is appended to a scoped disk spool. Heap state remains scalar while the blob digest and total size are computed.
+6. **Manifest commit** – after successful EOF and any expected-size check, the spool is replayed into the filesystem or PostgreSQL `BlobManifestRepo` in bounded writes. Only then is the blob manifest published and `BlobWriteResult` returned.
 
-## Transducer-based ingest (next generation)
+If an upload fails after blocks have been persisted, no manifest is committed, but those unreferenced blocks can remain until orphan cleanup. Repository-scale streaming garbage collection is tracked as a production gap in the [ZIO Blocks audit](./design/zio-blocks-audit.md).
 
-The [Transducer algebra](./core/transducers.md) enables a cleaner expression of the same pipeline:
+## Transducer boundary
+
+The operational path uses the [Transducer algebra](./core/transducers.md) for its pure per-block key derivation stage:
 
 ```scala
-// Compose typed stages
-val ingest = countBytes >>> hashBytes >>> rechunk(blockSize) >>> blockKeyDeriver
+import graviton.core.scan.CasIngest
+import graviton.core.scan.FS.toPipeline
 
-// Run the pipeline — get a typed summary
-val (summary, blocks) = byteStream.run(ingest.toSink)
-summary.totalBytes   // Long
-summary.digestHex    // String
-summary.blockCount   // Long
-summary.blocksKeyed  // Long
+val keyedBlocks = blocks.via(CasIngest.blockKeyDeriver().toPipeline)
 ```
 
-Every field in the summary is accessed by name (not index), and the composition merges Record states automatically via `StateMerge`. See [Transducer Algebra](./core/transducers.md) for supported stage combinations.
+`CasBlobStore` deliberately retains ZIO Streams, scoped queues, the manifest spool, and backend effects around that pure stage. Experimental aggregate transducer examples and register-backed summaries are not the production upload orchestrator. See [Transducer Algebra](./core/transducers.md) for the implemented composition rules and limitations.
 
 ## See also
 

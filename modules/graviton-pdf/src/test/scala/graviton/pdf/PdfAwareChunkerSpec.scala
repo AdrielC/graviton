@@ -1,11 +1,13 @@
 package graviton.pdf
 
+import graviton.core.attributes.BinaryAttributes
 import graviton.core.model.Block
-import graviton.core.types.UploadChunkSize
+import graviton.core.types.{Mime, UploadChunkSize}
 import graviton.runtime.Graviton
+import graviton.runtime.model.BlobWritePlan
 import graviton.streams.{BoundedByteStream, Chunker, ChunkerCore}
 import zio.*
-import zio.blocks.mediatype.MediaTypes
+import zio.blocks.mediatype.{MediaType, MediaTypes}
 import zio.pdf.PdfMime
 import zio.stream.ZStream
 import zio.test.*
@@ -117,7 +119,7 @@ object PdfAwareChunkerSpec extends ZIOSpecDefault:
           before   <- Chunker.current.get
           result   <- PdfIngest.put(
                         graviton.blobStore,
-                        PdfMime.mimeType,
+                        PdfMime.mimeType.copy(parameters = Map("profile" -> "archive")),
                         ZStream.fromChunk(samplePdf).rechunk(11),
                         config = pdfConfig,
                       )
@@ -127,7 +129,54 @@ object PdfAwareChunkerSpec extends ZIOSpecDefault:
           restored == samplePdf,
           before eq after,
           result.stats.blockCount >= 3,
-          result.attributes.mime.exists(_.value == PdfMime.mimeType.fullType),
+          result.attributes.mime.exists(_.value == "application/pdf; profile=archive"),
+        )
+      },
+      test("accepts existing PDF metadata only when its canonical parameters match") {
+        val existing = Mime.applyUnsafe("APPLICATION/PDF; version=1; PROFILE=archive")
+        val plan     = BlobWritePlan(attributes = BinaryAttributes.empty.advertiseMime(existing))
+        val incoming = PdfMime.mimeType.copy(parameters = Map("profile" -> "archive", "version" -> "1"))
+
+        for
+          graviton <- Graviton.inMemory()
+          result   <- PdfIngest.put(
+                        graviton.blobStore,
+                        incoming,
+                        ZStream.fromChunk(samplePdf).rechunk(13),
+                        plan = plan,
+                        config = config(),
+                      )
+        yield assertTrue(
+          result.attributes.mime.exists(_.value == "application/pdf; profile=archive; version=1")
+        )
+      },
+      test("rejects conflicting existing PDF parameters before pulling the source") {
+        val conflicts = List(
+          Mime.applyUnsafe("application/pdf; profile=archive") ->
+            PdfMime.mimeType.copy(parameters = Map("profile" -> "screen")),
+          Mime.applyUnsafe("application/pdf; profile=archive") ->
+            PdfMime.mimeType.copy(parameters = Map("profile" -> "archive", "version" -> "2")),
+        )
+
+        for
+          pulls    <- Ref.make(0)
+          graviton <- Graviton.inMemory()
+          exits    <- ZIO.foreach(conflicts) { case (existing, incoming) =>
+                        PdfIngest
+                          .put(
+                            graviton.blobStore,
+                            incoming,
+                            ZStream.fromZIO(pulls.updateAndGet(_ + 1).as('%'.toByte)),
+                            plan = BlobWritePlan(attributes = BinaryAttributes.empty.confirmMime(existing)),
+                          )
+                          .exit
+                      }
+          observed <- pulls.get
+        yield assertTrue(
+          exits.zip(conflicts).forall { case (exit, (existing, _)) =>
+            exit.causeOption.flatMap(_.failureOption).contains(PdfIngest.ConflictingMimeMetadata(existing))
+          },
+          observed == 0,
         )
       },
       test("rejects the wrong typed media value before pulling the source") {
@@ -145,6 +194,29 @@ object PdfAwareChunkerSpec extends ZIOSpecDefault:
           observed <- pulls.get
         yield assertTrue(
           exit.isFailure,
+          observed == 0,
+        )
+      },
+      test("rejects wildcard media ranges before pulling the source") {
+        val advertised = List(MediaType("*", "*"), MediaType("application", "*"))
+
+        for
+          pulls    <- Ref.make(0)
+          graviton <- Graviton.inMemory()
+          exits    <- ZIO.foreach(advertised) { mediaType =>
+                        PdfIngest
+                          .put(
+                            graviton.blobStore,
+                            mediaType,
+                            ZStream.fromZIO(pulls.updateAndGet(_ + 1).as('%'.toByte)),
+                          )
+                          .exit
+                      }
+          observed <- pulls.get
+        yield assertTrue(
+          !PdfIngest.accepts(advertised.head),
+          !PdfIngest.accepts(advertised.last),
+          exits.forall(_.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[PdfIngest.UnsupportedMediaType])),
           observed == 0,
         )
       },

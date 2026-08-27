@@ -69,6 +69,7 @@ SKIP_SOURCES_SETTING='set ThisBuild / Compile / packageSrc / publishArtifact := 
     'sharedProtocolJVM/publish' \
     'sharedProtocolJS/publish' \
     'runtime/publish' \
+    'pdf/publish' \
     'proto/publish' \
     'security/publish' \
     'grpc/publish' \

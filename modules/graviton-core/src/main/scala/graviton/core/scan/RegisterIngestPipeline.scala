@@ -9,13 +9,12 @@ import RegisterOffset.RegisterOffset
  * Register-backed ingest pipeline transducers.
  *
  * Mirrors [[IngestPipeline]] but uses `zio.blocks.schema.binding.Registers`
- * for hot state instead of tuples. This gives:
+ * inside each individual stage. This benchmark explores:
  *   - Zero boxing for primitives (Long, Int stored in flat byte array)
- *   - Flat composition (one Registers instance per composed pipeline)
  *   - No kyo.Record dependency for summaries
  *
- * This module exists to benchmark the Registers approach against the current
- * tuple-based `Transducer.Hot` pattern.
+ * Ordinary `Transducer.>>>` still composes stage state as nested tuples, so
+ * this is not yet a flat register pipeline and is not used by production CAS.
  */
 object RegisterIngestPipeline:
 

@@ -1,7 +1,9 @@
 package graviton.protocol.grpc
 
+import graviton.core.types.FileSize
 import graviton.runtime.Graviton
 import graviton.security.*
+import graviton.shared.MediaTypeText
 import io.grpc.Status
 import zio.*
 import zio.blocks.mediatype.MediaType
@@ -13,7 +15,7 @@ import java.util.UUID
 
 object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
 
-  private val ContentType = MediaType.unsafeFromString("application/octet-stream")
+  private val ContentType = MediaType.unsafeFromString("application/octet-stream; profile=graviton-test")
 
   override def spec: Spec[TestEnvironment, Any] =
     suite("Graviton gRPC transport")(
@@ -26,7 +28,11 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
             client     <- GravitonGrpcClient.scoped("127.0.0.1", port)
             _          <- client.health
             source      = ZStream.fromIterable(0 until 12 * 1024 * 1024).map(index => (index % 251).toByte)
-            written    <- client.put(source, ContentType)
+            written    <- client.put(
+                            source,
+                            ContentType,
+                            Some(FileSize.applyUnsafe(12L * 1024 * 1024)),
+                          )
             downloaded <- client.get(written.key).runCollect
             stat       <- client.stat(written.key)
             listed     <- client.list.runCollect
@@ -57,7 +63,9 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
                           ZStream(
                             io.graviton.blobstore.v1.blob_service.PutBlobRequest(
                               io.graviton.blobstore.v1.blob_service.PutBlobRequest.Kind.Metadata(
-                                io.graviton.blobstore.v1.blob_service.PutBlobMetadata(contentType = ContentType.fullType)
+                                io.graviton.blobstore.v1.blob_service.PutBlobMetadata(
+                                  contentType = MediaTypeText.render(ContentType)
+                                )
                               )
                             ),
                             io.graviton.blobstore.v1.blob_service.PutBlobRequest(
@@ -68,6 +76,56 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
                         .exit
         yield assertTrue(statusCode(exit).contains(Status.Code.INVALID_ARGUMENT))
       },
+      test("rejects expected-size overflow and underflow before manifest commit") {
+        import io.graviton.blobstore.v1.blob_service.*
+
+        def request(expected: Long, bytes: Chunk[Byte]) =
+          ZStream(
+            PutBlobRequest(
+              PutBlobRequest.Kind.Metadata(
+                PutBlobMetadata(expectedSize = Some(expected), contentType = MediaTypeText.render(ContentType))
+              )
+            ),
+            PutBlobRequest(PutBlobRequest.Kind.Data(com.google.protobuf.ByteString.copyFrom(bytes.toArray))),
+          )
+
+        for
+          graviton   <- Graviton.inMemory()
+          service     = new BlobServiceImpl(graviton.blobStore)
+          overflow   <- service.putBlob(request(3L, Chunk(1, 2, 3, 4).map(_.toByte))).exit
+          afterOver  <- graviton.blobStore.list
+          underflow  <- service.putBlob(request(5L, Chunk(1, 2, 3, 4).map(_.toByte))).exit
+          afterUnder <- graviton.blobStore.list
+        yield assertTrue(
+          statusCode(overflow).contains(Status.Code.INVALID_ARGUMENT),
+          statusCode(underflow).contains(Status.Code.INVALID_ARGUMENT),
+          afterOver.isEmpty,
+          afterUnder.isEmpty,
+        )
+      },
+      test("carries a logical 1 TiB expected size over gRPC without allocation and rejects immediate EOF atomically") {
+        ZIO.scoped {
+          val oneTiB = 1024L * 1024L * 1024L * 1024L
+
+          for
+            logicalSize <- ZIO
+                             .fromEither(FileSize.either(oneTiB))
+                             .orDieWith(message => new IllegalArgumentException(message))
+            graviton    <- Graviton.inMemory()
+            server      <- GravitonGrpcServer.scoped(graviton.blobStore, GrpcServerConfig(port = 0))
+            port        <- server.port
+            client      <- GravitonGrpcClient.scoped("127.0.0.1", port)
+            underflow   <- client.put(ZStream.empty, ContentType, Some(logicalSize)).exit
+            listed      <- graviton.blobStore.list
+            failure      = underflow.causeOption.flatMap(_.failureOption)
+          yield assertTrue(
+            logicalSize.value == oneTiB,
+            statusCode(underflow).contains(Status.Code.INVALID_ARGUMENT),
+            failure.exists(_.getStatus.getDescription == s"expected $oneTiB bytes but received 0"),
+            listed.isEmpty,
+          )
+        }
+      } @@ TestAspect.timeout(20.seconds),
       test("enforces bearer authentication and blob capabilities on the real listener") {
         ZIO.scoped {
           for
@@ -178,14 +236,14 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
                           port,
                           Some(GravitonGrpcClient.BearerToken.applyUnsafe("integration-token")),
                         )
-            denied   <- client.put(ZStream.range(0, 2 * 1024 * 1024).map(_.toByte), ContentType).exit
+            denied   <- client.put(ZStream.fromChunk(Chunk.fill(64 * 1024)(1.toByte)), ContentType).exit
             listed   <- graviton.blobStore.list
           yield assertTrue(
             statusCode(denied).contains(Status.Code.RESOURCE_EXHAUSTED),
             listed.isEmpty,
           )
         }
-      } @@ TestAspect.timeout(20.seconds),
+      } @@ TestAspect.withLiveClock @@ TestAspect.timeout(20.seconds),
     )
 
   private def statusCode[A](exit: Exit[io.grpc.StatusException, A]): Option[Status.Code] =

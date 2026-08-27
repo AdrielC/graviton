@@ -5,6 +5,8 @@ import BinaryAttr.PartialOps.*
 import BinaryAttrDiff.Record as DiffRecord
 import graviton.core.types.{CustomAttributeName, CustomAttributeValue, Identifier}
 import graviton.core.types.*
+import graviton.shared.MediaTypeText
+import zio.blocks.mediatype.MediaType
 
 import java.time.Instant
 import scala.collection.immutable.ListMap
@@ -84,6 +86,14 @@ final case class BinaryAttributes private (
   def confirmMime(value: Mime): BinaryAttributes =
     modifyConfirmed(_.copyValues(mime = Some(value)))
 
+  /** Store a parsed ZIO Blocks media type without dropping its parameters. */
+  def advertiseMediaType(value: MediaType): Either[String, BinaryAttributes] =
+    MediaTypeText.renderEither(value).flatMap(Mime.either).map(advertiseMime)
+
+  /** Confirm a parsed ZIO Blocks media type without dropping its parameters. */
+  def confirmMediaType(value: MediaType): Either[String, BinaryAttributes] =
+    MediaTypeText.renderEither(value).flatMap(Mime.either).map(confirmMime)
+
   def advertiseDigest(algo: Algo, value: HexLower): BinaryAttributes =
     modifyAdvertised { record =>
       val next = record.digestsOrEmpty + (algo -> value)
@@ -117,6 +127,12 @@ final case class BinaryAttributes private (
   def mime: Option[Mime] =
     confirmed.mimeValue.orElse(advertised.mimeValue)
 
+  /** Parse the effective metadata value at the typed ZIO Blocks boundary. */
+  def mediaType: Either[String, Option[MediaType]] =
+    mime match
+      case None        => Right(None)
+      case Some(value) => MediaTypeText.parse(value.value).map(Some(_))
+
   def digest(algo: Algo): Option[HexLower] =
     confirmed.digestsValue.flatMap(_.get(algo)).orElse(advertised.digestsValue.flatMap(_.get(algo)))
 
@@ -130,7 +146,7 @@ final case class BinaryAttributes private (
    * Validate internal invariants.
    */
   def validate: Either[String, BinaryAttributes] =
-    val errors = advertisedDigestErrors ++ confirmedDigestErrors
+    val errors = advertisedDigestErrors ++ confirmedDigestErrors ++ advertisedMimeErrors ++ confirmedMimeErrors
     Either.cond(errors.isEmpty, this, errors.mkString("; "))
 
   def diff: DiffRecord =
@@ -151,10 +167,19 @@ final case class BinaryAttributes private (
   private def confirmedDigestErrors: List[String] =
     digestErrors("confirmed", confirmed.digestsOrEmpty)
 
+  private def advertisedMimeErrors: List[String] =
+    mimeErrors("advertised", advertised.mimeValue)
+
+  private def confirmedMimeErrors: List[String] =
+    mimeErrors("confirmed", confirmed.mimeValue)
+
   private def digestErrors(stage: String, digests: Map[Algo, HexLower]): List[String] =
     digests.toList.flatMap { case (algo, digest) =>
       graviton.core.types.validateDigest(algo, digest).left.toOption.map { reason =>
         s"$stage digest ${algo.value} invalid: $reason"
       }
     }
+
+  private def mimeErrors(stage: String, value: Option[Mime]): List[String] =
+    value.toList.flatMap(mime => MediaTypeText.parse(mime.value).left.toOption.map(reason => s"$stage MIME invalid: $reason"))
 end BinaryAttributes

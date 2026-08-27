@@ -7,6 +7,7 @@ import zio.ChunkBuilder
 import zio.Exit
 
 import java.nio.charset.{Charset, StandardCharsets}
+import java.util.concurrent.atomic.AtomicInteger
 
 import scodec.bits.BitVector
 import scodec.codecs
@@ -51,7 +52,61 @@ object ZStreamDecoderSpec extends ZIOSpecDefault:
 
         assertZIO(effect)(Assertion.equalTo(Chunk(1, 2, 3)))
       },
-      test("once completes without emission when input ends prematurely") {
+      test("many enforces its bound on undecoded carry, not the upstream chunk") {
+        val encoded = Chunk(1, 2, 3).map(int32Codec.encode(_).require).reduce(_ ++ _)
+
+        val effect =
+          ZStream(encoded)
+            .via(ZStreamDecoder.many(int32Decoder, maxBufferedBytes = 4L))
+            .runCollect
+
+        assertZIO(effect)(Assertion.equalTo(Chunk(1, 2, 3)))
+      },
+      test("many emits bounded batches and stops decoding under downstream back pressure") {
+        val calls   = new AtomicInteger(0)
+        val decoder = Decoder[Int] { bits =>
+          calls.incrementAndGet()
+          int8Codec.decode(bits)
+        }
+        val encoded = BitVector(Array.fill[Byte](256)(1))
+
+        for first <- ZStream(encoded)
+                       .via(
+                         ZStreamDecoder.many(
+                           decoder,
+                           maxBufferedBytes = 32L,
+                           maxOutputBatchValues = 16,
+                         )
+                       )
+                       .take(1)
+                       .runCollect
+        yield assertTrue(first == Chunk(1), calls.get() == 16)
+      },
+      test("many never writes an output chunk above its configured batch size") {
+        val encoded = BitVector(Array.fill[Byte](2050)(1))
+
+        for chunks <- ZStream(encoded)
+                        .via(
+                          ZStreamDecoder.many(
+                            int8Codec.asDecoder,
+                            maxBufferedBytes = 64L,
+                            maxOutputBatchValues = 128,
+                          )
+                        )
+                        .chunks
+                        .runCollect
+        yield assertTrue(
+          chunks.flatten == Chunk.fill(2050)(1),
+          chunks.forall(_.length <= 128),
+          chunks.map(_.length) == Chunk.fill(16)(128) ++ Chunk.single(2),
+        )
+      },
+      test("once rejects an empty stream") {
+        val effect = ZStream.empty.via(ZStreamDecoder.once(int32Decoder)).runCollect
+
+        assertZIO(effect.exit)(Assertion.fails(Assertion.isSubtype[CodecError](Assertion.anything)))
+      },
+      test("once rejects input that ends before a complete value") {
         val partial = BitVector.fromInt(0x123456, 24)
 
         val effect =
@@ -60,17 +115,38 @@ object ZStreamDecoderSpec extends ZIOSpecDefault:
             .via(ZStreamDecoder.once(int32Decoder))
             .runCollect
 
-        assertZIO(effect)(Assertion.isEmpty)
+        assertZIO(effect.exit)(Assertion.fails(Assertion.isSubtype[CodecError](Assertion.anything)))
+      },
+      test("rejects a decoder buffer above its explicit bound") {
+        val partial = BitVector.fromInt(0x123456, 24)
+
+        val effect =
+          ZStream(partial)
+            .via(ZStreamDecoder.once(int32Decoder, maxBufferedBytes = 2L))
+            .runCollect
+
+        assertZIO(effect.exit)(Assertion.fails(Assertion.isSubtype[CodecError](Assertion.anything)))
+      },
+      test("rejects an overflowing configured bound before building the pipeline") {
+        val constructed = scala.util.Try(ZStreamDecoder.many(int32Decoder, maxBufferedBytes = Long.MaxValue))
+
+        assertTrue(constructed.isFailure)
       },
       test("many fails fast on unrecoverable errors") {
-        val encoded = Chunk(5, -1, 7).map(int8Codec.encode(_).require)
-        val stream  = ZStream.fromIterable(split(encoded.reduce(_ ++ _), 4, 4, 4, 4, 4, 4))
+        val encoded = Chunk(5, -1, 7).map(int8Codec.encode(_).require).reduce(_ ++ _)
 
-        for exit <- stream.via(ZStreamDecoder.many(positiveByteDecoder)).runCollect.exit
+        for
+          seen   <- Ref.make(Chunk.empty[Int])
+          exit   <- ZStream(encoded)
+                      .via(ZStreamDecoder.many(positiveByteDecoder))
+                      .tap(value => seen.update(_ :+ value))
+                      .runDrain
+                      .exit
+          prefix <- seen.get
         yield exit match
           case Exit.Failure(cause) =>
             val codecFailure = cause.failureOption.collect { case err: CodecError => err }
-            assertTrue(codecFailure.isDefined)
+            assertTrue(codecFailure.isDefined, prefix == Chunk(5))
           case Exit.Success(_)     => assertTrue(false)
       },
       test("tryMany stops gracefully after an unrecoverable error") {

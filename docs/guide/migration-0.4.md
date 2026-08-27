@@ -1,22 +1,28 @@
 # Migrating from 0.3 to 0.4
 
-Graviton 0.4 adds an operational PDF-aware ingest module and moves the ZIO Blocks schema and chunk dependencies from `0.0.51` to `0.017`. The dependency transition is an intentional pre-1.0 compatibility boundary. Graviton's Scala APIs remain MiMa-compatible with 0.3, and stored content keys, blocks, manifests, and HTTP blob identifiers remain compatible.
+Graviton 0.4 added an operational PDF-aware ingest module. Its `0.4.0` POM incorrectly selected ZIO Blocks schema and chunk `0.017` after trusting Maven's `<latest>` metadata. That artifact is an older, malformed publication of the `0.0.17` code line, not a successor to `0.0.51`.
+
+> The dependency repair did not ship as 0.4.1. Upgrade directly to [Graviton 0.5](./migration-0.5.md), which pins every ZIO Blocks module to `0.0.51` and includes the required clean-compile repair for the public Scala 3 refined-type hierarchy.
+
+Stored content keys, blocks, manifests, and HTTP blob identifiers remain compatible. Applications on `0.4.0` should upgrade all Graviton modules together.
 
 ## What changed
 
-| 0.3 behavior | 0.4 behavior | Migration |
+| 0.3 behavior | Current 0.4 behavior | Migration |
 | --- | --- | --- |
 | Every HTTP upload used the server's general-purpose chunker | `Content-Type: application/pdf` uses bounded PDF-aware chunking | No client change for valid PDFs. Bytes falsely advertised as PDF now receive `400 Bad Request`. |
 | No PDF-specific artifact | `graviton-pdf` exposes `PdfIngest` and `PdfAwareChunker` | Add the module only to embedded applications that call the PDF API directly. `graviton-http` already depends on it. |
-| ZIO Blocks schema/chunk `0.0.51` | ZIO Blocks schema/chunk `0.017` | Upgrade all Graviton artifacts together and align any direct ZIO Blocks schema/chunk dependencies in the application. |
+| ZIO Blocks schema/chunk `0.0.51` | ZIO Blocks schema/chunk `0.0.51` | If upgrading from `0.4.0`, evict the malformed `0.017` artifact and verify `0.0.51` is selected. |
 | ZIO Blocks media type `0.0.51` | ZIO Blocks media type `0.0.51` | No media-type version change is required. |
+| scodec streams could complete silently at truncated EOF and retained unlimited undecoded carry | `ZStreamDecoder.once` and `many` reject truncated EOF and cap undecoded carry at 32 MiB by default | Use the explicit bounded overload for a larger known value. Use `tryOnce` or `tryMany` only when permissive termination is intentional. |
+| Legacy MIME strings received minimal length validation | Transport and PDF boundaries validate and canonically render ZIO Blocks `MediaType` values | Fix malformed parameters and control characters. PDF ingest accepts exactly `application/pdf`, not wildcard media ranges. |
 
 ## Dependency alignment
 
-Do not mix Graviton 0.3 and 0.4 modules in one application. Use one `gravitonVersion` for every artifact and run the build's eviction check after upgrading.
+Do not mix Graviton 0.4 and 0.5 modules in one application. Use one `gravitonVersion` for every artifact and run the build's eviction check after upgrading.
 
 ```scala
-val gravitonVersion = "0.4.0"
+val gravitonVersion = "0.5.0"
 
 libraryDependencies ++= Seq(
   "io.github.adrielc" %% "graviton-runtime" % gravitonVersion,
@@ -25,7 +31,9 @@ libraryDependencies ++= Seq(
 )
 ```
 
-The `graviton-pdf` artifact uses zio-pdf `0.2.0-RC6`, ZIO Blocks schema/chunk `0.017`, and ZIO Blocks media type `0.0.51`.
+The `graviton-pdf` artifact uses zio-pdf `0.2.0-RC7`, which is published against ZIO Blocks `0.0.51`. Graviton also pins schema, chunk, and media type `0.0.51` directly so the selected graph is explicit.
+
+The build's temporary dependency-policy exception covers only the malformed `0.017` to `0.0.51` repair. Graviton's exposed ZIO Blocks register descriptors and public APIs are compatibility-tested, but ZIO Blocks itself is not globally binary-compatible across those coordinates. Applications that directly used `0.017` APIs should clean-recompile and run their own integration tests.
 
 ## PDF upload behavior
 
@@ -49,4 +57,4 @@ No data migration is required for existing filesystem, S3, or PostgreSQL-backed 
 
 ## Compatibility policy
 
-The build records the 0.4 development line with `Compatibility.None` because ZIO Blocks uses early semantic versioning and the schema/chunk dependency moves from `0.0.51` to `0.017`. This is a dependency-level boundary, not a silent claim of patch compatibility. After `v0.4.0`, development returns to binary-compatible intent until another documented 0.x minor boundary.
+The `v0.4.0` release documented the original dependency boundary. Graviton 0.5 intentionally changes three implementation-trait hierarchies to repair unusable downstream TASTy, while stored formats remain unchanged. See [Migrating from 0.4 to 0.5](./migration-0.5.md) for the clean-recompile requirement. Decoder EOF, carry limits, content-key parsing, and MIME validation are intentionally stricter as described above.

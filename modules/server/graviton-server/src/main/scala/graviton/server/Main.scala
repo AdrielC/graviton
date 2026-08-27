@@ -12,6 +12,7 @@ import graviton.streams.Chunker
 import graviton.security.*
 import graviton.security.jwt.{HmacJwtVerifier, OidcJwtVerifier}
 import graviton.shared.ApiModels.*
+import graviton.shared.ApiJson
 import zio.*
 import zio.http.*
 import zio.json.EncoderOps
@@ -74,11 +75,13 @@ object Main extends ZIOAppDefault:
                                                                                                now <- Clock.currentTime(TimeUnit.MILLISECONDS)
                                                                                                up   = (now - started).max(0L)
                                                                                              yield Response.json(
-                                                                                               HealthResponse(
-                                                                                                 status = "ok",
-                                                                                                 version = _root_.graviton.server.BuildInfo.version,
-                                                                                                 uptime = up,
-                                                                                               ).toJson
+                                                                                               ApiJson.encode(
+                                                                                                 HealthResponse(
+                                                                                                   status = "ok",
+                                                                                                   version = _root_.graviton.server.BuildInfo.version,
+                                                                                                   uptime = up,
+                                                                                                 )
+                                                                                               )
                                                                                              )
                                                                                            },
                                                                                            Method.GET / "api" / "health" / "live"  -> Handler.fromZIO {
@@ -86,11 +89,13 @@ object Main extends ZIOAppDefault:
                                                                                                now <- Clock.currentTime(TimeUnit.MILLISECONDS)
                                                                                                up   = (now - started).max(0L)
                                                                                              yield Response.json(
-                                                                                               HealthResponse(
-                                                                                                 status = "ok",
-                                                                                                 version = _root_.graviton.server.BuildInfo.version,
-                                                                                                 uptime = up,
-                                                                                               ).toJson
+                                                                                               ApiJson.encode(
+                                                                                                 HealthResponse(
+                                                                                                   status = "ok",
+                                                                                                   version = _root_.graviton.server.BuildInfo.version,
+                                                                                                   uptime = up,
+                                                                                                 )
+                                                                                               )
                                                                                              )
                                                                                            },
                                                                                            Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
@@ -116,7 +121,7 @@ object Main extends ZIOAppDefault:
                                                                                          Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
                                                                                            val resource = ResourceRef(ResourceKind.Namespace, None)
                                                                                            val response =
-                                                                                             metrics.snapshot.map(snapshot => Response.json(RuntimeStats.from(snapshot).toJson))
+                                                                                             metrics.snapshot.map(snapshot => Response.json(ApiJson.encode(RuntimeStats.from(snapshot))))
                                                                                            policy match
                                                                                              case None         => response
                                                                                              case Some(active) =>

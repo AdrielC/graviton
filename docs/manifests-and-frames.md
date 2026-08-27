@@ -52,7 +52,7 @@ While manifests are pure data, storage backends can wrap them in binary frames g
 - `aadLength`: length of the serialized AAD blob.
 - `keyId`/`nonce`: optional encryption metadata for AEAD modes.
 
-Because the header is schema-driven (`zio.schema`), expanding the enum or adding optional fields does not break binary compatibility—old readers can skip unknown tags.
+The binary header is a positional scodec layout. Enum values and field order are part of the wire contract: current readers reject unknown enum values, and adding fields requires a new versioned decoder path. The separate `zio.schema.Schema` instances support inspection and bounded metadata work, but they do not make this frame codec tag-based or automatically forward-compatible.
 
 ### Additional authenticated data (AAD)
 
@@ -70,15 +70,15 @@ The context records which blob and organization a block belonged to without chan
 
 ## Forward-compatibility (design goals)
 
-The manifest + frame design aims for several durability properties as the format matures:
+The manifest + frame design aims for several durability properties as the format matures. The following are goals, not claims about the current decoder:
 
-- **Versioned header** – every frame begins with the `FrameVersion` byte. Future releases can bump this and still parse older frames because the version guards the decoder path.
-- **Extensible enums** – `FrameType`, `FrameAlgorithm`, and related enums are schema-based; adding new cases does not change the binary layout of existing ones.
-- **Length-prefixed sections** – both payload and AAD lengths live in the header, allowing readers to skip unfamiliar sections safely.
+- **Version-guarded decoder** – every frame begins with a version byte, and the current codec accepts only version 1 before decoding the rest of the header. A future format bump must add an explicit new branch while retaining the version-1 path.
+- **Extensible enums** – the current mapped-enum codec rejects unknown values. Future extension needs a reserved-value or unknown-case strategy before readers can safely traverse newer frames.
+- **Skippable sections** – payload and AAD lengths are present and enforced for known version-1 sections. Safely skipping unfamiliar section types requires an explicitly versioned/tagged envelope that does not exist yet.
 - **Optional metadata** – `FrameAad.extra` and manifest attributes can introduce new keys without invalidating older clients. Unknown keys are ignored while still being authenticated.
 - **Strict size accounting** – `BlockManifest.build` refuses to produce manifests where totals drift, so deduped replay remains safe even if new attributes appear later.
 
-Together these rules define the current plain-frame compatibility contract. New algorithms are a future versioned format change, not a silently unsupported runtime branch.
+The strict version-1 guard, optional AAD keys, and size accounting are current compatibility behavior. Unknown enum handling and skippable unfamiliar sections require a future format design. New algorithms are a versioned format change, not a silently unsupported runtime branch.
 
 ## Validation and decoding flow
 
