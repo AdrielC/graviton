@@ -38,6 +38,7 @@ export function mountMatrixRain(): () => void {
   let drops: number[] = []
   let animationFrame = 0
   let lastPaint = 0
+  let startedAt = 0
 
   const resize = () => {
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
@@ -56,6 +57,12 @@ export function mountMatrixRain(): () => void {
   }
 
   const paint = (timestamp: number) => {
+    if (startedAt === 0) startedAt = timestamp
+    if (timestamp - startedAt >= 4800) {
+      animationFrame = 0
+      return
+    }
+
     animationFrame = window.requestAnimationFrame(paint)
 
     if (document.hidden || timestamp - lastPaint < 48) {
@@ -95,7 +102,7 @@ export function mountMatrixRain(): () => void {
   animationFrame = window.requestAnimationFrame(paint)
 
   return () => {
-    window.cancelAnimationFrame(animationFrame)
+    if (animationFrame !== 0) window.cancelAnimationFrame(animationFrame)
     window.removeEventListener('resize', resize)
     document.body.classList.remove('graviton-matrix-active')
     canvas.remove()
