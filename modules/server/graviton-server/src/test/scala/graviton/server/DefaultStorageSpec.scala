@@ -5,6 +5,8 @@ import graviton.runtime.config.GravitonConfig
 import graviton.runtime.metrics.InMemoryMetricsRegistry
 import graviton.runtime.stores.BlobStore
 import graviton.integration.shardcake.ShardcakeUploadConfig
+import graviton.security.SecurityConfig
+import graviton.server.console.ConsoleConfig
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
@@ -47,7 +49,28 @@ object DefaultStorageSpec extends ZIOSpecDefault:
                         .exit
         yield assertTrue(result.isSuccess)
       },
-    )
+      test("keeps the unauthenticated local console fail-closed") {
+        for
+          rejected <- Main
+                        .validateConsoleSecurity(
+                          SecurityConfig.Default.copy(enabled = true),
+                          ConsoleConfig.Default.copy(enabled = true),
+                        )
+                        .exit
+          accepted <- Main
+                        .validateConsoleSecurity(
+                          SecurityConfig.Default.copy(enabled = false),
+                          ConsoleConfig.Default.copy(enabled = true),
+                        )
+                        .exit
+        yield assertTrue(
+          rejected.causeOption
+            .flatMap(_.failureOption)
+            .contains(Main.ConfigurationError.ConsoleRequiresOpenLocalMode),
+          accepted.isSuccess,
+        )
+      },
+    ) @@ TestAspect.withLiveClock
 
   private def ingest(cfg: GravitonConfig, data: Chunk[Byte]): Task[BinaryKey.Blob] =
     (for

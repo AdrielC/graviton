@@ -245,7 +245,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                             .locally(Chunker.fixed(UploadChunkSize(1024)))(source.run(store.put()))
                             .fork
           _            <- writeStarted.await
-          _            <- ZIO.yieldNow.repeatN(32)
+          _            <- TestClock.adjust(1.millis)
           observed     <- pulls.get
           _            <- release.succeed(())
           result       <- fiber.join

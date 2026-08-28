@@ -1,20 +1,9 @@
 package graviton.protocol.http
 
 import graviton.core.bytes.Hasher
-import graviton.core.attributes.BinaryAttributes
-import graviton.pdf.PdfIngest
-import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.stores.BlobStore
-import graviton.runtime.upload.{
-  LocalityAwareUpload,
-  TenantId,
-  UploadByteStream,
-  UploadHttpHeaders,
-  UploadIntent,
-  UploadSessionId,
-  UploadSessionKey,
-}
+import graviton.runtime.upload.{LocalityAwareUpload, TenantId, UploadHttpHeaders, UploadIntent, UploadSessionId, UploadSessionKey}
 import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
@@ -56,7 +45,7 @@ final case class HttpApi(
     key: BinaryKey.Blob,
     stats: graviton.core.attributes.IngestStats,
   )
-  private case object UploadLocalityUnavailable extends RuntimeException("Upload locality is not enabled on this server")
+  private val blobIngest                              = BlobIngest.make(blobStore, localizedUpload)
   private val defaultUploadMediaType: BlocksMediaType =
     BlocksMediaTypes.application.`octet-stream`
 
@@ -127,17 +116,6 @@ final case class HttpApi(
           }
       case _                    => ZIO.unit
 
-  private def uploadPlan(
-    mediaType: BlocksMediaType,
-    expectedSize: Option[FileSize],
-  ): Either[IllegalArgumentException, BlobWritePlan] =
-    expectedSize
-      .fold(BinaryAttributes.empty)(BinaryAttributes.empty.advertiseSize)
-      .advertiseMediaType(mediaType)
-      .left
-      .map(message => new IllegalArgumentException(s"Invalid Content-Type: $message"))
-      .map(attributes => BlobWritePlan(attributes = attributes))
-
   private def secured(
     request: Request,
     action: String,
@@ -202,21 +180,9 @@ final case class HttpApi(
             ZIO.fromEither(uploadMediaType(req)).flatMap { mediaType =>
               ZIO.fromEither(uploadSession(req)).flatMap { session =>
                 authorizeUploadSessionTenant(session) *> body.flatMap { bytes =>
-                  (session, localizedUpload) match
-                    case (Some(key), Some(localized)) =>
-                      localized
-                        .upload(key, UploadIntent(mediaType, expectedSize), bytes)
-                        .map(result => UploadOutcome(result.key, result.stats))
-                    case (Some(_), None)              =>
-                      ZIO.fail(UploadLocalityUnavailable)
-                    case _                            =>
-                      ZIO.fromEither(uploadPlan(mediaType, expectedSize)).flatMap { plan =>
-                        val checked = UploadByteStream.enforceExpectedSize(bytes, expectedSize)
-                        val stored  =
-                          if PdfIngest.accepts(mediaType) then PdfIngest.put(blobStore, mediaType, checked, plan)
-                          else checked.run(blobStore.put(plan))
-                        stored.map(result => UploadOutcome(result.key, result.stats))
-                      }
+                  blobIngest
+                    .upload(session, UploadIntent(mediaType, expectedSize), bytes)
+                    .map(result => UploadOutcome(result.key, result.stats))
                 }
               }
             }
@@ -259,10 +225,22 @@ final case class HttpApi(
                   ZIO.succeed(error(Status.Forbidden, "forbidden", "Request denied"))
             case err: IllegalArgumentException             =>
               ZIO.succeed(error(Status.BadRequest, "invalid_blob", Option(err.getMessage).getOrElse("Invalid blob")))
-            case UploadLocalityUnavailable                 =>
+            case BlobIngest.Error.LocalityUnavailable      =>
               ZIO.succeed(error(Status.ServiceUnavailable, "locality_unavailable", "Upload locality is not enabled"))
-            case _: LocalityAwareUpload.Error              =>
+            case _: BlobIngest.Error.Locality              =>
               ZIO.succeed(error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream"))
+            case invalid: BlobIngest.Error.InvalidInput    =>
+              ZIO.succeed(error(Status.BadRequest, "invalid_blob", invalid.message))
+            case BlobIngest.Error.Rejected(rejected)       =>
+              rejected.error match
+                case SecurityError.PayloadTooLarge(_) =>
+                  ZIO.succeed(error(Status.RequestEntityTooLarge, "payload_too_large", "Request payload is too large"))
+                case SecurityError.RateLimited(_)     =>
+                  ZIO.succeed(error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded"))
+                case _                                =>
+                  ZIO.succeed(error(Status.Forbidden, "forbidden", "Request denied"))
+            case _: BlobIngest.Error.Storage               =>
+              ZIO.succeed(error(Status.InternalServerError, "ingest_failed", "Blob ingest failed"))
             case response: Response                        =>
               ZIO.succeed(response)
             case _                                         =>

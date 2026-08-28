@@ -45,7 +45,24 @@ curl -fsS "http://localhost:8081/api/stats" | jq .
 
 Stop and restart the server, then repeat the `GET`. Filesystem manifests make the object available to the fresh process. Process counters intentionally reset on restart.
 
-## 3. Choose a different filesystem root
+## 3. Use the local operator console
+
+```bash
+GRAVITON_CONSOLE_ENABLED=true ./sbt "server/run"
+open http://127.0.0.1:8081/console
+```
+
+The server binds to loopback while the unauthenticated console is enabled. Uploads use raw streaming request bodies, not multipart or base64. The file library exposes real CAS reuse, byte-stream downloads, and mutable folders that reference immutable blob IDs. Server-rendered actions use the ZIO Blocks DataStar algebra and the official DataStar browser runtime. In filesystem mode, folder and file references are atomically persisted below `GRAVITON_FS_ROOT/catalog/` in a size-bounded ZIO Blocks JSON document and survive restart with the CAS manifests.
+
+For the complete shared-storage topology, run:
+
+```bash
+./scripts/demo-shardcake-local.sh up
+```
+
+This starts PostgreSQL, MinIO, one Shardcake manager, and two Graviton nodes. Open `http://127.0.0.1:58081/console`; the second node is at port `58082`. See `deploy/local-shardcake/README.md` for the topology and lifecycle commands.
+
+## 4. Choose a different filesystem root
 
 ```bash
 export GRAVITON_FS_ROOT="/tmp/graviton-data"
@@ -55,7 +72,7 @@ export GRAVITON_HTTP_PORT=8081
 ./sbt "server/run"
 ```
 
-## 4. Optional S3/MinIO plus PostgreSQL mode
+## 5. Optional S3/MinIO plus PostgreSQL mode
 
 The shared-server composition stores blocks in S3-compatible object storage and manifests in PostgreSQL.
 

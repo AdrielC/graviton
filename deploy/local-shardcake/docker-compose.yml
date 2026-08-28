@@ -1,0 +1,170 @@
+name: graviton-local-shardcake
+
+x-graviton-storage: &graviton-storage
+  GRAVITON_BLOB_BACKEND: s3
+  PG_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
+  PG_USERNAME: postgres
+  PG_PASSWORD: postgres
+  QUASAR_MINIO_URL: http://minio:9000
+  MINIO_ROOT_USER: graviton
+  MINIO_ROOT_PASSWORD: graviton-local-secret
+  GRAVITON_S3_BLOCK_BUCKET: graviton-blocks
+  GRAVITON_S3_BLOCK_PREFIX: cas/blocks
+
+x-shardcake: &shardcake
+  GRAVITON_SHARDCAKE_ENABLED: "true"
+  GRAVITON_SHARDCAKE_MANAGER_URI: http://shardcake-manager:8080/api/graphql
+  GRAVITON_SHARDCAKE_NUMBER_OF_SHARDS: "64"
+  GRAVITON_SHARDCAKE_SERVER_VERSION: local
+  GRAVITON_SHARDCAKE_INTERNAL_TOKEN: local-graviton-shardcake-token-000001
+  GRAVITON_SHARDCAKE_POSTGRES_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
+  GRAVITON_SHARDCAKE_POSTGRES_USERNAME: postgres
+  GRAVITON_SHARDCAKE_POSTGRES_PASSWORD: postgres
+  GRAVITON_SHARDCAKE_REFRESH_ASSIGNMENTS_RETRY_INTERVAL: 1s
+  GRAVITON_SHARDCAKE_UNHEALTHY_POD_REPORT_INTERVAL: 1s
+
+x-node: &node
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  environment:
+    <<: [*graviton-storage, *shardcake]
+    GRAVITON_HTTP_PORT: "8081"
+    GRAVITON_GRPC_PORT: "9090"
+    GRAVITON_SECURITY_ENABLED: "false"
+    GRAVITON_SECURITY_AUDIT_BACKEND: memory
+    GRAVITON_CONSOLE_ENABLED: "true"
+    GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
+    GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+    GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    minio-init:
+      condition: service_completed_successfully
+    shardcake-manager:
+      condition: service_started
+  restart: unless-stopped
+  networks: [graviton]
+
+services:
+  postgres:
+    image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+    environment:
+      POSTGRES_DB: graviton
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../modules/pg/ddl.sql:/docker-entrypoint-initdb.d/10-graviton.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d graviton"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+    networks: [graviton]
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "--console-address", ":9001", "/data"]
+    environment:
+      MINIO_ROOT_USER: graviton
+      MINIO_ROOT_PASSWORD: graviton-local-secret
+    ports:
+      - "127.0.0.1:59000:9000"
+      - "127.0.0.1:59001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+    networks: [graviton]
+
+  minio-init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 graviton graviton-local-secret
+        mc mb --ignore-existing local/graviton-blocks
+    networks: [graviton]
+
+  shardcake-manager:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    entrypoint:
+      - java
+      - -XX:MaxRAMPercentage=75
+      - -XX:+ExitOnOutOfMemoryError
+      - -cp
+      - /app/graviton.jar
+      - graviton.integration.shardcake.ShardcakeManagerMain
+    environment:
+      <<: *shardcake
+      GRAVITON_SHARDCAKE_HOST: shardcake-manager
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+      GRAVITON_SHARDCAKE_MANAGER_API_PORT: "8080"
+      GRAVITON_SHARDCAKE_MANAGER_REBALANCE_INTERVAL: 1s
+      GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RETRY_INTERVAL: 1s
+      GRAVITON_SHARDCAKE_MANAGER_PING_TIMEOUT: 2s
+      GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RATE: "1.0"
+      GRAVITON_SHARDCAKE_MANAGER_POD_HEALTH_CHECK_INTERVAL: 2s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:58080:8080"
+    restart: unless-stopped
+    networks: [graviton]
+
+  graviton-node-1:
+    <<: *node
+    environment:
+      <<: [*graviton-storage, *shardcake]
+      GRAVITON_HTTP_PORT: "8081"
+      GRAVITON_GRPC_PORT: "9090"
+      GRAVITON_SECURITY_ENABLED: "false"
+      GRAVITON_SECURITY_AUDIT_BACKEND: memory
+      GRAVITON_CONSOLE_ENABLED: "true"
+      GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
+      GRAVITON_SHARDCAKE_HOST: graviton-node-1
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+    ports:
+      - "127.0.0.1:58081:8081"
+      - "127.0.0.1:59090:9090"
+
+  graviton-node-2:
+    <<: *node
+    environment:
+      <<: [*graviton-storage, *shardcake]
+      GRAVITON_HTTP_PORT: "8081"
+      GRAVITON_GRPC_PORT: "9090"
+      GRAVITON_SECURITY_ENABLED: "false"
+      GRAVITON_SECURITY_AUDIT_BACKEND: memory
+      GRAVITON_CONSOLE_ENABLED: "true"
+      GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
+      GRAVITON_SHARDCAKE_HOST: graviton-node-2
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+    ports:
+      - "127.0.0.1:58082:8081"
+      - "127.0.0.1:59091:9090"
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  graviton:
+    driver: bridge
