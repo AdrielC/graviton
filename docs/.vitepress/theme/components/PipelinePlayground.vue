@@ -7,65 +7,92 @@
     FORM: Operational byte cartography, shaped directly from the user's specified workflow.
     FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review and docs/design/cas-playground.md
   -->
-  <section :class="['cas-lab', { 'cas-lab--compact': compact }]" aria-label="Content-addressed file comparison">
+  <section :class="['cas-lab', { 'cas-lab--compact': compact, 'has-files': files.length }]" aria-label="Content-addressed file comparison">
     <header class="cas-lab__bar">
-      <div>
-        <h2>{{ compact ? 'Compare your files' : 'Find the bytes files share' }}</h2>
-        <span :class="['cas-runtime', runtimeState]" role="status">{{ runtimeLabel }}</span>
+      <div class="cas-lab__title">
+        <h2>{{ compact ? 'Compare files by content' : files.length ? 'Content comparison' : 'Drop files. Find the overlap.' }}</h2>
+        <span :class="['cas-runtime', runtimeState]" role="status" :title="runtimeLabel">{{ runtimeStatus }}</span>
       </div>
 
-      <div v-if="!compact" class="cas-profile" aria-label="Chunking profile">
-        <label>
-          <span>Chunker</span>
-          <select v-model="strategy" :disabled="isBusy">
-            <option value="auto">Automatic</option>
-            <option value="pdf">PDF structures</option>
-            <option value="fastcdc">FastCDC</option>
-            <option value="fixed">Fixed ranges</option>
-          </select>
-        </label>
-        <label>
-          <span>Target</span>
-          <select v-model.number="targetBytes" :disabled="isBusy">
-            <option :value="16384">16 KiB</option>
-            <option :value="65536">64 KiB</option>
-            <option :value="262144">256 KiB</option>
-            <option :value="1048576">1 MiB</option>
-          </select>
-        </label>
-        <button v-if="files.length" type="button" class="cas-button" :disabled="isBusy" @click="reanalyzeAll">
-          Reanalyze
-        </button>
-      </div>
+      <details v-if="!compact" class="cas-settings">
+        <summary>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6" /></svg>
+          <span>Chunking</span>
+          <strong>{{ profileLabel }}</strong>
+        </summary>
+        <div class="cas-profile" aria-label="Chunking profile">
+          <label>
+            <span>Strategy</span>
+            <select v-model="strategy" :disabled="isBusy">
+              <option value="auto">Automatic</option>
+              <option value="pdf">PDF structures</option>
+              <option value="fastcdc">FastCDC</option>
+              <option value="fixed">Fixed ranges</option>
+            </select>
+          </label>
+          <label>
+            <span>Target block</span>
+            <select v-model.number="targetBytes" :disabled="isBusy">
+              <option :value="16384">16 KiB</option>
+              <option :value="65536">64 KiB</option>
+              <option :value="262144">256 KiB</option>
+              <option :value="1048576">1 MiB</option>
+            </select>
+          </label>
+          <button v-if="files.length" type="button" class="cas-button" :disabled="isBusy" @click="reanalyzeAll">
+            Apply
+          </button>
+        </div>
+      </details>
     </header>
 
     <label
-      :class="['cas-drop', { 'is-dragging': dragging }]"
+      :class="['cas-drop', { 'cas-drop--empty': !files.length, 'is-dragging': dragging }]"
       @dragenter.prevent="dragging = true"
       @dragover.prevent="dragging = true"
       @dragleave.prevent="dragging = false"
       @drop.prevent="handleDrop"
     >
       <input type="file" multiple @change="handleFileInput" />
-      <svg aria-hidden="true" viewBox="0 0 32 32">
+      <span v-if="!files.length" class="cas-drop__mark" aria-hidden="true">
+        <img :src="withBase('/logo.svg')" alt="" />
+      </span>
+      <svg v-else class="cas-drop__upload" aria-hidden="true" viewBox="0 0 32 32">
         <path d="M16 21V6m0 0-6 6m6-6 6 6M7 19v7h18v-7" />
       </svg>
-      <strong>{{ files.length ? 'Add more files' : 'Drop files to compare' }}</strong>
-      <span>PDFs, binaries, images, archives, or text</span>
+      <span class="cas-drop__copy">
+        <strong>{{ files.length ? 'Add files' : 'Choose files to compare' }}</strong>
+        <span>{{ files.length ? 'PDF, binary, image, archive, or text' : 'PDFs, binaries, images, archives, and text all work.' }}</span>
+      </span>
+      <span class="cas-drop__action">{{ files.length ? 'Browse' : 'Choose files' }}</span>
     </label>
 
-    <template v-if="files.length">
-      <dl class="cas-totals" aria-label="Deduplication summary">
-        <div><dt>Files</dt><dd>{{ readyFiles.length }}<span v-if="isBusy"> / {{ files.length }}</span></dd></div>
-        <div><dt>Logical bytes</dt><dd>{{ formatBytes(logicalBytes) }}</dd></div>
-        <div><dt>Unique bytes</dt><dd>{{ formatBytes(uniqueBytes) }}</dd></div>
-        <div class="cas-totals__reuse">
-          <dt>Reusable</dt>
-          <dd>{{ formatBytes(reusedBytes) }} <span>{{ formatPercent(reuseRatio) }}</span></dd>
-        </div>
-      </dl>
+    <ul v-if="!files.length" class="cas-trust" aria-label="Local analysis guarantees">
+      <li>Runs locally</li>
+      <li>Streaming SHA-256</li>
+      <li>PDF-aware</li>
+    </ul>
 
-      <div class="cas-map" aria-label="File block maps">
+    <template v-if="files.length">
+      <section class="cas-overview" aria-label="Deduplication summary">
+        <p class="cas-verdict" aria-live="polite">{{ comparisonStatement }}</p>
+        <dl class="cas-totals">
+          <div class="cas-totals__reuse"><dt>Reusable</dt><dd>{{ formatBytes(reusedBytes) }} <span>{{ formatPercent(reuseRatio) }}</span></dd></div>
+          <div><dt>Unique</dt><dd>{{ formatBytes(uniqueBytes) }}</dd></div>
+          <div><dt>Logical</dt><dd>{{ formatBytes(logicalBytes) }}</dd></div>
+          <div><dt>Files</dt><dd>{{ readyFiles.length }}<span v-if="isBusy"> / {{ files.length }}</span></dd></div>
+        </dl>
+      </section>
+
+      <section class="cas-map" aria-labelledby="cas-map-title">
+        <header class="cas-map__header">
+          <h3 id="cas-map-title">Byte map</h3>
+          <div class="cas-legend" aria-label="Byte map legend">
+            <span><i class="is-shared" />Shared</span>
+            <span><i class="is-unique" />Unique</span>
+            <span><i class="is-match" />Selected</span>
+          </div>
+        </header>
         <article
           v-for="record in files"
           :key="record.id"
@@ -139,7 +166,7 @@
           </div>
           <div v-else class="cas-progress" aria-hidden="true"><span :style="{ transform: `scaleX(${record.progress})` }" /></div>
         </article>
-      </div>
+      </section>
 
       <section v-if="selectedBlock" class="cas-selection" aria-labelledby="cas-selection-title">
         <div>
@@ -160,14 +187,14 @@
       >
         <header>
           <div>
-            <h3 id="cas-pdf-title">Create a PDF font variant</h3>
-            <p>Uses fonts already embedded in this PDF. ZIO PDF rewrites only code-and-metric compatible resources.</p>
+            <h3 id="cas-pdf-title">Make a font variant</h3>
+            <p>Choose two embedded resources. Unsafe replacements stop before a PDF is written.</p>
           </div>
           <span :class="['cas-pdf__state', selectedRecord.fontState]">{{ fontStateLabel(selectedRecord) }}</span>
         </header>
 
         <details v-if="selectedRecord.fontState === 'ready' && selectedRecord.fonts.length" class="cas-font-inventory">
-          <summary>Inspect all {{ selectedRecord.fonts.length }} font resources</summary>
+          <summary>{{ selectedRecord.fonts.length }} embedded font resources</summary>
           <ul>
             <li v-for="font in selectedRecord.fonts" :key="`font:${font.objectNumber}`">
               <code>{{ cleanFontName(font.baseFont) }}</code>
@@ -204,7 +231,7 @@
             :disabled="!canTransform(selectedRecord) || selectedRecord.transformState === 'running'"
             @click="createFontVariant(selectedRecord)"
           >
-            {{ selectedRecord.transformState === 'running' ? 'Creating variant…' : 'Create and compare' }}
+            {{ selectedRecord.transformState === 'running' ? 'Building variant…' : 'Build variant' }}
           </button>
         </div>
         <p v-else-if="selectedRecord.fontState === 'ready'" class="cas-pdf__empty">
@@ -251,13 +278,11 @@
       </section>
     </template>
 
-    <p v-else class="cas-empty-note">
-      Analysis stays local. Files are streamed through Scala.js; PDF rewriting is available only below the explicit 32 MiB edit limit.
-    </p>
   </section>
 </template>
 
 <script setup lang="ts">
+import { withBase } from 'vitepress'
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 
 type BlockResult = {
@@ -341,12 +366,12 @@ const files = ref<FileRecord[]>([])
 const selectedFileId = ref('')
 const selectedBlockKey = ref('')
 const strategy = ref('auto')
-const targetBytes = ref(262144)
+const targetBytes = ref(65536)
 const dragging = ref(false)
 const rangeFilter = ref<'all' | 'shared' | 'unique'>('all')
 const rangePage = ref(0)
 const runtimeState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
-const runtimeLabel = ref('Scala.js loads on first file')
+const runtimeLabel = ref('Starts locally when you choose a file')
 const MAX_EDITABLE_PDF_BYTES = 32 * 1024 * 1024
 const queue: FileRecord[] = []
 let running = 0
@@ -376,6 +401,26 @@ const uniqueBytes = computed(() => {
 })
 const reusedBytes = computed(() => Math.max(0, logicalBytes.value - uniqueBytes.value))
 const reuseRatio = computed(() => (logicalBytes.value ? reusedBytes.value / logicalBytes.value : 0))
+const runtimeStatus = computed(() => {
+  if (runtimeState.value === 'loading') return 'Reading locally'
+  if (runtimeState.value === 'ready') return 'Local runtime ready'
+  if (runtimeState.value === 'error') return 'Analysis failed'
+  return 'Local, nothing uploaded'
+})
+const profileLabel = computed(() => {
+  const strategies: Record<string, string> = { auto: 'Auto', pdf: 'PDF', fastcdc: 'FastCDC', fixed: 'Fixed' }
+  return `${strategies[strategy.value] || strategy.value} · ${formatBytes(targetBytes.value)}`
+})
+const comparisonStatement = computed(() => {
+  if (isBusy.value) return `Reading ${files.value.length === 1 ? '1 file' : `${files.value.length} files`} without loading them all into memory.`
+  if (readyFiles.value.length < 2) {
+    return selectedRecord.value?.analysis?.pdfSignature && !compact.value
+      ? 'Add another file, or build a font variant below.'
+      : 'Add another file to reveal exact reusable content.'
+  }
+  if (reusedBytes.value > 0) return `${formatBytes(reusedBytes.value)} is already shared across this set.`
+  return 'No exact block overlap at this profile.'
+})
 const selectedRecord = computed(() => files.value.find(record => record.id === selectedFileId.value))
 const selectedBlock = computed(() => {
   const record = selectedRecord.value
@@ -653,51 +698,75 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-lab {
   --cas-line: color-mix(in srgb, var(--graviton-border) 82%, var(--vp-c-brand-1));
   container-type: inline-size;
-  overflow: hidden;
+  position: relative;
   margin: 2rem 0;
   border: 1px solid var(--cas-line);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--graviton-panel) 96%, var(--vp-c-brand-soft));
-  box-shadow: 0 24px 64px -40px color-mix(in srgb, var(--vp-c-brand-1) 42%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--graviton-panel) 97%, var(--vp-c-brand-soft));
+  box-shadow: 0 28px 72px -52px color-mix(in srgb, var(--vp-c-brand-1) 48%, transparent);
   color: var(--graviton-ink);
 }
-.cas-lab__bar { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; padding: 1.15rem 1.25rem; border-bottom: 1px solid var(--cas-line); }
-.cas-lab__bar h2, .cas-selection h3, .cas-pdf h3, .cas-ranges h3 { margin: 0; border: 0; color: var(--graviton-ink); letter-spacing: -0.025em; line-height: 1.1; }
-.cas-lab__bar h2 { font-size: clamp(1.25rem, 2vw, 1.65rem); }
-.cas-runtime { display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.35rem; color: var(--graviton-muted); font-family: var(--vp-font-family-mono); font-size: 0.68rem; }
-.cas-runtime::before { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--graviton-gold); content: ''; }
+.cas-lab__bar { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; min-height: 88px; padding: 1.15rem 1.35rem; border-bottom: 1px solid var(--cas-line); }
+.cas-lab__bar h2, .cas-map h3, .cas-selection h3, .cas-pdf h3, .cas-ranges h3 { margin: 0; border: 0; color: var(--graviton-ink); letter-spacing: -0.025em; line-height: 1.1; }
+.cas-lab__bar h2 { max-width: 22ch; font-size: clamp(1.25rem, 2vw, 1.7rem); text-wrap: balance; }
+.cas-runtime { display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.42rem; color: color-mix(in srgb, var(--graviton-muted) 92%, var(--graviton-ink)); font-size: 0.72rem; }
+.cas-runtime::before { width: 0.42rem; height: 0.42rem; flex: 0 0 auto; border-radius: 50%; background: var(--graviton-gold); content: ''; }
 .cas-runtime.ready::before { background: var(--graviton-success); }
 .cas-runtime.error::before { background: var(--graviton-danger); }
-.cas-profile { display: flex; align-items: end; gap: 0.65rem; }
+.cas-settings { position: relative; flex: 0 0 auto; }
+.cas-settings summary { display: grid; grid-template-columns: 18px auto; gap: 0.05rem 0.55rem; min-height: 44px; padding: 0.45rem 0.65rem; border: 1px solid var(--cas-line); border-radius: 8px; color: var(--graviton-ink); cursor: pointer; list-style: none; }
+.cas-settings summary::-webkit-details-marker { display: none; }
+.cas-settings summary svg { grid-row: 1 / 3; align-self: center; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.6; }
+.cas-settings summary span { font-size: 0.7rem; font-weight: 760; line-height: 1.2; }
+.cas-settings summary strong { color: var(--graviton-muted); font-family: var(--vp-font-family-mono); font-size: 0.61rem; font-weight: 550; line-height: 1.2; }
+.cas-settings[open] summary, .cas-settings summary:hover { border-color: var(--vp-c-brand-1); color: var(--vp-c-brand-1); }
+.cas-profile { position: absolute; z-index: 12; top: calc(100% + 0.45rem); right: 0; display: grid; grid-template-columns: 150px 125px; gap: 0.7rem; width: max-content; padding: 0.85rem; border: 1px solid var(--cas-line); border-radius: 10px; background: var(--graviton-panel); box-shadow: 0 18px 42px -25px rgba(0, 0, 0, 0.72); }
 .cas-profile label, .cas-fonts label { display: grid; gap: 0.28rem; }
 .cas-profile label > span, .cas-fonts label > span { color: var(--graviton-muted); font-size: 0.66rem; font-weight: 750; }
-.cas-profile select, .cas-fonts select { min-height: 44px; padding: 0.5rem 2rem 0.5rem 0.65rem; border: 1px solid var(--cas-line); border-radius: 8px; background: var(--graviton-panel); color: var(--graviton-ink); font: inherit; font-size: 0.76rem; }
+.cas-profile select, .cas-fonts select { min-height: 44px; padding: 0.5rem 2rem 0.5rem 0.65rem; border: 1px solid var(--cas-line); border-radius: 7px; background: var(--graviton-panel); color: var(--graviton-ink); font: inherit; font-size: 0.76rem; }
+.cas-profile .cas-button { grid-column: 1 / -1; }
 .cas-button { min-height: 44px; padding: 0.5rem 0.8rem; border: 1px solid var(--cas-line); border-radius: 8px; background: var(--graviton-panel); color: var(--graviton-ink); cursor: pointer; font: inherit; font-size: 0.74rem; font-weight: 750; }
 .cas-button:hover:not(:disabled) { border-color: var(--vp-c-brand-1); color: var(--vp-c-brand-1); }
 .cas-button:disabled { cursor: not-allowed; opacity: 0.45; }
 .cas-button--primary { border-color: var(--vp-c-brand-1); background: var(--vp-c-brand-1); color: var(--vp-c-bg); }
 .cas-button--primary:hover:not(:disabled) { color: var(--vp-c-bg); filter: brightness(1.08); }
-.cas-drop { display: grid; grid-template-columns: auto 1fr; column-gap: 0.9rem; align-items: center; min-height: 112px; padding: 1.25rem; border-bottom: 1px solid var(--cas-line); background: linear-gradient(110deg, color-mix(in srgb, var(--vp-c-brand-soft) 62%, transparent), transparent 52%), var(--graviton-panel-muted); cursor: pointer; transition: background-color 180ms ease, box-shadow 180ms ease; }
-.cas-drop:hover, .cas-drop.is-dragging, .cas-drop:focus-within { background-color: color-mix(in srgb, var(--vp-c-brand-soft) 34%, var(--graviton-panel-muted)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--vp-c-brand-1) 52%, transparent); }
+.cas-drop { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.9rem; align-items: center; min-height: 80px; padding: 1rem 1.35rem; border-bottom: 1px solid var(--cas-line); background: var(--graviton-panel-muted); cursor: pointer; transition: background-color 180ms ease, box-shadow 180ms ease; }
+.cas-drop--empty { grid-template-columns: 64px minmax(0, 1fr) auto; min-height: 176px; background: linear-gradient(118deg, color-mix(in srgb, var(--vp-c-brand-soft) 78%, transparent), transparent 62%), var(--graviton-panel-muted); }
+.cas-drop:hover, .cas-drop.is-dragging, .cas-drop:focus-within { background-color: color-mix(in srgb, var(--vp-c-brand-soft) 32%, var(--graviton-panel-muted)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--vp-c-brand-1) 55%, transparent); }
 .cas-drop input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-.cas-drop svg { grid-row: 1 / 3; width: 34px; height: 34px; fill: none; stroke: var(--vp-c-brand-1); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
-.cas-drop strong { align-self: end; font-size: 1rem; }
-.cas-drop span { align-self: start; color: var(--graviton-muted); font-size: 0.74rem; }
-.cas-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-bottom: 1px solid var(--cas-line); background: var(--graviton-panel); }
-.cas-totals > div { padding: 0.85rem 1.15rem; }
-.cas-totals > div + div { border-left: 1px solid var(--cas-line); }
+.cas-drop__mark { display: grid; width: 58px; height: 58px; place-items: center; }
+.cas-drop__mark img { width: 54px; height: 54px; filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--vp-c-brand-1) 25%, transparent)); }
+.cas-drop__upload { width: 30px; height: 30px; fill: none; stroke: var(--vp-c-brand-1); stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+.cas-drop__copy { display: grid; gap: 0.22rem; min-width: 0; }
+.cas-drop__copy strong { color: var(--graviton-ink); font-size: clamp(0.95rem, 2vw, 1.15rem); letter-spacing: -0.015em; }
+.cas-drop__copy > span { color: var(--graviton-muted); font-size: 0.73rem; line-height: 1.45; }
+.cas-drop__action { min-height: 44px; padding: 0.7rem 0.9rem; border-radius: 7px; background: var(--vp-c-brand-1); color: var(--vp-c-bg); font-size: 0.72rem; font-weight: 800; line-height: 1.4; }
+.cas-trust { display: flex; flex-wrap: wrap; gap: 0.45rem 1.4rem; margin: 0; padding: 0.82rem 1.35rem; color: var(--graviton-muted); font-size: 0.68rem; list-style: none; }
+.cas-trust li { display: inline-flex; align-items: center; gap: 0.45rem; }
+.cas-trust li::before { width: 4px; height: 4px; border-radius: 50%; background: var(--graviton-success); content: ''; }
+.cas-overview { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: 1rem 1.35rem; border-bottom: 1px solid var(--cas-line); background: color-mix(in srgb, var(--graviton-panel) 96%, var(--vp-c-brand-soft)); }
+.cas-verdict { max-width: 34ch; margin: 0; color: var(--graviton-ink); font-size: 0.92rem; font-weight: 720; line-height: 1.35; text-wrap: balance; }
+.cas-totals { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.65rem 1.15rem; margin: 0; }
+.cas-totals > div { min-width: 62px; }
 .cas-totals dt { color: var(--graviton-muted); font-size: 0.64rem; }
 .cas-totals dd { margin: 0.22rem 0 0; color: var(--graviton-ink); font-family: var(--vp-font-family-mono); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 .cas-totals__reuse dd { color: var(--graviton-cyan); }
 .cas-totals__reuse dd span { margin-left: 0.3rem; color: var(--graviton-violet); }
-.cas-map { padding: 0 1.15rem; }
+.cas-map { padding: 0 1.35rem 0.2rem; }
+.cas-map__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.92rem 0 0.6rem; }
+.cas-map h3 { font-size: 0.82rem; }
+.cas-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.8rem; color: var(--graviton-muted); font-size: 0.62rem; }
+.cas-legend span { display: inline-flex; align-items: center; gap: 0.32rem; }
+.cas-legend i { display: inline-block; width: 14px; height: 5px; border-radius: 2px; background: color-mix(in srgb, var(--graviton-muted) 34%, transparent); }
+.cas-legend i.is-shared { background: var(--graviton-cyan); }
+.cas-legend i.is-match { background: var(--graviton-violet); }
 .cas-file { padding: 1rem 0; border-bottom: 1px solid var(--cas-line); }
 .cas-file:last-child { border-bottom: 0; }
-.cas-file.is-selected { background: linear-gradient(90deg, var(--vp-c-brand-soft), transparent 74%); }
+.cas-file.is-selected { background: linear-gradient(90deg, color-mix(in srgb, var(--vp-c-brand-soft) 76%, transparent), transparent 74%); }
 .cas-file > header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.85rem; align-items: center; }
 .cas-file__name { display: flex; min-width: 0; gap: 0.75rem; align-items: center; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
 .cas-file__name > span:last-child { min-width: 0; }
-.cas-file__name strong { display: block; overflow: hidden; font-size: 0.9rem; text-overflow: ellipsis; white-space: nowrap; }
+.cas-file__name strong { display: block; overflow: hidden; font-size: 0.88rem; text-overflow: ellipsis; white-space: nowrap; }
 .cas-file__name small { display: block; margin-top: 0.14rem; color: var(--graviton-muted); font-size: 0.67rem; }
 .cas-file__kind { display: grid; width: 42px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 28%, var(--cas-line)); border-radius: 8px; background: var(--vp-c-brand-soft); color: var(--vp-c-brand-1); font-family: var(--vp-font-family-mono); font-size: 0.66rem; font-weight: 800; }
 .cas-file__result { display: grid; justify-items: end; min-width: 70px; }
@@ -708,9 +777,9 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-icon-button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--graviton-muted); cursor: pointer; }
 .cas-icon-button:hover { border-color: var(--cas-line); color: var(--graviton-danger); }
 .cas-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.7; }
-.cas-track-wrap { margin: 0.8rem 0 0 3.55rem; }
-.cas-track { display: block; width: 100%; height: 28px; cursor: crosshair; }
-.cas-track__base { fill: color-mix(in srgb, var(--graviton-border) 52%, transparent); }
+.cas-track-wrap { margin: 0.72rem 0 0 3.55rem; }
+.cas-track { display: block; width: 100%; height: 30px; cursor: crosshair; }
+.cas-track__base { fill: color-mix(in srgb, var(--graviton-border) 62%, transparent); }
 .cas-track__block { stroke: var(--graviton-panel); stroke-width: 0.75; vector-effect: non-scaling-stroke; }
 .cas-track__block.is-unique { fill: color-mix(in srgb, var(--graviton-muted) 26%, transparent); }
 .cas-track__block.is-shared { fill: var(--graviton-cyan); }
@@ -728,9 +797,9 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-selection li { display: flex; justify-content: space-between; gap: 0.8rem; font-size: 0.68rem; }
 .cas-selection li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cas-selection li span { flex: 0 0 auto; color: var(--graviton-muted); font-family: var(--vp-font-family-mono); }
-.cas-pdf { padding: 1.25rem; }
+.cas-pdf { padding: 1.35rem; }
 .cas-pdf > header, .cas-ranges > header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
-.cas-pdf h3, .cas-ranges h3 { font-size: 1rem; }
+.cas-pdf h3, .cas-ranges h3 { font-size: 1.05rem; }
 .cas-pdf header p { max-width: 66ch; margin: 0.35rem 0 0; color: var(--graviton-muted); font-size: 0.71rem; line-height: 1.5; }
 .cas-pdf__state { max-width: 240px; color: var(--graviton-muted); font-family: var(--vp-font-family-mono); font-size: 0.66rem; text-align: right; }
 .cas-pdf__state.ready { color: var(--graviton-success); }
@@ -745,7 +814,7 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-fonts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; margin-top: 1rem; }
 .cas-fonts select { width: 100%; }
 .cas-pdf__empty { margin: 1rem 0 0; color: var(--graviton-muted); font-size: 0.74rem; }
-.cas-ranges { padding: 1.25rem; background: var(--graviton-panel-muted); }
+.cas-ranges { padding: 1.35rem; background: var(--graviton-panel-muted); }
 .cas-range-filter { display: flex; gap: 0.25rem; }
 .cas-range-filter button { min-height: 44px; padding: 0.35rem 0.75rem; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--graviton-muted); cursor: pointer; font: inherit; font-size: 0.68rem; font-weight: 750; }
 .cas-range-filter button.active { border-color: var(--cas-line); background: var(--graviton-panel); color: var(--graviton-ink); }
@@ -762,18 +831,12 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-range-pages button { min-height: 44px; padding: 0.35rem 0.75rem; border: 1px solid var(--cas-line); border-radius: 7px; background: var(--graviton-panel); color: var(--graviton-ink); cursor: pointer; font: inherit; font-size: 0.68rem; font-weight: 750; }
 .cas-range-pages button:disabled { cursor: not-allowed; opacity: 0.45; }
 .cas-range-pages span { color: var(--graviton-muted); font-family: var(--vp-font-family-mono); font-size: 0.67rem; font-variant-numeric: tabular-nums; }
-.cas-empty-note { margin: 0; padding: 0.8rem 1.25rem; color: var(--graviton-muted); font-size: 0.68rem; line-height: 1.45; }
 .cas-lab--compact { margin: 0; }
-.cas-lab--compact .cas-lab__bar { align-items: center; }
-.cas-lab--compact .cas-drop { min-height: 96px; }
+.cas-lab--compact .cas-lab__bar { min-height: 80px; }
+.cas-lab--compact .cas-drop--empty { min-height: 150px; }
 @container (max-width: 760px) {
-  .cas-lab__bar { align-items: stretch; flex-direction: column; }
-  .cas-profile { display: grid; grid-template-columns: 1fr 1fr; }
-  .cas-profile .cas-button { grid-column: 1 / -1; }
-  .cas-profile select { width: 100%; }
-  .cas-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cas-totals > div:nth-child(3) { border-left: 0; }
-  .cas-totals > div:nth-child(n + 3) { border-top: 1px solid var(--cas-line); }
+  .cas-overview { align-items: flex-start; flex-direction: column; }
+  .cas-totals { justify-content: flex-start; }
   .cas-map { padding: 0 0.9rem; }
   .cas-file > header { gap: 0.55rem; }
   .cas-file__kind { width: 36px; }
@@ -786,7 +849,22 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 }
 @container (max-width: 480px) {
   .cas-lab { margin-right: -8px; margin-left: -8px; border-radius: 12px; }
-  .cas-lab__bar, .cas-drop, .cas-selection, .cas-pdf, .cas-ranges { padding: 1rem; }
+  .cas-lab__bar, .cas-drop, .cas-overview, .cas-selection, .cas-pdf, .cas-ranges { padding: 1rem; }
+  .cas-lab__bar { align-items: flex-start; }
+  .cas-settings { margin-top: 0.05rem; }
+  .cas-settings summary { grid-template-columns: 18px; width: 44px; padding: 0.45rem; place-content: center; }
+  .cas-settings summary span, .cas-settings summary strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); }
+  .cas-profile { right: 0; grid-template-columns: minmax(118px, 1fr) minmax(105px, 0.8fr); max-width: calc(100cqi - 2rem); }
+  .cas-drop--empty { grid-template-columns: 1fr; justify-items: start; min-height: 232px; }
+  .cas-drop__mark { width: 52px; height: 52px; }
+  .cas-drop__mark img { width: 48px; height: 48px; }
+  .cas-drop__action { justify-self: stretch; width: 100%; text-align: center; }
+  .cas-drop:not(.cas-drop--empty) { grid-template-columns: auto minmax(0, 1fr); }
+  .cas-drop:not(.cas-drop--empty) .cas-drop__action { grid-column: 1 / -1; }
+  .cas-trust { gap: 0.4rem 0.85rem; padding: 0.78rem 1rem; }
+  .cas-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .cas-map__header { align-items: flex-start; flex-direction: column; }
+  .cas-legend { justify-content: flex-start; }
   .cas-ranges > header { align-items: stretch; flex-direction: column; }
   .cas-range-pages { justify-content: space-between; }
   .cas-file__name small { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

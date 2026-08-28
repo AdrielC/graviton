@@ -2,15 +2,16 @@
 
 ## Thesis
 
-The playground is a byte atlas, not a metric-card dashboard or a hash worksheet. Real files become aligned range maps. The interface leads from file selection to exact shared blocks, then lets a PDF user make one safe edit and see what the edit actually changes.
+The playground is a comparison workspace, not a metric-card dashboard or a hash worksheet. Real files become aligned range maps. The interface leads from file selection to exact shared blocks, then lets a PDF user make one safe edit and see what the edit actually changes.
 
 The visual hierarchy follows the evidence:
 
-1. Add files and choose a chunking profile.
-2. Read logical, unique, and reusable byte totals.
-3. Compare aligned block tracks and select an exact content ID.
+1. Add files.
+2. Read the exact reusable-byte result.
+3. Compare aligned block tracks and select a content ID.
 4. Inspect the matching byte ranges in every file.
-5. For a confirmed PDF, inspect embedded fonts and create a comparable font variant.
+5. Open secondary chunking controls only when the profile needs to change.
+6. For a confirmed PDF, inspect embedded fonts and create a comparable font variant.
 
 No result is fabricated. Empty, loading, mismatch, incompatible-font, block-limit, and stream failures stay visible in the surface where the user can act on them.
 
@@ -18,7 +19,7 @@ No result is fabricated. Empty, loading, mismatch, incompatible-font, block-limi
 
 - The picker accepts multiple PDFs, binaries, images, archives, and text files. Analysis begins immediately and runs for at most two files concurrently.
 - Automatic mode reads the first five bytes. `%PDF-` selects ZIO PDF structural boundaries; other files use FastCDC. PDF structural, FastCDC, and fixed-range strategies remain explicit choices.
-- The target can be 16 KiB, 64 KiB, 256 KiB, or 1 MiB. Reanalyze applies the current choice to every loaded file.
+- The target can be 16 KiB, 64 KiB, 256 KiB, or 1 MiB. The interactive default is 64 KiB so ordinary documents produce a useful range map. Apply runs the current choice against every loaded file.
 - Every block carries its byte range and SHA-256 content ID. Cyan means the exact block occurs in another loaded file. Violet means the currently selected content ID. Neutral ranges are unique within the comparison set.
 - Selecting a range reveals the matching filename and byte range in each file. The detailed table provides the same operation for keyboard and screen-reader users.
 - A byte-confirmed PDF loads the ZIO PDF module on demand, reports the document's actual font resources, and exposes only existing-resource remaps that can be checked safely.
@@ -28,7 +29,7 @@ No result is fabricated. Empty, loading, mismatch, incompatible-font, block-limi
 
 ## Visual system
 
-The component inherits the Graviton documentation tokens and supports both themes.
+The component inherits the Graviton documentation tokens and supports both themes. Its hierarchy is comparison-first: upload owns the empty state, the measured reuse verdict leads the result state, byte tracks carry the evidence, and chunking configuration stays in a secondary disclosure.
 
 - **Orbital green** (`--vp-c-brand-1`) marks primary actions, focus, progress, and the ready runtime. It is `#087f5b` in light mode and `#63e6be` in dark mode.
 - **Reuse cyan** (`--graviton-cyan`) is reserved for byte ranges shared across files.
@@ -44,8 +45,8 @@ Corners are measured rather than bubbly: 16 px for the atlas, 12 px on the narro
 
 The atlas is an inline-size container, so it responds to its documentation column instead of the browser viewport alone.
 
-- Above 760 px, profile controls remain in the header, totals use four columns, comparison evidence spans the available width, and font controls form one row.
-- At 760 px and below, the header stacks, profile controls use two columns, totals use a two-by-two grid, the selected-match panel becomes one column, and font controls stack.
+- Above 760 px, profile controls open from the compact header disclosure, the reuse verdict and totals share one line, comparison evidence spans the available width, and font controls form one row.
+- At 760 px and below, the verdict and totals stack, the selected-match panel becomes one column, and font controls stack.
 - At 480 px and below, padding tightens, filenames truncate without hiding their file rows, selected matches stack, and section headers place controls below titles.
 - The range table keeps its evidence columns and scrolls horizontally instead of collapsing labels into an ambiguous mobile card list.
 - Compact homepage mode keeps upload, totals, and block maps, while omitting chunk-profile, font-editing, and range-table controls.
