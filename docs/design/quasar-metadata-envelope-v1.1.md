@@ -145,9 +145,9 @@ This is an escape hatch, not a substitute for schema governance.
 Two JSON Schemas are provided:
 
 - **Ingest form** (schema may be omitted):
-  - `docs/public/schemas/quasar-metadata-envelope-v1.1.ingest.schema.json`
+  - `modules/quasar-core/src/main/resources/schemas/quasar-metadata-envelope-v1.1.ingest.schema.json`
 - **Stored form** (schema is required; `unverified` forbidden):
-  - `docs/public/schemas/quasar-metadata-envelope-v1.1.stored.schema.json`
+  - `modules/quasar-core/src/main/resources/schemas/quasar-metadata-envelope-v1.1.stored.schema.json`
 
 ## Relationship to Postgres “truth”
 

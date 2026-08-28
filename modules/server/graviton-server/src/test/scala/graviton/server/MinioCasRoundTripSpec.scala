@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
  * Enable with:
  * - GRAVITON_MINIO_IT=1
  * - PG_JDBC_URL / PG_USERNAME / PG_PASSWORD
- * - QUASAR_MINIO_URL / MINIO_ROOT_USER / MINIO_ROOT_PASSWORD
+ * - GRAVITON_S3_ENDPOINT / GRAVITON_S3_ACCESS_KEY / GRAVITON_S3_SECRET_KEY
  */
 object MinioCasRoundTripSpec extends ZIOSpecDefault:
 

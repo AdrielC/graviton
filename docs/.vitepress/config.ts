@@ -27,14 +27,22 @@ const withBase = (path: string) => {
 }
 
 export default withMermaid(defineConfig({
+  srcExclude: [
+    // Quasar is a separate internal document layer. Preserve its source notes
+    // in the repository without publishing them as Graviton product docs.
+    'quasar-demo.md',
+    'api/quasar-*.md',
+    'api/legacy-repos.md',
+    'design/quasar-*.md',
+    'ops/postgres-schema.md'
+  ],
   vite: {
     build: {
       rollupOptions: {
         external: [
           // Treat Scala.js modules as external to avoid bundling issues
           /^\/graviton\/js\/.+\.js$/,
-          /^\/js\/.+\.js$/,
-          /^\/quasar\/js\/.+\.js$/
+          /^\/js\/.+\.js$/
         ]
       }
     }
@@ -63,7 +71,6 @@ export default withMermaid(defineConfig({
     // Scala.js modules (dynamically loaded)
     /^\/graviton\/js\/.+/,
     /^\/js\/.+/,
-    /^\/quasar\/js\/.+/,
   ],
   markdown: {
     theme: {
@@ -155,6 +162,7 @@ export default withMermaid(defineConfig({
         collapsed: true,
         items: [
           { text: 'Architecture', link: '/architecture' },
+          { text: 'Scope & Boundary', link: '/scope' },
           { text: 'Content IDs & Types', link: '/core/schema' },
           { text: 'Streaming Algebra', link: '/core/transducers' },
           { text: 'Binary Streaming', link: '/guide/binary-streaming' },
@@ -170,8 +178,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'CAS Playground', link: '/cas-playground' },
           { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
-          { text: 'Connect Your Server', link: '/demo' },
-          { text: 'Quasar Demo', link: '/quasar-demo' }
+          { text: 'Connect Your Server', link: '/demo' }
         ]
       },
       {
@@ -183,7 +190,7 @@ export default withMermaid(defineConfig({
           { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Performance', link: '/ops/performance' },
-          { text: 'PostgreSQL Schema', link: '/ops/postgres-schema' },
+          { text: 'PostgreSQL Storage', link: '/ops/postgres-storage' },
           { text: 'Runtime Backends', link: '/runtime/backends' },
           { text: 'Replication', link: '/runtime/replication' },
           { text: 'Ports & Policies', link: '/runtime/ports' }
@@ -197,9 +204,6 @@ export default withMermaid(defineConfig({
           { text: 'HTTP API', link: '/api/http' },
           { text: 'gRPC API', link: '/api/grpc' },
           { text: 'Scala SDK', link: '/guide/scala-sdk' },
-          { text: 'Quasar HTTP v1', link: '/api/quasar-http-v1' },
-          { text: 'Quasar Metadata', link: '/api/quasar-metadata' },
-          { text: 'Legacy Repository Integration', link: '/api/legacy-repos' },
           { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
         ]
       },

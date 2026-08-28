@@ -7,19 +7,23 @@ object RuntimeStatsSpec extends ZIOSpecDefault:
 
   override def spec =
     suite("RuntimeStats")(
-      test("aggregates counters across tags and computes duplicate share") {
+      test("aggregates counters across tags and computes byte-weighted reuse") {
         val firstTags  = Map("backend" -> "cas", "chunker" -> "fixed-1024")
         val secondTags = Map("backend" -> "cas", "chunker" -> "fastcdc")
         val snapshot   = MetricsSnapshot(
           counters = Map(
-            MetricKey(MetricKeys.BlobIngestsTotal, firstTags)      -> 2L,
-            MetricKey(MetricKeys.BlobIngestsTotal, secondTags)     -> 1L,
-            MetricKey(MetricKeys.BytesIngestedTotal, firstTags)    -> 120L,
-            MetricKey(MetricKeys.BytesIngestedTotal, secondTags)   -> 80L,
-            MetricKey(MetricKeys.FreshBlocksTotal, firstTags)      -> 6L,
-            MetricKey(MetricKeys.DuplicateBlocksTotal, firstTags)  -> 2L,
-            MetricKey(MetricKeys.FreshBlocksTotal, secondTags)     -> 1L,
-            MetricKey(MetricKeys.DuplicateBlocksTotal, secondTags) -> 1L,
+            MetricKey(MetricKeys.BlobIngestsTotal, firstTags)          -> 2L,
+            MetricKey(MetricKeys.BlobIngestsTotal, secondTags)         -> 1L,
+            MetricKey(MetricKeys.BytesIngestedTotal, firstTags)        -> 120L,
+            MetricKey(MetricKeys.BytesIngestedTotal, secondTags)       -> 80L,
+            MetricKey(MetricKeys.FreshBlocksTotal, firstTags)          -> 6L,
+            MetricKey(MetricKeys.DuplicateBlocksTotal, firstTags)      -> 2L,
+            MetricKey(MetricKeys.FreshBlocksTotal, secondTags)         -> 1L,
+            MetricKey(MetricKeys.DuplicateBlocksTotal, secondTags)     -> 1L,
+            MetricKey(MetricKeys.FreshBlockBytesTotal, firstTags)      -> 90L,
+            MetricKey(MetricKeys.DuplicateBlockBytesTotal, firstTags)  -> 10L,
+            MetricKey(MetricKeys.FreshBlockBytesTotal, secondTags)     -> 50L,
+            MetricKey(MetricKeys.DuplicateBlockBytesTotal, secondTags) -> 50L,
           ),
           gauges = Map.empty,
         )

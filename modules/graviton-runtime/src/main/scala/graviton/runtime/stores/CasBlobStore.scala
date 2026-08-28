@@ -277,6 +277,8 @@ final class CasBlobStore(
             _ <- metrics.counterBy(MetricKeys.BytesIngestedTotal, size, tags)
             _ <- metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags)
             _ <- metrics.counterBy(MetricKeys.DuplicateBlocksTotal, dupBlocks.toLong, tags)
+            _ <- metrics.counterBy(MetricKeys.FreshBlockBytesTotal, persisted.freshBlockBytes, tags)
+            _ <- metrics.counterBy(MetricKeys.DuplicateBlockBytesTotal, persisted.duplicateBlockBytes, tags)
 
             // Build confirmed attributes from the ingest summary (Phase B.3).
             confirmedAttrs  = {
@@ -376,6 +378,8 @@ object CasBlobStore:
     offset: Long,
     freshBlocks: Int,
     duplicateBlocks: Int,
+    freshBlockBytes: Long,
+    duplicateBlockBytes: Long,
   ):
     def record(size: Int, status: BlockStoredStatus): PersistAcc =
       copy(
@@ -383,19 +387,29 @@ object CasBlobStore:
         offset = java.lang.Math.addExact(offset, size.toLong),
         freshBlocks = freshBlocks + (if status == BlockStoredStatus.Fresh then 1 else 0),
         duplicateBlocks = duplicateBlocks + (if status == BlockStoredStatus.Duplicate then 1 else 0),
+        freshBlockBytes = java.lang.Math.addExact(
+          freshBlockBytes,
+          if status == BlockStoredStatus.Fresh then size.toLong else 0L,
+        ),
+        duplicateBlockBytes = java.lang.Math.addExact(
+          duplicateBlockBytes,
+          if status == BlockStoredStatus.Duplicate then size.toLong else 0L,
+        ),
       )
 
     def summary: PersistSummary =
-      PersistSummary(index.toInt, offset, freshBlocks, duplicateBlocks)
+      PersistSummary(index.toInt, offset, freshBlocks, duplicateBlocks, freshBlockBytes, duplicateBlockBytes)
 
   private object PersistAcc:
-    val empty: PersistAcc = PersistAcc(0L, 0L, 0, 0)
+    val empty: PersistAcc = PersistAcc(0L, 0L, 0, 0, 0L, 0L)
 
   private final case class PersistSummary(
     blockCount: Int,
     totalBytes: Long,
     freshBlocks: Int,
     duplicateBlocks: Int,
+    freshBlockBytes: Long,
+    duplicateBlockBytes: Long,
   )
 
   private def offerOrFail[A](

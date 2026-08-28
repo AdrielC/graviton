@@ -273,31 +273,12 @@ buildContentLab := {
   log.info(s"Shared content lab built and copied to $targetDir")
 }
 
-// Task to build Quasar frontend and copy to docs
-lazy val buildQuasarFrontend = taskKey[Unit]("Build Quasar Scala.js frontend and copy to docs")
-buildQuasarFrontend := {
-  val log = Keys.streams.value.log
-  log.info("Building Quasar Scala.js frontend...")
-
-  val report    = (quasarFrontend / Compile / fastLinkJS).value
-  val sourceDir = (quasarFrontend / Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value
-  val targetDir = file("docs/public/quasar/js")
-
-  log.info(s"Copying Quasar Scala.js output from $sourceDir to $targetDir")
-  IO.delete(targetDir)
-  IO.createDirectory(targetDir)
-  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
-
-  log.info(s"Quasar frontend built and copied to $targetDir")
-}
-
 // Combined task to build all docs assets
 lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
 buildDocsAssets := Def.sequential(
   generateDocs,
   buildContentLab,
-  buildFrontend,
-  buildQuasarFrontend
+  buildFrontend
 ).value
 
 lazy val docs = (project in file("docs-mdoc"))

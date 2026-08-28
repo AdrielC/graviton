@@ -22,8 +22,7 @@ npm run docs:preview
 
 - `./sbt buildFrontend` writes the Graviton operations console into `docs/public/js/`.
 - `./sbt buildContentLab` links `graviton-shared` into `docs/public/content-lab/` for the bounded CAS Playground.
-- `./sbt buildQuasarFrontend` writes the Quasar console into `docs/public/quasar/js/`.
-- `./sbt buildDocsAssets` builds the shared content lab, both console bundles, and Scaladoc into `docs/public/`.
+- `./sbt buildDocsAssets` builds the shared content lab, Graviton console, and Scaladoc into `docs/public/`.
 
 ## Snippets (mdoc)
 

@@ -12,8 +12,9 @@
         />
         <h1 id="graviton-home-title">Store bytes by what they are.</h1>
         <p>
-          Graviton streams files into immutable, content-addressed blocks. Durable manifests put the exact
-          bytes back together, while repeated blocks are stored once.
+          Graviton streams arbitrary bytes into immutable, content-addressed blocks. Durable manifests put the
+          exact bytes back together, while repeated blocks are stored once. Document semantics stay outside the
+          storage runtime.
         </p>
         <div class="graviton-home-actions">
           <a class="graviton-action graviton-action--primary" :href="withBase('/guide/getting-started')">

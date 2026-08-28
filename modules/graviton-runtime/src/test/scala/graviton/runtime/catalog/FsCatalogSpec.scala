@@ -7,6 +7,9 @@ import zio.*
 import zio.blocks.mediatype.MediaTypes
 import zio.test.*
 
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption.{CREATE, WRITE}
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
@@ -46,6 +49,23 @@ object FsCatalogSpec extends ZIOSpecDefault:
             path  = root.resolve("catalog").resolve("catalog-v1.json")
             _    <- ZIO.attemptBlocking(Files.createDirectories(path.getParent))
             _    <- ZIO.attemptBlocking(Files.writeString(path, "{not-json"))
+            exit <- FsCatalog.layer(root).build.exit
+          yield assertTrue(exit.isFailure)
+        }
+      },
+      test("rejects a catalog one byte above its materialization bound") {
+        ZIO.scoped {
+          for
+            root <- temporaryDirectory
+            path  = root.resolve("catalog").resolve("catalog-v1.json")
+            _    <- ZIO.attemptBlocking {
+                      Files.createDirectories(path.getParent)
+                      val channel = FileChannel.open(path, CREATE, WRITE)
+                      try
+                        channel.position(FsCatalog.MaxCatalogBytes.toLong)
+                        val _ = channel.write(ByteBuffer.wrap(Array(0.toByte)))
+                      finally channel.close()
+                    }
             exit <- FsCatalog.layer(root).build.exit
           yield assertTrue(exit.isFailure)
         }

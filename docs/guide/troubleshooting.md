@@ -20,7 +20,7 @@ Fix:
 export GRAVITON_BLOB_BACKEND="fs"
 ```
 
-### “Missing env var 'QUASAR_MINIO_URL' / 'MINIO_ROOT_USER' / 'MINIO_ROOT_PASSWORD'”
+### “Missing env var 'GRAVITON_S3_ENDPOINT' / 'GRAVITON_S3_ACCESS_KEY' / 'GRAVITON_S3_SECRET_KEY'”
 
 Cause: you selected `GRAVITON_BLOB_BACKEND=s3|minio` but didn’t provide S3 endpoint credentials.
 
@@ -53,7 +53,7 @@ Fix (bucket creation with Docker `mc`):
 
 ```bash
 docker run --rm --network host minio/mc \
-  alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  alias set local "$GRAVITON_S3_ENDPOINT" "$GRAVITON_S3_ACCESS_KEY" "$GRAVITON_S3_SECRET_KEY"
 
 docker run --rm --network host minio/mc \
   mb local/"$GRAVITON_S3_BLOCK_BUCKET"
@@ -113,4 +113,4 @@ If the API is running on another origin, use the default security-disabled local
 ## Still stuck?
 
 - Re-run the complete local recipe in **[Run Locally (Full Stack)](./run-locally.md)**.
-- Check the exact env vars the server sees: `env | sort | grep -E '^(PG_|GRAVITON_|MINIO_|QUASAR_)'`.
+- Check the exact env vars the server sees: `env | sort | grep -E '^(PG_|GRAVITON_|MINIO_)'`.

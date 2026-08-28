@@ -329,12 +329,12 @@ object S3BlobStore:
       yield ()
 
   /**
-   * Minimal env contract for the on-prem v1 compose bundle:
+   * Explicit S3-compatible endpoint contract:
    *
    * Required:
-   * - QUASAR_MINIO_URL
-   * - MINIO_ROOT_USER
-   * - MINIO_ROOT_PASSWORD
+   * - GRAVITON_S3_ENDPOINT
+   * - GRAVITON_S3_ACCESS_KEY
+   * - GRAVITON_S3_SECRET_KEY
    *
    * Optional:
    * - GRAVITON_S3_BUCKET (defaults to graviton-blobs)

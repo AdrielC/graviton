@@ -6,6 +6,8 @@
 
 Graviton is a typed, streaming content-addressable storage runtime for Scala 3 and ZIO. It chunks blobs into bounded blocks, derives cryptographic content keys, deduplicates writes, persists versioned manifests, and streams bytes back through pluggable storage ports.
 
+Graviton's boundary is deliberately narrow: bytes, cryptographic content identity, integrity, and storage. It does not define documents, document versions, metadata namespaces, permissions, search, or workflows. Internally, we use **Quasar** as a separate document layer that consumes Graviton content IDs and streams. Quasar is not a dependency of `graviton-server`, is not published as a Graviton Maven artifact, and is not part of Graviton's public API. See [Scope and product boundary](docs/scope.md).
+
 This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage and backend-wide operation/maintenance coordination, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
 
 | Capability | Status | Executable evidence |

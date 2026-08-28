@@ -67,4 +67,4 @@ Never infer throughput from block size or a single process counter. Never compar
 
 ## Current observability boundary
 
-`/api/stats` and `/metrics` expose process-local ingest, deduplication, HTTP request, error, and latency observations. They reset on restart and do not establish durable capacity or a service-level objective. Backend-specific histograms and retained dashboards remain deployment work.
+`/api/stats` and `/metrics` expose process-local ingest, byte-weighted CAS reuse, HTTP request, error, and latency observations. They reset on restart and do not establish durable capacity or a service-level objective. The reuse ratio reports logical block bytes whose write Graviton avoided; it does not include replication, erasure coding, compression, metadata, or allocator overhead. Backend physical-utilization metrics and retained dashboards remain deployment work.
