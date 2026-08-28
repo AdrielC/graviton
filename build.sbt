@@ -12,7 +12,7 @@ import sbtassembly.AssemblyPlugin.autoImport.*
 import sbtassembly.MergeStrategy
 import sbtversionpolicy.Compatibility
 import sbtversionpolicy.SbtVersionPolicyPlugin.autoImport.*
-import com.typesafe.tools.mima.core.{MissingTypesProblem, ProblemFilters, ReversedMissingMethodProblem}
+import com.typesafe.tools.mima.core.{DirectMissingMethodProblem, MissingTypesProblem, ProblemFilters, ReversedMissingMethodProblem}
 import com.typesafe.tools.mima.plugin.MimaPlugin.autoImport.mimaBinaryIssueFilters
 
 lazy val docSnippetMappings =
@@ -501,6 +501,19 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
   .dependsOn(core, streams, sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-runtime",
+    // v0.5.0 emitted constructor, apply, and copy methods for these private
+    // ingest-loop accumulators. Byte-reuse metrics added private fields without
+    // changing any source-visible runtime API, but MiMa cannot recover the
+    // Scala-private boundary from the classfiles. Exclude only those private
+    // synthetic methods and continue checking every public runtime symbol.
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.apply"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.copy"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.apply"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.copy"),
+    ),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
