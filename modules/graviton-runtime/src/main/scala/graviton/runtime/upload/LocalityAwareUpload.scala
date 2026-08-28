@@ -70,9 +70,28 @@ object LocalityAwareUpload:
             route   = if owner == local then "local" else "remote"
             tags    = Map("route" -> route)
             _      <- metrics.counter(MetricKeys.UploadLocalityDecisionsTotal, tags)
-            result <-
-              (if owner == local then ingest.uploadLocal(key, intent, bytes).mapError(Error.LocalIngest.apply)
-               else transport.upload(owner, key, intent, bytes).mapError(Error.RemoteTransport.apply))
-                .tapError(_ => metrics.counter(MetricKeys.UploadLocalityFailuresTotal, tags))
+            result <- ZIO.logAnnotate(
+                        Set(
+                          LogAnnotation("component", "upload"),
+                          LogAnnotation("operation", "ingest"),
+                          LogAnnotation("tenant_id", key.tenantId.value),
+                          LogAnnotation("session_id", key.uploadSessionId.value),
+                          LogAnnotation("owner_node", owner.id.value),
+                          LogAnnotation("route", route),
+                        )
+                      ) {
+                        (if owner == local then ingest.uploadLocal(key, intent, bytes).mapError(Error.LocalIngest.apply)
+                         else transport.upload(owner, key, intent, bytes).mapError(Error.RemoteTransport.apply))
+                          .tapError(error =>
+                            metrics.counter(MetricKeys.UploadLocalityFailuresTotal, tags) *>
+                              ZIO.logWarningCause("Upload ingest failed", Cause.fail(error))
+                          )
+                          .tap(result =>
+                            ZIO.logInfo(
+                              s"Upload ingest completed: bytes=${result.stats.totalBytes} blocks=${result.stats.blockCount} " +
+                                s"fresh=${result.stats.freshBlocks} duplicate=${result.stats.duplicateBlocks}"
+                            )
+                          )
+                      }
           yield result
     }

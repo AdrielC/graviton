@@ -272,7 +272,7 @@ final class CasBlobStore(
             _ <- metrics.gauge(MetricKeys.BytesIngested, size.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags)
             _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
-            _ <- metrics.gauge(MetricKeys.UploadDuration, durationSeconds, tags)
+            _ <- metrics.histogram(MetricKeys.UploadDuration, durationSeconds, tags)
             _ <- metrics.counter(MetricKeys.BlobIngestsTotal, tags)
             _ <- metrics.counterBy(MetricKeys.BytesIngestedTotal, size, tags)
             _ <- metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags)

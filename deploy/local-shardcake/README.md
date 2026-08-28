@@ -20,6 +20,11 @@ raw streaming request body, never multipart or base64. Folder entries are
 mutable references to immutable CAS blobs, so removing a reference does not
 silently delete shared content.
 
+Open the **Runtime** view on either node to inspect its current Shardcake
+assignment coverage, local ownership, observed nodes, tracked sessions, storage
+readiness, and process-lifetime ingest and routing counters. The panel polls a
+real server-side health check every five seconds through ZIO Blocks DataStar.
+
 Use `status`, `logs`, or `stop` with the same script. `stop` preserves the named
 PostgreSQL and MinIO volumes so deduplication and catalog state survive the next
 start. Docker Swarm is not required for this proof because Shardcake owns

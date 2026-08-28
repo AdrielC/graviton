@@ -143,7 +143,7 @@ final case class HttpApi(
       finished <- Clock.nanoTime
       tags      = Map("action" -> action, "status" -> response.status.code.toString)
       _        <- ZIO.foreachDiscard(metrics)(_.registry.counter(MetricKeys.HttpRequestsTotal, tags))
-      _        <- ZIO.foreachDiscard(metrics)(_.registry.gauge(MetricKeys.HttpLatencySeconds, (finished - started).toDouble / 1e9, tags))
+      _        <- ZIO.foreachDiscard(metrics)(_.registry.histogram(MetricKeys.HttpLatencySeconds, (finished - started).toDouble / 1e9, tags))
       _        <- ZIO.foreachDiscard(metrics)(api =>
                     ZIO.whenDiscard(response.status.code >= 400)(api.registry.counter(MetricKeys.HttpErrorsTotal, tags))
                   )

@@ -8,14 +8,19 @@ final class InMemoryMetricsRegistry private (
 ) extends MetricsRegistry:
 
   override def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit] =
-    countersRef.update { m =>
-      val key = MetricKey(name, tags)
-      val n   = m.getOrElse(key, 0L)
-      m.updated(key, n + delta)
-    }.unit
+    if delta <= 0L then ZIO.unit
+    else
+      countersRef.update { m =>
+        val key = MetricKey(name, tags)
+        val n   = m.getOrElse(key, 0L)
+        m.updated(key, if n > Long.MaxValue - delta then Long.MaxValue else n + delta)
+      }.unit
 
   override def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit] =
     gaugesRef.update(_.updated(MetricKey(name, tags), value)).unit
+
+  override def histogram(name: String, value: Double, tags: Map[String, String]): UIO[Unit] =
+    gauge(name, value, tags)
 
   override def snapshot: UIO[MetricsSnapshot] =
     countersRef.get.zipWith(gaugesRef.get)((c, g) => MetricsSnapshot(counters = c, gauges = g))

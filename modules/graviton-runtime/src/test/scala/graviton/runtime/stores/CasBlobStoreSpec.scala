@@ -132,7 +132,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.counters.get(MetricKey(MetricKeys.FreshBlocksTotal, tags)).contains(result.stats.freshBlocks.toLong),
           snapshot.counters
             .get(MetricKey(MetricKeys.DuplicateBlocksTotal, tags))
-            .contains(result.stats.duplicateBlocks.toLong),
+            .getOrElse(0L) == result.stats.duplicateBlocks.toLong,
         )
       },
       test("rejects BlobWritePlan attributes with invalid digest metadata") {

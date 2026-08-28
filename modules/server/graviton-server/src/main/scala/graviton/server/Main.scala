@@ -7,7 +7,7 @@ import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpAp
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
 import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
-import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
+import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
@@ -17,6 +17,7 @@ import graviton.runtime.stores.{
   FsBlobManifestRepo,
   FsBlockStore,
   MaintenanceCoordinator,
+  MetricsBlobStore,
 }
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
@@ -25,8 +26,12 @@ import graviton.security.jwt.{HmacJwtVerifier, OidcJwtVerifier}
 import graviton.shared.ApiModels.*
 import graviton.shared.ApiJson
 import graviton.server.console.{ConsoleApi, ConsoleConfig}
+import graviton.server.metrics.ZioMetricsRegistry
 import zio.*
 import zio.http.*
+import zio.metrics.connectors.MetricsConfig
+import zio.metrics.connectors.prometheus
+import zio.metrics.jvm.DefaultJvmMetrics
 import zio.json.EncoderOps
 import zio.json.ast.Json
 
@@ -41,6 +46,7 @@ object Main extends ZIOAppDefault:
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
+      healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- validateShardcakeTopology(cfg, shardcake)
@@ -52,10 +58,12 @@ object Main extends ZIOAppDefault:
       verifierOpt                                  <- buildVerifier(sec)
       program                                       = ZIO.scoped {
                                                         for
+                                                          _                                  <- DefaultJvmMetrics.liveV2.build.unit
                                                           blobStore                          <- ZIO.service[BlobStore]
                                                           catalog                            <- ZIO.service[Catalog]
                                                           shardcakeNode                      <- ZIO.service[Option[ShardcakeNode]]
                                                           metrics                            <- ZIO.service[MetricsRegistry]
+                                                          runtimeHealth                      <- ZIO.service[RuntimeHealth]
                                                           auditSink                          <- ZIO.service[AuditSink]
                                                           capabilityCheck                    <- ZIO.service[CapabilityCheck]
                                                           rateLimiter                        <- ZIO.service[RateLimiter]
@@ -115,14 +123,9 @@ object Main extends ZIOAppDefault:
                                                                 )
                                                               },
                                                               Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
-                                                                val shardcakeHealth =
-                                                                  ZIO.foreachDiscard(shardcakeNode)(_.healthCheck)
-                                                                blobStore.healthCheck
-                                                                  .zipRight(shardcakeHealth)
-                                                                  .timeout(5.seconds)
-                                                                  .either
+                                                                runtimeHealth.refresh
                                                                   .map {
-                                                                    case Right(Some(_)) =>
+                                                                    case snapshot if snapshot.ready =>
                                                                       Response.json(
                                                                         Json
                                                                           .Obj(
@@ -131,7 +134,7 @@ object Main extends ZIOAppDefault:
                                                                           )
                                                                           .toJson
                                                                       )
-                                                                    case _              =>
+                                                                    case _                          =>
                                                                       Response
                                                                         .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
                                                                         .copy(status = Status.ServiceUnavailable)
@@ -182,6 +185,7 @@ object Main extends ZIOAppDefault:
                                                                 blobStore,
                                                                 BlobIngest.make(blobStore, localizedUpload),
                                                                 Option.when(shardcakeNode.isDefined)(shardcake.node),
+                                                                runtimeHealth,
                                                                 _root_.graviton.server.BuildInfo.version,
                                                               ).routes
                                                             else Routes.empty
@@ -216,10 +220,15 @@ object Main extends ZIOAppDefault:
              blobLayer(cfg, maintenance),
              catalogLayer(cfg),
              shardcakeNodeLayer(shardcake),
+             ZLayer.succeed(healthConfig),
+             RuntimeHealth.live,
              auditLayer,
              capabilityLayer(sec),
              ZLayer.succeed(sec) >>> RateLimiter.live,
-             InMemoryMetricsRegistry.layer,
+             ZLayer.succeed(MetricsConfig(5.seconds)),
+             prometheus.publisherLayer,
+             prometheus.prometheusLayer,
+             ZioMetricsRegistry.layer,
            )
     yield ()
 
@@ -286,7 +295,10 @@ object Main extends ZIOAppDefault:
             )
           )
 
-    (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+    val casLayer =
+      (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+
+    (casLayer ++ ZLayer.service[MetricsRegistry]) >>> MetricsBlobStore.layer
 
   private[server] def catalogLayer(cfg: GravitonConfig): ZLayer[Any, Throwable, Catalog] =
     cfg.blobBackend.toLowerCase match

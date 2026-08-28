@@ -509,7 +509,6 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
       "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "org.scodec" %% "scodec-core" % "2.3.3",
-      "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -715,6 +714,7 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-api" % V.log4j,
       "org.apache.logging.log4j" % "log4j-core" % V.log4j,
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % V.log4j,
+      "dev.zio" %% "zio-metrics-connectors-prometheus" % V.zioMetricsConnectors,
       "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
       // The Datastar attribute DSL and HTML algebra are compatible with the
       // server. Exclude zio-blocks-http-model because 0.0.51 publishes an

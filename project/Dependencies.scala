@@ -33,6 +33,7 @@ object Dependencies {
     // ZIO Config
     val zioConfig = "4.0.6"
     val shardcake = "2.8.1"
+    val zioMetricsConnectors = "2.5.8"
 
     // Misc
     val iron       = "3.3.2"
