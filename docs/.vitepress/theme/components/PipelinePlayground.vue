@@ -243,6 +243,32 @@
         <p v-if="selectedRecord.transformError" class="cas-file__error" role="alert">{{ selectedRecord.transformError }}</p>
       </section>
 
+      <section v-if="!compact && selectedRecord?.pdfDelta" class="cas-delta" aria-labelledby="cas-delta-title">
+        <header>
+          <div>
+            <h3 id="cas-delta-title">PDF structure</h3>
+            <p><strong>Valid</strong> after the font remap</p>
+          </div>
+          <span>Exact within {{ selectedRecord.pdfDelta.windowSize }}-component windows</span>
+        </header>
+        <dl class="cas-delta__totals">
+          <div><dt>Changed</dt><dd>{{ selectedRecord.pdfDelta.changed.toLocaleString() }}</dd></div>
+          <div><dt>Added</dt><dd>{{ selectedRecord.pdfDelta.added.toLocaleString() }}</dd></div>
+          <div><dt>Removed</dt><dd>{{ selectedRecord.pdfDelta.removed.toLocaleString() }}</dd></div>
+          <div><dt>Unchanged</dt><dd>{{ selectedRecord.pdfDelta.unchanged.toLocaleString() }}</dd></div>
+        </dl>
+        <ol v-if="selectedRecord.pdfDelta.changes.length" class="cas-delta__changes">
+          <li v-for="(change, index) in selectedRecord.pdfDelta.changes" :key="`pdf-change:${index}`">
+            <strong>{{ deltaChangeLabel(change) }}</strong>
+            <code>{{ deltaObjectLabel(change) }}</code>
+            <span>{{ change.componentKind }}<template v-if="change.payloadChanged"> · stream bytes changed</template></span>
+          </li>
+        </ol>
+        <p v-if="pdfEditCount(selectedRecord.pdfDelta) > selectedRecord.pdfDelta.changes.length" class="cas-delta__limit">
+          Showing {{ selectedRecord.pdfDelta.changes.length }} of {{ pdfEditCount(selectedRecord.pdfDelta).toLocaleString() }} edits.
+        </p>
+      </section>
+
       <section v-if="!compact && selectedRecord?.analysis" class="cas-ranges" aria-labelledby="cas-ranges-title">
         <header>
           <h3 id="cas-ranges-title">{{ selectedRecord.file.name }}</h3>
@@ -318,6 +344,25 @@ type FileAnalysis = {
 type FontInfo = { objectNumber: number; baseFont: string; subtype: string | null; remapCandidate: boolean }
 type FontOption = { baseFont: string; subtype: string | null; objectNumbers: number[] }
 type FontInventory = { fonts: FontInfo[]; engine: string }
+type PdfDeltaChange = {
+  kind: 'changed' | 'added' | 'removed'
+  leftObjectNumber: number | null
+  rightObjectNumber: number | null
+  componentKind: 'object' | 'stream' | 'document'
+  payloadChanged: boolean
+}
+type PdfDelta = {
+  valid: true
+  windows: number
+  windowSize: number
+  unchanged: number
+  changed: number
+  added: number
+  removed: number
+  streamPayloadsChanged: number
+  reportedChangeLimit: number
+  changes: PdfDeltaChange[]
+}
 type FontReplacement = {
   canonicalBytes: Uint8Array
   bytes: Uint8Array
@@ -326,6 +371,7 @@ type FontReplacement = {
   sourceObjectNumbers: number[]
   targetObjectNumber: number
   resourceBindingsRewritten: number
+  pdfDelta: PdfDelta
   engine: string
 }
 
@@ -358,6 +404,7 @@ type FileRecord = {
   fontError: string
   transformState: TransformState
   transformError: string
+  pdfDelta?: PdfDelta
 }
 
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
@@ -478,6 +525,7 @@ function addFiles(incoming: File[], variantRole: VariantRole = 'source', originI
   files.value.push(...records)
   if (!selectedFileId.value && records[0]) selectedFileId.value = records[0].id
   for (const record of records) queueAnalysis(record)
+  return records
 }
 
 function queueAnalysis(record: FileRecord) {
@@ -561,8 +609,10 @@ async function createFontVariant(record: FileRecord) {
     strategy.value = 'auto'
     targetBytes.value = 16384
     for (const candidate of files.value) queueAnalysis(candidate)
-    addFiles([canonical], 'canonical', record.id)
-    addFiles([variant], 'edited', record.id)
+    const [canonicalRecord] = addFiles([canonical], 'canonical', record.id)
+    const [variantRecord] = addFiles([variant], 'edited', record.id)
+    if (canonicalRecord) canonicalRecord.pdfDelta = replacement.pdfDelta
+    if (variantRecord) variantRecord.pdfDelta = replacement.pdfDelta
     selectedFileId.value = files.value.at(-1)?.id || record.id
     record.transformState = 'idle'
   } catch (cause) {
@@ -673,6 +723,17 @@ function formatPercent(value: number) {
 function rangeLabel(block: BlockResult) { return `${block.start.toLocaleString()}–${block.endExclusive.toLocaleString()}` }
 function shortHash(value: string) { return value ? `${value.slice(0, 12)}…${value.slice(-8)}` : '—' }
 function cleanFontName(value: string) { return value.replace(/^\/+/, '').replace(/^[A-Z]{6}\+/, '') }
+function pdfEditCount(delta: PdfDelta) { return delta.changed + delta.added + delta.removed }
+function deltaChangeLabel(change: PdfDeltaChange) {
+  return change.kind === 'changed' ? 'Changed' : change.kind === 'added' ? 'Added' : 'Removed'
+}
+function deltaObjectLabel(change: PdfDeltaChange) {
+  const left = change.leftObjectNumber == null ? 'document' : `#${change.leftObjectNumber}`
+  const right = change.rightObjectNumber == null ? 'document' : `#${change.rightObjectNumber}`
+  if (change.kind === 'added') return right
+  if (change.kind === 'removed') return left
+  return left === right ? left : `${left} → ${right}`
+}
 function fileKind(record: FileRecord) { return record.file.name.split('.').pop()?.slice(0, 4).toUpperCase() || 'FILE' }
 function cutLabel(value: string) {
   return ({ 'pdf-object': 'PDF object', 'pdf-fallback': 'PDF fallback', 'content-defined': 'FastCDC', fixed: 'Fixed', maximum: 'Maximum', remainder: 'Remainder' } as Record<string, string>)[value] || value
@@ -707,7 +768,7 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
   color: var(--graviton-ink);
 }
 .cas-lab__bar { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; min-height: 88px; padding: 1.15rem 1.35rem; border-bottom: 1px solid var(--cas-line); }
-.cas-lab__bar h2, .cas-map h3, .cas-selection h3, .cas-pdf h3, .cas-ranges h3 { margin: 0; border: 0; color: var(--graviton-ink); letter-spacing: -0.025em; line-height: 1.1; }
+.cas-lab__bar h2, .cas-map h3, .cas-selection h3, .cas-pdf h3, .cas-delta h3, .cas-ranges h3 { margin: 0; border: 0; color: var(--graviton-ink); letter-spacing: -0.025em; line-height: 1.1; }
 .cas-lab__bar h2 { max-width: 22ch; font-size: clamp(1.25rem, 2vw, 1.7rem); text-wrap: balance; }
 .cas-runtime { display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.42rem; color: color-mix(in srgb, var(--graviton-muted) 92%, var(--graviton-ink)); font-size: 0.72rem; }
 .cas-runtime::before { width: 0.42rem; height: 0.42rem; flex: 0 0 auto; border-radius: 50%; background: var(--graviton-gold); content: ''; }
@@ -789,7 +850,7 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-progress span { display: block; width: 100%; height: 100%; transform-origin: left; background: var(--vp-c-brand-1); transition: transform 160ms ease-out; }
 .cas-file__error { margin: 0.75rem 0 0 3.55rem; color: var(--graviton-danger); font-size: 0.72rem; line-height: 1.5; }
 .cas-file__error button { padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
-.cas-selection, .cas-pdf, .cas-ranges { border-top: 1px solid var(--cas-line); }
+.cas-selection, .cas-pdf, .cas-delta, .cas-ranges { border-top: 1px solid var(--cas-line); }
 .cas-selection { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 0.65fr); gap: 1.5rem; padding: 1.25rem; background: color-mix(in srgb, var(--graviton-violet) 7%, var(--graviton-panel-muted)); }
 .cas-selection h3 { font-size: 1rem; }
 .cas-selection code { display: block; margin-top: 0.45rem; color: var(--graviton-violet); font-size: 0.66rem; overflow-wrap: anywhere; }
@@ -814,6 +875,21 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
 .cas-fonts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; margin-top: 1rem; }
 .cas-fonts select { width: 100%; }
 .cas-pdf__empty { margin: 1rem 0 0; color: var(--graviton-muted); font-size: 0.74rem; }
+.cas-delta { padding: 1.35rem; background: color-mix(in srgb, var(--graviton-panel-muted) 92%, var(--graviton-cyan)); }
+.cas-delta > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.cas-delta h3 { font-size: 1.05rem; }
+.cas-delta header p { margin: 0.32rem 0 0; color: var(--graviton-muted); font-size: 0.71rem; }
+.cas-delta header p strong { color: var(--graviton-success); }
+.cas-delta header > span { color: var(--graviton-muted); font-family: var(--vp-font-family-mono); font-size: 0.64rem; text-align: right; }
+.cas-delta__totals { display: flex; flex-wrap: wrap; gap: 0.7rem 1.6rem; margin: 1rem 0 0; padding-top: 0.8rem; border-top: 1px solid var(--cas-line); }
+.cas-delta__totals dt { color: var(--graviton-muted); font-size: 0.62rem; }
+.cas-delta__totals dd { margin: 0.14rem 0 0; color: var(--graviton-ink); font-family: var(--vp-font-family-mono); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.cas-delta__changes { margin: 0.85rem 0 0; padding: 0; border-top: 1px solid var(--cas-line); list-style: none; }
+.cas-delta__changes li { display: grid; grid-template-columns: 86px minmax(80px, 0.35fr) minmax(0, 1fr); gap: 0.75rem; align-items: center; padding: 0.55rem 0; border-bottom: 1px solid var(--cas-line); font-size: 0.65rem; }
+.cas-delta__changes strong { color: var(--graviton-cyan); }
+.cas-delta__changes code { color: var(--graviton-ink); font-size: inherit; }
+.cas-delta__changes span, .cas-delta__limit { color: var(--graviton-muted); }
+.cas-delta__limit { margin: 0.65rem 0 0; font-size: 0.64rem; }
 .cas-ranges { padding: 1.35rem; background: var(--graviton-panel-muted); }
 .cas-range-filter { display: flex; gap: 0.25rem; }
 .cas-range-filter button { min-height: 44px; padding: 0.35rem 0.75rem; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--graviton-muted); cursor: pointer; font: inherit; font-size: 0.68rem; font-weight: 750; }
@@ -846,10 +922,12 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
   .cas-fonts { grid-template-columns: 1fr; }
   .cas-pdf > header { flex-direction: column; }
   .cas-pdf__state { max-width: none; text-align: left; }
+  .cas-delta > header { flex-direction: column; }
+  .cas-delta header > span { text-align: left; }
 }
 @container (max-width: 480px) {
   .cas-lab { margin-right: -8px; margin-left: -8px; border-radius: 12px; }
-  .cas-lab__bar, .cas-drop, .cas-overview, .cas-selection, .cas-pdf, .cas-ranges { padding: 1rem; }
+  .cas-lab__bar, .cas-drop, .cas-overview, .cas-selection, .cas-pdf, .cas-delta, .cas-ranges { padding: 1rem; }
   .cas-lab__bar { align-items: flex-start; }
   .cas-settings { margin-top: 0.05rem; }
   .cas-settings summary { grid-template-columns: 18px; width: 44px; padding: 0.45rem; place-content: center; }
@@ -873,6 +951,7 @@ onBeforeUnmount(() => { disposed = true; queue.splice(0) })
   .cas-font-inventory li { grid-template-columns: minmax(0, 1fr) auto; gap: 0.25rem 0.6rem; }
   .cas-font-inventory small { grid-column: 1 / -1; }
   .cas-selection li { align-items: flex-start; flex-direction: column; gap: 0.1rem; }
+  .cas-delta__changes li { grid-template-columns: 72px minmax(70px, 0.35fr) minmax(0, 1fr); gap: 0.45rem; }
 }
 @media (prefers-reduced-motion: reduce) { .cas-drop, .cas-progress span { transition: none; } }
 </style>

@@ -24,6 +24,32 @@ object BoundedPdfOutputSpec extends ZIOSpecDefault:
           .take(BoundedPdfOutput.MaximumBytes.toLong + 1L)
         assertZIO(BoundedPdfOutput.collect(oversized).exit)(fails(isSubtype[BoundedPdfOutput.TooLarge](anything)))
       },
+      test("rejects an oversized browser rewrite before consuming the source") {
+        val source = PdfSource.fromChunk(Chunk.fromArray("%PDF-1.7".getBytes("UTF-8")))
+        assertZIO(
+          BrowserPdfTools
+            .compareExistingFont(
+              source,
+              BrowserPdfTools.MaximumEditablePdfBytes.toLong + 1L,
+              "SourceFace",
+              "TargetFace",
+            )
+            .provide(PdfEngine.live)
+            .exit
+        )(fails(isSubtype[BrowserPdfTools.Error.NotEditableSize](anything)))
+      },
+      test("caps browser-facing PDF change evidence independently from streamed totals") {
+        val change  = BrowserPdfTools.StructuralChange(
+          BrowserPdfTools.ChangeKind.Changed,
+          Some(1L),
+          Some(1L),
+          BrowserPdfTools.ComponentKind.Object,
+          payloadChanged = false,
+        )
+        val samples = (0 until BrowserPdfTools.MaximumReportedPdfChanges + 5)
+          .foldLeft(Chunk.empty[BrowserPdfTools.StructuralChange])((current, _) => BrowserPdfTools.appendSample(current, change))
+        assertTrue(samples.length == BrowserPdfTools.MaximumReportedPdfChanges)
+      },
       test("returns an unchanged canonical PDF and a verified font variant") {
         for
           source <- compatibleFontPdf
@@ -37,6 +63,14 @@ object BoundedPdfOutputSpec extends ZIOSpecDefault:
           result.replacement.sourceObjectNumbers == Chunk(5L),
           result.replacement.targetObjectNumber == 6L,
           result.replacement.resourceBindingsRewritten == 1L,
+          result.structuralDelta.windows > 0L,
+          result.structuralDelta.changed > 0L,
+          result.structuralDelta.added == 0L,
+          result.structuralDelta.removed == 0L,
+          result.structuralDelta.streamPayloadsChanged == 0L,
+          result.structuralDelta.same > 0L,
+          result.structuralDelta.samples.nonEmpty,
+          result.structuralDelta.samples.length <= BrowserPdfTools.MaximumReportedPdfChanges,
         )
       },
     )

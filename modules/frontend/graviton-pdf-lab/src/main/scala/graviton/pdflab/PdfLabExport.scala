@@ -44,6 +44,7 @@ object PdfLabExport:
       sourceObjectNumbers = js.Array(replacement.sourceObjectNumbers.map(_.toDouble)*),
       targetObjectNumber = replacement.targetObjectNumber.toDouble,
       resourceBindingsRewritten = replacement.resourceBindingsRewritten.toDouble,
+      pdfDelta = structuralDeltaToJavaScript(result.structuralDelta),
       engine = "zio-pdf 0.2.0-RC7 Scala.js",
     )
 
@@ -65,6 +66,29 @@ object PdfLabExport:
       baseFont = font.baseFont,
       subtype = font.subtype.orNull,
       remapCandidate = font.remapCandidate,
+    )
+
+  private def structuralDeltaToJavaScript(delta: BrowserPdfTools.StructuralDelta): js.Object =
+    js.Dynamic.literal(
+      valid = true,
+      windows = delta.windows.toDouble,
+      windowSize = BrowserPdfTools.PdfDiffWindowSize,
+      unchanged = delta.same.toDouble,
+      changed = delta.changed.toDouble,
+      added = delta.added.toDouble,
+      removed = delta.removed.toDouble,
+      streamPayloadsChanged = delta.streamPayloadsChanged.toDouble,
+      reportedChangeLimit = BrowserPdfTools.MaximumReportedPdfChanges,
+      changes = js.Array(delta.samples.map(structuralChangeToJavaScript)*),
+    )
+
+  private def structuralChangeToJavaScript(change: BrowserPdfTools.StructuralChange): js.Object =
+    js.Dynamic.literal(
+      kind = change.kind.toString.toLowerCase,
+      leftObjectNumber = change.leftObjectNumber.fold[js.Any](null)(_.toDouble),
+      rightObjectNumber = change.rightObjectNumber.fold[js.Any](null)(_.toDouble),
+      componentKind = change.componentKind.toString.toLowerCase,
+      payloadChanged = change.payloadChanged,
     )
 
   private def toUint8Array(bytes: Chunk[Byte]): Uint8Array =
