@@ -509,6 +509,9 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
       "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "org.scodec" %% "scodec-core" % "2.3.3",
+      // Retain the connector facade in the published runtime POM for 0.5.x
+      // dependency compatibility. Concrete exporters remain server concerns.
+      "dev.zio" %% "zio-metrics-connectors" % V.zioMetricsConnectors,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
