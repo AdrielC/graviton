@@ -45,7 +45,8 @@ export default withMermaid(defineConfig({
   cleanUrls: true,
   head: [
     ['link', { rel: 'icon', href: withBase('/logo.svg') }],
-    ['meta', { name: 'theme-color', content: '#00ff41' }],
+    ['meta', { name: 'theme-color', content: '#f5f8f7', media: '(prefers-color-scheme: light)' }],
+    ['meta', { name: 'theme-color', content: '#0b1110', media: '(prefers-color-scheme: dark)' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:title', content: 'Graviton • Content-Addressable Storage' }],
     ['meta', { name: 'og:description', content: 'Durable local CAS, streaming APIs, typed manifests, and pluggable backends for Scala' }],
@@ -103,126 +104,148 @@ export default withMermaid(defineConfig({
     logo: '/logo.svg',
     siteTitle: 'Graviton',
     nav: [
-      { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Scala SDK', link: '/guide/scala-sdk' },
-      { text: 'Streaming', link: '/guide/binary-streaming' },
-      { text: 'Architecture', link: '/architecture' },
-      { text: 'Operations', link: '/ops/production-readiness' },
-      { text: 'API', link: '/api' },
-      { text: 'Scala.js', link: '/dev/scalajs' },
-      { text: 'CAS Playground', link: '/cas-playground' },
-      { text: 'Quasar Demo', link: '/quasar-demo' },
-      // Note: VitePress automatically prefixes `base` for internal links.
-      // Using `withBase` here double-prefixes on GitHub Pages (e.g. /repo/repo/scaladoc/) → 404.
-      { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
+      { text: 'Quickstart', link: '/guide/getting-started' },
+      {
+        text: 'Learn',
+        items: [
+          { text: 'Architecture', link: '/architecture' },
+          { text: 'Streaming', link: '/guide/binary-streaming' },
+          { text: 'Chunking', link: '/ingest/chunking' },
+          { text: 'Storage Backends', link: '/guide/storage-backends' }
+        ]
+      },
+      {
+        text: 'Operate',
+        items: [
+          { text: 'Run Locally', link: '/guide/run-locally' },
+          { text: 'Configuration', link: '/guide/configuration-reference' },
+          { text: 'Deployment', link: '/ops/deployment' },
+          { text: 'Production Readiness', link: '/ops/production-readiness' }
+        ]
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Scala SDK', link: '/guide/scala-sdk' },
+          { text: 'HTTP API', link: '/api/http' },
+          { text: 'gRPC API', link: '/api/grpc' },
+          // VitePress prefixes the configured base for internal links.
+          { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
+        ]
+      },
+      { text: 'CAS Playground', link: '/cas-playground' }
     ],
     sidebar: [
       {
-        text: 'Getting Started',
+        text: 'Start',
         items: [
-          { text: 'Introduction', link: '/' },
-          { text: 'Quick Start', link: '/guide/getting-started' },
-          { text: 'Installation', link: '/guide/installation' },
-          { text: 'Configuration Reference', link: '/guide/configuration-reference' },
-          { text: 'Run Locally (Full Stack)', link: '/guide/run-locally' },
+          { text: 'Overview', link: '/' },
+          { text: 'Quickstart', link: '/guide/getting-started' },
+          { text: 'Run Locally', link: '/guide/run-locally' },
+          { text: 'Install', link: '/guide/installation' },
+          { text: 'Configure', link: '/guide/configuration-reference' },
           { text: 'Storage Backends', link: '/guide/storage-backends' },
-          { text: 'CLI & Server Usage', link: '/guide/cli' },
-          { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
-          { text: 'Migrate to 0.5', link: '/guide/migration-0.5' },
-          { text: 'Migrate to 0.4', link: '/guide/migration-0.4' },
-          { text: 'Migrate to 0.3', link: '/guide/migration-0.3' },
-          { text: 'Migrate to 0.2', link: '/guide/migration-0.2' },
+          { text: 'Scala SDK', link: '/guide/scala-sdk' },
+          { text: 'CLI & Server', link: '/guide/cli' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' }
         ]
       },
       {
-        text: 'Core Concepts',
+        text: 'Understand',
+        collapsed: true,
         items: [
           { text: 'Architecture', link: '/architecture' },
-          { text: 'Schema & Types', link: '/core/schema' },
-          { text: 'Transducer Algebra', link: '/core/transducers' },
+          { text: 'Content IDs & Types', link: '/core/schema' },
+          { text: 'Streaming Algebra', link: '/core/transducers' },
+          { text: 'Binary Streaming', link: '/guide/binary-streaming' },
+          { text: 'Chunking', link: '/ingest/chunking' },
+          { text: 'Manifests & Frames', link: '/manifests-and-frames' },
           { text: 'Scans & Events', link: '/core/scans' },
           { text: 'Ranges & Boundaries', link: '/core/ranges' }
         ]
       },
       {
-        text: 'Ingest Pipeline',
-        items: [
-          { text: 'End-to-end Upload', link: '/end-to-end-upload' },
-          { text: 'Binary Streaming', link: '/guide/binary-streaming' },
-          { text: 'Manifests & Frames', link: '/manifests-and-frames' },
-          { text: 'Chunking Strategies', link: '/ingest/chunking' }
-        ]
-      },
-      {
-        text: 'Runtime',
-        items: [
-          { text: 'Ports & Policies', link: '/runtime/ports' },
-          { text: 'Backends', link: '/runtime/backends' },
-          { text: 'Replication', link: '/runtime/replication' }
-        ]
-      },
-      {
-        text: 'Modules',
-        items: [
-          { text: 'Overview', link: '/modules/' },
-          { text: 'Backend Adapters', link: '/modules/backend' },
-          { text: 'Runtime Module', link: '/modules/runtime' },
-          { text: 'Streams Utilities', link: '/modules/streams' },
-          { text: 'PDF-aware Ingest', link: '/modules/pdf' },
-          { text: 'Shardcake Upload Locality', link: '/modules/shardcake' },
-          { text: 'Protocol Stack', link: '/modules/protocol' },
-          { text: 'Scala.js Frontend', link: '/modules/frontend' },
-          { text: 'Apache Tika Module', link: '/modules/tika' }
-        ]
-      },
-      {
-        text: 'Operations',
-        items: [
-          { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
-          { text: 'Postgres Schema (Alpha Overhaul)', link: '/ops/postgres-schema' },
-          { text: 'Production Readiness', link: '/ops/production-readiness' },
-          { text: 'Deployment', link: '/ops/deployment' },
-          { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
-          { text: 'Performance Measurement', link: '/ops/performance' }
-        ]
-      },
-      {
-        text: 'API Reference',
-        items: [
-          { text: 'API Overview', link: '/api' },
-          { text: 'gRPC', link: '/api/grpc' },
-          { text: 'HTTP', link: '/api/http' },
-          { text: 'Scala Streaming SDK', link: '/guide/scala-sdk' },
-          { text: 'Quasar HTTP API v1 (Draft)', link: '/api/quasar-http-v1' },
-          { text: 'Quasar metadata governance (Draft)', link: '/api/quasar-metadata' },
-          { text: 'Legacy repository integration', link: '/api/legacy-repos' },
-          { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
-        ]
-      },
-      {
-        text: 'Development',
-        items: [
-          { text: 'Contributing', link: '/dev/contributing' },
-          { text: 'Testing', link: '/dev/testing' },
-          { text: 'Scala.js Playbook', link: '/dev/scalajs' },
-          { text: 'Design Docs', link: '/design/' },
-          { text: 'ADR: Content Identity & GC', link: '/adr/0001-content-identity-deletion-and-gc' },
-          { text: 'ADR: Compatibility & Releases', link: '/adr/0002-compatibility-and-releases' },
-          { text: 'ADR: Deployment Profiles', link: '/adr/0003-deployment-profiles' },
-          { text: 'ADR: Maintenance Coordination', link: '/adr/0004-maintenance-coordination' },
-          { text: 'Quasar HTTP API v1 (Draft)', link: '/design/quasar-http-api-v1' },
-          { text: 'Patch-based Metadata (Draft)', link: '/design/quasar-metadata-patching' },
-          { text: 'Quasar metadata envelope v1.1 (Draft)', link: '/design/quasar-metadata-envelope-v1.1' },
-        ]
-      },
-      {
-        text: 'Interactive',
+        text: 'Explore',
+        collapsed: true,
         items: [
           { text: 'CAS Playground', link: '/cas-playground' },
           { text: 'Pipeline Explorer', link: '/pipeline-explorer' },
           { text: 'Connect Your Server', link: '/demo' },
           { text: 'Quasar Demo', link: '/quasar-demo' }
+        ]
+      },
+      {
+        text: 'Operate',
+        collapsed: true,
+        items: [
+          { text: 'Production Readiness', link: '/ops/production-readiness' },
+          { text: 'Deployment', link: '/ops/deployment' },
+          { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
+          { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
+          { text: 'Performance', link: '/ops/performance' },
+          { text: 'PostgreSQL Schema', link: '/ops/postgres-schema' },
+          { text: 'Runtime Backends', link: '/runtime/backends' },
+          { text: 'Replication', link: '/runtime/replication' },
+          { text: 'Ports & Policies', link: '/runtime/ports' }
+        ]
+      },
+      {
+        text: 'Reference',
+        collapsed: true,
+        items: [
+          { text: 'API Overview', link: '/api' },
+          { text: 'HTTP API', link: '/api/http' },
+          { text: 'gRPC API', link: '/api/grpc' },
+          { text: 'Scala SDK', link: '/guide/scala-sdk' },
+          { text: 'Quasar HTTP v1', link: '/api/quasar-http-v1' },
+          { text: 'Quasar Metadata', link: '/api/quasar-metadata' },
+          { text: 'Legacy Repository Integration', link: '/api/legacy-repos' },
+          { text: 'Scaladoc', link: '/scaladoc/', target: '_blank' }
+        ]
+      },
+      {
+        text: 'Modules',
+        collapsed: true,
+        items: [
+          { text: 'Overview', link: '/modules/' },
+          { text: 'Backend Adapters', link: '/modules/backend' },
+          { text: 'Runtime', link: '/modules/runtime' },
+          { text: 'Stream Utilities', link: '/modules/streams' },
+          { text: 'PDF-aware Ingest', link: '/modules/pdf' },
+          { text: 'Shardcake Locality', link: '/modules/shardcake' },
+          { text: 'Protocol', link: '/modules/protocol' },
+          { text: 'Scala.js Frontend', link: '/modules/frontend' },
+          { text: 'Apache Tika', link: '/modules/tika' }
+        ]
+      },
+      {
+        text: 'Project',
+        collapsed: true,
+        items: [
+          { text: 'Contributing', link: '/dev/contributing' },
+          { text: 'Testing', link: '/dev/testing' },
+          { text: 'Scala.js Development', link: '/dev/scalajs' },
+          { text: 'Design Documents', link: '/design/' },
+          {
+            text: 'Architecture Decisions',
+            collapsed: true,
+            items: [
+              { text: 'Content Identity & GC', link: '/adr/0001-content-identity-deletion-and-gc' },
+              { text: 'Compatibility & Releases', link: '/adr/0002-compatibility-and-releases' },
+              { text: 'Deployment Profiles', link: '/adr/0003-deployment-profiles' },
+              { text: 'Maintenance Coordination', link: '/adr/0004-maintenance-coordination' }
+            ]
+          },
+          {
+            text: 'Migration Guides',
+            collapsed: true,
+            items: [
+              { text: '0.5', link: '/guide/migration-0.5' },
+              { text: '0.4', link: '/guide/migration-0.4' },
+              { text: '0.3', link: '/guide/migration-0.3' },
+              { text: '0.2', link: '/guide/migration-0.2' }
+            ]
+          }
         ]
       }
     ],
@@ -236,19 +259,19 @@ export default withMermaid(defineConfig({
       provider: 'local'
     },
     footer: {
-      message: 'Built with ZIO • Powered by Scala 3',
-      copyright: 'Content-addressable storage, refined. • Apache-2.0 License'
+      message: 'Content-addressed storage for Scala 3 and ZIO',
+      copyright: 'Apache-2.0'
     },
     outline: {
       level: [2, 3],
       label: 'On this page'
     },
     docFooter: {
-      prev: '← Previous',
-      next: 'Next →'
+      prev: 'Previous',
+      next: 'Next'
     },
     darkModeSwitchLabel: 'Theme',
-    returnToTopLabel: '↑ Back to top',
+    returnToTopLabel: 'Back to top',
     sidebarMenuLabel: 'Menu',
     externalLinkIcon: true
   }

@@ -1,107 +1,101 @@
 <template>
-  <section class="pipeline-playground" aria-labelledby="pipeline-playground-title">
+  <section class="pipeline-playground" aria-label="Content-addressing playground">
     <header class="pp-header">
-      <div>
-        <p class="pp-eyebrow">LOCAL CONTENT LAB</p>
-        <h2 id="pipeline-playground-title">Bytes become content IDs here</h2>
-        <p>
-          Edit the payload and block size. The linked graviton-shared Scala.js module computes every result.
-        </p>
-      </div>
-      <div class="pp-runtime-stack">
-        <span :class="['pp-runtime', runtimeState]">{{ runtimeLabel }}</span>
-        <span class="pp-boundary">8 KiB refined boundary</span>
-      </div>
+      <p>Bounded to 8 KiB in this browser lab</p>
+      <span :class="['pp-runtime', runtimeState]" role="status">{{ runtimeLabel }}</span>
     </header>
 
     <div class="pp-workbench">
       <div class="pp-input-panel">
-        <label for="pp-payload">Payload</label>
+        <label for="pp-payload">Text to hash</label>
         <textarea
           id="pp-payload"
           v-model="payload"
-          rows="8"
+          name="content"
+          rows="7"
+          autocomplete="off"
           spellcheck="false"
           maxlength="2048"
+          aria-describedby="pp-input-help pp-input-count"
           :aria-invalid="Boolean(error)"
         />
 
         <div class="pp-input-meter">
-          <span>UTF-16 input</span>
-          <strong>{{ payload.length }} / 2,048 code units</strong>
+          <span id="pp-input-help">UTF-8 encoded locally</span>
+          <strong id="pp-input-count">{{ formatNumber(payload.length) }} / 2,048 characters</strong>
         </div>
 
-        <div class="pp-presets">
-          <button type="button" @click="loadRepeated">Load repeated blocks</button>
-          <button type="button" @click="loadAvalanche">Change one byte</button>
+        <div class="pp-presets" aria-label="Example inputs">
+          <button type="button" @click="loadRepeated">Repeat a block</button>
+          <button type="button" @click="loadAvalanche">Change 1 byte</button>
           <button type="button" @click="payload = ''">Clear</button>
         </div>
 
         <label class="pp-slider">
-          <span>Fixed block size</span>
-          <input v-model.number="blockSize" type="range" min="16" max="128" step="16" />
+          <span>Block size</span>
+          <input v-model.number="blockSize" name="block-size" type="range" min="16" max="128" step="16" />
           <strong>{{ blockSize }} bytes</strong>
         </label>
 
-        <p v-if="error" class="pp-error" role="alert">{{ error }}</p>
-        <p v-else class="pp-note">
-          The lab uses fixed boundaries for clarity. Server ingest remains streaming and may use Fixed,
-          FastCDC, or delimiter chunking without this interactive memory limit.
-        </p>
+        <p v-if="error" class="pp-error" role="alert">{{ error }} Refresh the page and try again.</p>
       </div>
 
-      <div class="pp-result-panel" aria-live="polite">
-        <div :class="['pp-pipeline-flow', { processing }]">
-          <div><span>1</span><strong>UTF-8</strong><small>{{ result.byteCount }} bytes</small></div>
-          <b aria-hidden="true">›</b>
-          <div><span>2</span><strong>CHUNK</strong><small>{{ result.blocks.length }} blocks</small></div>
-          <b aria-hidden="true">›</b>
-          <div><span>3</span><strong>SHA-256</strong><small>{{ result.blocks.length + (result.blobId ? 1 : 0) }} digests</small></div>
-          <b aria-hidden="true">›</b>
-          <div><span>4</span><strong>DEDUP</strong><small>{{ result.duplicateCount }} repeated</small></div>
+      <div class="pp-result-panel" role="status" aria-live="polite" aria-atomic="false">
+        <div class="pp-identity">
+          <span>Blob content ID</span>
+          <code>{{ result.blobId || 'Computing…' }}</code>
         </div>
-
         <dl class="pp-summary">
           <div>
-            <dt>Blob content ID</dt>
-            <dd><code>{{ result.blobId || 'Loading Scala.js content lab…' }}</code></dd>
+            <dt>Payload</dt>
+            <dd>{{ formatNumber(result.byteCount) }} bytes</dd>
           </div>
           <div>
-            <dt>Unique blocks</dt>
-            <dd>{{ result.uniqueCount }}</dd>
+            <dt>Blocks</dt>
+            <dd>{{ formatNumber(result.blocks.length) }}</dd>
           </div>
           <div>
-            <dt>Duplicate blocks</dt>
-            <dd>{{ result.duplicateCount }}</dd>
+            <dt>Unique</dt>
+            <dd>{{ formatNumber(result.uniqueCount) }}</dd>
           </div>
           <div>
-            <dt>Payload bytes</dt>
-            <dd>{{ result.byteCount }}</dd>
+            <dt>Repeated</dt>
+            <dd>{{ formatNumber(result.duplicateCount) }}</dd>
           </div>
         </dl>
+        <p class="pp-note">
+          Fixed boundaries keep this example legible. Server ingest stays streaming and can use fixed,
+          FastCDC, or delimiter chunking.
+        </p>
       </div>
     </div>
 
-    <div v-if="result.blocks.length" class="pp-table-scroll">
+    <div v-if="visibleBlocks.length" class="pp-table-scroll">
       <table>
+        <caption>
+          Block identities
+          <span v-if="result.blocks.length > visibleBlocks.length">
+            · showing {{ visibleBlocks.length }} of {{ formatNumber(result.blocks.length) }}
+          </span>
+        </caption>
         <thead>
           <tr>
-            <th>Index</th>
-            <th>Offset</th>
-            <th>Size</th>
-            <th>Block content ID</th>
-            <th>Disposition</th>
+            <th scope="col">Block</th>
+            <th scope="col">Offset</th>
+            <th scope="col">Bytes</th>
+            <th scope="col">Content ID</th>
+            <th scope="col">Result</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="block in result.blocks" :key="`${block.index}:${block.contentId}`">
-            <td>{{ block.index }}</td>
-            <td>{{ block.offset }}</td>
-            <td>{{ block.size }}</td>
+          <tr v-for="block in visibleBlocks" :key="`${block.index}:${block.contentId}`">
+            <td>{{ block.index + 1 }}</td>
+            <td>{{ formatNumber(block.offset) }}</td>
+            <td>{{ formatNumber(block.size) }}</td>
             <td><code>{{ block.contentId }}</code></td>
             <td>
               <span :class="['pp-disposition', block.duplicate ? 'duplicate' : 'fresh']">
-                {{ block.duplicate ? 'duplicate' : 'first occurrence' }}
+                {{ block.duplicate ? 'reused' : 'new' }}
               </span>
             </td>
           </tr>
@@ -112,7 +106,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 type BlockResult = {
   index: number
@@ -142,13 +136,13 @@ const repeatedPayload = [
   'GRAVITON-BLOCK!!'
 ].join('')
 
+const numberFormat = new Intl.NumberFormat()
 const payload = ref(repeatedPayload)
 const blockSize = ref(16)
-const processing = ref(false)
 const error = ref('')
 const mounted = ref(false)
 const runtimeState = ref<'loading' | 'ready' | 'error'>('loading')
-const runtimeLabel = ref('Loading Scala.js')
+const runtimeLabel = ref('Loading Scala.js…')
 const result = ref<PlaygroundResult>({
   byteCount: 0,
   blobId: '',
@@ -157,9 +151,14 @@ const result = ref<PlaygroundResult>({
   duplicateCount: 0,
   engine: ''
 })
+const visibleBlocks = computed(() => result.value.blocks.slice(0, 24))
 
 let revision = 0
 let modulePromise: Promise<ContentLabModule> | undefined
+
+function formatNumber(value: number) {
+  return numberFormat.format(value)
+}
 
 function loadRepeated() {
   payload.value = repeatedPayload
@@ -185,7 +184,6 @@ async function recompute() {
   if (!mounted.value) return
 
   const currentRevision = ++revision
-  processing.value = true
   error.value = ''
 
   try {
@@ -200,8 +198,6 @@ async function recompute() {
     error.value = cause instanceof Error ? cause.message : String(cause)
     runtimeState.value = 'error'
     runtimeLabel.value = 'Scala.js unavailable'
-  } finally {
-    if (currentRevision === revision) processing.value = false
   }
 }
 
