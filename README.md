@@ -64,6 +64,15 @@ curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$blob_id/verify" | jq .
 
 Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The legacy `/api/blobs` routes remain available with deprecation headers; new clients should use `/api/v1/blobs`.
 
+For the built-in DataStar operator console, enable the local-only surface and open it directly from the running server:
+
+```bash
+GRAVITON_CONSOLE_ENABLED=true ./sbt "server/run"
+open http://127.0.0.1:8081/console
+```
+
+The console sends each file as one raw streaming request body, reports the real CAS reuse result, and downloads through the canonical blob API. Its server-rendered actions use `zio-blocks-datastar` 0.0.51 with the official DataStar 1.0.2 browser runtime. Filesystem folder and file references are atomically persisted as a bounded ZIO Blocks JSON document below `GRAVITON_FS_ROOT/catalog/`, so they survive a fresh server process while still pointing to immutable CAS content. Enabling the console binds the HTTP listener to loopback unless remote binding is explicitly allowed. To exercise two real nodes with shared PostgreSQL, MinIO, and Shardcake placement, run `./scripts/demo-shardcake-local.sh up`; its published host ports are also loopback-only. See [the local Shardcake topology](deploy/local-shardcake/README.md).
+
 Scala applications can use `ai.hylo.graviton.client.GravitonClient` from the `graviton-http` artifact. Upload and download bodies remain streamed, media types use ZIO Blocks, and byte lengths are Iron-refined through 1 TiB. See the [Scala Streaming SDK guide](docs/guide/scala-sdk.md).
 
 `application/pdf` uploads sent to the HTTP API are routed through the `graviton-pdf` module. It validates the PDF signature and uses zio-pdf's incremental object scanner to prefer stable object boundaries without collecting the document. Embedded applications can call `PdfIngest.put` directly. See [PDF-aware ingest](docs/modules/pdf.md).

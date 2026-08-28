@@ -1,10 +1,11 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource, PgMaintenanceCoordinator}
+import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeUploadConfig}
-import graviton.protocol.http.{AuthMiddleware, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
+import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
+import graviton.runtime.catalog.{Catalog, FsCatalog}
 import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
 import graviton.runtime.stores.{
@@ -23,6 +24,7 @@ import graviton.security.*
 import graviton.security.jwt.{HmacJwtVerifier, OidcJwtVerifier}
 import graviton.shared.ApiModels.*
 import graviton.shared.ApiJson
+import graviton.server.console.{ConsoleApi, ConsoleConfig}
 import zio.*
 import zio.http.*
 import zio.json.EncoderOps
@@ -38,9 +40,11 @@ object Main extends ZIOAppDefault:
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
+      console                                      <- ZIO.config(ConsoleConfig.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- validateShardcakeTopology(cfg, shardcake)
+      _                                            <- validateConsoleSecurity(sec, console)
       _                                            <- logSecurityPosture(sec)
       port                                          = cfg.httpPort
       started                                      <- Clock.currentTime(TimeUnit.MILLISECONDS)
@@ -48,145 +52,146 @@ object Main extends ZIOAppDefault:
       verifierOpt                                  <- buildVerifier(sec)
       program                                       = ZIO.scoped {
                                                         for
-                                                          blobStore       <- ZIO.service[BlobStore]
-                                                          shardcakeNode   <- ZIO.service[Option[ShardcakeNode]]
-                                                          auditSink       <- ZIO.service[AuditSink]
-                                                          capabilityCheck <- ZIO.service[CapabilityCheck]
-                                                          rateLimiter     <- ZIO.service[RateLimiter]
-                                                          runtime         <- ZIO.runtime[Any]
-                                                          interceptors     = verifierOpt.toList.flatMap { verifier =>
-                                                                               List(
-                                                                                 new AuthInterceptor(verifier, auditSink, runtime),
-                                                                                 new CapabilityInterceptor(capabilityCheck, runtime, Some(auditSink)),
-                                                                                 new RateLimitInterceptor(rateLimiter, runtime),
-                                                                               )
-                                                                             }
-                                                          grpc            <- GravitonGrpcServer.scoped(
-                                                                               blobStore,
-                                                                               GrpcServerConfig(cfg.grpcPort),
-                                                                               interceptors,
-                                                                             )
-                                                          boundPort       <- grpc.port
-                                                          _               <- ZIO.logInfo(s"gRPC API listening on :$boundPort")
-                                                          routes          <- ZIO.serviceWithZIO[BlobStore] { blobStore =>
-                                                                               ZIO.serviceWithZIO[MetricsRegistry] { metrics =>
-                                                                                 ZIO.serviceWithZIO[AuditSink] { auditSink =>
-                                                                                   ZIO.serviceWithZIO[CapabilityCheck] { capabilityCheck =>
-                                                                                     ZIO.serviceWithZIO[RateLimiter] { rateLimiter =>
-                                                                                       val policy = Option.when(sec.enabled)(
-                                                                                         HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
-                                                                                       )
-                                                                                       val api    = HttpApi(
-                                                                                         blobStore = blobStore,
-                                                                                         metrics = Some(MetricsHttpApi(metrics, policy)),
-                                                                                         security = policy,
-                                                                                         localizedUpload = shardcakeNode.map(_.locality),
-                                                                                       )
+                                                          blobStore                          <- ZIO.service[BlobStore]
+                                                          catalog                            <- ZIO.service[Catalog]
+                                                          shardcakeNode                      <- ZIO.service[Option[ShardcakeNode]]
+                                                          metrics                            <- ZIO.service[MetricsRegistry]
+                                                          auditSink                          <- ZIO.service[AuditSink]
+                                                          capabilityCheck                    <- ZIO.service[CapabilityCheck]
+                                                          rateLimiter                        <- ZIO.service[RateLimiter]
+                                                          runtime                            <- ZIO.runtime[Any]
+                                                          interceptors                        = verifierOpt.toList.flatMap { verifier =>
+                                                                                                  List(
+                                                                                                    new AuthInterceptor(verifier, auditSink, runtime),
+                                                                                                    new CapabilityInterceptor(capabilityCheck, runtime, Some(auditSink)),
+                                                                                                    new RateLimitInterceptor(rateLimiter, runtime),
+                                                                                                  )
+                                                                                                }
+                                                          grpc                               <- GravitonGrpcServer.scoped(
+                                                                                                  blobStore,
+                                                                                                  GrpcServerConfig(cfg.grpcPort),
+                                                                                                  interceptors,
+                                                                                                )
+                                                          boundPort                          <- grpc.port
+                                                          _                                  <- ZIO.logInfo(s"gRPC API listening on :$boundPort")
+                                                          policy                              = Option.when(sec.enabled)(
+                                                                                                  HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
+                                                                                                )
+                                                          localizedUpload                     = shardcakeNode.map(_.locality)
+                                                          api                                 = HttpApi(
+                                                                                                  blobStore = blobStore,
+                                                                                                  metrics = Some(MetricsHttpApi(metrics, policy)),
+                                                                                                  security = policy,
+                                                                                                  localizedUpload = localizedUpload,
+                                                                                                )
+                                                          publicRoutes: Routes[Any, Nothing]  =
+                                                            Routes(
+                                                              Method.GET / "api" / "health"           -> Handler.fromZIO {
+                                                                for
+                                                                  now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                                                  up   = (now - started).max(0L)
+                                                                yield Response.json(
+                                                                  ApiJson.encode(
+                                                                    HealthResponse(
+                                                                      status = "ok",
+                                                                      version = _root_.graviton.server.BuildInfo.version,
+                                                                      uptime = up,
+                                                                    )
+                                                                  )
+                                                                )
+                                                              },
+                                                              Method.GET / "api" / "health" / "live"  -> Handler.fromZIO {
+                                                                for
+                                                                  now <- Clock.currentTime(TimeUnit.MILLISECONDS)
+                                                                  up   = (now - started).max(0L)
+                                                                yield Response.json(
+                                                                  ApiJson.encode(
+                                                                    HealthResponse(
+                                                                      status = "ok",
+                                                                      version = _root_.graviton.server.BuildInfo.version,
+                                                                      uptime = up,
+                                                                    )
+                                                                  )
+                                                                )
+                                                              },
+                                                              Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
+                                                                val shardcakeHealth =
+                                                                  ZIO.foreachDiscard(shardcakeNode)(_.healthCheck)
+                                                                blobStore.healthCheck
+                                                                  .zipRight(shardcakeHealth)
+                                                                  .timeout(5.seconds)
+                                                                  .either
+                                                                  .map {
+                                                                    case Right(Some(_)) =>
+                                                                      Response.json(
+                                                                        Json
+                                                                          .Obj(
+                                                                            "status"  -> Json.Str("ready"),
+                                                                            "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
+                                                                          )
+                                                                          .toJson
+                                                                      )
+                                                                    case _              =>
+                                                                      Response
+                                                                        .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
+                                                                        .copy(status = Status.ServiceUnavailable)
+                                                                  }
+                                                              },
+                                                            )
 
-                                                                                       val publicRoutes: Routes[Any, Nothing] =
-                                                                                         Routes(
-                                                                                           Method.GET / "api" / "health"           -> Handler.fromZIO {
-                                                                                             for
-                                                                                               now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                                                                               up   = (now - started).max(0L)
-                                                                                             yield Response.json(
-                                                                                               ApiJson.encode(
-                                                                                                 HealthResponse(
-                                                                                                   status = "ok",
-                                                                                                   version = _root_.graviton.server.BuildInfo.version,
-                                                                                                   uptime = up,
-                                                                                                 )
-                                                                                               )
-                                                                                             )
-                                                                                           },
-                                                                                           Method.GET / "api" / "health" / "live"  -> Handler.fromZIO {
-                                                                                             for
-                                                                                               now <- Clock.currentTime(TimeUnit.MILLISECONDS)
-                                                                                               up   = (now - started).max(0L)
-                                                                                             yield Response.json(
-                                                                                               ApiJson.encode(
-                                                                                                 HealthResponse(
-                                                                                                   status = "ok",
-                                                                                                   version = _root_.graviton.server.BuildInfo.version,
-                                                                                                   uptime = up,
-                                                                                                 )
-                                                                                               )
-                                                                                             )
-                                                                                           },
-                                                                                           Method.GET / "api" / "health" / "ready" -> Handler.fromZIO {
-                                                                                             val shardcakeHealth =
-                                                                                               ZIO.foreachDiscard(shardcakeNode)(_.healthCheck)
-                                                                                             blobStore.healthCheck
-                                                                                               .zipRight(shardcakeHealth)
-                                                                                               .timeout(5.seconds)
-                                                                                               .either
-                                                                                               .map {
-                                                                                                 case Right(Some(_)) =>
-                                                                                                   Response.json(
-                                                                                                     Json
-                                                                                                       .Obj(
-                                                                                                         "status"  -> Json.Str("ready"),
-                                                                                                         "version" -> Json.Str(_root_.graviton.server.BuildInfo.version),
-                                                                                                       )
-                                                                                                       .toJson
-                                                                                                   )
-                                                                                                 case _              =>
-                                                                                                   Response
-                                                                                                     .json(Json.Obj("status" -> Json.Str("not_ready")).toJson)
-                                                                                                     .copy(status = Status.ServiceUnavailable)
-                                                                                               }
-                                                                                           },
-                                                                                         )
+                                                          statsRoutes: Routes[Any, Nothing]   =
+                                                            Routes(
+                                                              Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
+                                                                val resource = ResourceRef(ResourceKind.Namespace, None)
+                                                                val response =
+                                                                  metrics.snapshot.map(snapshot => Response.json(ApiJson.encode(RuntimeStats.from(snapshot))))
+                                                                policy match
+                                                                  case None         => response
+                                                                  case Some(active) =>
+                                                                    active
+                                                                      .authorize(request, "observability.stats.read", Capability.ObservabilityRead, resource)
+                                                                      .foldZIO(
+                                                                        denied => ZIO.succeed(denied),
+                                                                        _ =>
+                                                                          response
+                                                                            .flatMap(result => active.recordOutcome("observability.stats.read", resource, result).as(result)),
+                                                                      )
+                                                              }
+                                                            )
 
-                                                                                       val statsRoutes: Routes[Any, Nothing] = Routes(
-                                                                                         Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
-                                                                                           val resource = ResourceRef(ResourceKind.Namespace, None)
-                                                                                           val response =
-                                                                                             metrics.snapshot.map(snapshot => Response.json(ApiJson.encode(RuntimeStats.from(snapshot))))
-                                                                                           policy match
-                                                                                             case None         => response
-                                                                                             case Some(active) =>
-                                                                                               active
-                                                                                                 .authorize(request, "observability.stats.read", Capability.ObservabilityRead, resource)
-                                                                                                 .foldZIO(
-                                                                                                   denied => ZIO.succeed(denied),
-                                                                                                   _ =>
-                                                                                                     response.flatMap(result =>
-                                                                                                       active.recordOutcome("observability.stats.read", resource, result).as(result)
-                                                                                                     ),
-                                                                                                 )
-                                                                                         }
-                                                                                       )
+                                                          appRoutes: Routes[Any, Nothing]     =
+                                                            verifierOpt match
+                                                              case Some(verifier) =>
+                                                                val decorateFailure =
+                                                                  (request: Request, response: Response) => policy.fold(response)(_.addCorsHeaders(request, response))
+                                                                (api.routes ++ statsRoutes) @@ AuthMiddleware.required(verifier, auditSink, decorateFailure)
+                                                              case None           =>
+                                                                api.routes ++ statsRoutes
 
-                                                                                       val appRoutes: Routes[Any, Nothing] =
-                                                                                         verifierOpt match
-                                                                                           case Some(verifier) =>
-                                                                                             val decorateFailure =
-                                                                                               (request: Request, response: Response) =>
-                                                                                                 policy.fold(response)(_.addCorsHeaders(request, response))
-                                                                                             (api.routes ++ statsRoutes) @@ AuthMiddleware.required(verifier, auditSink, decorateFailure)
-                                                                                           case None           =>
-                                                                                             api.routes ++ statsRoutes
+                                                          devRoutes: Routes[Any, Nothing]     =
+                                                            sec.devSharedSecret match
+                                                              case Some(secret) if sec.enabled =>
+                                                                DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
+                                                              case _                           =>
+                                                                Routes.empty
 
-                                                                                       val devRoutes: Routes[Any, Nothing] =
-                                                                                         sec.devSharedSecret match
-                                                                                           case Some(secret) if sec.enabled =>
-                                                                                             DevAuthRoutes.routes(secret, sec.oidcIssuer, sec.oidcAudience)
-                                                                                           case _                           =>
-                                                                                             Routes.empty
-
-                                                                                       val preflightRoutes = if sec.enabled then api.preflightRoutes else Routes.empty
-                                                                                       val baseRoutes      = publicRoutes ++ preflightRoutes ++ appRoutes ++ devRoutes
-                                                                                       val routes          = if sec.enabled then baseRoutes else Middleware.cors(baseRoutes)
-
-                                                                                       ZIO.succeed(routes)
-                                                                                     }
-                                                                                   }
-                                                                                 }
-                                                                               }
-                                                                             }
-                                                          chunker          = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
-                                                          _               <- Chunker.locally(chunker)(Server.serve(routes))
+                                                          consoleRoutes: Routes[Any, Nothing] =
+                                                            if console.enabled then
+                                                              ConsoleApi(
+                                                                catalog,
+                                                                blobStore,
+                                                                BlobIngest.make(blobStore, localizedUpload),
+                                                                Option.when(shardcakeNode.isDefined)(shardcake.node),
+                                                                _root_.graviton.server.BuildInfo.version,
+                                                              ).routes
+                                                            else Routes.empty
+                                                          preflightRoutes                     = if sec.enabled then api.preflightRoutes else Routes.empty
+                                                          nonConsoleRoutes                    = publicRoutes ++ preflightRoutes ++ appRoutes ++ devRoutes
+                                                          browserApiRoutes                    =
+                                                            if sec.enabled then nonConsoleRoutes else Middleware.cors(nonConsoleRoutes)
+                                                          routes                              = consoleRoutes ++ browserApiRoutes
+                                                          chunker                             = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
+                                                          _                                  <- Chunker.locally(chunker)(Server.serve(routes))
                                                         yield ()
                                                       }
 
@@ -203,8 +208,13 @@ object Main extends ZIOAppDefault:
                                                           )
 
       _ <- program.provide(
-             Server.defaultWith(_.port(port).enableRequestStreaming),
+             Server.defaultWith { server =>
+               val streaming = server.enableRequestStreaming
+               if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
+               else streaming.port(port)
+             },
              blobLayer(cfg, maintenance),
+             catalogLayer(cfg),
              shardcakeNodeLayer(shardcake),
              auditLayer,
              capabilityLayer(sec),
@@ -221,6 +231,9 @@ object Main extends ZIOAppDefault:
           s"Shardcake upload locality requires the shared S3 plus PostgreSQL composition, not '$blobBackend'"
         )
         with ConfigurationError
+    case object ConsoleRequiresOpenLocalMode
+        extends Exception("GRAVITON_CONSOLE_ENABLED requires GRAVITON_SECURITY_ENABLED=false; do not expose the local console publicly")
+        with ConfigurationError
 
   private[server] def validateShardcakeTopology(
     cfg: GravitonConfig,
@@ -230,6 +243,12 @@ object Main extends ZIOAppDefault:
       .fail(ConfigurationError.ShardcakeRequiresSharedStorage(cfg.blobBackend))
       .when(shardcake.enabled && !Set("s3", "minio").contains(cfg.blobBackend.toLowerCase))
       .unit
+
+  private[server] def validateConsoleSecurity(
+    security: SecurityConfig,
+    console: ConsoleConfig,
+  ): IO[ConfigurationError, Unit] =
+    ZIO.fail(ConfigurationError.ConsoleRequiresOpenLocalMode).when(console.enabled && security.enabled).unit
 
   private[server] def shardcakeNodeLayer(
     config: ShardcakeUploadConfig
@@ -268,6 +287,17 @@ object Main extends ZIOAppDefault:
           )
 
     (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+
+  private[server] def catalogLayer(cfg: GravitonConfig): ZLayer[Any, Throwable, Catalog] =
+    cfg.blobBackend.toLowerCase match
+      case "s3" | "minio" => PgDataSource.layerFromEnv >>> PgCatalog.layer
+      case "fs"           => FsCatalog.layer(Path.of(cfg.fs.root))
+      case other          =>
+        ZLayer.fail(
+          new IllegalArgumentException(
+            s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
+          )
+        )
 
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =

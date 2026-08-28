@@ -59,6 +59,7 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
 
       for
         quarantines <- Ref.make(0)
+        _           <- TestClock.setTime(Instant.EPOCH.plusSeconds(1L))
         maintenance  = new CountingMaintenance(
                          ZStream.range(0, blockCount).map(index => BlockInventoryEntry(blockKey(index), 1L, Instant.EPOCH)),
                          quarantines,
@@ -124,6 +125,7 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
           coordinator      <- FileMaintenanceCoordinator.make(root)
           persisted        <- Promise.make[Nothing, Unit]
           releaseCommit    <- Promise.make[Nothing, Unit]
+          sweepStarted     <- Promise.make[Nothing, Unit]
           inventoryTouched <- Promise.make[Nothing, Unit]
           underlying        = new FsBlockStore(root)
           blocks            = new CommitBlockingBlockStore(underlying, persisted, releaseCommit)
@@ -142,13 +144,15 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
                                 .run(store.put())
                                 .fork
           _                <- persisted.await
-          sweep            <- collector.sweep(Duration.Zero, dryRun = false)().fork
-          _                <- ZIO.yieldNow.repeatN(20)
+          sweep            <- (sweepStarted.succeed(()) *> collector.sweep(Duration.Zero, dryRun = false)()).fork
+          _                <- sweepStarted.await
+          _                <- TestClock.adjust(1.millis)
           observedTooSoon  <- inventoryTouched.isDone
           _                <- releaseCommit.succeed(())
           written          <- upload.join
           report           <- sweep.join
           present          <- store.stat(written.key)
+          _                <- TestClock.adjust(1.millis)
         yield assertTrue(
           !observedTooSoon,
           report.candidateBlocks == 0L,
@@ -225,8 +229,9 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
                              GarbageCollection.live
                          )
         observed    <- quarantines.get
+        _           <- TestClock.adjust(1.millis)
       yield assertTrue(report.candidateBlocks == 1L, report.quarantinedBlocks == 0L, observed == 0)
-    },
+    } @@ TestAspect.withLiveClock,
     test("ZIO Config rejects invalid GC memory bounds before a service is built") {
       val provider = ConfigProvider.fromMap(
         Map("graviton.gc.max-references-per-partition" -> "0")

@@ -506,6 +506,7 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio-nio"     % V.zioNio,
       "dev.zio" %% "zio-config"          % V.zioConfig,
       "dev.zio" %% "zio-config-typesafe" % V.zioConfig,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
       "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "org.scodec" %% "scodec-core" % "2.3.3",
       "dev.zio" %% "zio-metrics-connectors" % "2.2.1",
@@ -714,6 +715,14 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-api" % V.log4j,
       "org.apache.logging.log4j" % "log4j-core" % V.log4j,
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % V.log4j,
+      "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      // The Datastar attribute DSL and HTML algebra are compatible with the
+      // server. Exclude zio-blocks-http-model because 0.0.51 publishes an
+      // experimental zio.http model under the same package as zio-http 3.x.
+      // Console responses use Datastar's supported text/html morph protocol,
+      // so the conflicting ServerSentEvent implementation is not required.
+      ("dev.zio" %% "zio-blocks-datastar" % V.zioBlocks)
+        .exclude("dev.zio", "zio-blocks-http-model_3"),
       "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
     ),
   )

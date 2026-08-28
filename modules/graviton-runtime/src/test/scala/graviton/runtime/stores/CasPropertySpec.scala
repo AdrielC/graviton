@@ -98,4 +98,4 @@ object CasPropertySpec extends ZIOSpecDefault:
           yield assertTrue(result.stats.totalBytes == data.length.toLong)
         }
       },
-    ) @@ TestAspect.samples(20) // Keep test count reasonable for CI
+    ) @@ TestAspect.samples(20) @@ TestAspect.withLiveClock // These properties observe duration but do not test virtual time.

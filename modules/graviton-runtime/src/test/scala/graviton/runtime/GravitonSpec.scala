@@ -90,7 +90,7 @@ object GravitonSpec extends ZIOSpecDefault:
           yield assertTrue(readBack == data, verified)
         }
       },
-    )
+    ) @@ TestAspect.withLiveClock
 
   private def withTempDir[A](f: Path => ZIO[Any, Throwable, A]): ZIO[Any, Throwable, A] =
     ZIO.acquireReleaseWith(

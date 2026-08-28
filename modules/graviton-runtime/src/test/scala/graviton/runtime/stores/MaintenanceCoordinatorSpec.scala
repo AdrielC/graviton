@@ -18,20 +18,22 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         coordinator          <- MaintenanceCoordinator.inProcess()
         firstEntered         <- Promise.make[Nothing, Unit]
         releaseFirst         <- Promise.make[Nothing, Unit]
+        maintenanceStarted   <- Promise.make[Nothing, Unit]
         maintenanceEntered   <- Promise.make[Nothing, Unit]
         first                <- ZIO
                                   .scoped(coordinator.operationPermit *> firstEntered.succeed(()) *> releaseFirst.await)
                                   .fork
         _                    <- firstEntered.await
         secondCompleted      <- coordinator.withOperation(ZIO.unit)
-        maintenance          <- ZIO
-                                  .scoped(coordinator.maintenanceLease *> maintenanceEntered.succeed(()))
-                                  .fork
-        _                    <- ZIO.yieldNow.repeatN(20)
+        maintenance          <- (maintenanceStarted.succeed(()) *>
+                                  ZIO.scoped(coordinator.maintenanceLease *> maintenanceEntered.succeed(()))).fork
+        _                    <- maintenanceStarted.await
+        _                    <- settleFibers
         enteredBeforeRelease <- maintenanceEntered.isDone
         _                    <- releaseFirst.succeed(())
         _                    <- first.join
         _                    <- maintenance.join
+        _                    <- settleFibers
       yield assertTrue(secondCompleted == (), !enteredBeforeRelease)
     },
     test("interrupting an operation releases its permit") {
@@ -43,7 +45,9 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
                          .fork
         _           <- entered.await
         _           <- operation.interrupt
+        _           <- settleFibers
         acquired    <- coordinator.withMaintenance(ZIO.succeed(true))
+        _           <- settleFibers
       yield assertTrue(acquired)
     },
     test("waiting maintenance prevents new local operations from overtaking it") {
@@ -53,17 +57,20 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         releaseFirst       <- Promise.make[Nothing, Unit]
         maintenanceEntered <- Promise.make[Nothing, Unit]
         releaseMaintenance <- Promise.make[Nothing, Unit]
+        maintenanceStarted <- Promise.make[Nothing, Unit]
+        laterStarted       <- Promise.make[Nothing, Unit]
         laterEntered       <- Promise.make[Nothing, Unit]
         first              <- coordinator
                                 .withOperation(firstEntered.succeed(()) *> releaseFirst.await)
                                 .fork
         _                  <- firstEntered.await
-        maintenance        <- coordinator
-                                .withMaintenance(maintenanceEntered.succeed(()) *> releaseMaintenance.await)
-                                .fork
-        _                  <- ZIO.yieldNow.repeatN(20)
-        later              <- coordinator.withOperation(laterEntered.succeed(())).fork
-        _                  <- ZIO.yieldNow.repeatN(20)
+        maintenance        <- (maintenanceStarted.succeed(()) *>
+                                coordinator.withMaintenance(maintenanceEntered.succeed(()) *> releaseMaintenance.await)).fork
+        _                  <- maintenanceStarted.await
+        _                  <- settleFibers
+        later              <- (laterStarted.succeed(()) *> coordinator.withOperation(laterEntered.succeed(()))).fork
+        _                  <- laterStarted.await
+        _                  <- settleFibers
         overtookWaiting    <- laterEntered.isDone
         _                  <- releaseFirst.succeed(())
         _                  <- maintenanceEntered.await
@@ -72,6 +79,7 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         _                  <- maintenance.join
         _                  <- later.join
         _                  <- first.join
+        _                  <- settleFibers
       yield assertTrue(!overtookWaiting, !enteredDuringLease)
     },
     test("coordinated downloads hold the permit for the complete stream lifetime") {
@@ -79,19 +87,21 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         coordinator        <- MaintenanceCoordinator.inProcess()
         streamEntered      <- Promise.make[Nothing, Unit]
         releaseStream      <- Promise.make[Nothing, Unit]
+        maintenanceStarted <- Promise.make[Nothing, Unit]
         maintenanceEntered <- Promise.make[Nothing, Unit]
         delegate            = blockingReadStore(streamEntered, releaseStream)
         store               = new CoordinatedBlobStore(delegate, coordinator)
         download           <- store.get(testBlobKey).runDrain.fork
         _                  <- streamEntered.await
-        maintenance        <- ZIO
-                                .scoped(coordinator.maintenanceLease *> maintenanceEntered.succeed(()))
-                                .fork
-        _                  <- ZIO.yieldNow.repeatN(20)
+        maintenance        <- (maintenanceStarted.succeed(()) *>
+                                ZIO.scoped(coordinator.maintenanceLease *> maintenanceEntered.succeed(()))).fork
+        _                  <- maintenanceStarted.await
+        _                  <- settleFibers
         enteredBeforeEnd   <- maintenanceEntered.isDone
         _                  <- releaseStream.succeed(())
         _                  <- download.join
         _                  <- maintenance.join
+        _                  <- settleFibers
       yield assertTrue(!enteredBeforeEnd)
     },
     test("filesystem coordinator composes independent instances in one JVM") {
@@ -104,20 +114,22 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
           second             <- FileMaintenanceCoordinator.make(root)
           operationEntered   <- Promise.make[Nothing, Unit]
           releaseOperation   <- Promise.make[Nothing, Unit]
+          maintenanceStarted <- Promise.make[Nothing, Unit]
           maintenanceEntered <- Promise.make[Nothing, Unit]
           operation          <- ZIO
                                   .scoped(first.operationPermit *> operationEntered.succeed(()) *> releaseOperation.await)
                                   .fork
           _                  <- operationEntered.await
           concurrent         <- second.withOperation(ZIO.succeed(true))
-          maintenance        <- ZIO
-                                  .scoped(second.maintenanceLease *> maintenanceEntered.succeed(()))
-                                  .fork
-          _                  <- ZIO.yieldNow.repeatN(20)
+          maintenance        <- (maintenanceStarted.succeed(()) *>
+                                  ZIO.scoped(second.maintenanceLease *> maintenanceEntered.succeed(()))).fork
+          _                  <- maintenanceStarted.await
+          _                  <- settleFibers
           enteredBeforeEnd   <- maintenanceEntered.isDone
           _                  <- releaseOperation.succeed(())
           _                  <- operation.join
           _                  <- maintenance.join
+          _                  <- settleFibers
         yield assertTrue(concurrent, !enteredBeforeEnd)
       }
     },
@@ -173,7 +185,16 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         timingExit    <- ZIO.withConfigProvider(invalidTiming)(ZIO.config(MaintenanceConfig.config)).exit
       yield assertTrue(namespaceExit.isFailure, timingExit.isFailure)
     },
-  ) @@ TestAspect.sequential
+  ) @@ TestAspect.sequential @@ TestAspect.withLiveClock
+
+  /**
+   * TestClock.adjust waits for supervised fibers to become suspended before it
+   * advances time. That gives acquisition fibers a deterministic scheduling
+   * boundary without pretending that repeated scheduler yields are a
+   * coordination primitive.
+   */
+  private val settleFibers: UIO[Unit] =
+    TestClock.adjust(1.millis)
 
   private val testBlobKey: BinaryKey.Blob =
     KeyBits

@@ -374,6 +374,71 @@ CREATE TABLE graviton.blob (
 );
 CREATE INDEX blob_created_idx ON graviton.blob (created_at DESC);
 
+-- Mutable names and folders remain orthogonal to immutable CAS identity.
+-- Deleting a catalog entry never cascades into graviton.blob or its blocks.
+CREATE TABLE graviton.catalog_entry (
+  entry_id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_id        uuid NULL REFERENCES graviton.catalog_entry(entry_id) ON DELETE RESTRICT,
+  kind             text NOT NULL CHECK (kind IN ('folder', 'file')),
+  name             text NOT NULL CHECK (name !~ '[[:cntrl:]]'),
+  name_key         text GENERATED ALWAYS AS (lower(name)) STORED,
+  blob_alg         core.hash_alg NULL,
+  blob_hash_bytes  bytea NULL,
+  blob_byte_length core.byte_size NULL,
+  media_type       text NULL,
+  block_count      integer NULL,
+  fresh_blocks     integer NULL,
+  duplicate_blocks integer NULL,
+  created_at       timestamptz NOT NULL DEFAULT core.now_utc(),
+  CONSTRAINT catalog_name_valid CHECK (
+    length(name) BETWEEN 1 AND 255
+    AND name = btrim(name)
+    AND position('/' in name) = 0
+    AND position(chr(92) in name) = 0
+  ),
+  CONSTRAINT catalog_payload_matches_kind CHECK (
+    (kind = 'folder'
+      AND blob_alg IS NULL AND blob_hash_bytes IS NULL AND blob_byte_length IS NULL
+      AND media_type IS NULL AND block_count IS NULL AND fresh_blocks IS NULL AND duplicate_blocks IS NULL)
+    OR
+    (kind = 'file'
+      AND blob_alg IS NOT NULL AND blob_hash_bytes IS NOT NULL AND blob_byte_length IS NOT NULL
+      AND media_type IS NOT NULL AND block_count >= 0 AND fresh_blocks >= 0 AND duplicate_blocks >= 0)
+  ),
+  CONSTRAINT catalog_blob_fk FOREIGN KEY (blob_alg, blob_hash_bytes, blob_byte_length)
+    REFERENCES graviton.blob(alg, hash_bytes, byte_length),
+  CONSTRAINT catalog_no_self_parent CHECK (parent_id IS NULL OR parent_id <> entry_id)
+);
+CREATE INDEX catalog_entry_parent_idx
+  ON graviton.catalog_entry (parent_id, kind, name_key, entry_id);
+CREATE UNIQUE INDEX catalog_entry_nested_name_uq
+  ON graviton.catalog_entry (parent_id, name_key)
+  WHERE parent_id IS NOT NULL;
+CREATE UNIQUE INDEX catalog_entry_root_name_uq
+  ON graviton.catalog_entry (name_key)
+  WHERE parent_id IS NULL;
+
+CREATE FUNCTION graviton.catalog_parent_must_be_folder()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.parent_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM graviton.catalog_entry parent
+    WHERE parent.entry_id = NEW.parent_id AND parent.kind = 'folder'
+  ) THEN
+    RAISE EXCEPTION 'catalog parent % is not a folder', NEW.parent_id
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER catalog_entry_parent_kind_trg
+BEFORE INSERT OR UPDATE OF parent_id ON graviton.catalog_entry
+FOR EACH ROW EXECUTE FUNCTION graviton.catalog_parent_must_be_folder();
+
 CREATE TABLE graviton.blob_manifest_page (
   alg         core.hash_alg NOT NULL,
   hash_bytes  bytea NOT NULL,

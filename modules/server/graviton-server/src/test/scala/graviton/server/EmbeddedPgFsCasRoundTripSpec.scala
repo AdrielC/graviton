@@ -1,12 +1,13 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgKeyValueStore, PgMaintenanceCoordinator, PgMutableObjectStore, PgReplicaIndex}
+import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgKeyValueStore, PgMaintenanceCoordinator, PgMutableObjectStore, PgReplicaIndex}
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.manifest.ManifestEntry
 import graviton.core.ranges.Span
 import graviton.core.types.{BlobOffset, FileSize, LocatorBucket, LocatorPath, LocatorScheme, RepositoryNamespace}
 import graviton.runtime.config.MaintenanceConfig
+import graviton.runtime.catalog.{CatalogError, CatalogName}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
 import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore}
@@ -17,6 +18,7 @@ import io.zonky.test.db.postgres.embedded.EmbeddedPostgres
 import zio.*
 import zio.stream.ZStream
 import zio.test.*
+import zio.blocks.mediatype.MediaTypes
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
@@ -281,16 +283,17 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             second             <- PgMaintenanceCoordinator.make(ds, config)
             operationEntered   <- Promise.make[Nothing, Unit]
             releaseOperation   <- Promise.make[Nothing, Unit]
+            maintenanceStarted <- Promise.make[Nothing, Unit]
             maintenanceEntered <- Promise.make[Nothing, Unit]
             operation          <- ZIO
                                     .scoped(first.operationPermit *> operationEntered.succeed(()) *> releaseOperation.await)
                                     .fork
             _                  <- operationEntered.await
             concurrentShared   <- second.withOperation(ZIO.succeed(true))
-            maintenance        <- ZIO
-                                    .scoped(second.maintenanceLease *> maintenanceEntered.succeed(()))
-                                    .fork
-            _                  <- ZIO.yieldNow.repeatN(20)
+            maintenance        <- (maintenanceStarted.succeed(()) *>
+                                    ZIO.scoped(second.maintenanceLease *> maintenanceEntered.succeed(()))).fork
+            _                  <- maintenanceStarted.await
+            _                  <- TestClock.adjust(1.millis)
             enteredBeforeEnd   <- maintenanceEntered.isDone
             _                  <- releaseOperation.succeed(())
             _                  <- operation.join
@@ -311,17 +314,46 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             waiter           <- PgMaintenanceCoordinator.make(ds, config)
             operationEntered <- Promise.make[Nothing, Unit]
             releaseOperation <- Promise.make[Nothing, Unit]
+            waitingStarted   <- Promise.make[Nothing, Unit]
             operation        <- ZIO
                                   .scoped(holder.operationPermit *> operationEntered.succeed(()) *> releaseOperation.await)
                                   .fork
             _                <- operationEntered.await
-            waiting          <- ZIO.scoped(waiter.maintenanceLease).fork
-            _                <- ZIO.yieldNow.repeatN(20)
+            waiting          <- (waitingStarted.succeed(()) *> ZIO.scoped(waiter.maintenanceLease)).fork
+            _                <- waitingStarted.await
+            _                <- TestClock.adjust(1.millis)
             interrupted      <- waiting.interrupt
             _                <- releaseOperation.succeed(())
             _                <- operation.join
             reacquired       <- waiter.withMaintenance(ZIO.succeed(true))
           yield assertTrue(interrupted.isInterrupted, reacquired)
+        },
+        test("PostgreSQL catalog shares folder references without owning CAS content") {
+          val bytes = Chunk.fromArray("catalog-cas-reference".getBytes(StandardCharsets.UTF_8))
+
+          for
+            ds       <- ZIO.service[javax.sql.DataSource]
+            store    <- ZIO.service[BlobStore]
+            written  <- ZStream.fromChunk(bytes).run(store.put())
+            catalog   = new PgCatalog(ds)
+            folder   <- catalog.createFolder(None, CatalogName.parse("Research").toOption.get)
+            file     <- catalog.attachFile(
+                          Some(folder.id),
+                          CatalogName.parse("evidence.bin").toOption.get,
+                          written.key,
+                          MediaTypes.application.`octet-stream`,
+                          written.stats,
+                        )
+            listing  <- catalog.list(Some(folder.id))
+            nonEmpty <- catalog.removeFolder(folder.id).exit
+            _        <- catalog.removeFile(file.id)
+            _        <- catalog.removeFolder(folder.id)
+            retained <- store.get(written.key).runCollect
+          yield assertTrue(
+            listing.files.map(_.id) == Chunk(file.id),
+            nonEmpty.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[CatalogError.FolderNotEmpty]),
+            retained == bytes,
+          )
         },
         test("JDBC audit sink persists one linear chain under concurrent writes") {
           val orgId       = UUID.fromString("00000000-0000-0000-0000-000000000101")
