@@ -2,6 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.*
+import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, BlockWritePlan, CanonicalBlock, IngestProgram, StoredBlock}
 import graviton.streams.Chunker
@@ -236,6 +237,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                               inputBufferChunks = 2,
                               blockBufferBlocks = 1,
                             ),
+                            persistenceConfig = BlockPersistenceConfig.sequential,
                           )
           source        = ZStream.unfoldChunkZIO(0) { index =>
                             if index >= chunks then ZIO.none
@@ -253,6 +255,51 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           observed < chunks,
           observed <= 8,
           result.stats.totalBytes == chunks.toLong * 1024L,
+        )
+      },
+      test("persists bounded blocks concurrently without reordering the manifest") {
+        val parallelism = BlockWriteParallelism.applyUnsafe(4)
+        val blockSize   = UploadChunkSize(1024)
+        val data        = Chunk.fromArray(Array.tabulate(8 * blockSize.value)(index => (index % 251).toByte))
+
+        for
+          active     <- Ref.make(0)
+          peak       <- Ref.make(0)
+          started    <- Ref.make(0)
+          allStarted <- Promise.make[Nothing, Unit]
+          release    <- Promise.make[Nothing, Unit]
+          delegate   <- InMemoryBlockStore.make
+          concurrent  = new BlockStore:
+                          override def putBlocks(plan: BlockWritePlan)                                          = delegate.putBlocks(plan)
+                          override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+                            (for
+                              now   <- active.updateAndGet(_ + 1)
+                              _     <- peak.update(current => math.max(current, now))
+                              count <- started.updateAndGet(_ + 1)
+                              _     <- ZIO.when(count >= parallelism.value)(allStarted.succeed(()).ignore)
+                              _     <- release.await
+                              saved <- delegate.putBlock(block, plan)
+                            yield saved).ensuring(active.update(_ - 1))
+                          override def get(key: graviton.core.keys.BinaryKey.Block)                             = delegate.get(key)
+                          override def exists(key: graviton.core.keys.BinaryKey.Block)                          = delegate.exists(key)
+          repo       <- InMemoryBlobManifestRepo.make
+          store       = new CasBlobStore(
+                          concurrent,
+                          repo,
+                          persistenceConfig = BlockPersistenceConfig(parallelism),
+                        )
+          fiber      <- Chunker.locally(Chunker.fixed(blockSize))(ZStream.fromChunk(data).run(store.put())).fork
+          _          <- Live.live(
+                          allStarted.await.timeoutFail(new IllegalStateException("parallel block writes did not start"))(5.seconds)
+                        )
+          observed   <- peak.get
+          _          <- release.succeed(())
+          result     <- fiber.join
+          restored   <- store.get(result.key).runCollect
+        yield assertTrue(
+          observed == parallelism.value,
+          restored == data,
+          result.stats.blockCount == 8,
         )
       },
       test("propagates a failed block write without deadlocking the upload") {
@@ -303,10 +350,11 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
         )
       },
       test("the bounded manifest and counters represent a logical 1 TiB blob") {
-        val oneMiB  = 1024L * 1024L
-        val oneTiB  = 1024L * 1024L * 1024L * 1024L
-        val chunker = Chunker.fixed(UploadChunkSize(1024 * 1024))
-        val config  = CasBlobStore.IngestConfig()
+        val oneMiB      = 1024L * 1024L
+        val oneTiB      = 1024L * 1024L * 1024L * 1024L
+        val chunker     = Chunker.fixed(UploadChunkSize(1024 * 1024))
+        val config      = CasBlobStore.IngestConfig()
+        val persistence = BlockPersistenceConfig.default
 
         assertTrue(
           BlobManifestRepo.MaxEntries.toLong * oneMiB == oneTiB,
@@ -315,6 +363,22 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
             config.inputBufferChunks.toLong * config.ioChunkBytes.value.toLong +
             config.blockBufferBlocks.toLong * chunker.maximumBlockBytes.toLong,
           config.maximumQueuedBytes(chunker) == 2_359_296L,
+          config.maximumPipelineBytes(chunker, persistence) == 7_602_176L,
+        )
+      },
+      test("block persistence configuration rejects unbounded concurrency") {
+        val tooSmall = ConfigProvider.fromMap(Map("graviton.block-write-parallelism" -> "0"))
+        val tooLarge = ConfigProvider.fromMap(Map("graviton.block-write-parallelism" -> "65"))
+        val default  = ConfigProvider.fromMap(Map.empty)
+
+        for
+          smallExit  <- ZIO.withConfigProvider(tooSmall)(ZIO.config(BlockPersistenceConfig.config)).exit
+          largeExit  <- ZIO.withConfigProvider(tooLarge)(ZIO.config(BlockPersistenceConfig.config)).exit
+          configured <- ZIO.withConfigProvider(default)(ZIO.config(BlockPersistenceConfig.config))
+        yield assertTrue(
+          smallExit.isFailure,
+          largeExit.isFailure,
+          configured == BlockPersistenceConfig.default,
         )
       },
     )

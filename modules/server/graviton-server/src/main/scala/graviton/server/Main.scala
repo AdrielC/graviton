@@ -7,7 +7,7 @@ import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
-import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
+import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig}
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricsRegistry}
 import graviton.runtime.stores.{
   BlobManifestRepo,
@@ -40,6 +40,7 @@ object Main extends ZIOAppDefault:
     for
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
+      blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
@@ -217,7 +218,7 @@ object Main extends ZIOAppDefault:
                       if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
                       else streaming.port(port)
                     },
-                    blobLayer(cfg, maintenance),
+                    blobLayer(cfg, maintenance, blockPersistence),
                     catalogLayer(cfg),
                     shardcakeNodeLayer(shardcake),
                     auditLayer,
@@ -266,6 +267,7 @@ object Main extends ZIOAppDefault:
   private[server] def blobLayer(
     cfg: GravitonConfig,
     maintenance: MaintenanceConfig,
+    blockPersistence: BlockPersistenceConfig,
   ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
@@ -291,7 +293,8 @@ object Main extends ZIOAppDefault:
             )
           )
 
-    (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+    (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence)) >>>
+      CasBlobStore.coordinatedLayerWithMetricsAndPersistence
 
   private[server] def catalogLayer(cfg: GravitonConfig): ZLayer[Any, Throwable, Catalog] =
     cfg.blobBackend.toLowerCase match
@@ -306,7 +309,7 @@ object Main extends ZIOAppDefault:
 
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
-    blobLayer(cfg, MaintenanceConfig.Default)
+    blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default)
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
     ZIO

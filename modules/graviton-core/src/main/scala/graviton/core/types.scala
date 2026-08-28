@@ -288,6 +288,10 @@ object types:
   type BlockSize = BlockSize.T
   object BlockSize extends SizeTrait.Trait[Int, 1, 16777216, 0, 1] // 16 MiB
 
+  /** Maximum number of bounded block writes an ingest may execute concurrently. */
+  type BlockWriteParallelism = BlockWriteParallelism.T
+  object BlockWriteParallelism extends SizeTrait.Trait[Int, 1, 64, 0, 1]
+
   type FileSize = FileSize.T
   object FileSize extends SizeTrait.Trait[Long, 1L, 1099511627776L, 0L, 1L] // 1 TiB
 

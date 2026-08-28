@@ -42,10 +42,17 @@ object FsBlockStoreSpec extends ZIOSpecDefault:
             store  <- ZIO.succeed(new FsBlockStore(root))
             block  <- canonical("dedup-me")
             result <- ZStream(block, block, block).run(store.putBlocks())
+            temps  <- ZIO.attemptBlocking {
+                        val parent = store.pathFor(block.key).getParent
+                        val files  = Files.list(parent)
+                        try files.filter(_.getFileName.toString.endsWith(".tmp")).count()
+                        finally files.close()
+                      }
           yield assertTrue(
             result.manifest.entries.length == 3,
             result.stored.count(_.status == BlockStoredStatus.Fresh) == 1,
             result.stored.count(_.status == BlockStoredStatus.Duplicate) == 2,
+            temps == 0L,
           )
         }
       },
@@ -118,7 +125,9 @@ object FsBlockStoreSpec extends ZIOSpecDefault:
             store    <- ZIO.succeed(new FsBlockStore(root))
             block    <- canonical("integrity-check")
             _        <- ZStream(block).run(store.putBlocks())
-            _        <- ZIO.attemptBlocking(Files.write(store.pathFor(block.key), "tampered-block".getBytes(StandardCharsets.UTF_8)))
+            tampered  = block.bytes.toArray
+            _         = tampered(0) = (tampered(0) ^ 0xff).toByte
+            _        <- ZIO.attemptBlocking(Files.write(store.pathFor(block.key), tampered))
             repeated <- ZStream(block).run(store.putBlocks()).exit
           yield assertTrue(repeated.isFailure)
         }

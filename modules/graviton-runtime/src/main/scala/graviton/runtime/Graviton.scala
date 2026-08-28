@@ -5,6 +5,7 @@ import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
 import graviton.core.model.InMemoryBytes
 import graviton.core.scan.*
+import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.*
@@ -132,7 +133,12 @@ object Graviton:
       maintenance <- FileMaintenanceCoordinator.make(root).orDie
       manifestRepo = new FsBlobManifestRepo(root)
       blockStore   = new FsBlockStore(root)
-      rawStore     = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      rawStore     = new CasBlobStore(
+                       blockStore,
+                       manifestRepo,
+                       metrics = metrics,
+                       persistenceConfig = BlockPersistenceConfig.default,
+                     )
       blobStore    = new CoordinatedBlobStore(rawStore, maintenance)
       chunker      = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
     yield new Graviton(blobStore, blockStore, manifestRepo, chunker, maintenance)
@@ -148,7 +154,12 @@ object Graviton:
       blockStore   <- InMemoryBlockStore.make
       manifestRepo <- makeInlineManifestRepo
       maintenance  <- MaintenanceCoordinator.inProcess().orDie
-      rawStore      = new CasBlobStore(blockStore, manifestRepo, metrics = metrics)
+      rawStore      = new CasBlobStore(
+                        blockStore,
+                        manifestRepo,
+                        metrics = metrics,
+                        persistenceConfig = BlockPersistenceConfig.default,
+                      )
       blobStore     = new CoordinatedBlobStore(rawStore, maintenance)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
     yield new Graviton(blobStore, blockStore, manifestRepo, chunker, maintenance)

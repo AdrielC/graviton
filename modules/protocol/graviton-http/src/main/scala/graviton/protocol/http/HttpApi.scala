@@ -378,13 +378,13 @@ final case class HttpApi(
           Response(
             status = Status.PartialContent,
             headers = headers,
-            body = if includeBody then Body.fromStreamChunked(stream) else Body.empty,
+            body = if includeBody then Body.fromStream(stream, length) else Body.empty,
           )
         case None                =>
           Response(
             status = Status.Ok,
             headers = blobHeaders(key, stat) ++ Headers(Header.Custom("Accept-Ranges", "bytes")),
-            body = if includeBody then Body.fromStreamChunked(checkedDownload(blobStore.get(key))) else Body.empty,
+            body = if includeBody then Body.fromStream(checkedDownload(blobStore.get(key)), stat.size.value) else Body.empty,
           )
 
   private def checkedDownload(stream: zio.stream.ZStream[Any, Throwable, Byte]): zio.stream.ZStream[Any, Throwable, Byte] =

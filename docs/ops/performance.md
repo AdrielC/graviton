@@ -23,7 +23,9 @@ The script performs a real upload, byte-for-byte download comparison, and server
 - operating system, Python, and Java version
 - operator-supplied backend description
 - payload byte count and SHA-256
+- fresh and duplicate block counts reported by the server
 - upload and download duration and MiB/s
+- server-side ingest duration
 - verification duration
 - returned blob content ID
 
@@ -53,6 +55,32 @@ Before publishing a result, retain:
 - error and retry counts
 
 Never infer throughput from block size or a single process counter. Never compare two revisions using different data, hosts, caches, or backend settings without labeling the difference.
+
+## CAS ingest concurrency and memory
+
+The server defaults to four concurrent block writes per upload. Set `GRAVITON_BLOCK_WRITE_PARALLELISM` between `1` and `64` to match the backend and its connection pool. Results remain emitted in source order, so the manifest is deterministic even when writes complete out of order.
+
+The live-byte ceiling controlled by Graviton is:
+
+```text
+input queue chunks * I/O chunk bytes
++ block queue entries * chunker maximum block bytes
++ (block write parallelism + 1) * chunker maximum block bytes
+```
+
+This excludes one caller-owned input chunk, the chunker's documented working set, and backend-local buffers. With the defaults and a 1 MiB fixed chunker, the Graviton-owned ceiling is 7,602,176 bytes per active ingest.
+
+Parallel block writes mainly target object stores, where a sequential `HEAD` or `PUT` round trip per block is expensive. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
+
+## Inline CAS versus staged acceptance
+
+The implemented upload endpoint performs CAS inline: it reads the stream once, sniffs a bounded prefix, selects a chunker, hashes the complete blob, hashes each bounded block, persists blocks with back pressure, and atomically publishes the manifest last. The response therefore contains the final content ID.
+
+An asynchronous staging mode can reduce request completion time only by changing the contract to `202 Accepted`. It does not remove CAS work. A worker must still read every staged byte to validate length and media type, choose the chunker, derive block and blob hashes, persist unique blocks, and commit the manifest. Compared with inline CAS, staging adds one full temporary-object write and one full temporary-object read.
+
+Staging is useful for resumable multipart upload, quarantine, admission control, or absorbing backend outages. It should use a typed upload receipt rather than pretending the temporary locator is a content ID, plus a durable state machine, idempotent worker lease, expiry, and orphan cleanup. The staged object must stream through the same ingest service and must never be materialized in memory. This mode is not implemented by the current HTTP API.
+
+S3 multipart upload belongs at that whole-object staging boundary. Graviton CAS blocks are bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are the appropriate default rather than multipart upload per block.
 
 ## Comparing revisions
 

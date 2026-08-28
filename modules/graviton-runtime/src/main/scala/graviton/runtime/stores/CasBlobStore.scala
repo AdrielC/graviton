@@ -6,6 +6,7 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.Block as GBlock
 import graviton.core.scan.FS.toPipeline
 import graviton.core.types.*
+import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{
   BlobBlockDescription,
@@ -38,6 +39,7 @@ final class CasBlobStore(
   streamerConfig: BlobStreamer.Config = BlobStreamer.Config(),
   metrics: MetricsRegistry = MetricsRegistry.noop,
   ingestConfig: CasBlobStore.IngestConfig = CasBlobStore.IngestConfig(),
+  persistenceConfig: BlockPersistenceConfig = BlockPersistenceConfig.sequential,
 ) extends BlobStore:
 
   /** Binary-compatible constructor retained for clients compiled against 0.4.0. */
@@ -46,7 +48,23 @@ final class CasBlobStore(
     manifests: BlobManifestRepo,
     streamerConfig: BlobStreamer.Config,
     metrics: MetricsRegistry,
-  ) = this(blockStore, manifests, streamerConfig, metrics, CasBlobStore.IngestConfig())
+  ) = this(
+    blockStore,
+    manifests,
+    streamerConfig,
+    metrics,
+    CasBlobStore.IngestConfig(),
+    BlockPersistenceConfig.sequential,
+  )
+
+  /** Source-compatible constructor for the bounded-ingest configuration added after 0.4.0. */
+  def this(
+    blockStore: BlockStore,
+    manifests: BlobManifestRepo,
+    streamerConfig: BlobStreamer.Config,
+    metrics: MetricsRegistry,
+    ingestConfig: CasBlobStore.IngestConfig,
+  ) = this(blockStore, manifests, streamerConfig, metrics, ingestConfig, BlockPersistenceConfig.sequential)
 
   /**
    * Pipeline that converts post-chunker Blocks into CanonicalBlocks.
@@ -124,14 +142,22 @@ final class CasBlobStore(
           (ZStream
             .fromQueue(blocksQ)
             .flattenTake
-            .runFoldZIO(CasBlobStore.PersistAcc.empty) { (acc, block) =>
-              for
-                stored <- blockStore.putBlock(block)
-                entry  <- ZIO
-                            .fromEither(BlockManifestEntry.make(acc.index, acc.offset, block.key, block.size.value))
-                            .mapError(message => new IllegalArgumentException(message))
-                _      <- spool.append(entry)
-              yield acc.record(block.size.value, stored.status)
+            .mapAccumZIO(CasBlobStore.PersistCursor.empty) { (cursor, block) =>
+              ZIO
+                .fromEither(BlockManifestEntry.make(cursor.index, cursor.offset, block.key, block.size.value))
+                .mapError(message => new IllegalArgumentException(message))
+                .map(entry => cursor.advance(block.size.value) -> CasBlobStore.PreparedBlock(block, entry))
+            }
+            .mapZIOPar(
+              persistenceConfig.parallelism.value,
+              bufferSize = persistenceConfig.parallelism.value,
+            ) { prepared =>
+              blockStore
+                .putBlock(prepared.block)
+                .map(stored => CasBlobStore.PersistedBlock(prepared.entry, prepared.block.size.value, stored.status))
+            }
+            .runFoldZIO(CasBlobStore.PersistAcc.empty) { (acc, persisted) =>
+              spool.append(persisted.entry).as(acc.record(persisted.size, persisted.status))
             }
             .flatMap(acc => ZIO.succeed(acc.summary))
             .sandbox
@@ -371,6 +397,36 @@ object CasBlobStore:
       inputBufferChunks.toLong * ioChunkBytes.value.toLong +
         blockBufferBlocks.toLong * chunker.maximumBlockBytes.toLong
 
+    /**
+     * Conservative live-byte ceiling for Graviton's queues and in-flight block
+     * writes. This excludes one caller-owned input chunk, the chunker's
+     * documented working set, and backend-local buffers.
+     */
+    def maximumPipelineBytes(
+      chunker: graviton.streams.Chunker,
+      persistence: BlockPersistenceConfig,
+    ): Long =
+      maximumQueuedBytes(chunker) +
+        (persistence.parallelism.value.toLong + 1L) * chunker.maximumBlockBytes.toLong
+
+  private final case class PersistCursor(index: Long, offset: Long):
+    def advance(size: Int): PersistCursor =
+      PersistCursor(index + 1L, java.lang.Math.addExact(offset, size.toLong))
+
+  private object PersistCursor:
+    val empty: PersistCursor = PersistCursor(0L, 0L)
+
+  private final case class PreparedBlock(
+    block: CanonicalBlock,
+    entry: BlockManifestEntry,
+  )
+
+  private final case class PersistedBlock(
+    entry: BlockManifestEntry,
+    size: Int,
+    status: BlockStoredStatus,
+  )
+
   private final case class PersistAcc(
     index: Long,
     offset: Long,
@@ -461,4 +517,21 @@ object CasBlobStore:
         coordinator: MaintenanceCoordinator,
         reg: MetricsRegistry,
       ) => new CoordinatedBlobStore(new CasBlobStore(bs, repo, metrics = reg), coordinator): BlobStore
+    )
+
+  /** Coordinated composition with explicit bounded block-write concurrency. */
+  val coordinatedLayerWithMetricsAndPersistence
+    : ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator & MetricsRegistry & BlockPersistenceConfig, Nothing, BlobStore] =
+    ZLayer.fromFunction(
+      (
+        bs: BlockStore,
+        repo: BlobManifestRepo,
+        coordinator: MaintenanceCoordinator,
+        reg: MetricsRegistry,
+        persistence: BlockPersistenceConfig,
+      ) =>
+        new CoordinatedBlobStore(
+          new CasBlobStore(bs, repo, metrics = reg, persistenceConfig = persistence),
+          coordinator,
+        ): BlobStore
     )
