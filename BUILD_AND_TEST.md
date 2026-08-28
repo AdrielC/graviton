@@ -45,11 +45,13 @@ If a checked snippet intentionally changes:
 ## Documentation site
 
 ```bash
-# Build the shared Scala.js lab, both consoles, and generated Scaladoc
-./sbt buildDocsAssets
-
-# Install the locked dependency graph and build VitePress
+# Install the locked browser dependency graph first
 npm ci --prefix docs
+
+# Test and build the streamed analyzer, PDF editor, consoles, and Scaladoc
+./sbt contentLab/test pdfContentLab/test buildDocsAssets
+
+# Build VitePress
 npm run docs:build --prefix docs
 
 # Preview the production output
@@ -108,7 +110,7 @@ Required connection variables are documented in [docs/guide/configuration-refere
 
 | Artifact | Path |
 | --- | --- |
-| Shared Scala.js content lab | `docs/public/content-lab/` |
+| Streamed analyzer and bounded PDF editor inputs | `docs/.vitepress/generated/content-lab/`, `docs/.vitepress/generated/pdf-lab/` |
 | Scala.js dashboard | `docs/public/js/` |
 | Quasar Scala.js demo | `docs/public/quasar/js/` |
 | Module Scaladoc | `docs/public/scaladoc/` |

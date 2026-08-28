@@ -253,24 +253,44 @@ buildFrontend := {
   log.info(s"Frontend built and copied to $targetDir")
 }
 
-// Link the bounded graviton-shared content-addressing API as a standalone ES module
-// for the documentation playground. The JVM and Scala.js artifacts compile the
-// same analyzer while delegating SHA-256 to their native platform primitive.
-lazy val buildContentLab = taskKey[Unit]("Build the shared Scala.js content lab and copy it to docs")
+// Link the streaming file analyzer and bounded PDF editor as separate ES modules
+// for the documentation playground. Ordinary files never download the heavier
+// document graph editor; Vite loads it only after the analyzer confirms a PDF.
+lazy val buildContentLab = taskKey[Unit]("Build the streamed Scala.js content lab and copy it to docs")
+lazy val prepareFrontendNodeModules = taskKey[Unit]("Expose docs npm modules to Scala.js Node test runners")
+
+prepareFrontendNodeModules := {
+  val source = (ThisBuild / baseDirectory).value / "docs" / "node_modules"
+  val link   = (ThisBuild / baseDirectory).value / "node_modules"
+  if (!source.isDirectory) {
+    sys.error("Missing docs/node_modules. Run `npm ci --prefix docs` before Scala.js browser-module tests or docs builds.")
+  }
+  if (!java.nio.file.Files.exists(link.toPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+    java.nio.file.Files.createSymbolicLink(link.toPath, source.toPath)
+  }
+}
+
 buildContentLab := {
   val log = Keys.streams.value.log
-  log.info("Building shared Scala.js content lab...")
+  log.info("Building streamed Scala.js content lab...")
 
-  val _         = (sharedProtocol.js / Compile / fullLinkJS).value
-  val sourceDir = (sharedProtocol.js / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
-  val targetDir = file("docs/public/content-lab")
+  val _modules   = prepareFrontendNodeModules.value
+  val _         = (contentLab / Compile / fullLinkJS).value
+  val sourceDir = (contentLab / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/.vitepress/generated/content-lab")
+  val _pdf      = (pdfContentLab / Compile / fullLinkJS).value
+  val pdfSource = (pdfContentLab / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+  val pdfTarget = file("docs/.vitepress/generated/pdf-lab")
 
-  log.info(s"Copying shared Scala.js output from $sourceDir to $targetDir")
+  log.info(s"Copying Scala.js output from $sourceDir to $targetDir for Vite bundling")
   IO.delete(targetDir)
   IO.createDirectory(targetDir)
   IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+  IO.delete(pdfTarget)
+  IO.createDirectory(pdfTarget)
+  IO.copyDirectory(pdfSource, pdfTarget, overwrite = true)
 
-  log.info(s"Shared content lab built and copied to $targetDir")
+  log.info(s"Streamed content lab built and copied to $targetDir")
 }
 
 // Combined task to build all docs assets
@@ -792,6 +812,51 @@ lazy val frontend = (project in file("modules/frontend"))
       "com.raquo"       %%% "laminar"      % V.laminar,
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
+  )
+
+// Browser-only streamed CAS comparison. It is kept out of graviton-shared so
+// the published protocol artifact does not inherit a documentation UI runtime.
+lazy val contentLab = (project in file("modules/frontend/graviton-content-lab"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(sharedProtocol.js)
+  .settings(
+    baseSettings,
+    name := "graviton-content-lab",
+    publish / skip := true,
+    Test / fork := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
+    Test / test := (Test / test).dependsOn(LocalRootProject / prepareFrontendNodeModules).value,
+    libraryDependencies ++= Seq(
+      "dev.zio"              %%% "zio"         % V.zio,
+      "dev.zio"              %%% "zio-streams" % V.zio,
+      "io.github.adrielc"    %%% "zio-pdf"     % V.zioPdf,
+      "io.github.iltotore"   %%% "iron"        % V.iron,
+      "org.scala-js"         %%% "scalajs-dom" % V.scalajsDom,
+      "dev.zio"              %%% "zio-test"     % V.zio % Test,
+      "dev.zio"              %%% "zio-test-sbt" % V.zio % Test,
+    ),
+  )
+
+// The document graph editor is separately linked so ordinary file comparison
+// does not pay its download and parse cost. This module is loaded only after a
+// PDF has been identified and remains protected by BrowserPdfTools' byte cap.
+lazy val pdfContentLab = (project in file("modules/frontend/graviton-pdf-lab"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    baseSettings,
+    name := "graviton-pdf-lab",
+    publish / skip := true,
+    Test / fork := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
+    libraryDependencies ++= Seq(
+      "dev.zio"              %%% "zio"         % V.zio,
+      "dev.zio"              %%% "zio-streams" % V.zio,
+      "io.github.adrielc"    %%% "zio-pdf"     % V.zioPdf,
+      "io.github.iltotore"   %%% "iron"        % V.iron,
+      "org.scala-js"         %%% "scalajs-dom" % V.scalajsDom,
+      "dev.zio"              %%% "zio-test"     % V.zio % Test,
+      "dev.zio"              %%% "zio-test-sbt" % V.zio % Test,
+    ),
   )
 
 // Quasar frontend module with Scala.js + Laminar

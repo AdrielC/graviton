@@ -5,7 +5,7 @@ title: Pipeline Explorer
 
 # Pipeline Explorer
 
-Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and writes a manifest that can reconstruct and verify the original blob. The interactive worksheet executes the in-memory portion locally through the compiled `graviton-shared` Scala.js module.
+Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and writes a manifest that can reconstruct and verify the original blob. The browser explorer streams real local files through a dedicated Scala.js analyzer and compares exact block identities without claiming persistence.
 
 <PipelinePlayground />
 
@@ -13,12 +13,12 @@ Graviton's ingest path turns bytes into bounded blocks, hashes those blocks, and
 
 | Browser stage | Runtime counterpart | Boundary |
 | --- | --- | --- |
-| UTF-8 bytes | HTTP or CLI byte stream | The worksheet accepts at most 2,048 UTF-16 code units and refines the encoded payload to at most 8 KiB; the runtime accepts arbitrary binary streams. |
-| Fixed chunking | `Chunker.fixed`, `Chunker.fastCdc`, or delimiter chunking | The shared lab intentionally uses 16 to 128-byte fixed boundaries for inspection. Runtime block bounds are separately configured. |
-| SHA-256 | Incremental blob hasher and per-block key derivation | The shared analyzer uses Web Crypto on Scala.js and JCA on JVM. Server ingest remains incremental. |
-| Repeated-block detection | `BlockStore.putIfAbsent` and ingest statistics | The worksheet checks repeats within one payload; the server deduplicates against its durable store. |
+| Browser `File` stream | HTTP or CLI byte stream | Both remain streams; the browser tool owns one bounded block at a time and caps result metadata. |
+| PDF structures, FastCDC, or fixed ranges | `Chunker.fixed`, `Chunker.fastCdc`, or PDF-aware ingest | The visitor controls the comparison profile. A persisted server manifest remains authoritative. |
+| Incremental SHA-256 | Incremental blob hasher and per-block key derivation | Both whole-file and block digests are computed without collecting the complete file. |
+| Exact cross-file block matches | `BlockStore.putIfAbsent` and ingest statistics | The browser estimates reusable logical bytes; the server reports reuse against its durable store. |
 
-The browser does not fabricate throughput, compression, server health, or persistence. It demonstrates the content-addressing contract, not the durability path. For the complete operational path, run [Graviton locally](./guide/run-locally.md).
+The browser does not fabricate throughput, compression, server health, physical allocation, or persistence. It demonstrates the content-addressing contract, not the durability path. For the complete operational path, run [Graviton locally](./guide/run-locally.md).
 
 ## Composition
 

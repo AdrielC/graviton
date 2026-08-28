@@ -88,7 +88,7 @@ There is no released module, class, or format named `BIF`. The real abstractions
 - Filesystem, S3, and PostgreSQL object streams use scoped resources.
 - PDF-aware chunking is incremental with bounded carry and block buffers.
 - SDK control responses use a named 1 MiB collection bound.
-- Scala.js content addressing is explicitly bounded to 8 KiB.
+- The shared Scala.js content-addressing utility is explicitly bounded to 8 KiB. The browser file lab uses streamed input and separately refines each block to at most 4 MiB.
 
 ### Corrected in this work
 

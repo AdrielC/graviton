@@ -131,13 +131,13 @@
 
     <section class="graviton-home-section graviton-home-lab" aria-labelledby="graviton-home-lab-title">
       <header>
-        <h2 id="graviton-home-lab-title">Change the bytes. Watch identity change.</h2>
+        <h2 id="graviton-home-lab-title">See what changed without storing it twice.</h2>
         <p>
-          This bounded browser lab runs the shared Scala.js analyzer and Web Crypto locally. It demonstrates
-          content identity and block reuse without pretending to persist anything.
+          Drop real files into the streamed Scala.js analyzer. It maps exact block overlap locally and loads
+          ZIO PDF only when the bytes identify a PDF. Nothing on this static page claims persistence.
         </p>
       </header>
-      <PipelinePlayground />
+      <PipelinePlayground compact />
       <a class="graviton-inline-link" :href="withBase('/cas-playground')">
         Open the full CAS Playground <span aria-hidden="true">→</span>
       </a>

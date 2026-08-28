@@ -4,7 +4,7 @@ The protocol modules expose Graviton through shared JSON response models plus op
 
 | Module | Implemented surface | Status |
 | --- | --- | --- |
-| `protocol/graviton-shared` | Cross-platform HTTP response models plus bounded content-addressing types and analyzer | Same contract and tests on JVM and Scala.js; native JCA/Web Crypto SHA-256 |
+| `protocol/graviton-shared` | Cross-platform HTTP response models plus bounded content-addressing utilities | Same contract and tests on JVM and Scala.js; native JCA/Web Crypto SHA-256 for the bounded utility |
 | `protocol/graviton-http` | Operational blob lifecycle, typed streaming Scala SDK, metrics, and JWT middleware | Contract and socket tested |
 | `protocol/graviton-proto` | Protobuf definitions and generated types | Generated during the build |
 | `protocol/graviton-grpc` | Generated services and typed streaming client | Served by the default process on port 9090 |
@@ -45,6 +45,6 @@ The published HTTP and gRPC clients target routes served by the default process 
 
 ## Shared JVM and Scala.js contract
 
-`graviton-shared` is a full cross-project. Common sources own refined interactive byte counts, SHA-256 digest text, fixed-block analysis, content-ID rendering, duplicate detection, and HTTP response models. JVM delegates bounded SHA-256 to JCA; Scala.js delegates it to Web Crypto and exports the docs content lab as an ES module. Server-side `KeyBits` uses the same shared content-key syntax parser and renderer.
+`graviton-shared` is a full cross-project. Common sources own HTTP response models, refined interactive byte counts, SHA-256 digest text, fixed-block analysis, content-ID rendering, and duplicate detection. JVM delegates its bounded digest utility to JCA and Scala.js delegates it to Web Crypto. Server-side `KeyBits` uses the same shared content-key syntax parser and renderer.
 
-The 8 KiB analyzer is intentionally not the server data plane. It permits a complete byte value only behind a named Iron bound. Arbitrary-size server and SDK payloads continue through `ZStream` and scoped response bodies without full collection.
+The 8 KiB shared analyzer remains a bounded library utility and is not the server data plane or the current file playground. The playground's `graviton-content-lab` module streams browser files and owns at most one 4 MiB block. Arbitrary-size server and SDK payloads continue through `ZStream` and scoped response bodies without full collection.

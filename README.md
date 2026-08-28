@@ -141,14 +141,14 @@ The build keeps pure content types in `graviton-core`, stream transformations in
 ```bash
 TESTCONTAINERS=0 ./sbt scalafmtCheckAll test
 GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"
-./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
+./sbt contentLab/test pdfContentLab/test docs/mdoc checkDocSnippets buildDocsAssets
 npm run docs:build --prefix docs
 ```
 
 CI adds real PostgreSQL and MinIO services, the clean external consumer, packaged-server smoke tests, compatibility policy, dependency review, and docs verification. See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands.
 
-The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. The bounded CAS lab runs the same `graviton-shared` analyzer on Scala.js and JVM, using Web Crypto and JCA respectively. It never pretends to be a hosted Graviton server or to persist data.
+The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. The playground streams local files through a dedicated Scala.js analyzer, maps exact cross-file block reuse, and loads the separately linked ZIO PDF editor only for confirmed PDFs. It never pretends to be a hosted Graviton server or to persist data.
 
 ## Operations and releases
 

@@ -117,10 +117,6 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
-      - name: Build docs assets
-        run: ./sbt buildDocsAssets
-      - name: Verify docs snippets
-        run: ./sbt docs/mdoc checkDocSnippets
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '20'
@@ -128,6 +124,12 @@ jobs:
           cache-dependency-path: docs/package-lock.json
       - name: Install docs dependencies
         run: npm ci --prefix docs
+      - name: Build docs assets
+        run: ./sbt buildDocsAssets
+      - name: Test browser analysis modules
+        run: ./sbt contentLab/test pdfContentLab/test
+      - name: Verify docs snippets
+        run: ./sbt docs/mdoc checkDocSnippets
       - name: Build docs (verification only)
         run: npm run docs:build --prefix docs
 

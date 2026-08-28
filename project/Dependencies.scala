@@ -43,7 +43,7 @@ object Dependencies {
     val embeddedPg = "2.2.2"
     val laminar    = "17.1.0"
     val waypoint   = "8.0.0"
-    val scalajsDom = "2.8.0"
+    val scalajsDom = "2.8.1"
     val grpc       = "1.83.1"
     val netty      = "4.2.17.Final"
     val nettyGrpc  = "4.1.137.Final"
