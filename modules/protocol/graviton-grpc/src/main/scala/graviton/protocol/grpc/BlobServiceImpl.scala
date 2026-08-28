@@ -5,6 +5,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.FileSize
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.upload.{UploadIngestor, UploadIntent}
 import graviton.shared.MediaTypeText
 import io.grpc.{Status, StatusException}
 import io.graviton.blobstore.v1.blob_service.*
@@ -13,7 +14,9 @@ import zio.*
 import zio.blocks.mediatype.MediaType
 import zio.stream.*
 
-final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
+final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor) extends BlobService:
+
+  def this(blobStore: BlobStore) = this(blobStore, UploadIngestor.default(blobStore))
 
   override def putBlob(request: Stream[StatusException, PutBlobRequest]): IO[StatusException, PutBlobResponse] =
     ZIO
@@ -22,12 +25,14 @@ final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
           for
             metadata <- ZIO.fromOption(first.flatMap(_.kind.metadata)).orElseFail(invalid("first upload frame must be metadata"))
             prepared <- prepareUpload(metadata)
-            bytes     = enforceExpectedSize(remaining.mapZIO(frameBytes).flattenChunks, prepared.expectedSize)
-            result   <- bytes.run(blobStore.put(prepared.plan)).mapError(toStatus)
+            bytes     = remaining.mapZIO(frameBytes).flattenChunks
+            result   <- uploadIngestor
+                          .put(UploadIntent(prepared.mediaType, prepared.expectedSize), bytes, prepared.plan)
+                          .mapError(toStatus)
           yield PutBlobResponse(
-            key = Some(BlobKey(GrpcProtocol.render(result.key))),
-            size = result.key.bits.size,
-            contentType = MediaTypeText.render(prepared.mediaType),
+            key = Some(BlobKey(GrpcProtocol.render(result.stored.key))),
+            size = result.stored.key.bits.size,
+            contentType = MediaTypeText.render(result.effectiveMediaType),
           )
         }
       }
@@ -101,37 +106,6 @@ final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
       attributes <- ZIO.fromEither(base.advertiseMediaType(mediaType)).mapError(invalid)
     yield PreparedUpload(BlobWritePlan(attributes = attributes), mediaType, expected)
 
-  private def enforceExpectedSize(
-    bytes: ZStream[Any, StatusException, Byte],
-    expected: Option[FileSize],
-  ): ZStream[Any, StatusException, Byte] =
-    expected match
-      case None        => bytes
-      case Some(limit) =>
-        ZStream.unwrap {
-          Ref.make(0L).map { observed =>
-            val checked = bytes.mapChunksZIO { chunk =>
-              observed.modify { current =>
-                scala.util.Try(java.lang.Math.addExact(current, chunk.length.toLong)).toEither match
-                  case Left(_)       => Left(invalid("upload byte count overflow")) -> current
-                  case Right(actual) =>
-                    if actual > limit.value then Left(invalid(s"expected ${limit.value} bytes but received more")) -> actual
-                    else Right(chunk)                                                                              -> actual
-              }.absolve
-            }
-            val exact   = ZStream
-              .fromZIO(
-                observed.get.flatMap { actual =>
-                  ZIO
-                    .fail(invalid(s"expected ${limit.value} bytes but received $actual"))
-                    .unless(actual == limit.value)
-                }
-              )
-              .drain
-            checked ++ exact
-          }
-        }
-
   private def frameBytes(frame: PutBlobRequest): IO[StatusException, GrpcProtocol.DataChunk] =
     frame.kind match
       case PutBlobRequest.Kind.Data(value) => ZIO.fromEither(GrpcProtocol.DataChunk.fromByteString(value)).mapError(invalid)
@@ -149,10 +123,19 @@ final class BlobServiceImpl(blobStore: BlobStore) extends BlobService:
 
   private def toStatus(error: Throwable): StatusException =
     error match
-      case status: StatusException     => status
-      case _: NoSuchElementException   => Status.NOT_FOUND.withDescription("blob was not found").asException()
-      case _: IllegalArgumentException => Status.INVALID_ARGUMENT.withDescription(safeMessage(error)).asException()
-      case _                           => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
+      case status: StatusException                                       => status
+      case UploadIngestor.Error.Source(status: StatusException)          => status
+      case invalid: UploadIngestor.Error.InvalidInput                    => invalidStatus(invalid)
+      case mismatch: UploadIngestor.Error.MediaTypeMismatch              => invalidStatus(mismatch)
+      case ambiguous: UploadIngestor.Error.AmbiguousDetection            => invalidStatus(ambiguous)
+      case validation: UploadIngestor.Error.Validation                   => invalidStatus(validation)
+      case UploadIngestor.Error.Storage(cause: IllegalArgumentException) => invalidStatus(cause)
+      case _: NoSuchElementException                                     => Status.NOT_FOUND.withDescription("blob was not found").asException()
+      case _: IllegalArgumentException                                   => invalidStatus(error)
+      case _                                                             => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
+
+  private def invalidStatus(error: Throwable): StatusException =
+    Status.INVALID_ARGUMENT.withDescription(safeMessage(error)).asException()
 
   private def safeMessage(error: Throwable): String =
     Option(error.getMessage).filter(_.nonEmpty).getOrElse("invalid request")

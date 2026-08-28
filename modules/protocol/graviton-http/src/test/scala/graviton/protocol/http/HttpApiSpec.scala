@@ -254,6 +254,34 @@ object HttpApiSpec extends ZIOSpecDefault:
           uploadResult.blob.size.value == pdf.getBytes(StandardCharsets.UTF_8).length.toLong,
         )
       },
+      test("byte sniffing selects PDF ingest when Content-Type is omitted") {
+        val pdf =
+          "%PDF-1.7\n" +
+            "1 0 obj\n<</Type /Catalog>>\nendobj\n" +
+            "trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
+
+        for
+          api          <- makeApi
+          upload       <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(pdf))
+          uploadBody   <- upload.body.asString
+          uploadResult <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          downloaded   <- call(api, Method.GET, s"/api/v1/blobs/${uploadResult.blob.id.value}")
+          restored     <- downloaded.body.asString
+        yield assertTrue(upload.status == Status.Created, restored == pdf)
+      },
+      test("byte sniffing rejects a concrete MIME claim that disagrees with a PDF") {
+        val pdf         = "%PDF-1.7\n1 0 obj\n<</Type /Catalog>>\nendobj\n%%EOF\n"
+        val contentType = Headers(Header.Custom("Content-Type", "text/plain"))
+
+        for
+          api      <- makeApi
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(pdf), contentType)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.BadRequest,
+          body.contains("advertised text/plain does not match detected application/pdf"),
+        )
+      },
       test("application/pdf rejects a mismatched byte signature") {
         val contentType = Headers(Header.Custom("Content-Type", "application/pdf"))
 

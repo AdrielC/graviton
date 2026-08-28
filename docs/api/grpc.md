@@ -29,7 +29,7 @@ message PutBlobRequest {
 }
 ```
 
-The stream itself is the upload session. There is no caller-managed session string to lose, reuse, or thread through application code. The server streams request bytes directly into `BlobStore.put`; it does not collect the upload. An optional expected size is enforced incrementally: overflow stops the byte stream immediately, and underflow fails at EOF before the manifest is committed. Blocks already written before a failed upload can remain unreferenced until orphan cleanup runs.
+The stream itself is the upload session. There is no caller-managed session string to lose, reuse, or thread through application code. The packaged server sends request bytes through the same `UploadIngestor` as HTTP and Shardcake. An optional expected size is enforced incrementally: overflow stops the byte stream immediately, and underflow fails at EOF before the manifest is committed. A bounded prefix selects a registered media-aware provider, currently PDF for `%PDF-`, or the default provider for unknown content. The server does not collect the upload. Blocks already written before a failed upload can remain unreferenced until orphan cleanup runs.
 
 ```scala
 import graviton.protocol.grpc.GravitonGrpcClient

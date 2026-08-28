@@ -1,32 +1,28 @@
 package graviton.integration.shardcake
 
-import graviton.core.attributes.BinaryAttributes
-import graviton.pdf.PdfIngest
-import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.stores.BlobStore
 import graviton.runtime.upload.*
 import zio.*
 import zio.stream.ZStream
 
 object CasUploadNodeIngest:
   val live: ZLayer[
-    BlobStore & ShardcakeUploadConfig & UploadHotState & UploadSessionContext & MetricsRegistry,
+    UploadIngestor & ShardcakeUploadConfig & UploadHotState & UploadSessionContext & MetricsRegistry,
     Nothing,
     UploadNodeIngest,
   ] =
     ZLayer.fromZIO {
       for
-        store    <- ZIO.service[BlobStore]
+        ingestor <- ZIO.service[UploadIngestor]
         config   <- ZIO.service[ShardcakeUploadConfig]
         hotState <- ZIO.service[UploadHotState]
         context  <- ZIO.service[UploadSessionContext]
         metrics  <- ZIO.service[MetricsRegistry]
-      yield Live(store, config.node, hotState, context, metrics)
+      yield Live(ingestor, config.node, hotState, context, metrics)
     }
 
   private final case class Live(
-    store: BlobStore,
+    ingestor: UploadIngestor,
     localNode: UploadNode,
     hotState: UploadHotState,
     context: UploadSessionContext,
@@ -37,23 +33,10 @@ object CasUploadNodeIngest:
       intent: UploadIntent,
       bytes: ZStream[Any, Throwable, Byte],
     ): IO[UploadNodeIngest.Error, LocalizedUploadResult] =
-      val ingest = for
-        attributes <- ZIO.fromEither(
-                        BinaryAttributes.empty
-                          .advertiseMediaType(intent.contentType)
-                          .left
-                          .map(UploadNodeIngest.Error.InvalidUpload.apply)
-                      )
-        checked     = UploadByteStream.observeFrames(
-                        UploadByteStream.enforceExpectedSize(bytes, intent.expectedSize),
-                        key,
-                        hotState,
-                      )
-        result     <-
-          if PdfIngest.accepts(intent.contentType) then
-            PdfIngest.put(store, intent.contentType, checked, BlobWritePlan(attributes = attributes))
-          else checked.run(store.put(BlobWritePlan(attributes = attributes)))
-      yield LocalizedUploadResult(result.key, result.stats, localNode)
+      val observed = UploadByteStream.observeFrames(bytes, key, hotState)
+      val ingest   = ingestor
+        .put(intent, observed)
+        .map(result => LocalizedUploadResult(result.stored.key, result.stored.stats, localNode))
 
       val hotStateTags       = Map("node" -> localNode.id.value)
       val recordHotStateSize = hotState.size.flatMap(size => metrics.gauge(MetricKeys.UploadHotStateEntries, size.toDouble, hotStateTags))
@@ -63,8 +46,11 @@ object CasUploadNodeIngest:
           .locally(key)(ingest)
           .tapBoth(_ => hotState.fail(key), _ => hotState.complete(key))
           .mapError {
-            case error: UploadNodeIngest.Error   => error
-            case error: IllegalArgumentException => UploadNodeIngest.Error.InvalidUpload(error.getMessage)
-            case cause                           => UploadNodeIngest.Error.StorageFailure(cause)
+            case invalid: UploadIngestor.Error.InvalidInput                    => UploadNodeIngest.Error.InvalidUpload(invalid.getMessage)
+            case mismatch: UploadIngestor.Error.MediaTypeMismatch              => UploadNodeIngest.Error.InvalidUpload(mismatch.getMessage)
+            case validation: UploadIngestor.Error.Validation                   => UploadNodeIngest.Error.InvalidUpload(validation.getMessage)
+            case UploadIngestor.Error.Storage(error: IllegalArgumentException) =>
+              UploadNodeIngest.Error.InvalidUpload(error.getMessage)
+            case cause                                                         => UploadNodeIngest.Error.StorageFailure(cause)
           }
           .ensuring(recordHotStateSize)

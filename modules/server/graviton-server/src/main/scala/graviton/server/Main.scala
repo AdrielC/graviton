@@ -3,6 +3,7 @@ package graviton.server
 import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeUploadConfig}
+import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
@@ -60,6 +61,7 @@ object Main extends ZIOAppDefault:
                                                           capabilityCheck                    <- ZIO.service[CapabilityCheck]
                                                           rateLimiter                        <- ZIO.service[RateLimiter]
                                                           runtime                            <- ZIO.runtime[Any]
+                                                          uploadIngestor                      = PdfUploadSupport.ingestor(blobStore)
                                                           interceptors                        = verifierOpt.toList.flatMap { verifier =>
                                                                                                   List(
                                                                                                     new AuthInterceptor(verifier, auditSink, runtime),
@@ -69,6 +71,7 @@ object Main extends ZIOAppDefault:
                                                                                                 }
                                                           grpc                               <- GravitonGrpcServer.scoped(
                                                                                                   blobStore,
+                                                                                                  uploadIngestor,
                                                                                                   GrpcServerConfig(cfg.grpcPort),
                                                                                                   interceptors,
                                                                                                 )
@@ -190,8 +193,7 @@ object Main extends ZIOAppDefault:
                                                           browserApiRoutes                    =
                                                             if sec.enabled then nonConsoleRoutes else Middleware.cors(nonConsoleRoutes)
                                                           routes                              = consoleRoutes ++ browserApiRoutes
-                                                          chunker                             = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
-                                                          _                                  <- Chunker.locally(chunker)(Server.serve(routes))
+                                                          _                                  <- Server.serve(routes)
                                                         yield ()
                                                       }
 
@@ -207,20 +209,23 @@ object Main extends ZIOAppDefault:
                                                             )
                                                           )
 
-      _ <- program.provide(
-             Server.defaultWith { server =>
-               val streaming = server.enableRequestStreaming
-               if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
-               else streaming.port(port)
-             },
-             blobLayer(cfg, maintenance),
-             catalogLayer(cfg),
-             shardcakeNodeLayer(shardcake),
-             auditLayer,
-             capabilityLayer(sec),
-             ZLayer.succeed(sec) >>> RateLimiter.live,
-             InMemoryMetricsRegistry.layer,
-           )
+      chunker = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
+      _      <- Chunker.locally(chunker) {
+                  program.provide(
+                    Server.defaultWith { server =>
+                      val streaming = server.enableRequestStreaming
+                      if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
+                      else streaming.port(port)
+                    },
+                    blobLayer(cfg, maintenance),
+                    catalogLayer(cfg),
+                    shardcakeNodeLayer(shardcake),
+                    auditLayer,
+                    capabilityLayer(sec),
+                    ZLayer.succeed(sec) >>> RateLimiter.live,
+                    InMemoryMetricsRegistry.layer,
+                  )
+                }
     yield ()
 
   sealed trait ConfigurationError extends Exception
