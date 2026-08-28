@@ -3,6 +3,8 @@ package graviton.runtime.catalog
 import graviton.core.attributes.IngestStats
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.shared.MediaTypeText
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.MaxLength
 import zio.*
 import zio.blocks.mediatype.MediaType
 import zio.blocks.schema.*
@@ -94,8 +96,9 @@ final class FsCatalog private (path: Path, state: Ref.Synchronized[FsCatalog.Sta
     }
 
 object FsCatalog:
-  private val Version         = 1
-  private val MaxCatalogBytes = 16L * 1024L * 1024L
+  private val Version = 1
+  private type CatalogDocumentBytes = Array[Byte] :| MaxLength[16777216]
+  inline private val MaxCatalogBytes = 16 * 1024 * 1024
 
   private final case class DiskFolder(id: String, parent: Option[String], name: String, createdAt: String)
   private object DiskFolder:
@@ -141,10 +144,20 @@ object FsCatalog:
     ZIO.attemptBlocking {
       if !Files.exists(path) then State(Map.empty, Map.empty)
       else
-        val size  = Files.size(path)
+        val size                        = Files.size(path)
         if size > MaxCatalogBytes then throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound: $path")
-        val bytes = Files.readAllBytes(path)
-        val disk  = new String(bytes, StandardCharsets.UTF_8)
+        val input                       = Files.newInputStream(path)
+        val bytes: CatalogDocumentBytes =
+          try
+            input
+              .readNBytes(MaxCatalogBytes + 1)
+              .refineEither[MaxLength[16777216]]
+              .fold(
+                message => throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound: $message"),
+                identity,
+              )
+          finally input.close()
+        val disk                        = new String(bytes, StandardCharsets.UTF_8)
           .fromJson[DiskState]
           .fold(error => throw new IllegalStateException(s"Catalog is invalid: $error"), identity)
         decode(disk).fold(error => throw new IllegalStateException(s"Catalog is invalid: $error"), identity)

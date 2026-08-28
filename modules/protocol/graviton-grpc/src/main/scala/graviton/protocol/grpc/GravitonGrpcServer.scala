@@ -1,6 +1,7 @@
 package graviton.protocol.grpc
 
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.upload.UploadIngestor
 import io.grpc.{ServerCall, ServerCallHandler, ServerInterceptor}
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import scalapb.zio_grpc.{ScopedServer, Server}
@@ -20,6 +21,14 @@ object GravitonGrpcServer:
     config: GrpcServerConfig = GrpcServerConfig(),
     interceptors: List[ServerInterceptor] = Nil,
   ): ZIO[Scope, Throwable, Server] =
+    scoped(blobStore, UploadIngestor.default(blobStore), config, interceptors)
+
+  def scoped(
+    blobStore: BlobStore,
+    uploadIngestor: UploadIngestor,
+    config: GrpcServerConfig,
+    interceptors: List[ServerInterceptor],
+  ): ZIO[Scope, Throwable, Server] =
     val builder = NettyServerBuilder
       .forPort(config.port)
       .maxInboundMessageSize(config.maxInboundMessageBytes)
@@ -29,7 +38,7 @@ object GravitonGrpcServer:
         val _ = builder.intercept(compose(values))
     ScopedServer.fromServices(
       builder,
-      new BlobServiceImpl(blobStore),
+      new BlobServiceImpl(blobStore, uploadIngestor),
       new AdminServiceImpl(blobStore),
     )
 

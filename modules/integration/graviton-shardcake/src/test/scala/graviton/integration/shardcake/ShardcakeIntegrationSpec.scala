@@ -8,6 +8,7 @@ import graviton.core.types.FileSize
 import graviton.runtime.upload.*
 import graviton.runtime.Graviton
 import graviton.runtime.metrics.MetricsRegistry
+import graviton.pdf.PdfUploadSupport
 import zio.*
 import zio.blocks.mediatype.MediaTypes
 import zio.http.*
@@ -168,6 +169,7 @@ object ShardcakeIntegrationSpec extends ZIOSpecDefault:
                       .service[UploadNodeIngest]
                       .provide(
                         ZLayer.succeed(graviton.blobStore),
+                        PdfUploadSupport.layer(),
                         ZLayer.succeed(config),
                         UploadHotState.default,
                         UploadSessionContext.live,

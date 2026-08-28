@@ -4,8 +4,8 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.Mime
 import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.upload.{UploadIngestor, UploadIntent}
 import graviton.shared.MediaTypeText
-import graviton.streams.Chunker
 import zio.{IO, ZIO}
 import zio.blocks.mediatype.MediaType
 import zio.pdf.PdfMime
@@ -53,9 +53,18 @@ object PdfIngest:
       yield confirmed
 
     ZIO.fromEither(prepared).flatMap { attributes =>
-      Chunker.locally(PdfAwareChunker(config)) {
-        bytes.run(store.put(plan.copy(attributes = attributes)))
-      }
+      PdfUploadSupport
+        .ingestor(store, config = config)
+        .put(
+          UploadIntent(advertised, expectedSize = None),
+          bytes,
+          plan.copy(attributes = attributes),
+        )
+        .map(_.stored)
+        .mapError {
+          case UploadIngestor.Error.Storage(cause) if cause.isInstanceOf[IllegalArgumentException] => cause
+          case error                                                                               => error
+        }
     }
 
 end PdfIngest
