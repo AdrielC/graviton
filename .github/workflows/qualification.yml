@@ -1,0 +1,60 @@
+name: Production qualification
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  two-node-fault-and-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+      - name: Start exact two-node topology
+        run: ./scripts/demo-shardcake-local.sh up
+      - name: Prove node and backend failure behavior
+        run: |
+          mkdir -p qualification
+          ./scripts/qualify-local-shardcake.sh > qualification/failure-proof.json
+      - name: Retain performance distribution
+        env:
+          GRAVITON_BENCHMARK_BACKEND_DESCRIPTION: GitHub-hosted runner, MinIO, PostgreSQL, two Shardcake nodes
+          GRAVITON_BENCHMARK_WARMUPS: '2'
+          GRAVITON_BENCHMARK_TENANT_ID: 00000000-0000-4000-8000-000000000605
+          GRAVITON_BENCHMARK_SESSION_ID: 00000000-0000-4000-8000-000000000606
+          GRAVITON_BENCHMARK_MEDIA_TYPE: application/octet-stream
+        run: |
+          dd if=/dev/urandom of=/tmp/graviton-qualification.bin bs=1M count=32 status=none
+          ./scripts/benchmark-suite.sh \
+            http://127.0.0.1:58081 \
+            /tmp/graviton-qualification.bin \
+            20 \
+            4 \
+            qualification/benchmark
+      - name: Capture topology logs
+        if: always()
+        run: |
+          docker compose -f deploy/local-shardcake/docker-compose.yml ps -a > qualification/compose-status.txt
+          docker compose -f deploy/local-shardcake/docker-compose.yml logs --no-color > qualification/compose.log
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-qualification-${{ github.sha }}
+          path: qualification
+          if-no-files-found: error
+          retention-days: 30
+      - name: Stop topology
+        if: always()
+        run: ./scripts/demo-shardcake-local.sh stop

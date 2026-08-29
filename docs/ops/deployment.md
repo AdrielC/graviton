@@ -43,6 +43,43 @@ The image runs as uid/gid `65532`, has a read-only application directory, stores
 
 Release tags publish multi-architecture images to `ghcr.io/adrielc/graviton`. Do not use a release tag until its workflow and attestation are green.
 
+## Hardened two-node Compose
+
+`deploy/production` is the operator bundle for a two-node Shardcake topology
+with PostgreSQL manifests and MinIO blocks. It requires a real OIDC boundary,
+resolves the release tag to an immutable image digest, generates independent
+database, object-store, and internode secrets, validates the complete typed
+configuration in the release image, and binds public ports to loopback by
+default.
+
+```bash
+export GRAVITON_OIDC_ISSUER=https://identity.example.com/
+export GRAVITON_OIDC_AUDIENCE=graviton
+export GRAVITON_OIDC_JWKS_URI=https://identity.example.com/.well-known/jwks.json
+
+./deploy/production/operator.sh init
+./deploy/production/operator.sh up
+```
+
+The application containers run non-root with a read-only root filesystem,
+all Linux capabilities dropped, `no-new-privileges`, bounded temporary space,
+and a Java health probe included in the same signed artifact. PostgreSQL and
+MinIO are pinned by digest, stay on the private Compose network, and persist to
+named volumes. Put a TLS ingress in front of the loopback listeners and have it
+overwrite forwarding headers before changing the bind address.
+
+Useful commands:
+
+```bash
+./deploy/production/operator.sh validate
+./deploy/production/operator.sh status
+./deploy/production/operator.sh logs
+./deploy/production/operator.sh backup
+```
+
+The generated `.env` is mode `0600`, ignored by Git, and never printed by the
+validator. The checked-in example contains placeholders only.
+
 ## Kubernetes
 
 `deploy/kubernetes/graviton.yaml` is intentionally a one-replica `ReadWriteOnce` filesystem deployment with `Recreate` rollout. It includes:
@@ -83,7 +120,7 @@ export GRAVITON_MAINTENANCE_NAMESPACE=production-cas
 java -jar graviton-server.jar
 ```
 
-With no `GRAVITON_S3_ENDPOINT`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
+Set the provider's explicit S3 endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
 
 ## Multi-node upload locality
 

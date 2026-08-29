@@ -31,7 +31,7 @@ Under `graviton.runtime.constraints` you will find:
 - `Quota`, `Throttle`, and `SemaphoreLimit` primitives for concurrency control and rate limiting.
 - `SpillPolicy` and related value objects that describe how to offload large uploads to disk when in-memory buffering would exceed limits.
 
-These abstractions will be composed by higher-level services (CLI ingest, HTTP gateways, background repair) once wiring is complete.
+The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. Replica scheduling and background repair remain separate operator work.
 
 ## Upload orchestration
 
@@ -67,8 +67,8 @@ Use filesystem + inline manifests (`Graviton.fs`) or the test `InMemoryBlobStore
 
 ## Usage
 
-1. Choose the backend layers you need (e.g., `S3Layers.live`, `PgLayers.live`).
-2. Provide a `StorePolicy` and `MetricsRegistry` at startup.
-3. Wire the runtime ports into the protocol servers (`graviton-http`, `graviton-grpc`) or your own services.
+1. Use `Graviton.fs` for an embedded filesystem CAS, or compose the runtime ports explicitly in an application.
+2. For the packaged server, select `fs` or shared S3 plus PostgreSQL through typed configuration.
+3. Use the published HTTP or gRPC client, or mount the same runtime services in your own ZIO application.
 
-Many ports still have stub backends; see **[Storage backends](../runtime/backends.md)** for a truthful module-by-module status.
+See **[Storage backends](../runtime/backends.md)** for the exact operational surface and boundaries of every backend.

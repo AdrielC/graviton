@@ -50,6 +50,7 @@ object Main extends ZIOAppDefault:
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
+      _                                            <- ConfigurationValidation.validate(cfg, shardcake, console, sec)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- validateShardcakeTopology(cfg, shardcake)
       _                                            <- validateConsoleSecurity(sec, console)

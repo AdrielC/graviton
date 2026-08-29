@@ -2,7 +2,7 @@
 
 Graviton is an operational pre-1.0 content-addressable storage runtime. This roadmap separates repository-complete functionality from deployment-specific qualification and future product work.
 
-## 0.3 release boundary
+## 0.6 release boundary
 
 - Typed, bounded streaming APIs across HTTP, gRPC, filesystem, PostgreSQL, and S3-compatible storage
 - Canonical `/api/v1/blobs` upload, inventory, metadata, verification, retrieval, range, precondition, and delete lifecycle
@@ -16,6 +16,10 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - RS256 OIDC/JWKS verification, capability authorization, trusted-proxy TLS policy, exact CORS origins, request and byte limits, gRPC interceptors, and hash-chained audit events
 - Clean external-consumer resolution for every published module plus a JAR-content gate that rejects empty or unsupported-operation artifacts
 - Packaged JAR smoke proof, non-root container, Kubernetes and on-prem examples, backup/restore tooling, SPDX SBOM, checksums, attestations, and signed Maven Central publication
+- Shardcake upload locality with typed ZIO Blocks wire codecs, stable session ownership, real two-node reassignment proof, and native ZIO Metrics health observations
+- PDF-aware chunker selection through bounded media sniffing and scoped ZIO services, with the reusable `graviton-pdf` adapter consuming `zio-pdf`
+- Operator console backed by live storage and Shardcake state, using ZIO Blocks DataStar actions and the official local browser runtime
+- Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, retained benchmark distributions, backend failure drills, container SBOM, provenance, and keyless image signing
 
 ## Operator acceptance
 
@@ -23,8 +27,8 @@ These items depend on the deployment and cannot be completed once for every user
 
 - Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, CORS, and gRPC ingress against the real identity provider and network
 - Run the restore drill from real backups and record recovery time and recovery point objectives
-- Run `scripts/benchmark-http.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings
-- Exercise node termination, storage throttling, credential rotation, backend outages, and rollback in the target environment
+- Run `scripts/benchmark-suite.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings
+- Run `scripts/qualify-local-shardcake.sh`, then exercise storage throttling, credential rotation, and rollback in the target environment
 - For shared S3 plus PostgreSQL, qualify concurrent processes and rolling upgrades before claiming high availability
 
 ## Next product work
@@ -45,7 +49,6 @@ These items depend on the deployment and cannot be completed once for every user
 
 ### Operations
 
-- Add a coordinated backup snapshot command that quiesces built-in writers while manifest and block snapshots are established
 - Publish benchmark envelopes after multiple controlled environments produce retained raw samples
 - Add dashboards and backend-specific latency distributions
 - Add signed migration sequencing beyond the initial schema ledger
@@ -53,4 +56,4 @@ These items depend on the deployment and cannot be completed once for every user
 
 ## Compatibility stance
 
-The 0.x line may make breaking changes only in documented minor releases. Content keys and committed framed manifests require explicit migration or backward readers. Public Scala APIs are checked against the previous release with `sbt-version-policy`. Deprecated HTTP aliases remain until a documented removal release.
+The 0.x line may make intentional breaking changes in minor releases. The runnable server exposes only the canonical `/api/v1/blobs` contract, with no legacy HTTP aliases or legacy product modules. Public Scala APIs are checked against the previous release with `sbt-version-policy`; content-key or committed-frame changes require an explicit new format contract before implementation.

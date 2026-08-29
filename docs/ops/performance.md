@@ -15,6 +15,11 @@ GRAVITON_BENCHMARK_BACKEND_DESCRIPTION='filesystem, APFS, local process, 1 MiB c
 ```
 
 For a secured server, export `GRAVITON_BEARER_TOKEN`. The token is used as an HTTP header and is not written to the result.
+For a Shardcake-enabled server, set both `GRAVITON_BENCHMARK_TENANT_ID`
+and `GRAVITON_BENCHMARK_SESSION_ID` to canonical UUIDs. Set
+`GRAVITON_BENCHMARK_MEDIA_TYPE` when the declared media type matters to
+chunker selection. These control values are sent as headers and are not
+written to the result.
 
 The script performs a real upload, byte-for-byte download comparison, and server-side verification. Its JSON includes:
 
@@ -30,6 +35,27 @@ The script performs a real upload, byte-for-byte download comparison, and server
 - returned blob content ID
 
 This is one measured sample, not a distribution.
+
+## Reproducible distribution
+
+Use the suite wrapper for retained raw samples and a p50, p95, and p99 summary:
+
+```bash
+GRAVITON_BENCHMARK_BACKEND_DESCRIPTION='MinIO + PostgreSQL, two Shardcake nodes' \
+GRAVITON_BENCHMARK_WARMUPS=3 \
+  ./scripts/benchmark-suite.sh \
+  http://127.0.0.1:58081 \
+  ./representative-payload.bin \
+  30 \
+  4 \
+  benchmark-results
+```
+
+The wrapper never holds payload bytes in memory. Each worker delegates to the
+streaming HTTP benchmark and retains one bounded JSON control record. The
+output directory contains every raw sample, a newline-delimited copy, and a
+summary with latency and throughput distributions. A failed or unverified
+sample fails the suite instead of disappearing from the aggregate.
 
 ## ZIO HTTP transport choices
 
@@ -47,6 +73,20 @@ See the official [server](https://ziohttp.com/reference/server/), [body](https:/
 ```
 
 Every iteration uploads real bytes and compares the downloaded stream. The command fails if any iteration fails and emits machine-readable iteration, payload, duration, and failure counts. It intentionally uses a repeated payload to exercise duplicate-block behavior. Use a representative corpus for broader qualification.
+
+## Local failure qualification
+
+With the two-node local topology already running, execute:
+
+```bash
+./scripts/qualify-local-shardcake.sh > failure-proof.json
+```
+
+The harness uses disposable payload files and does not delete Compose volumes.
+It proves cross-node reuse, byte-exact readback, an interrupted request that
+does not publish a manifest, node drain and reassignment, object-store outage
+readiness, manifest-store outage readiness, recovery, and final two-node
+readiness. A trap restarts any service the harness stopped if the run fails.
 
 ## Required benchmark record
 

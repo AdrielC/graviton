@@ -57,6 +57,7 @@ export GRAVITON_S3_REGION="us-east-1"
 | --- | --- | --- | --- |
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
 | `GRAVITON_GRPC_PORT` | `9090` | no | Port for the gRPC server. |
+| `GRAVITON_DEPLOYMENT_PROFILE` | `development` | no | Startup policy: `development`, `production`, or strict shared-backend `production-cluster`. |
 | `GRAVITON_HEALTH_CHECK_TIMEOUT` | `5s` | no | Maximum duration of the active storage readiness check. Must be positive. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
 | `GRAVITON_BLOCK_WRITE_PARALLELISM` | `4` | no | Concurrent bounded block writes per ingest. Must be between `1` and `64`. |
@@ -108,7 +109,7 @@ Notes:
 
 - `minio` and `s3` select the same S3-compatible adapter.
 - Set `GRAVITON_S3_ENDPOINT` for an explicit S3-compatible endpoint and credentials, including MinIO or Ceph RGW.
-- Without an explicit endpoint, the AWS SDK default credential provider chain is used.
+- The packaged S3 adapter requires an explicit endpoint, access key, and secret key. Use the provider's S3 endpoint for AWS, MinIO, Ceph RGW, or another compatible implementation.
 - Filesystem mode stores blocks and manifests locally and is the zero-service default.
 
 ### Filesystem blocks and manifests (`GRAVITON_BLOB_BACKEND=fs`)

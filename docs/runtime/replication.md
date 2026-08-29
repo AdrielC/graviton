@@ -39,7 +39,7 @@ The embedded PostgreSQL integration suite writes two locators, reads them back, 
 
 `ReplicatedBlockStore` and `PgReplicaIndex` are operational library surfaces with executable tests. The default packaged server selects one filesystem or S3 block adapter. It does not yet build topology, placement, or repair schedules from configuration.
 
-Applications can compose the replicated store directly when they control placement and lifecycle. Server-level automatic scheduling remains a 0.2 task.
+Applications can compose the replicated store directly when they control placement and lifecycle. Server-level automatic replica scheduling remains future product work.
 
 ## Operational rules
 

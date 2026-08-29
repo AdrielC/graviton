@@ -1,0 +1,201 @@
+x-storage: &storage
+  GRAVITON_DEPLOYMENT_PROFILE: production-cluster
+  GRAVITON_BLOB_BACKEND: s3
+  GRAVITON_MAINTENANCE_NAMESPACE: ${GRAVITON_MAINTENANCE_NAMESPACE:?Set GRAVITON_MAINTENANCE_NAMESPACE}
+  PG_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
+  PG_USERNAME: graviton
+  PG_PASSWORD: ${GRAVITON_POSTGRES_PASSWORD:?Set GRAVITON_POSTGRES_PASSWORD}
+  GRAVITON_S3_ENDPOINT: http://minio:9000
+  GRAVITON_S3_ACCESS_KEY: ${GRAVITON_S3_ACCESS_KEY:?Set GRAVITON_S3_ACCESS_KEY}
+  GRAVITON_S3_SECRET_KEY: ${GRAVITON_S3_SECRET_KEY:?Set GRAVITON_S3_SECRET_KEY}
+  GRAVITON_S3_BLOCK_BUCKET: graviton-blocks
+  GRAVITON_S3_BLOCK_PREFIX: cas/blocks
+
+x-security: &security
+  GRAVITON_SECURITY_ENABLED: "true"
+  GRAVITON_SECURITY_OIDC_ISSUER: ${GRAVITON_SECURITY_OIDC_ISSUER:?Set GRAVITON_SECURITY_OIDC_ISSUER}
+  GRAVITON_SECURITY_OIDC_AUDIENCE: ${GRAVITON_SECURITY_OIDC_AUDIENCE:?Set GRAVITON_SECURITY_OIDC_AUDIENCE}
+  GRAVITON_SECURITY_OIDC_JWKS_URI: ${GRAVITON_SECURITY_OIDC_JWKS_URI:?Set GRAVITON_SECURITY_OIDC_JWKS_URI}
+  GRAVITON_SECURITY_REQUIRE_TLS: "true"
+  GRAVITON_SECURITY_TRUST_PROXY_HEADERS: "true"
+  GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS: ${GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS:-}
+  GRAVITON_SECURITY_AUDIT_BACKEND: jdbc
+  GRAVITON_SECURITY_AUTHORIZATION_BACKEND: ${GRAVITON_SECURITY_AUTHORIZATION_BACKEND:-token}
+  GRAVITON_CONSOLE_ENABLED: "false"
+
+x-shardcake: &shardcake
+  GRAVITON_SHARDCAKE_ENABLED: "true"
+  GRAVITON_SHARDCAKE_MANAGER_URI: http://shardcake-manager:8080/api/graphql
+  GRAVITON_SHARDCAKE_NUMBER_OF_SHARDS: ${GRAVITON_SHARDCAKE_NUMBER_OF_SHARDS:-1024}
+  GRAVITON_SHARDCAKE_SERVER_VERSION: ${GRAVITON_RELEASE_VERSION:-0.6.0}
+  GRAVITON_SHARDCAKE_INTERNAL_TOKEN: ${GRAVITON_SHARDCAKE_INTERNAL_TOKEN:?Set GRAVITON_SHARDCAKE_INTERNAL_TOKEN}
+  GRAVITON_SHARDCAKE_POSTGRES_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
+  GRAVITON_SHARDCAKE_POSTGRES_USERNAME: graviton
+  GRAVITON_SHARDCAKE_POSTGRES_PASSWORD: ${GRAVITON_POSTGRES_PASSWORD:?Set GRAVITON_POSTGRES_PASSWORD}
+
+x-runtime: &runtime
+  image: ${GRAVITON_IMAGE:?Set GRAVITON_IMAGE to an immutable digest}
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  networks: [graviton]
+
+x-node: &node
+  <<: *runtime
+  environment:
+    <<: [*storage, *security, *shardcake]
+    GRAVITON_HTTP_PORT: "8081"
+    GRAVITON_GRPC_PORT: "9090"
+    GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+    GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+  depends_on:
+    config-check:
+      condition: service_completed_successfully
+    postgres:
+      condition: service_healthy
+    minio-init:
+      condition: service_completed_successfully
+    shardcake-manager:
+      condition: service_started
+  healthcheck:
+    test: ["CMD", "java", "-cp", "/app/graviton.jar", "graviton.server.HealthProbeMain", "http://127.0.0.1:8081/api/health/ready"]
+    interval: 15s
+    timeout: 8s
+    retries: 20
+    start_period: 45s
+
+services:
+  config-check:
+    <<: *runtime
+    restart: "no"
+    entrypoint: ["java", "-cp", "/app/graviton.jar", "graviton.server.ConfigCheckMain"]
+    environment:
+      <<: [*storage, *security, *shardcake]
+      GRAVITON_HTTP_PORT: "8081"
+      GRAVITON_GRPC_PORT: "9090"
+      GRAVITON_SHARDCAKE_HOST: config-check
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+
+  postgres:
+    image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+    environment:
+      POSTGRES_DB: graviton
+      POSTGRES_USER: graviton
+      POSTGRES_PASSWORD: ${GRAVITON_POSTGRES_PASSWORD:?Set GRAVITON_POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../modules/pg/ddl.sql:/docker-entrypoint-initdb.d/10-graviton.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U graviton -d graviton"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+    restart: unless-stopped
+    networks: [graviton]
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "--console-address", ":9001", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${GRAVITON_S3_ACCESS_KEY:?Set GRAVITON_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${GRAVITON_S3_SECRET_KEY:?Set GRAVITON_S3_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [graviton]
+
+  minio-init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${GRAVITON_S3_ACCESS_KEY:?Set GRAVITON_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${GRAVITON_S3_SECRET_KEY:?Set GRAVITON_S3_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/graviton-blocks
+    networks: [graviton]
+
+  shardcake-manager:
+    <<: *runtime
+    entrypoint:
+      - java
+      - -XX:MaxRAMPercentage=75
+      - -XX:+ExitOnOutOfMemoryError
+      - -cp
+      - /app/graviton.jar
+      - graviton.integration.shardcake.ShardcakeManagerMain
+    environment:
+      <<: *shardcake
+      GRAVITON_SHARDCAKE_HOST: shardcake-manager
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+      GRAVITON_SHARDCAKE_MANAGER_API_PORT: "8080"
+    depends_on:
+      config-check:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  graviton-node-1:
+    <<: *node
+    environment:
+      <<: [*storage, *security, *shardcake]
+      GRAVITON_HTTP_PORT: "8081"
+      GRAVITON_GRPC_PORT: "9090"
+      GRAVITON_SHARDCAKE_HOST: graviton-node-1
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+    ports:
+      - "${GRAVITON_BIND_ADDRESS:-127.0.0.1}:${GRAVITON_NODE1_HTTP_PORT:-8081}:8081"
+      - "${GRAVITON_BIND_ADDRESS:-127.0.0.1}:${GRAVITON_NODE1_GRPC_PORT:-9090}:9090"
+
+  graviton-node-2:
+    <<: *node
+    environment:
+      <<: [*storage, *security, *shardcake]
+      GRAVITON_HTTP_PORT: "8081"
+      GRAVITON_GRPC_PORT: "9090"
+      GRAVITON_SHARDCAKE_HOST: graviton-node-2
+      GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
+      GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
+    ports:
+      - "${GRAVITON_BIND_ADDRESS:-127.0.0.1}:${GRAVITON_NODE2_HTTP_PORT:-8082}:8081"
+      - "${GRAVITON_BIND_ADDRESS:-127.0.0.1}:${GRAVITON_NODE2_GRPC_PORT:-9091}:9090"
+
+  minio-client:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    profiles: [operator]
+    environment:
+      MINIO_ROOT_USER: ${GRAVITON_S3_ACCESS_KEY:?Set GRAVITON_S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${GRAVITON_S3_SECRET_KEY:?Set GRAVITON_S3_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["sleep infinity"]
+    volumes:
+      - ${GRAVITON_BACKUP_ROOT:-./backups}:/backup
+    networks: [graviton]
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  graviton:
+    driver: bridge

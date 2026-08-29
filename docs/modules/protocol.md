@@ -41,7 +41,7 @@ Stats and Prometheus metrics are process-lifetime observations. They reset on re
 
 ## Transport boundaries
 
-The published HTTP and gRPC clients target routes served by the default process and exercised over real sockets. Graviton 0.3 does not publish clients for proposed resumable or multipart routes. The stable gRPC surface deliberately models a stream as the upload session and exposes the core blob lifecycle. HTTP remains the richer transport for byte ranges, conditional requests, and server-side verification.
+The published HTTP and gRPC clients target routes served by the default process and exercised over real sockets. Graviton 0.6 does not publish clients for proposed resumable or multipart routes. The stable gRPC surface deliberately models a stream as the upload session and exposes the core blob lifecycle. HTTP remains the richer transport for byte ranges, conditional requests, and server-side verification.
 
 ## Shared JVM and Scala.js contract
 
