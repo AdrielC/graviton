@@ -1,7 +1,7 @@
 <svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Radial gradient for quasar glow -->
-    <radialGradient id="quasarGlow" cx="50%" cy="50%" r="50%">
+    <!-- Radial gradient for the storage-core glow -->
+    <radialGradient id="storageCoreGlow" cx="50%" cy="50%" r="50%">
       <stop offset="0%" style="stop-color:#00ffff;stop-opacity:1" />
       <stop offset="40%" style="stop-color:#00ff41;stop-opacity:0.8" />
       <stop offset="70%" style="stop-color:#b967ff;stop-opacity:0.5" />
@@ -61,9 +61,9 @@
     fill="none" stroke="#b967ff" stroke-width="1" opacity="0.3"
     filter="url(#energyGlow)"/>
 
-  <!-- Central quasar core -->
+  <!-- Central storage core -->
   <circle cx="60" cy="60" r="24"
-    fill="url(#quasarGlow)"
+    fill="url(#storageCoreGlow)"
     filter="url(#outerGlow)"/>
 
   <!-- Bright center singularity -->

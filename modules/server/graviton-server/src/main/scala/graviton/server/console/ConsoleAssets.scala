@@ -261,8 +261,8 @@ private[console] object ConsoleAssets:
       |        return;
       |      }
       |      const total = payload.freshBlocks + payload.duplicateBlocks;
-      |      const saved = total === 0 ? 0 : Math.round((payload.duplicateBlocks / total) * 100);
-      |      const prefix = payload.referenceCreated ? `${saved}% reused` : 'Already present';
+      |      const reused = total === 0 ? 0 : Math.round((payload.duplicateBlocks / total) * 100);
+      |      const prefix = payload.referenceCreated ? `${reused}% blocks reused` : 'Already present';
       |      const summary = `${prefix} · ${payload.duplicateBlocks} duplicate / ${total} blocks`;
       |      fetch(refreshUrl, { headers: { Accept: 'text/html' } })
       |        .then(response => {

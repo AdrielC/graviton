@@ -11,8 +11,8 @@ import javax.sql.DataSource
  * the ambient [[CallerContext]] by running
  * {{{ SELECT set_config('app.org_id', <uuid>, true),
  *            set_config('app.principal_id', <uuid>, true) }}}
- * so that the Postgres RLS policies in `modules/pg/ddl.sql:1029-1135` can
- * enforce tenant isolation via `quasar.current_org_id()`.
+ * so that the Postgres RLS policies can enforce tenant isolation via
+ * `graviton.current_org_id()`.
  *
  * The ambient context is supplied via a ThreadLocal set by
  * [[TenantScopedBlocking.attemptBlocking]] — the helper that JDBC-heavy
@@ -24,9 +24,8 @@ import javax.sql.DataSource
  * returns `NULL`; every tenant-scoped RLS policy then sees zero rows, so
  * the default is deny.
  *
- * The `quasar_app` role must be created with `NOBYPASSRLS` so a buggy
- * migration cannot leak cross-tenant data. See
- * `deploy/on-prem/v1/migrations/20_grants.sql` for that grant.
+ * Production application roles must use `NOBYPASSRLS` so a buggy migration
+ * cannot leak cross-tenant data.
  */
 final class TenantScopedDataSource(underlying: DataSource) extends DataSource:
 

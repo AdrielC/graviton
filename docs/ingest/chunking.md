@@ -11,7 +11,7 @@ Graviton turns an input byte stream into bounded `Block` values before it hashes
 | Delimiter | `graviton-streams` | Streaming KMP match | Configured maximum |
 | PDF-aware | `graviton-pdf` | Complete PDF indirect object near the target | Configured maximum |
 
-Anchored CDC, BuzHash, Rabin, ZIP-aware cuts, and adaptive format detection are not public Graviton APIs today.
+Anchored CDC, BuzHash, Rabin, and ZIP-aware cuts are not public Graviton APIs today.
 
 ## Streaming contract
 
@@ -119,11 +119,48 @@ The default configuration is:
 
 The chunker validates the `%PDF-` signature. At an emission boundary it owns at most 9 MiB plus 5 bytes per active upload: one mutable 4 MiB block, one immutable emitted 4 MiB block, 1 MiB of parser carry, and the signature. Upstream chunks and application queues are additional. Strict callers can select `UnsupportedStructurePolicy.Reject` instead of the fallback.
 
-HTTP clients do not need to select the chunker directly. `POST /api/v1/blobs` routes `Content-Type: application/pdf` through `PdfIngest`; other media types use the server's configured general-purpose chunker.
+HTTP and gRPC clients do not need to select the chunker directly. The packaged server inspects a bounded prefix, resolves the effective media type, and acquires a fresh provider for that upload. The current detector recognizes the five-byte `%PDF-` signature. Unknown formats use the configured general-purpose chunker.
+
+If `Content-Type` is omitted or is `application/octet-stream`, a detected PDF uses PDF-aware chunking. A concrete claim such as `text/plain` that disagrees with detected PDF bytes fails before a provider or manifest is created. A claimed `application/pdf` whose bytes do not start with `%PDF-` fails after the five-byte probe. Graviton does not pretend to have detected formats for which no detector is registered.
 
 See [PDF-aware ingest](../modules/pdf.md) for configuration, failure behavior, and executable proof.
 
-## Fiber-local selection
+## Automatic provider selection
+
+`UploadIngestor` owns the one-pass upload decision. Its order is fixed:
+
+1. Validate and normalize the advertised ZIO Blocks `MediaType`.
+2. Enforce an optional declared byte length on the live stream.
+3. Retain and replay one Iron-bounded prefix of at most 4 KiB.
+4. Run registered detectors over that bounded value.
+5. Select an exact media-type provider, falling back only to the default provider.
+6. Acquire one chunker in the upload `Scope`, stream the complete body through it, and release it on success, failure, or interruption.
+
+Detectors may run concurrently because they receive the same bounded immutable prefix. Length validation, storage, and hashing remain one stream. Graviton does not fork the request body into competing consumers.
+
+Providers are keyed services. The registry uses ZIO 2.1 `serviceAt` lookup over `Map[ChunkerProvider.Key, ChunkerProvider]`:
+
+```scala
+import graviton.runtime.upload.*
+import zio.*
+
+val provider = ChunkerProvider.make(
+  ChunkerProviderId("archive-aware")
+) { context =>
+  ZIO.acquireRelease(
+    prepareChunker(context.probe)
+  )(releaseChunker)
+}
+
+val providers = Map(
+  ChunkerProvider.Key.Default -> ChunkerProvider.current,
+  ChunkerProvider.Key.MediaType(archiveMediaTypeKey) -> provider,
+)
+```
+
+The acquisition effect may initialize parser state, temporary workspace, native handles, or other request-specific resources. Its finalizer stays installed until the CAS write ends. Provider IDs and media-type keys are refined types rather than free-form routing strings.
+
+## Fiber-local installation
 
 `Chunker.current` is a `FiberRef`. Runtime writes read the current value, and `Chunker.locally` changes it only for a region:
 
@@ -133,7 +170,7 @@ Chunker.locally(chunker) {
 }
 ```
 
-The previous value is restored on success, failure, or interruption. This makes concurrent request-specific policies safe without threading a chunker argument through every internal method.
+The provider registry chooses and acquires the chunker. `Chunker.locally` is the transparent handoff into the existing storage sink. The previous value is restored on success, failure, or interruption, so concurrent uploads can select different policies without threading a chunker argument through every internal method.
 
 ## Pure state machine
 

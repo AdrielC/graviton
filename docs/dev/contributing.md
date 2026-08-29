@@ -36,6 +36,7 @@ TESTCONTAINERS=0 ./sbt scalafmtAll test
 TESTCONTAINERS=1 ./sbt test
 
 # (Optional) Rebuild the shared lab and operations console after Scala.js changes
+npm ci --prefix docs
 ./sbt buildContentLab buildFrontend
 ```
 

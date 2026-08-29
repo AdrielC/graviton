@@ -83,7 +83,7 @@ export GRAVITON_MAINTENANCE_NAMESPACE=production-cas
 java -jar graviton-server.jar
 ```
 
-With no `QUASAR_MINIO_URL`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
+With no `GRAVITON_S3_ENDPOINT`, the AWS SDK default credential provider chain is used. For MinIO, set its endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
 
 ## Multi-node upload locality
 

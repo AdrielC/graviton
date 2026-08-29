@@ -19,7 +19,7 @@ final case class MetricsHttpApi(registry: MetricsRegistry, security: Option[Http
       security match
         case None         => response
         case Some(policy) =>
-          val resource = ResourceRef(ResourceKind.Namespace, None)
+          val resource = ResourceRef(ResourceKind.Observability, None)
           policy
             .authorize(request, "observability.metrics.read", Capability.ObservabilityRead, resource)
             .foldZIO(

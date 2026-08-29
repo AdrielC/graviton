@@ -46,7 +46,7 @@ $GRAVITON_DATA_DIR/
     └── manifests/<algorithm>/<digest>-<size>.manifest
 ```
 
-Manifest files use the bounded, versioned `FramedManifest` codec and atomic replacement.
+Manifest files use the streaming `GVM2` contract and atomic replacement.
 
 ## HTTP server
 

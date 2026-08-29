@@ -40,14 +40,14 @@ object Dependencies {
 
     // Misc
     val iron       = "3.3.2"
-    val awsV2      = "2.25.54"
+    val awsV2      = "2.54.7"
     val blake3     = "3.1.2"
     val rocksdbJni = "8.11.3"
     val pg         = "42.7.13"
     val embeddedPg = "2.2.2"
     val laminar    = "17.1.0"
     val waypoint   = "8.0.0"
-    val scalajsDom = "2.8.0"
+    val scalajsDom = "2.8.1"
     val grpc       = "1.83.1"
     val netty      = "4.2.17.Final"
     val nettyGrpc  = "4.1.137.Final"

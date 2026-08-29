@@ -26,13 +26,6 @@ private[stores] object StreamingManifestFile:
 
   final case class Header(totalSize: FileSize, blockCount: Int)
 
-  def isStreaming(path: Path): Task[Boolean] =
-    ZIO.attemptBlocking {
-      val input = Files.newInputStream(path, StandardOpenOption.READ)
-      try java.util.Arrays.equals(input.readNBytes(Magic.length), Magic)
-      finally input.close()
-    }
-
   def readHeader(path: Path): Task[Header] =
     ZIO.attemptBlocking {
       val input = openInput(path)

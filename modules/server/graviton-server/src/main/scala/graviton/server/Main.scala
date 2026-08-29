@@ -3,10 +3,11 @@ package graviton.server
 import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeUploadConfig}
+import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
-import graviton.runtime.config.{GravitonConfig, MaintenanceConfig}
+import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig}
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
@@ -44,6 +45,7 @@ object Main extends ZIOAppDefault:
     for
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
+      blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
@@ -68,6 +70,7 @@ object Main extends ZIOAppDefault:
                                                           capabilityCheck                    <- ZIO.service[CapabilityCheck]
                                                           rateLimiter                        <- ZIO.service[RateLimiter]
                                                           runtime                            <- ZIO.runtime[Any]
+                                                          uploadIngestor                      = PdfUploadSupport.ingestor(blobStore)
                                                           interceptors                        = verifierOpt.toList.flatMap { verifier =>
                                                                                                   List(
                                                                                                     new AuthInterceptor(verifier, auditSink, runtime),
@@ -77,6 +80,7 @@ object Main extends ZIOAppDefault:
                                                                                                 }
                                                           grpc                               <- GravitonGrpcServer.scoped(
                                                                                                   blobStore,
+                                                                                                  uploadIngestor,
                                                                                                   GrpcServerConfig(cfg.grpcPort),
                                                                                                   interceptors,
                                                                                                 )
@@ -145,7 +149,7 @@ object Main extends ZIOAppDefault:
                                                           statsRoutes: Routes[Any, Nothing]   =
                                                             Routes(
                                                               Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
-                                                                val resource = ResourceRef(ResourceKind.Namespace, None)
+                                                                val resource = ResourceRef(ResourceKind.Observability, None)
                                                                 val response =
                                                                   metrics.snapshot.map(snapshot => Response.json(ApiJson.encode(RuntimeStats.from(snapshot))))
                                                                 policy match
@@ -194,8 +198,7 @@ object Main extends ZIOAppDefault:
                                                           browserApiRoutes                    =
                                                             if sec.enabled then nonConsoleRoutes else Middleware.cors(nonConsoleRoutes)
                                                           routes                              = consoleRoutes ++ browserApiRoutes
-                                                          chunker                             = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
-                                                          _                                  <- Chunker.locally(chunker)(Server.serve(routes))
+                                                          _                                  <- Server.serve(routes)
                                                         yield ()
                                                       }
 
@@ -211,25 +214,28 @@ object Main extends ZIOAppDefault:
                                                             )
                                                           )
 
-      _ <- program.provide(
-             Server.defaultWith { server =>
-               val streaming = server.enableRequestStreaming
-               if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
-               else streaming.port(port)
-             },
-             blobLayer(cfg, maintenance),
-             catalogLayer(cfg),
-             shardcakeNodeLayer(shardcake),
-             ZLayer.succeed(healthConfig),
-             RuntimeHealth.live,
-             auditLayer,
-             capabilityLayer(sec),
-             ZLayer.succeed(sec) >>> RateLimiter.live,
-             ZLayer.succeed(MetricsConfig(5.seconds)),
-             prometheus.publisherLayer,
-             prometheus.prometheusLayer,
-             ZioMetricsRegistry.layer,
-           )
+      chunker = Chunker.fixed(UploadChunkSize.applyUnsafe(cfg.chunkSize))
+      _      <- Chunker.locally(chunker) {
+                  program.provide(
+                    Server.defaultWith { server =>
+                      val streaming = server.enableRequestStreaming
+                      if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
+                      else streaming.port(port)
+                    },
+                    blobLayer(cfg, maintenance, blockPersistence),
+                    catalogLayer(cfg),
+                    shardcakeNodeLayer(shardcake),
+                    ZLayer.succeed(healthConfig),
+                    RuntimeHealth.live,
+                    auditLayer,
+                    capabilityLayer(sec),
+                    ZLayer.succeed(sec) >>> RateLimiter.live,
+                    ZLayer.succeed(MetricsConfig(5.seconds)),
+                    prometheus.publisherLayer,
+                    prometheus.prometheusLayer,
+                    ZioMetricsRegistry.layer,
+                  )
+                }
     yield ()
 
   sealed trait ConfigurationError extends Exception
@@ -270,6 +276,7 @@ object Main extends ZIOAppDefault:
   private[server] def blobLayer(
     cfg: GravitonConfig,
     maintenance: MaintenanceConfig,
+    blockPersistence: BlockPersistenceConfig,
   ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
@@ -296,7 +303,8 @@ object Main extends ZIOAppDefault:
           )
 
     val casLayer =
-      (storageLayer ++ ZLayer.service[MetricsRegistry]) >>> CasBlobStore.coordinatedLayerWithMetrics
+      (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence)) >>>
+        CasBlobStore.coordinatedLayerWithMetricsAndPersistence
 
     (casLayer ++ ZLayer.service[MetricsRegistry]) >>> MetricsBlobStore.layer
 
@@ -313,7 +321,7 @@ object Main extends ZIOAppDefault:
 
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
-    blobLayer(cfg, MaintenanceConfig.Default)
+    blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default)
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
     ZIO

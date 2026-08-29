@@ -2,10 +2,8 @@ package graviton.backend.s3
 
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.Block.*
 import graviton.runtime.model.*
 import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock}
-import graviton.streams.BoundedByteStream
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -13,6 +11,7 @@ import zio.*
 import zio.stream.*
 
 import java.util.UUID
+import java.util.Base64
 import scala.jdk.CollectionConverters.*
 
 final case class S3BlockStoreConfig(
@@ -130,27 +129,91 @@ final class S3BlockStore(
     validateQuarantineToken(block.token) *> deleteObject(block.token)
 
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
-    exists(block.key).flatMap { present =>
-      if present then verifyExisting(block).as(BlockStoredStatus.Duplicate)
-      else
-        val req =
-          PutObjectRequest
-            .builder()
-            .bucket(config.blocks.bucket)
-            .key(objectKeyFor(block.key))
-            .contentLength(block.bytes.length.toLong)
-            .build()
+    for
+      _        <- ZIO
+                    .unless(block.key.bits.size == block.size.value.toLong)(
+                      ZIO.fail(
+                        new IllegalArgumentException(
+                          s"Canonical block key declares ${block.key.bits.size} bytes but payload contains ${block.size.value}"
+                        )
+                      )
+                    )
+                    .unit
+      payload   = block.bytes.toArray
+      checksum <- sha256Checksum(block, payload)
+      request   = PutObjectRequest
+                    .builder()
+                    .bucket(config.blocks.bucket)
+                    .key(objectKeyFor(block.key))
+                    .contentLength(payload.length.toLong)
+                    .checksumSHA256(checksum)
+                    .metadata(objectProof(block, checksum).asJava)
+                    .ifNoneMatch("*")
+                    .build()
+      status   <- ZIO
+                    .attemptBlocking(client.putObject(request, RequestBody.fromBytes(payload)))
+                    .as(BlockStoredStatus.Fresh)
+                    .catchSome {
+                      case error: S3Exception if isPreconditionFailed(error) =>
+                        verifyExisting(block, checksum)
+                          .catchSome {
+                            case missing: S3Exception if isNotFound(missing) =>
+                              ZIO.fail(S3BlockStore.ConditionalWriteRace(missing))
+                          }
+                          .as(BlockStoredStatus.Duplicate)
+                    }
+                    .retry(
+                      Schedule.recurWhile[Throwable](isConditionalConflict) &&
+                        Schedule.spaced(25.millis) &&
+                        Schedule.recurs(3)
+                    )
+    yield status
 
-        ZIO
-          .attemptBlocking(client.putObject(req, RequestBody.fromBytes(block.bytes.toArray)))
-          .as(BlockStoredStatus.Fresh)
+  private def verifyExisting(block: CanonicalBlock, checksum: String): Task[Unit] =
+    val request =
+      HeadObjectRequest
+        .builder()
+        .bucket(config.blocks.bucket)
+        .key(objectKeyFor(block.key))
+        .build()
+
+    ZIO.attemptBlocking(client.headObject(request)).flatMap { response =>
+      val expected = objectProof(block, checksum)
+      val actual   = response.metadata().asScala.toMap
+      if response.contentLength() != block.size.value.toLong then
+        ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
+      else if expected.forall { case (key, value) => actual.get(key).contains(value) } then ZIO.unit
+      else ZIO.fail(new IllegalStateException(s"Existing S3 block has inconsistent CAS proof for ${block.key.bits.render}"))
     }
 
-  private def verifyExisting(block: CanonicalBlock): Task[Unit] =
-    BoundedByteStream.collectBlock(get(block.key)).flatMap { stored =>
-      if stored.bytes == block.bytes then ZIO.unit
-      else ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
-    }
+  private def objectProof(block: CanonicalBlock, checksum: String): Map[String, String] =
+    Map(
+      S3BlockStore.ProofVersionMetadata -> S3BlockStore.ProofVersion,
+      S3BlockStore.ContentKeyMetadata   -> block.key.bits.render,
+      S3BlockStore.Sha256Metadata       -> checksum,
+    )
+
+  private def sha256Checksum(block: CanonicalBlock, payload: Array[Byte]): Task[String] =
+    block.key.bits.algo match
+      case HashAlgo.Sha256 => ZIO.succeed(Base64.getEncoder.encodeToString(block.key.bits.digest.bytes))
+      case _               =>
+        ZIO.attempt {
+          val digest = java.security.MessageDigest.getInstance("SHA-256").digest(payload)
+          Base64.getEncoder.encodeToString(digest)
+        }
+
+  private def isPreconditionFailed(error: S3Exception): Boolean =
+    error.statusCode() == 412 || Option(error.awsErrorDetails()).exists(_.errorCode() == "PreconditionFailed")
+
+  private def isNotFound(error: S3Exception): Boolean =
+    error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(_.errorCode() == "NoSuchKey")
+
+  private def isConditionalConflict(error: Throwable): Boolean =
+    error match
+      case _: S3BlockStore.ConditionalWriteRace => true
+      case s3: S3Exception                      =>
+        s3.statusCode() == 409 || Option(s3.awsErrorDetails()).exists(_.errorCode() == "ConditionalRequestConflict")
+      case _                                    => false
 
   private def objectKeyFor(key: BinaryKey.Block): String =
     val algo = algoPathSegment(key.bits.algo)
@@ -225,13 +288,21 @@ final class S3BlockStore(
 
 object S3BlockStore:
 
+  private val ProofVersionMetadata = "graviton-cas-version"
+  private val ContentKeyMetadata   = "graviton-content-key"
+  private val Sha256Metadata       = "graviton-sha256"
+  private val ProofVersion         = "1"
+
+  private final case class ConditionalWriteRace(cause: Throwable)
+      extends RuntimeException("Existing conditional-write target disappeared before verification", cause)
+
   /**
-   * Minimal env contract for the on-prem v1 compose bundle:
+   * Explicit S3-compatible endpoint contract:
    *
    * Required:
-   * - QUASAR_MINIO_URL
-   * - MINIO_ROOT_USER
-   * - MINIO_ROOT_PASSWORD
+   * - GRAVITON_S3_ENDPOINT
+   * - GRAVITON_S3_ACCESS_KEY
+   * - GRAVITON_S3_SECRET_KEY
    *
    * Optional:
    * - GRAVITON_S3_BLOCK_BUCKET (defaults to graviton-blocks)

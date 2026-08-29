@@ -39,7 +39,9 @@ Whole payloads remain streams. The few APIs that permit materialized bytes retur
 | `Block` | 1 byte to 16 MiB | One canonical CAS block |
 | `InMemoryBytes` | 0 to 16 MiB | Explicit small-blob convenience retrieval |
 | `ControlPlaneBytes` | 0 to 1 MiB | JSON and error response decoding |
-| `ContentAddressing.InteractiveBytes` | 0 to 8 KiB | JVM/Scala.js CAS Playground analysis |
+| `ContentAddressing.InteractiveBytes` | 0 to 8 KiB | Explicit bounded JVM/Scala.js content analysis utility |
+| `BrowserFileAnalysis.BlockBytes` | 1 byte to 4 MiB | One CAS Playground block, never a complete file |
+| `BrowserPdfTools.EditablePdfOutput` | 0 to 32 MiB | Explicit browser-only PDF rewrite result |
 
 Each collector reads at most its limit plus one byte, rejects overflow, and only then returns the Iron-refined result. Arbitrary blob ingestion, download, verification, and file copies use `ZStream` or a streaming sink.
 
@@ -89,8 +91,8 @@ For change reporting, convert both typed values through the same schema to `Dyna
 
 There is no networked schema registry in the current runtime. `SchemaDef.migrateFrom` is an in-process, explicit migration boundary.
 
-## Shared Scala.js contract
+## Scala.js boundaries
 
-The browser content lab is not a TypeScript reimplementation. `graviton-shared` cross-compiles the refined interactive payload, SHA-256 digest text, fixed-block analyzer, duplicate detection, and content-key text format. JVM uses JCA and Scala.js uses Web Crypto behind the same shared tests.
+The browser file lab is not a TypeScript hash reimplementation. `graviton-content-lab` streams `Blob` bytes through ZIO Streams, ZIO PDF structural scanning or FastCDC, incremental SHA-256, and the shared content-key renderer. `graviton-pdf-lab` owns the separately linked, 32 MiB bounded document rewrite. TypeScript coordinates browser files and renders returned metadata; it does not invent content IDs or chunk boundaries.
 
 See [CAS Playground](../cas-playground.md), [Ranges and Boundaries](./ranges.md), and [Binary Streaming](../guide/binary-streaming.md).

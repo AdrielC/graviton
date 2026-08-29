@@ -29,8 +29,8 @@ GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpe
 ./scripts/audit-published-artifacts.sh
 ./sbt server/assembly
 ./scripts/smoke-packaged-server.sh
-./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
+./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm run docs:build --prefix docs
 ```
 

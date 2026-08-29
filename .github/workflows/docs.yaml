@@ -58,11 +58,6 @@ jobs:
           java-version: '21'
           cache: 'sbt'
 
-      - name: Build all docs assets (Scaladoc + Scala.js Frontend)
-        run: |
-          # This compiles the Scala.js frontend and Scaladoc, then copies to docs/public/
-          ./sbt buildDocsAssets
-      
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -72,6 +67,10 @@ jobs:
       
       - name: Install dependencies
         run: npm ci --prefix docs
+
+      - name: Build and test docs assets
+        run: |
+          ./sbt contentLab/test pdfContentLab/test buildDocsAssets
       
       - name: Build VitePress site (includes Scala.js modules)
         run: npm run docs:build --prefix docs

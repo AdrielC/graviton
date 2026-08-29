@@ -22,14 +22,18 @@ final case class S3Config(
 )
 
 object S3Config:
+  private val EndpointEnv  = "GRAVITON_S3_ENDPOINT"
+  private val AccessKeyEnv = "GRAVITON_S3_ACCESS_KEY"
+  private val SecretKeyEnv = "GRAVITON_S3_SECRET_KEY"
+
   /**
-   * Build an S3-compatible config from the "MinIO-style" env contract, but with the bucket/prefix
+   * Build an S3-compatible config from an explicit endpoint contract, but with the bucket/prefix
    * provided explicitly (so callers can safely apply defaults without requiring bucket env vars).
    *
    * Required env vars:
-   * - QUASAR_MINIO_URL
-   * - MINIO_ROOT_USER
-   * - MINIO_ROOT_PASSWORD
+   * - GRAVITON_S3_ENDPOINT
+   * - GRAVITON_S3_ACCESS_KEY
+   * - GRAVITON_S3_SECRET_KEY
    *
    * Optional env vars:
    * - GRAVITON_S3_REGION (defaults to us-east-1)
@@ -37,9 +41,9 @@ object S3Config:
   def fromEndpointEnv(
     bucket: String,
     prefix: String = "",
-    urlEnv: String = "QUASAR_MINIO_URL",
-    accessKeyEnv: String = "MINIO_ROOT_USER",
-    secretKeyEnv: String = "MINIO_ROOT_PASSWORD",
+    urlEnv: String = EndpointEnv,
+    accessKeyEnv: String = AccessKeyEnv,
+    secretKeyEnv: String = SecretKeyEnv,
     regionEnv: String = "GRAVITON_S3_REGION",
     forcePathStyle: Boolean = true,
   ): Either[String, S3Config] =
@@ -64,9 +68,9 @@ object S3Config:
 
   def fromMinioEnv(
     bucketEnv: String = "GRAVITON_S3_BUCKET",
-    urlEnv: String = "QUASAR_MINIO_URL",
-    accessKeyEnv: String = "MINIO_ROOT_USER",
-    secretKeyEnv: String = "MINIO_ROOT_PASSWORD",
+    urlEnv: String = EndpointEnv,
+    accessKeyEnv: String = AccessKeyEnv,
+    secretKeyEnv: String = SecretKeyEnv,
     regionEnv: String = "GRAVITON_S3_REGION",
     prefixEnv: String = "GRAVITON_S3_PREFIX",
   ): Either[String, S3Config] =
@@ -86,9 +90,9 @@ object S3Config:
            )
     yield c
 
-  /** Use explicit MinIO settings when an endpoint exists, otherwise AWS defaults. */
+  /** Use explicit S3-compatible settings when an endpoint exists, otherwise AWS defaults. */
   def fromEnvironment(bucket: String, prefix: String = ""): Either[String, S3Config] =
-    sys.env.get("QUASAR_MINIO_URL").map(_.trim).filter(_.nonEmpty) match
+    sys.env.get(EndpointEnv).map(_.trim).filter(_.nonEmpty) match
       case Some(_) => fromEndpointEnv(bucket, prefix)
       case None    =>
         val region = sys.env.get("GRAVITON_S3_REGION").map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)

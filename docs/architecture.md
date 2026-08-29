@@ -1,9 +1,9 @@
 # Architecture
 
-Graviton separates pure domain logic from effectful runtime code.
+Graviton separates pure byte and identity logic from effectful storage and transport code. It deliberately stops below document semantics.
 
 ::: tip Diagram scope
-The **High-Level System View** below reflects modules that exist in this repository. In the **Quasar + Graviton** topology, Shardcake upload locality is an operational opt-in Graviton integration. Quasar workflows, Redis, and plugin job orchestration remain product direction rather than a claim about the default deployment.
+The **High-Level System View** below contains only Graviton release surfaces. Source-only document-layer prototypes in this repository are not server capabilities, published modules, or deployable Graviton services.
 :::
 
 ## High-Level System View
@@ -72,87 +72,21 @@ flowchart LR
 
 **Accuracy notes for this diagram:** the **CLI** is the `graviton-cli` SBT project (`./sbt "cli/run …"`) and opens its configured store directly. The packaged server starts HTTP on `8081` and gRPC on `9090` by default. **RocksDB** is an operational typed KV library adapter, not an implicit retrieval cache and not part of the default filesystem or S3 plus PostgreSQL server compositions.
 
-## Quasar + Graviton (service topology)
+## Product boundary
 
 ```mermaid
 flowchart TB
-  %% ===== Clients =====
-  Clerk["Clients\n(Browser • Integrations)"]
-  Admin["Ops / Admin"]
+  document["Document layer\nidentity • metadata • permissions • workflows"]
+  api["Graviton API\nScala • HTTP • gRPC"]
+  cas["Graviton CAS\nstreaming bytes • content identity • integrity"]
+  storage["Storage\nfilesystem • S3 • PostgreSQL manifests"]
 
-  %% ===== Edge =====
-  GW["Gateway\n(Caddy / Nginx)\nTLS + Routing"]
-
-  %% ===== Quasar =====
-  QAPI["Quasar API\nAuthZ • Metadata • Workflows • Audit"]
-  R["Redis\nSessions • Rate Limits"]
-
-  %% ===== Database =====
-  PG["PostgreSQL\nDocs • Versions • Metadata • Jobs"]
-
-  %% ===== Storage Routing =====
-  SC["Shardcake Manager\nAssignments Only"]
-
-  %% ===== CAS Layer =====
-  subgraph Graviton["Graviton CAS Layer"]
-    G1["Graviton Node A"]
-    G2["Graviton Node B"]
-    G3["Graviton Node C"]
-  end
-
-  %% ===== Object Storage =====
-  subgraph ObjectStore["Object Storage"]
-    MIO["MinIO\nEncrypted Buckets"]
-  end
-
-  %% ===== Jobs / Plugins =====
-  JR["Job Runner"]
-  OCR["OCR Plugin"]
-  CLS["Classify / Tag Plugin"]
-
-  %% ===== Observability =====
-  P["Prometheus"]
-  G["Grafana"]
-  L["Central Logs"]
-
-  %% ===== Client Flow =====
-  Clerk -->|HTTPS| GW
-  Admin -->|HTTPS| GW
-  GW -->|HTTPS| QAPI
-
-  %% ===== Core Dependencies =====
-  QAPI --> PG
-  QAPI --> R
-
-  %% ===== Storage Flow =====
-  QAPI -->|Stream blobs to any node| G1
-  G1 -->|Resolve typed session| SC
-  G2 -->|Register and refresh| SC
-  G3 -->|Register and refresh| SC
-  G1 -->|Direct owner stream| G2
-  G1 -->|Direct owner stream| G3
-
-  %% ===== CAS to Object Store =====
-  G1 -->|Blocks / Blobs| MIO
-  G2 -->|Blocks / Blobs| MIO
-  G3 -->|Blocks / Blobs| MIO
-
-  %% ===== Job Execution =====
-  QAPI -->|Enqueue jobs| PG
-  JR -->|Claim jobs| PG
-  JR -->|Read / Write content| G1
-  JR --> OCR
-  JR --> CLS
-  OCR -->|Derived views| QAPI
-  CLS -->|Derived metadata| QAPI
-
-  %% ===== Observability =====
-  QAPI --> P
-  JR --> P
-  P --> G
-  QAPI --> L
-  JR --> L
+  document -->|"content ID + byte stream"| api
+  api --> cas
+  cas --> storage
 ```
+
+Graviton owns the lower three boxes. A downstream system may retain a Graviton content ID and stream bytes through the API, but document identity, versions, metadata, permissions, search, and workflows remain above this boundary and outside this repository. See [Scope and product boundary](./scope.md).
 
 ## Transducer Algebra
 

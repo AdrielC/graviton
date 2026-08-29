@@ -1,10 +1,11 @@
 # Scala.js Operations Console
 
-`modules/frontend` delivers the Laminar application mounted on the `/demo` page. It consumes shared protocol models and operates the same HTTP API used by command-line clients. The separate CAS Playground links the `graviton-shared` Scala.js artifact directly and does not depend on the Laminar console.
+`modules/frontend` delivers the Laminar application mounted on the `/demo` page. It consumes shared protocol models and operates the same HTTP API used by command-line clients. The CAS Playground uses separate `graviton-content-lab` and `graviton-pdf-lab` Scala.js modules and does not depend on the Laminar console.
 
 ## Build and run
 
 ```bash
+npm ci --prefix docs
 ./sbt buildContentLab buildFrontend
 ./sbt 'server/run'
 ```
@@ -12,13 +13,12 @@
 In another terminal:
 
 ```bash
-npm ci --prefix docs
 npm run docs:dev --prefix docs
 ```
 
 Open `http://localhost:5173/demo`.
 
-`buildFrontend` writes the Laminar console to `docs/public/js/`. `buildContentLab` links the shared bounded content analyzer into `docs/public/content-lab/`. VitePress loads each ES module only on the page that needs it.
+`buildFrontend` writes the Laminar console to `docs/public/js/`. `buildContentLab` links the streamed analyzer and bounded PDF editor into `docs/.vitepress/generated/`. Vite loads the analyzer on the playground and defers the larger PDF editor until byte sniffing confirms a PDF.
 
 ## Data path
 
@@ -63,6 +63,7 @@ The connection bar lets an operator change and persist the endpoint. Reloading b
 ```bash
 ./sbt 'frontend/compile'
 ./sbt 'sharedProtocolJVM/test' 'sharedProtocolJS/test'
+npm ci --prefix docs
 ./sbt buildContentLab buildFrontend
 ./scripts/verify-http-lifecycle.sh
 npm run docs:build --prefix docs

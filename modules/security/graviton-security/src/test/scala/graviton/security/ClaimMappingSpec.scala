@@ -17,7 +17,7 @@ object ClaimMappingSpec extends ZIOSpecDefault:
     jti = Some("jti-123"),
     exp = Some(now + 300),
     nbf = None,
-    scope = Some("blob.read doc.write"),
+    scope = Some("blob.read observability.read"),
     capsMask = None,
   )
 
@@ -26,7 +26,7 @@ object ClaimMappingSpec extends ZIOSpecDefault:
       val requestId = UUID.randomUUID()
       val ctx       = ClaimMapping.toContext(baseClaims, requestId, now, clockSkewSeconds = 5L)
       assert(ctx.map(_.capabilities.contains(Capability.BlobRead)))(isRight(isTrue)) &&
-      assert(ctx.map(_.capabilities.contains(Capability.DocumentWrite)))(isRight(isTrue)) &&
+      assert(ctx.map(_.capabilities.contains(Capability.ObservabilityRead)))(isRight(isTrue)) &&
       assert(ctx.map(_.requestId))(isRight(equalTo(requestId)))
     },
     test("fails if `exp` missing") {
@@ -56,10 +56,10 @@ object ClaimMappingSpec extends ZIOSpecDefault:
       assert(ClaimMapping.toContext(c, UUID.randomUUID(), now, 0L))(isLeft(anything))
     },
     test("merges scope string with numeric caps claim") {
-      val c   = baseClaims.copy(scope = Some("blob.read"), capsMask = Some(Capability.DocumentDelete.bit))
+      val c   = baseClaims.copy(scope = Some("blob.read"), capsMask = Some(Capability.AuditRead.bit))
       val ctx = ClaimMapping.toContext(c, UUID.randomUUID(), now, 0L)
       assert(ctx.map(_.capabilities.contains(Capability.BlobRead)))(isRight(isTrue)) &&
-      assert(ctx.map(_.capabilities.contains(Capability.DocumentDelete)))(isRight(isTrue))
+      assert(ctx.map(_.capabilities.contains(Capability.AuditRead)))(isRight(isTrue))
     },
   )
 

@@ -12,11 +12,12 @@ docs/.vitepress/dist/
 docs/.vitepress/cache/
 docs/.vitepress/.temp/
 docs/node_modules/
+/node_modules
 
 # Generated Scala.js output (built by CI)
 docs/public/js/
 docs/public/quasar/js/
-docs/public/content-lab/
+docs/.vitepress/generated/
 
 # Generated Scaladoc (built by CI)
 docs/public/scaladoc/

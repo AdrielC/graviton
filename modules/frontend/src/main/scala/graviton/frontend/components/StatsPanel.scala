@@ -85,7 +85,7 @@ object StatsPanel {
             ),
             div(
               cls := "stat-card",
-              div(cls := "stat-label", "Duplicate Share"),
+              div(cls := "stat-label", "Bytes Reused"),
               div(cls := "stat-value", f"${stats.deduplicationRatio * 100}%.1f%%"),
               div(cls := "stat-icon", "📈"),
             ),

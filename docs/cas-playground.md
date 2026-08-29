@@ -5,47 +5,70 @@ title: CAS Playground
 
 # CAS Playground
 
-Type or paste content below. VitePress loads the compiled `graviton-shared` Scala.js module, which converts the exact UTF-8 bytes, splits them at the selected fixed boundary, computes SHA-256 through Web Crypto, formats Graviton content IDs, and identifies repeated blocks.
-
-::: tip Real computation, local scope
-Every byte count and digest is computed from your input. Nothing is randomized or supplied by a sample API. The results stay in browser memory and are not persisted to a Graviton server. The input is capped at 2,048 UTF-16 code units before encoding and then refined to at most 8,192 bytes before any complete byte value is materialized.
-:::
-
-## Shared library boundary
-
-`graviton-shared` cross-compiles the analyzer, refined payload and digest types, block-size validation, content-ID formatting, and duplicate detection for JVM and Scala.js. The platform implementations deliberately keep the cryptographic primitive native:
-
-| Target | SHA-256 implementation | Verification |
-| --- | --- | --- |
-| JVM | Java Cryptography Architecture `MessageDigest` | Shared known-vector, empty-input, deduplication, and rejection tests |
-| Scala.js | Browser or Node Web Crypto `SubtleCrypto.digest` | The same shared contract suite plus a linked-module invocation |
-
-This bounded API is for interactive and control-plane use. The Graviton server does not collect an upload into it. Production ingest and retrieval stay streaming for payloads far larger than the playground limit.
+Choose real files. Graviton streams, chunks, and hashes them locally, then shows the exact ranges they share.
 
 <PipelinePlayground />
 
-## From worksheet to durable storage
+## How comparison works
 
-The browser lab makes content addressing inspectable without requiring a hosted backend. Its content ID is computed locally, not returned by a server. To store the bytes durably and obtain the authoritative persisted manifest, start Graviton locally and use the [Connect Your Server console](./demo.md), CLI, or HTTP API.
+This is the real Scala.js analysis path, not a simulated result:
+
+- **Automatic** uses ZIO PDF structural boundaries when the first five bytes are `%PDF-`, and FastCDC for every other file.
+- **PDF structures** cuts at complete PDF object boundaries when possible and falls back to bounded ranges if structural scanning cannot continue.
+- **FastCDC** resists boundary shifts after small insertions or deletions.
+- **Fixed ranges** makes exact offset-aligned comparison explicit.
+- SHA-256 is incremental. The browser module requests 64 KiB `Blob.slice()` reads and passes 64 KiB digest windows to `@noble/hashes`.
+- Cross-file reuse counts only exact block content ID matches.
+
+The interactive default is 64 KiB. Choose 16 KiB, 64 KiB, 256 KiB, or 1 MiB and apply the profile to every loaded file. A block is never larger than 4 MiB, the result manifest is capped at 20,000 blocks per file, and the UI analyzes at most two files concurrently.
+
+::: tip Local by design
+The static documentation site does not upload or persist these files. The browser-owned `Blob` stays the source of truth while Scala.js requests explicit 64 KiB slices. To write an authoritative manifest, use a running Graviton server through the [operations console](./demo.md), CLI, HTTP API, or Scala SDK.
+:::
+
+## Compare a PDF edit
+
+When the byte signature confirms a PDF, the page loads a second Scala.js module built from `zio-pdf` 0.2.0-RC7. Font inventory is read from the incremental PDF element stream. The inventory count includes every detected font resource; the source and replacement controls show the subset that ZIO PDF can safely evaluate for an existing-resource remap. Nothing comes from a hardcoded font catalog.
+
+**Build variant** produces two local outputs through the same ZIO PDF encoder: an unchanged canonical source and a font-remapped variant. It switches to the 16 KiB automatic profile and analyzes both outputs, so reuse measures the font edit instead of unrelated differences in serialization. Both outputs can be downloaded.
+
+Before either output is shown, ZIO PDF validates the edited document and compares its object graph with the canonical baseline. The **PDF structure** result then streams both decoded documents through `PdfDiff`: a schema-backed LCS over bounded 128-component windows. It reports changed, added, removed, and unchanged components, identifies the affected object numbers, and checks raw content-stream bytes. The interface retains at most 12 example changes even when the streamed totals are larger.
+
+These are intentionally different measurements. The byte map uses exact SHA-256 content IDs to calculate reusable storage. The PDF structure result explains which document components changed. A component can change without eliminating reuse in neighboring byte ranges, and a streaming window diff does not claim a globally minimal edit script.
+
+The controls do not presume that two resources are compatible. After you choose a source, the replacement list is narrowed to the same font subtype. **Test and build** then fails closed unless encoding, widths, metrics, and `ToUnicode` data prove the existing glyph codes retain their meaning. A successful rewrite means the resource binding passed those checks; it does not claim that every PDF or every pair of fonts is interchangeable.
+
+PDF inspection remains streaming. Rewriting intentionally has a separate 32 MiB input and output limit because the current transform builds a decoded document graph. Both sides of that materialization are enforced with named Iron refinements; files above the limit can still be chunked and inspected.
+
+## Interpreting the result
+
+The top summary treats the loaded files as one candidate content-addressed collection:
+
+| Value | Meaning |
+| --- | --- |
+| Logical bytes | Sum of analyzed file lengths |
+| Unique bytes | One copy of each distinct block content ID |
+| Reusable bytes | Logical bytes minus unique bytes |
+| Shared range | A block whose exact content ID occurs in another loaded file |
+
+Changing a PDF font resource can leave most encoded objects unchanged. Comparing canonical and edited outputs at the 16 KiB PDF-aware profile keeps those unchanged objects independent from the rewritten resources and cross-reference tail. Results remain document-dependent and are reported only from exact SHA-256 block matches.
+
+## Browser and server boundaries
+
+The playground profile is chosen by the visitor and exists only for comparison. A Graviton server may use a different target, maximum, or chunking strategy. Its committed manifest is authoritative for durable storage and retrieval.
+
+Start a local filesystem-backed server and console with:
 
 ```bash
-GRAVITON_FS_ROOT=/tmp/graviton-data \
-GRAVITON_HTTP_PORT=8081 \
-./sbt "server/run"
+GRAVITON_CONSOLE_ENABLED=true \
+  ./sbt "server/run"
+
+open http://127.0.0.1:8081/console
 ```
-
-The server can use fixed, FastCDC, or delimiter chunking depending on configuration. Its returned manifest is authoritative for persisted data.
-
-## Experiments worth trying
-
-1. Load repeated blocks and confirm that identical byte ranges have identical content IDs.
-2. Change one byte and observe the SHA-256 avalanche effect on that block and the blob ID.
-3. Increase the block size and watch manifest cardinality decrease.
-4. Paste Unicode text and compare character count with the actual UTF-8 byte count.
 
 ## Continue
 
-- [Pipeline Explorer](./pipeline-explorer.md)
+- [Run Graviton locally](./guide/run-locally.md)
 - [Chunking Strategies](./ingest/chunking.md)
-- [Transducer Algebra](./core/transducers.md)
+- [Binary Streaming](./guide/binary-streaming.md)
 - [HTTP API](./api/http.md)

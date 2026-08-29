@@ -12,11 +12,11 @@ Graviton's local console serves developers, infrastructure engineers, and techni
 
 ## Product Purpose
 
-Graviton stores arbitrary-size files as streamed, content-addressed blocks and immutable manifests. The local console must let an operator upload, organize, inspect, verify, download, and remove logical file references while seeing actual deduplication and upload-locality outcomes from the running system.
+Graviton is the byte substrate: it stores arbitrary-size payloads as streamed, content-addressed blocks and immutable manifests, then returns cryptographically derived identities that higher-level systems can retain. The local console must let an operator upload, organize, inspect, verify, download, and remove logical file references while seeing actual deduplication and upload-locality outcomes from the running system.
 
 ## Positioning
 
-The console is a direct operational surface over Graviton's real CAS and Shardcake services. It does not simulate uploads, invent storage metrics, or maintain a browser-only shadow model.
+The console is a direct operational surface over Graviton's real CAS and Shardcake services. It does not simulate uploads, invent storage metrics, maintain a browser-only shadow model, or present Graviton as a document-management system. Document-domain systems remain downstream consumers of Graviton content IDs and streams.
 
 ## Operating Context
 
@@ -26,7 +26,7 @@ The primary workflow runs locally against a multi-process deployment with Postgr
 
 - Upload and download bytes through streaming HTTP paths without whole-file materialization.
 - Expose real content IDs, logical size, block count, fresh blocks, duplicate blocks, and verified download actions.
-- Keep folders and filenames as mutable catalog references to immutable CAS blobs.
+- Keep console folders and filenames as mutable operator-catalog references to immutable CAS blobs, not as a document-domain model.
 - Route session-scoped uploads through an enabled Shardcake topology in the local showcase deployment.
 - Preserve CAS correctness when locality is unavailable: locality is an optimization, never a second storage format.
 - Make deletion semantics explicit. Removing a catalog reference does not silently erase shared blocks.
@@ -34,7 +34,7 @@ The primary workflow runs locally against a multi-process deployment with Postgr
 
 ## Brand Commitments
 
-Keep the established Graviton name, quasar mark, green/cyan/violet/pink technical palette, and restrained matrix-rain motif. The console is an operational tool, so visual flair must never obscure storage state or primary actions.
+Keep the established Graviton name, orbital mark, green/cyan/violet/pink technical palette, and restrained matrix-rain motif. The console is an operational tool, so visual flair must never obscure storage state or primary actions.
 
 ## Evidence on Hand
 

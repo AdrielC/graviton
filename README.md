@@ -6,6 +6,8 @@
 
 Graviton is a typed, streaming content-addressable storage runtime for Scala 3 and ZIO. It chunks blobs into bounded blocks, derives cryptographic content keys, deduplicates writes, persists versioned manifests, and streams bytes back through pluggable storage ports.
 
+Graviton's boundary is deliberately narrow: bytes, cryptographic content identity, integrity, and storage. It does not define documents, document versions, business metadata, search, or workflows. Downstream systems consume opaque Graviton content IDs and byte streams without extending the storage runtime's domain. See [Scope and product boundary](docs/scope.md).
+
 This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage and backend-wide operation/maintenance coordination, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
 
 | Capability | Status | Executable evidence |
@@ -62,7 +64,7 @@ cmp README.md retrieved.md
 curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$blob_id/verify" | jq .
 ```
 
-Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The legacy `/api/blobs` routes remain available with deprecation headers; new clients should use `/api/v1/blobs`.
+Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The only HTTP blob contract is `/api/v1/blobs`.
 
 For the built-in DataStar operator console, enable the local-only surface and open it directly from the running server:
 
@@ -139,14 +141,14 @@ The build keeps pure content types in `graviton-core`, stream transformations in
 ```bash
 TESTCONTAINERS=0 ./sbt scalafmtCheckAll test
 GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"
-./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
+./sbt contentLab/test pdfContentLab/test docs/mdoc checkDocSnippets buildDocsAssets
 npm run docs:build --prefix docs
 ```
 
 CI adds real PostgreSQL and MinIO services, the clean external consumer, packaged-server smoke tests, compatibility policy, dependency review, and docs verification. See [BUILD_AND_TEST.md](BUILD_AND_TEST.md) for focused commands.
 
-The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. The bounded CAS lab runs the same `graviton-shared` analyzer on Scala.js and JVM, using Web Crypto and JCA respectively. It never pretends to be a hosted Graviton server or to persist data.
+The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix rain, CAS playground, pipeline explorer, and live connection console. The playground streams local files through a dedicated Scala.js analyzer, maps exact cross-file block reuse, and loads the separately linked ZIO PDF editor only for confirmed PDFs. It never pretends to be a hosted Graviton server or to persist data.
 
 ## Operations and releases
 

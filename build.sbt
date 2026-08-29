@@ -12,7 +12,7 @@ import sbtassembly.AssemblyPlugin.autoImport.*
 import sbtassembly.MergeStrategy
 import sbtversionpolicy.Compatibility
 import sbtversionpolicy.SbtVersionPolicyPlugin.autoImport.*
-import com.typesafe.tools.mima.core.{MissingTypesProblem, ProblemFilters, ReversedMissingMethodProblem}
+import com.typesafe.tools.mima.core.{DirectMissingMethodProblem, MissingTypesProblem, ProblemFilters, ReversedMissingMethodProblem}
 import com.typesafe.tools.mima.plugin.MimaPlugin.autoImport.mimaBinaryIssueFilters
 
 lazy val docSnippetMappings =
@@ -117,9 +117,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// Keep MiMa active for every module. The v0.5 migration declares and narrowly
-// filters only core's cold-TASTy hierarchy repair below.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
+// The 0.6 line is an intentional pre-1.0 product boundary: unpublished
+// document-layer and compatibility APIs are removed instead of carried
+// indefinitely. Return to BinaryCompatible after the v0.6.0 tag.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -253,42 +254,44 @@ buildFrontend := {
   log.info(s"Frontend built and copied to $targetDir")
 }
 
-// Link the bounded graviton-shared content-addressing API as a standalone ES module
-// for the documentation playground. The JVM and Scala.js artifacts compile the
-// same analyzer while delegating SHA-256 to their native platform primitive.
-lazy val buildContentLab = taskKey[Unit]("Build the shared Scala.js content lab and copy it to docs")
-buildContentLab := {
-  val log = Keys.streams.value.log
-  log.info("Building shared Scala.js content lab...")
+// Link the streaming file analyzer and bounded PDF editor as separate ES modules
+// for the documentation playground. Ordinary files never download the heavier
+// document graph editor; Vite loads it only after the analyzer confirms a PDF.
+lazy val buildContentLab = taskKey[Unit]("Build the streamed Scala.js content lab and copy it to docs")
+lazy val prepareFrontendNodeModules = taskKey[Unit]("Expose docs npm modules to Scala.js Node test runners")
 
-  val _         = (sharedProtocol.js / Compile / fullLinkJS).value
-  val sourceDir = (sharedProtocol.js / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
-  val targetDir = file("docs/public/content-lab")
-
-  log.info(s"Copying shared Scala.js output from $sourceDir to $targetDir")
-  IO.delete(targetDir)
-  IO.createDirectory(targetDir)
-  IO.copyDirectory(sourceDir, targetDir, overwrite = true)
-
-  log.info(s"Shared content lab built and copied to $targetDir")
+prepareFrontendNodeModules := {
+  val source = (ThisBuild / baseDirectory).value / "docs" / "node_modules"
+  val link   = (ThisBuild / baseDirectory).value / "node_modules"
+  if (!source.isDirectory) {
+    sys.error("Missing docs/node_modules. Run `npm ci --prefix docs` before Scala.js browser-module tests or docs builds.")
+  }
+  if (!java.nio.file.Files.exists(link.toPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+    java.nio.file.Files.createSymbolicLink(link.toPath, source.toPath)
+  }
 }
 
-// Task to build Quasar frontend and copy to docs
-lazy val buildQuasarFrontend = taskKey[Unit]("Build Quasar Scala.js frontend and copy to docs")
-buildQuasarFrontend := {
+buildContentLab := {
   val log = Keys.streams.value.log
-  log.info("Building Quasar Scala.js frontend...")
+  log.info("Building streamed Scala.js content lab...")
 
-  val report    = (quasarFrontend / Compile / fastLinkJS).value
-  val sourceDir = (quasarFrontend / Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value
-  val targetDir = file("docs/public/quasar/js")
+  val _modules   = prepareFrontendNodeModules.value
+  val _         = (contentLab / Compile / fullLinkJS).value
+  val sourceDir = (contentLab / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+  val targetDir = file("docs/.vitepress/generated/content-lab")
+  val _pdf      = (pdfContentLab / Compile / fullLinkJS).value
+  val pdfSource = (pdfContentLab / Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+  val pdfTarget = file("docs/.vitepress/generated/pdf-lab")
 
-  log.info(s"Copying Quasar Scala.js output from $sourceDir to $targetDir")
+  log.info(s"Copying Scala.js output from $sourceDir to $targetDir for Vite bundling")
   IO.delete(targetDir)
   IO.createDirectory(targetDir)
   IO.copyDirectory(sourceDir, targetDir, overwrite = true)
+  IO.delete(pdfTarget)
+  IO.createDirectory(pdfTarget)
+  IO.copyDirectory(pdfSource, pdfTarget, overwrite = true)
 
-  log.info(s"Quasar frontend built and copied to $targetDir")
+  log.info(s"Streamed content lab built and copied to $targetDir")
 }
 
 // Combined task to build all docs assets
@@ -296,8 +299,7 @@ lazy val buildDocsAssets = taskKey[Unit]("Build all documentation assets")
 buildDocsAssets := Def.sequential(
   generateDocs,
   buildContentLab,
-  buildFrontend,
-  buildQuasarFrontend
+  buildFrontend
 ).value
 
 lazy val docs = (project in file("docs-mdoc"))
@@ -353,9 +355,6 @@ lazy val root = (project in file(".")).aggregate(
   runtime,
   pdf,
   cli,
-  quasarCore,
-  quasarHttp,
-  quasarLegacy,
   proto,
   grpc,
   http,
@@ -368,7 +367,6 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.jvm,
   sharedProtocol.js,
   frontend,
-  quasarFrontend,
   docs,
 ).settings(
   baseSettings,
@@ -500,6 +498,19 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
   .dependsOn(core, streams, sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-runtime",
+    // v0.5.0 emitted constructor, apply, and copy methods for these private
+    // ingest-loop accumulators. Byte-reuse metrics added private fields without
+    // changing any source-visible runtime API, but MiMa cannot recover the
+    // Scala-private boundary from the classfiles. Exclude only those private
+    // synthetic methods and continue checking every public runtime symbol.
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.apply"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistAcc.copy"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.apply"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.this"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("graviton.runtime.stores.CasBlobStore#PersistSummary.copy"),
+    ),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio"         % V.zio,
       "dev.zio" %% "zio-streams" % V.zio,
@@ -730,46 +741,6 @@ lazy val server = (project in file("modules/server/graviton-server"))
     ),
   )
 
-lazy val quasarCore = (project in file("modules/quasar-core"))
-  .dependsOn(core)
-  .settings(
-    baseSettings,
-    name := "quasar-core",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-json" % V.zioJson,
-      "dev.zio" %% "zio-test"          % V.zio % Test,
-      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
-      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
-    ),
-  )
-
-lazy val quasarHttp = (project in file("modules/quasar-http"))
-  .dependsOn(quasarCore, quasarLegacy)
-  .settings(
-    baseSettings,
-    name := "quasar-http",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-http" % V.zioHttp,
-      "org.postgresql" % "postgresql" % V.pg,
-    ),
-  )
-
-lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
-  .dependsOn(quasarCore, runtime, http)
-  .settings(
-    baseSettings,
-    name := "quasar-legacy",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "org.postgresql" % "postgresql" % V.pg,
-    ),
-  )
-
 // Shared protocol models for JVM and JS
 lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
   .crossType(CrossType.Full)
@@ -815,25 +786,47 @@ lazy val frontend = (project in file("modules/frontend"))
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
   )
+// Browser-only streamed CAS comparison. It is kept out of graviton-shared so
+// the published protocol artifact does not inherit a documentation UI runtime.
+lazy val contentLab = (project in file("modules/frontend/graviton-content-lab"))
+  .enablePlugins(ScalaJSPlugin)
+  .dependsOn(sharedProtocol.js)
+  .settings(
+    baseSettings,
+    name := "graviton-content-lab",
+    publish / skip := true,
+    Test / fork := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
+    Test / test := (Test / test).dependsOn(LocalRootProject / prepareFrontendNodeModules).value,
+    libraryDependencies ++= Seq(
+      "dev.zio"              %%% "zio"         % V.zio,
+      "dev.zio"              %%% "zio-streams" % V.zio,
+      "io.github.adrielc"    %%% "zio-pdf"     % V.zioPdf,
+      "io.github.iltotore"   %%% "iron"        % V.iron,
+      "org.scala-js"         %%% "scalajs-dom" % V.scalajsDom,
+      "dev.zio"              %%% "zio-test"     % V.zio % Test,
+      "dev.zio"              %%% "zio-test-sbt" % V.zio % Test,
+    ),
+  )
 
-// Quasar frontend module with Scala.js + Laminar
-lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
+// The document graph editor is separately linked so ordinary file comparison
+// does not pay its download and parse cost. This module is loaded only after a
+// PDF has been identified and remains protected by BrowserPdfTools' byte cap.
+lazy val pdfContentLab = (project in file("modules/frontend/graviton-pdf-lab"))
   .enablePlugins(ScalaJSPlugin)
   .settings(
     baseSettings,
-    name := "quasar-frontend",
+    name := "graviton-pdf-lab",
     publish / skip := true,
-    Test / fork := false, // Scala.js tests cannot be forked
-    scalaJSUseMainModuleInitializer := true,
-    scalaJSLinkerConfig ~= {
-      _.withModuleKind(ModuleKind.ESModule)
-        .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("quasar.frontend")))
-    },
+    Test / fork := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
     libraryDependencies ++= Seq(
-      "dev.zio"      %%% "zio"         % V.zio,
-      "dev.zio"      %%% "zio-json"    % V.zioJson,
-      "com.raquo"    %%% "laminar"     % V.laminar,
-      "com.raquo"    %%% "waypoint"    % V.waypoint,
-      "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,
+      "dev.zio"              %%% "zio"         % V.zio,
+      "dev.zio"              %%% "zio-streams" % V.zio,
+      "io.github.adrielc"    %%% "zio-pdf"     % V.zioPdf,
+      "io.github.iltotore"   %%% "iron"        % V.iron,
+      "org.scala-js"         %%% "scalajs-dom" % V.scalajsDom,
+      "dev.zio"              %%% "zio-test"     % V.zio % Test,
+      "dev.zio"              %%% "zio-test-sbt" % V.zio % Test,
     ),
   )

@@ -33,6 +33,12 @@ Under `graviton.runtime.constraints` you will find:
 
 These abstractions will be composed by higher-level services (CLI ingest, HTTP gateways, background repair) once wiring is complete.
 
+## Upload orchestration
+
+`UploadIngestor` is the transport-neutral service for one-pass ingest preparation. HTTP, the packaged gRPC server, and Shardcake owners pass it an `UploadIntent` and a live byte stream. It performs optional declared-size validation, bounded media sniffing, keyed `ChunkerProvider` selection, scoped acquisition, attribute confirmation, and CAS storage.
+
+The probe is an Iron-refined `Chunk[Byte]` with a 4 KiB compile-time ceiling. Provider and detector identifiers are refined, and media routing uses normalized ZIO Blocks `MediaType` keys. Detectors see only the bounded prefix; they never consume or collect the upload. Unknown formats select the registered default provider without recording a fabricated detected type.
+
 ## Metrics facade
 
 - `MetricsRegistry` offers a uniform API for counters, gauges, and histograms.

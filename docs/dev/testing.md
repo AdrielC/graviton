@@ -21,16 +21,17 @@ TESTCONTAINERS=0 ./sbt 'core/test' 'streams/test' 'runtime/test'
 
 The root project aggregates JVM modules and both `graviton-shared` platforms. A root `test` therefore includes the Scala.js contract suite.
 
-## Shared JVM and Scala.js parity
+## Shared and browser Scala.js contracts
 
-Run the bounded content-addressing contract explicitly when changing shared types, digest validation, or the docs playground:
+Run the bounded shared contract and link both browser modules when changing shared types, digest validation, or the docs playground:
 
 ```bash
 ./sbt 'sharedProtocolJVM/test' 'sharedProtocolJS/test'
-./sbt buildContentLab
+npm ci --prefix docs
+./sbt 'contentLab/test' 'pdfContentLab/test' buildContentLab
 ```
 
-The shared suite runs the same SHA-256 known vector, empty-input behavior, repeated-block analysis, boundary rejection, and content-key text round trip on JCA and Web Crypto. `buildContentLab` links the exported Scala.js function used by VitePress.
+The shared suite runs the same SHA-256 known vector, empty-input behavior, repeated-block analysis, boundary rejection, and content-key text round trip on JCA and Web Crypto. The content-lab suite covers exact streamed identity, manifest overflow, reusable source opening, and interruption cleanup. `buildContentLab` separately links the streamed file analyzer and bounded ZIO PDF editor used by VitePress.
 
 ## Runtime contracts
 
@@ -84,8 +85,8 @@ The packaged smoke test uploads real bytes, compares downloads byte-for-byte, ve
 ## Documentation
 
 ```bash
-./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
+./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm run docs:build --prefix docs
 ```
 

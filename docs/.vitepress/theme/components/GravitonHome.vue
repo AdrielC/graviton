@@ -12,8 +12,9 @@
         />
         <h1 id="graviton-home-title">Store bytes by what they are.</h1>
         <p>
-          Graviton streams files into immutable, content-addressed blocks. Durable manifests put the exact
-          bytes back together, while repeated blocks are stored once.
+          Graviton streams arbitrary bytes into immutable, content-addressed blocks. Durable manifests put the
+          exact bytes back together, while repeated blocks are stored once. Document semantics stay outside the
+          storage runtime.
         </p>
         <div class="graviton-home-actions">
           <a class="graviton-action graviton-action--primary" :href="withBase('/guide/getting-started')">
@@ -130,13 +131,13 @@
 
     <section class="graviton-home-section graviton-home-lab" aria-labelledby="graviton-home-lab-title">
       <header>
-        <h2 id="graviton-home-lab-title">Change the bytes. Watch identity change.</h2>
+        <h2 id="graviton-home-lab-title">See what changed without storing it twice.</h2>
         <p>
-          This bounded browser lab runs the shared Scala.js analyzer and Web Crypto locally. It demonstrates
-          content identity and block reuse without pretending to persist anything.
+          Drop real files into the streamed Scala.js analyzer. It maps exact block overlap locally and loads
+          ZIO PDF only when the bytes identify a PDF. Nothing on this static page claims persistence.
         </p>
       </header>
-      <PipelinePlayground />
+      <PipelinePlayground compact />
       <a class="graviton-inline-link" :href="withBase('/cas-playground')">
         Open the full CAS Playground <span aria-hidden="true">→</span>
       </a>

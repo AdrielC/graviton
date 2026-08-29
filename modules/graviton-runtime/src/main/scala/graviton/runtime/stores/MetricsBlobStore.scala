@@ -1,6 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
 import zio.*
@@ -37,6 +38,13 @@ final class MetricsBlobStore(
 
   override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     instrumentStream("get")(underlying.get(key))
+
+  override def getRange(
+    key: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    instrumentStream("get_range")(underlying.getRange(key, start, length))
 
   override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
     instrument("stat")(underlying.stat(key))

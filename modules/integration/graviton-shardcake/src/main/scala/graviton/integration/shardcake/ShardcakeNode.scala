@@ -2,6 +2,7 @@ package graviton.integration.shardcake
 
 import com.devsisters.shardcake.interfaces.{Pods, Serialization, Storage}
 import com.devsisters.shardcake.{Config, GrpcConfig, GrpcPods, GrpcShardingService, ShardManagerClient, Sharding}
+import graviton.pdf.PdfUploadSupport
 import graviton.runtime.stores.BlobStore
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.upload.*
@@ -67,6 +68,7 @@ object ShardcakeNode:
       Client.default,
       UploadSessionContext.live,
       configuredHotState,
+      PdfUploadSupport.layer(),
       CasUploadNodeIngest.live,
       ZioHttpUploadNodeTransport.live,
       ShardcakeUploadPlacement.live,

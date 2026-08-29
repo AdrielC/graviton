@@ -3,12 +3,14 @@ package graviton.runtime.catalog
 import graviton.core.attributes.IngestStats
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.shared.MediaTypeText
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.MaxLength
 import zio.*
 import zio.blocks.mediatype.MediaType
 import zio.blocks.schema.*
 
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
+import java.io.{FilterOutputStream, OutputStream, OutputStreamWriter}
+import java.nio.channels.{Channels, FileChannel}
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardCopyOption.{ATOMIC_MOVE, REPLACE_EXISTING}
 import java.nio.file.StandardOpenOption.{CREATE, TRUNCATE_EXISTING, WRITE}
@@ -18,7 +20,8 @@ import java.time.Instant
 /**
  * Restart-safe catalog for the single-node filesystem runtime.
  *
- * The complete metadata document is bounded before it is materialized and is
+ * Catalog input is read into a compile-time-refined byte buffer only after its
+ * runtime ceiling is enforced. Output is encoded through a bounded stream and
  * replaced atomically after each mutation. Immutable blob bytes remain under
  * the CAS retention policy and are never copied into this catalog.
  */
@@ -94,8 +97,11 @@ final class FsCatalog private (path: Path, state: Ref.Synchronized[FsCatalog.Sta
     }
 
 object FsCatalog:
-  private val Version         = 1
-  private val MaxCatalogBytes = 16L * 1024L * 1024L
+  private val Version = 1
+
+  private type CatalogBytes = Array[Byte] :| MaxLength[16777216]
+
+  private[catalog] val MaxCatalogBytes = 16 * 1024 * 1024
 
   private final case class DiskFolder(id: String, parent: Option[String], name: String, createdAt: String)
   private object DiskFolder:
@@ -142,8 +148,9 @@ object FsCatalog:
       if !Files.exists(path) then State(Map.empty, Map.empty)
       else
         val size  = Files.size(path)
-        if size > MaxCatalogBytes then throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound: $path")
-        val bytes = Files.readAllBytes(path)
+        if size > MaxCatalogBytes.toLong then
+          throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound: $path")
+        val bytes = readBounded(path)
         val disk  = new String(bytes, StandardCharsets.UTF_8)
           .fromJson[DiskState]
           .fold(error => throw new IllegalStateException(s"Catalog is invalid: $error"), identity)
@@ -152,19 +159,22 @@ object FsCatalog:
 
   private def persist(path: Path, state: State): Task[Unit] =
     ZIO.attemptBlocking {
-      val bytes  = encode(state).toJsonString.getBytes(StandardCharsets.UTF_8)
-      if bytes.length.toLong > MaxCatalogBytes then
-        throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound")
+      val json   = encode(state).toJsonString
       val parent = path.getParent
       Files.createDirectories(parent)
       val temp   = Files.createTempFile(parent, ".catalog-v1-", ".tmp")
       try
         val channel = FileChannel.open(temp, CREATE, WRITE, TRUNCATE_EXISTING)
         try
-          val buffer = ByteBuffer.wrap(bytes)
-          while buffer.hasRemaining do
-            val _ = channel.write(buffer)
-          channel.force(true)
+          val writer = new OutputStreamWriter(
+            BoundedOutputStream(Channels.newOutputStream(channel), MaxCatalogBytes.toLong),
+            StandardCharsets.UTF_8,
+          )
+          try
+            writer.write(json)
+            writer.flush()
+            channel.force(true)
+          finally writer.close()
         finally channel.close()
         try Files.move(temp, path, ATOMIC_MOVE, REPLACE_EXISTING)
         catch case _: AtomicMoveNotSupportedException => Files.move(temp, path, REPLACE_EXISTING)
@@ -172,6 +182,36 @@ object FsCatalog:
         Files.deleteIfExists(temp)
         ()
     }.unit
+
+  private def readBounded(path: Path): CatalogBytes =
+    val input = Files.newInputStream(path)
+    try
+      val bytes = input.readNBytes(MaxCatalogBytes + 1)
+      if bytes.length > MaxCatalogBytes then
+        throw new IllegalStateException(s"Catalog exceeds the $MaxCatalogBytes-byte metadata bound: $path")
+      bytes
+        .refineEither[MaxLength[16777216]]
+        .fold(message => throw new IllegalStateException(message), identity)
+    finally input.close()
+
+  private final class BoundedOutputStream private (delegate: OutputStream, limit: Long) extends FilterOutputStream(delegate):
+    private var written = 0L
+
+    private def reserve(length: Int): Unit =
+      val next = java.lang.Math.addExact(written, length.toLong)
+      if next > limit then throw new IllegalStateException(s"Catalog exceeds the $limit-byte metadata bound")
+      written = next
+
+    override def write(value: Int): Unit =
+      reserve(1)
+      out.write(value)
+
+    override def write(bytes: Array[Byte], offset: Int, length: Int): Unit =
+      reserve(length)
+      out.write(bytes, offset, length)
+
+  private object BoundedOutputStream:
+    def apply(delegate: OutputStream, limit: Long): BoundedOutputStream = new BoundedOutputStream(delegate, limit)
 
   private def encode(state: State): DiskState =
     DiskState(

@@ -181,7 +181,7 @@ If you modify the PostgreSQL schema:
 
 (For maintainers)
 
-1. Set `versionPolicyIntention` to the compatibility promised by the release.
+1. Set `versionPolicyIntention` to the compatibility promised by the release. A pre-1.0 minor boundary may use `Compatibility.None`; release notes must name the removed public surfaces.
 2. Run `./scripts/verify-version-compatibility.sh`.
 3. Tag the release. `sbt-dynver` derives the version from the tag:
    ```bash

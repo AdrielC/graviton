@@ -1,6 +1,6 @@
 # HTTP Blob API
 
-The canonical pre-1.0 surface is `/api/v1`. The legacy `/api/blobs` aliases return `Deprecation: true` and `Link: </api/v1/blobs>; rel=successor-version`.
+The pre-1.0 HTTP surface is `/api/v1`. Graviton ships one blob contract and no compatibility aliases.
 
 Default base URL: `http://localhost:8081`.
 
@@ -54,6 +54,15 @@ BLOB_ID="$(jq -r '.blob.id' <<<"$UPLOAD_JSON")"
 Success returns `201 Created` only after the manifest is persisted. `Location` points at the canonical blob URL and `ETag` contains the content key digest. Retrying identical bytes naturally returns the same content ID and reuses existing blocks.
 
 Empty bodies return `400`. The configured maximum is enforced while streaming even if `Content-Length` is absent or dishonest. Authenticated uploads also consume a per-principal byte budget.
+
+`Content-Length`, when present, is also treated as an exact declared size. Overflow stops the live stream and underflow fails at EOF before manifest publication. The runtime then inspects one prefix of at most 4 KiB. The packaged detector currently recognizes PDF's `%PDF-` signature:
+
+- omitted `Content-Type` or `application/octet-stream` plus `%PDF-` selects PDF-aware chunking
+- `application/pdf` plus a non-PDF signature returns `400`
+- a concrete non-PDF claim plus `%PDF-` returns `400`
+- formats without a registered detector use the configured default chunker
+
+The probe is replayed exactly once into storage. The server never collects the request body to classify it.
 
 The packaged server explicitly enables ZIO HTTP request streaming. Scala applications can use the [typed streaming SDK](../guide/scala-sdk.md), which selects known-length or chunked streaming bodies without collecting payload bytes.
 
