@@ -185,8 +185,12 @@ final class ReplicatedBlockStore private (
     yield ()
 
   private def replaceReplica(replica: Replica, block: CanonicalBlock, trigger: String): Task[Unit] =
-    replica.store
-      .repairBlock(block)
+    val replace =
+      replica.store match
+        case repairable: RepairableBlockStore => repairable.repairBlock(block)
+        case compatible                       => compatible.putBlock(block).unit
+
+    replace
       .tapBoth(
         _ =>
           metrics
@@ -197,12 +201,22 @@ final class ReplicatedBlockStore private (
       )
 
 object ReplicatedBlockStore:
-  final case class Replica(name: String, failureDomain: String, store: RepairableBlockStore):
+  final case class Replica(name: String, store: BlockStore, failureDomain: String):
     require(name.trim.nonEmpty, "replica name must be non-empty")
     require(failureDomain.trim.nonEmpty, "replica failureDomain must be non-empty")
 
+    /** Binary-compatible constructor for the public replica descriptor shipped in 0.6.1. */
+    def this(name: String, store: BlockStore) = this(name, store, name)
+
+    /** Binary-compatible copy method for the public replica descriptor shipped in 0.6.1. */
+    def copy(name: String, store: BlockStore): Replica = new Replica(name, store, failureDomain)
+
   object Replica:
-    def apply(name: String, store: RepairableBlockStore): Replica = Replica(name, name, store)
+    /** Binary-compatible factory for the public replica descriptor shipped in 0.6.1. */
+    def apply(name: String, store: BlockStore): Replica = new Replica(name, store)
+
+    def apply(name: String, failureDomain: String, store: RepairableBlockStore): Replica =
+      new Replica(name, store, failureDomain)
 
   final case class WriteQuorumFailed(required: Int, succeeded: Int, total: Int)
       extends RuntimeException(s"Block write quorum failed: required=$required succeeded=$succeeded total=$total")
@@ -218,6 +232,11 @@ object ReplicatedBlockStore:
     repairedReplicas: Int,
     failedReplicas: Map[String, String],
   )
+
+  /** Retained for binary compatibility with 0.6.1. New repair internals validate one bounded candidate at a time. */
+  private enum ReplicaState:
+    case Valid(replica: Replica, bytes: Chunk[Byte])
+    case Unavailable(replica: Replica, error: Throwable)
 
   def make(replicas: Chunk[Replica], writeQuorum: Int): Either[String, ReplicatedBlockStore] =
     make(replicas, replicas.length, writeQuorum, ReplicaPlacement.rendezvous, MetricsRegistry.noop)

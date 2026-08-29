@@ -21,9 +21,57 @@ final case class GravitonConfig(
   pg: GravitonConfig.PgConfig = GravitonConfig.PgConfig(),
   resumableUploads: ResumableUploadConfig = ResumableUploadConfig.Default,
   replication: ReplicationConfig = ReplicationConfig.Default,
-)
+):
+  /** Binary-compatible constructor for the public configuration shipped in 0.6.1. */
+  def this(
+    httpPort: Int,
+    grpcPort: Int,
+    blobBackend: String,
+    dataDir: String,
+    chunkSize: Int,
+    fs: GravitonConfig.FsConfig,
+    s3: GravitonConfig.S3EnvConfig,
+    pg: GravitonConfig.PgConfig,
+  ) = this(httpPort, grpcPort, blobBackend, dataDir, chunkSize, fs, s3, pg, ResumableUploadConfig.Default, ReplicationConfig.Default)
+
+  /** Binary-compatible copy method for the public configuration shipped in 0.6.1. */
+  def copy(
+    httpPort: Int,
+    grpcPort: Int,
+    blobBackend: String,
+    dataDir: String,
+    chunkSize: Int,
+    fs: GravitonConfig.FsConfig,
+    s3: GravitonConfig.S3EnvConfig,
+    pg: GravitonConfig.PgConfig,
+  ): GravitonConfig =
+    new GravitonConfig(
+      httpPort,
+      grpcPort,
+      blobBackend,
+      dataDir,
+      chunkSize,
+      fs,
+      s3,
+      pg,
+      resumableUploads,
+      replication,
+    )
 
 object GravitonConfig:
+
+  /** Binary-compatible factory for the public configuration shipped in 0.6.1. */
+  def apply(
+    httpPort: Int,
+    grpcPort: Int,
+    blobBackend: String,
+    dataDir: String,
+    chunkSize: Int,
+    fs: FsConfig,
+    s3: S3EnvConfig,
+    pg: PgConfig,
+  ): GravitonConfig =
+    new GravitonConfig(httpPort, grpcPort, blobBackend, dataDir, chunkSize, fs, s3, pg)
 
   final case class FsConfig(
     root: String = ".graviton",

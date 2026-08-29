@@ -306,6 +306,18 @@ object GravitonClient {
     require(resumableRetryBaseDelay > Duration.Zero, "resumableRetryBaseDelay must be positive")
     require(resumableRetryMaxDelay >= resumableRetryBaseDelay, "resumableRetryMaxDelay must not be below the base delay")
 
+    /** Binary-compatible constructor for the public SDK configuration shipped in 0.6.1. */
+    def this(baseUrl: URL, defaultHeaders: Headers) =
+      this(baseUrl, defaultHeaders, ResumableRetryLimit.Default, 100.millis, 2.seconds)
+
+    /** Binary-compatible copy method for the public SDK configuration shipped in 0.6.1. */
+    def copy(baseUrl: URL, defaultHeaders: Headers): Config =
+      new Config(baseUrl, defaultHeaders, resumableRetryLimit, resumableRetryBaseDelay, resumableRetryMaxDelay)
+
+  object Config:
+    /** Binary-compatible factory for the public SDK configuration shipped in 0.6.1. */
+    def apply(baseUrl: URL, defaultHeaders: Headers): Config = new Config(baseUrl, defaultHeaders)
+
   final case class Upload(
     bytes: ZStream[Any, Throwable, Byte],
     contentType: BlocksMediaType,

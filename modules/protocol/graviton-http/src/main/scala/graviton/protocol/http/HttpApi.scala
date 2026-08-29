@@ -39,6 +39,23 @@ final case class HttpApi(
   resumableUploads: Option[ResumableUploadService] = None,
 ) {
 
+  /** Binary-compatible constructor for the public HTTP API shipped in 0.6.1. */
+  def this(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+    localizedUpload: Option[LocalityAwareUpload],
+  ) = this(blobStore, metrics, security, localizedUpload, None)
+
+  /** Binary-compatible copy method for the public HTTP API shipped in 0.6.1. */
+  def copy(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+    localizedUpload: Option[LocalityAwareUpload],
+  ): HttpApi =
+    new HttpApi(blobStore, metrics, security, localizedUpload, resumableUploads)
+
   private final case class UploadOutcome(
     key: BinaryKey.Blob,
     stats: graviton.core.attributes.IngestStats,
@@ -773,3 +790,12 @@ object HttpApi:
     security: Option[HttpSecurityPolicy],
   ): HttpApi =
     new HttpApi(blobStore, metrics, security, None)
+
+  /** Binary-compatible factory retained for the published 0.6.1 API. */
+  def apply(
+    blobStore: BlobStore,
+    metrics: Option[MetricsHttpApi],
+    security: Option[HttpSecurityPolicy],
+    localizedUpload: Option[LocalityAwareUpload],
+  ): HttpApi =
+    new HttpApi(blobStore, metrics, security, localizedUpload)

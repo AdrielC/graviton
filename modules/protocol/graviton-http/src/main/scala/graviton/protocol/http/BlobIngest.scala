@@ -25,7 +25,8 @@ trait BlobIngest:
     session: UploadSessionKey,
     intent: UploadIntent,
     bytes: ZStream[Any, Throwable, Byte],
-  ): IO[BlobIngest.Error, BlobIngest.Result]
+  ): IO[BlobIngest.Error, BlobIngest.Result] =
+    upload(Some(session), intent, bytes)
 
 object BlobIngest:
   final case class Result(
