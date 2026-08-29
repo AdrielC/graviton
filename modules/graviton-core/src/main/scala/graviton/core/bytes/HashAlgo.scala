@@ -110,10 +110,10 @@ object HashAlgo:
         .hasher(algo, provider)
         .map(h => Hasher.unsafeMessageDigest(h.algo, provider))
 
-  /** Preferred hash order (BLAKE3 first, then SHA-256 for FIPS environments, finally SHA-1 for legacy). */
+  /** Stable hash order: SHA-256 by default, SHA-1 for legacy keys, and provider-dependent BLAKE3 when requested. */
   val preferredOrder: NonEmptyChunk[HashAlgo] = NonEmptyChunk(HashAlgo.Sha256, HashAlgo.Sha1, HashAlgo.Blake3)
 
-  /** Primary build-time default (kept as BLAKE3 for performance). */
+  /** Primary build-time default. Changing this would change newly derived content IDs. */
   val default: HashAlgo = preferredOrder.head
 
   /** Detects the first available provider from [[preferredOrder]]. */

@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.manifest.ManifestEntry
+import graviton.core.manifest.{FramedManifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.types.{BlobOffset, FileSize, UploadChunkSize}
 import graviton.streams.Chunker
@@ -103,6 +103,24 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             _       <- ZIO.attemptBlocking(Files.write(repo.pathFor(blob), Array[Byte](1, 2, 3)))
             failure <- repo.get(blob).exit
           yield assertTrue(failure.isFailure)
+        }
+      },
+      test("rejects the retired framed-manifest storage format") {
+        withTempDir { root =>
+          val data = Chunk.fromArray("current-format-only".getBytes(StandardCharsets.UTF_8))
+
+          for
+            store   <- makeStore(root)
+            result  <- ZStream.fromChunk(data).run(store.put())
+            repo     = new FsBlobManifestRepo(root)
+            stored  <- repo.get(result.key).someOrFail(new NoSuchElementException("manifest missing"))
+            retired <- ZIO.fromEither(FramedManifest.encode(stored.manifest)).mapError(new IllegalArgumentException(_))
+            _       <- ZIO.attemptBlocking(Files.write(repo.pathFor(result.key), retired.bytes))
+            failure <- repo.get(result.key).exit
+          yield assertTrue(
+            failure.isFailure,
+            failure.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("Not a Graviton streaming manifest")),
+          )
         }
       },
       test("concurrent idempotent writes remain decodable") {

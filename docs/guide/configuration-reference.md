@@ -59,6 +59,7 @@ The `/api/blobs` aliases remain available with `Deprecation: true` and a success
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
 | `GRAVITON_GRPC_PORT` | `9090` | no | Port for the gRPC server. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
+| `GRAVITON_BLOCK_WRITE_PARALLELISM` | `4` | no | Concurrent bounded block writes per ingest. Must be between `1` and `64`. |
 
 ### Local DataStar console
 
@@ -160,6 +161,8 @@ From `S3BlockStore`, block objects are written under:
 Example:
 
 - `cas/blocks/blake3/0123abcd...-1048576`
+
+The S3-compatible endpoint must support `PutObject` with `If-None-Match: *`, SHA-256 request checksums, `HeadObject`, and user metadata. Graviton uses those features to create an immutable content key atomically and to verify duplicate writes without fetching object bodies. Objects without the complete current Graviton proof metadata are rejected.
 
 Quarantined objects use the configured block prefix followed by `.graviton-quarantine/`. Applications should access them through `BlockMaintenance`, not by constructing object keys.
 

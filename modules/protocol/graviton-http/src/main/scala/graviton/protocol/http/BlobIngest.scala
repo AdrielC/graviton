@@ -1,14 +1,11 @@
 package graviton.protocol.http
 
-import graviton.core.attributes.{BinaryAttributes, IngestStats}
+import graviton.core.attributes.IngestStats
 import graviton.core.keys.BinaryKey
-import graviton.core.types.FileSize
-import graviton.pdf.PdfIngest
-import graviton.runtime.model.BlobWritePlan
+import graviton.pdf.PdfUploadSupport
 import graviton.runtime.stores.BlobStore
-import graviton.runtime.upload.{LocalityAwareUpload, UploadByteStream, UploadIntent, UploadNode, UploadSessionKey}
+import graviton.runtime.upload.{LocalityAwareUpload, UploadIngestor, UploadIntent, UploadNode, UploadSessionKey}
 import zio.*
-import zio.blocks.mediatype.MediaType
 import zio.stream.ZStream
 
 /** One streaming ingest path shared by the public API and local operator UI. */
@@ -38,7 +35,10 @@ object BlobIngest:
     final case class Storage(cause: Throwable)                        extends Exception("Blob ingest failed", cause) with Error
 
   def make(blobStore: BlobStore, localizedUpload: Option[LocalityAwareUpload]): BlobIngest =
-    new Live(blobStore, localizedUpload)
+    make(PdfUploadSupport.ingestor(blobStore), localizedUpload)
+
+  def make(uploadIngestor: UploadIngestor, localizedUpload: Option[LocalityAwareUpload]): BlobIngest =
+    new Live(uploadIngestor, localizedUpload)
 
   def upload(
     session: Option[UploadSessionKey],
@@ -52,8 +52,13 @@ object BlobIngest:
   ): ZLayer[BlobStore, Nothing, BlobIngest] =
     ZLayer.fromFunction((blobStore: BlobStore) => make(blobStore, localizedUpload))
 
+  def configuredLayer(
+    localizedUpload: Option[LocalityAwareUpload]
+  ): ZLayer[UploadIngestor, Nothing, BlobIngest] =
+    ZLayer.fromFunction((uploadIngestor: UploadIngestor) => make(uploadIngestor, localizedUpload))
+
   private final class Live(
-    blobStore: BlobStore,
+    uploadIngestor: UploadIngestor,
     localizedUpload: Option[LocalityAwareUpload],
   ) extends BlobIngest:
     override def upload(
@@ -70,29 +75,16 @@ object BlobIngest:
         case (Some(_), None)              =>
           ZIO.fail(Error.LocalityUnavailable)
         case _                            =>
-          ZIO
-            .fromEither(plan(intent.contentType, intent.expectedSize))
-            .mapError(Error.InvalidInput(_))
-            .flatMap { writePlan =>
-              val checked = UploadByteStream.enforceExpectedSize(bytes, intent.expectedSize)
-              val stored  =
-                if PdfIngest.accepts(intent.contentType) then PdfIngest.put(blobStore, intent.contentType, checked, writePlan)
-                else checked.run(blobStore.put(writePlan))
-              stored.map(result => Result(result.key, result.stats, None))
-            }
+          uploadIngestor
+            .put(intent, bytes)
+            .map(result => Result(result.stored.key, result.stored.stats, None))
             .mapError {
-              case error: Error                           => error
-              case error: HttpSecurityPolicy.BodyRejected => Error.Rejected(error)
-              case error: IllegalArgumentException        =>
+              case UploadIngestor.Error.InvalidInput(message)                          => Error.InvalidInput(message)
+              case mismatch: UploadIngestor.Error.MediaTypeMismatch                    => Error.InvalidInput(mismatch.getMessage)
+              case ambiguous: UploadIngestor.Error.AmbiguousDetection                  => Error.InvalidInput(ambiguous.getMessage)
+              case validation: UploadIngestor.Error.Validation                         => Error.InvalidInput(validation.getMessage)
+              case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected) => Error.Rejected(error)
+              case UploadIngestor.Error.Storage(error: IllegalArgumentException)       =>
                 Error.InvalidInput(Option(error.getMessage).getOrElse("Invalid blob"))
-              case error                                  => Error.Storage(error)
+              case error: UploadIngestor.Error                                         => Error.Storage(error)
             }
-
-    private def plan(
-      mediaType: MediaType,
-      expectedSize: Option[FileSize],
-    ): Either[String, BlobWritePlan] =
-      expectedSize
-        .fold(BinaryAttributes.empty)(BinaryAttributes.empty.advertiseSize)
-        .advertiseMediaType(mediaType)
-        .map(attributes => BlobWritePlan(attributes = attributes))

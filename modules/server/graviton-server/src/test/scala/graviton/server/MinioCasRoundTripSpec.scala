@@ -2,10 +2,12 @@ package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgDataSource}
 import graviton.backend.s3.{S3BlockStore, S3ClientLayer, S3Config, S3MutableObjectStore, S3ObjectStoreConfig}
+import graviton.core.bytes.Hasher
 import graviton.core.locator.BlobLocator
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, UploadChunkSize}
+import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.model.BlobWritePlan
-import graviton.runtime.stores.{BlobStore, BlockStore, CasBlobStore}
+import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
@@ -39,7 +41,13 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
       PgDataSource.layerFromEnv,
       PgBlobManifestRepo.layer,
       s3StoreLayer,
-      CasBlobStore.layer,
+      ZLayer.fromFunction((blocks: BlockStore, manifests: BlobManifestRepo) =>
+        new CasBlobStore(
+          blocks,
+          manifests,
+          persistenceConfig = BlockPersistenceConfig.default,
+        ): BlobStore
+      ),
     )
 
   private val objectClientLayer: ZLayer[Any, Throwable, S3Client] =
@@ -75,6 +83,40 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
                         }
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
+        },
+        test("32 MiB streamed upload and duplicate use bounded parallel conditional writes") {
+          val blockSize                                      = UploadChunkSize(1024 * 1024)
+          val blockCount                                     = 32
+          val totalBytes                                     = blockSize.value.toLong * blockCount.toLong
+          def payload                                        =
+            ZStream
+              .fromIterable(0 until blockCount)
+              .flatMap(index => ZStream.fromChunk(Chunk.fill(blockSize.value)((index + 1).toByte)))
+          def elapsedSeconds(start: Long, end: Long): Double =
+            (end - start).toDouble / 1_000_000_000d
+
+          for
+            store          <- ZIO.service[BlobStore]
+            freshStart     <- Live.live(Clock.nanoTime)
+            fresh          <- Chunker.locally(Chunker.fixed(blockSize))(payload.run(store.put(BlobWritePlan())))
+            freshEnd       <- Live.live(Clock.nanoTime)
+            duplicateStart <- Live.live(Clock.nanoTime)
+            duplicate      <- Chunker.locally(Chunker.fixed(blockSize))(payload.run(store.put(BlobWritePlan())))
+            duplicateEnd   <- Live.live(Clock.nanoTime)
+            verifiedKey    <- store.get(fresh.key).run(Hasher.sink())
+            _              <- ZIO.logInfo(
+                                f"minio-cas-benchmark bytes=$totalBytes freshSeconds=${elapsedSeconds(freshStart, freshEnd)}%.6f " +
+                                  f"duplicateSeconds=${elapsedSeconds(duplicateStart, duplicateEnd)}%.6f " +
+                                  s"freshBlocks=${fresh.stats.freshBlocks} duplicateBlocks=${duplicate.stats.duplicateBlocks}"
+                              )
+          yield assertTrue(
+            fresh.key == duplicate.key,
+            fresh.stats.totalBytes == totalBytes,
+            fresh.stats.blockCount == blockCount,
+            fresh.stats.freshBlocks == blockCount,
+            duplicate.stats.duplicateBlocks == blockCount,
+            verifiedKey == fresh.key.bits,
+          )
         },
         test("S3 block quarantine can be restored without losing blob bytes") {
           val data = Chunk.fromArray(("s3-quarantine-restore-" * 100).getBytes(StandardCharsets.UTF_8))

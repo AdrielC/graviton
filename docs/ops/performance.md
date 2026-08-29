@@ -23,11 +23,21 @@ The script performs a real upload, byte-for-byte download comparison, and server
 - operating system, Python, and Java version
 - operator-supplied backend description
 - payload byte count and SHA-256
+- fresh and duplicate block counts reported by the server
 - upload and download duration and MiB/s
+- server-side ingest duration
 - verification duration
 - returned blob content ID
 
 This is one measured sample, not a distribution.
+
+## ZIO HTTP transport choices
+
+Graviton currently resolves ZIO HTTP 3.11.4 and explicitly enables request streaming. Upload handlers consume `request.body.asStream`; download handlers use `Body.fromStream(stream, contentLength)` because manifest size is known. This keeps Netty demand connected to the ZIO stream and avoids whole-body aggregation.
+
+The server retains ZIO HTTP's 64 KiB pre-connect request-body buffer, TCP no-delay, and keep-alive defaults. It does not enable `avoidContextSwitching`: upload handlers hash, chunk, and persist before their first asynchronous boundary, which is the workload the option warns can monopolize an event loop. Global response compression and request decompression also remain disabled because CAS payloads are commonly already compressed and decompression would change the bytes being content-addressed.
+
+See the official [server](https://ziohttp.com/reference/server/), [body](https://ziohttp.com/reference/body/), and [client](https://ziohttp.com/reference/client/) references and the [3.11.4 release](https://github.com/zio/zio-http/releases/tag/v3.11.4).
 
 ## Soak loop
 
@@ -53,6 +63,42 @@ Before publishing a result, retain:
 - error and retry counts
 
 Never infer throughput from block size or a single process counter. Never compare two revisions using different data, hosts, caches, or backend settings without labeling the difference.
+
+## CAS ingest concurrency and memory
+
+The server defaults to four concurrent block writes per upload. Set `GRAVITON_BLOCK_WRITE_PARALLELISM` between `1` and `64` to match the backend and its connection pool. Results remain emitted in source order, so the manifest is deterministic even when writes complete out of order.
+
+The live-byte ceiling controlled by Graviton is:
+
+```text
+input queue chunks * I/O chunk bytes
++ block queue entries * chunker maximum block bytes
++ (block write parallelism + 1) * chunker maximum block bytes
+```
+
+This excludes one caller-owned input chunk, the chunker's documented working set, and backend-local buffers. With the defaults and a 1 MiB fixed chunker, the Graviton-owned ceiling is 7,602,176 bytes per active ingest.
+
+Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Missing or inconsistent proof metadata fails closed without downloading the object. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
+
+The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. This adds at most one block-size byte array per active block write. With the default 1 MiB chunker and four concurrent writes, that backend-local allowance is 4 MiB. At the supported 16 MiB maximum block size and 64-way maximum parallelism, the theoretical configuration ceiling is 1 GiB per upload, so operators should not combine both maxima without an explicit memory budget.
+
+The opt-in MinIO integration gate uploads the same 32 MiB stream twice with 1 MiB blocks, verifies the reconstructed content by streaming it through the hasher, asserts 32 fresh blocks followed by 32 duplicate blocks, and records both elapsed times in the CI log. Those figures are a regression signal for that runner, not a portable throughput claim.
+
+## Range reads
+
+HTTP range requests select intersecting manifest entries before block retrieval. PostgreSQL applies the byte-span predicate in the manifest query; filesystem manifests scan only their lightweight entry records. The CAS then fetches and verifies only selected bounded blocks. A request near the end of a large blob therefore avoids object-store reads, digest work, and network transfer for every preceding block.
+
+Selected blocks are still verified in full before any requested bytes from that block are emitted. Range efficiency does not weaken the content-addressed integrity check, and peak ordered-prefetch memory remains bounded by `maxInFlight * 16 MiB`.
+
+## Inline CAS versus staged acceptance
+
+The implemented upload endpoint performs CAS inline: it reads the stream once, sniffs a bounded prefix, selects a chunker, hashes the complete blob, hashes each bounded block, persists blocks with back pressure, and atomically publishes the manifest last. The response therefore contains the final content ID.
+
+An asynchronous staging mode can reduce request completion time only by changing the contract to `202 Accepted`. It does not remove CAS work. A worker must still read every staged byte to validate length and media type, choose the chunker, derive block and blob hashes, persist unique blocks, and commit the manifest. Compared with inline CAS, staging adds one full temporary-object write and one full temporary-object read.
+
+Staging is useful for resumable multipart upload, quarantine, admission control, or absorbing backend outages. It should use a typed upload receipt rather than pretending the temporary locator is a content ID, plus a durable state machine, idempotent worker lease, expiry, and orphan cleanup. The staged object must stream through the same ingest service and must never be materialized in memory. This mode is not implemented by the current HTTP API.
+
+S3 multipart upload belongs at that whole-object staging boundary. Graviton CAS blocks are bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are the appropriate default rather than multipart upload per block.
 
 ## Comparing revisions
 

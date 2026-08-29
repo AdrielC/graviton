@@ -1,6 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
 import zio.*
 import zio.stream.*
@@ -19,6 +20,13 @@ final class CoordinatedBlobStore(
 
   override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     ZStream.unwrapScoped(coordinator.operationPermit.as(underlying.get(key)))
+
+  override def getRange(
+    key: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    ZStream.unwrapScoped(coordinator.operationPermit.as(underlying.getRange(key, start, length)))
 
   override def stat(key: BinaryKey.Blob): Task[Option[BlobStat]] =
     coordinator.withOperation(underlying.stat(key))
