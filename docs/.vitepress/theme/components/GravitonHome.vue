@@ -10,17 +10,17 @@
           height="96"
           fetchpriority="high"
         />
-        <h1 id="graviton-home-title">Store bytes by what they are.</h1>
-        <p>
-          Graviton streams arbitrary bytes into immutable, content-addressed blocks. Durable manifests put the
-          exact bytes back together, while repeated blocks are stored once. Document semantics stay outside the
-          storage runtime.
-        </p>
+        <h1 id="graviton-home-title" aria-label="Stream. Address. Reuse.">
+          <span aria-hidden="true">Stream.</span>
+          <span aria-hidden="true">Address.</span>
+          <span aria-hidden="true">Reuse.</span>
+        </h1>
+        <p>Content-addressed storage for byte streams.</p>
         <div class="graviton-home-actions">
           <a class="graviton-action graviton-action--primary" :href="withBase('/guide/getting-started')">
-            Start with Graviton
+            Quickstart
           </a>
-          <a class="graviton-action" :href="withBase('/architecture')">Read the architecture</a>
+          <a class="graviton-action" :href="withBase('/cas-playground')">Open the CAS Playground</a>
         </div>
         <ul class="graviton-home-facts" aria-label="Graviton foundations">
           <li>Scala 3</li>
@@ -30,16 +30,48 @@
         </ul>
       </div>
 
-      <aside class="graviton-quick-run" aria-labelledby="graviton-quick-run-title">
+      <aside
+        class="graviton-cas-motion"
+        aria-label="Four streamed blocks resolve to three unique content-addressed blocks because one duplicate is reused."
+      >
         <header>
-          <h2 id="graviton-quick-run-title">Run a durable local store</h2>
-          <span>filesystem</span>
+          <span>CONTENT-ADDRESSED WRITE</span>
+          <code>sha-256</code>
         </header>
-        <pre aria-label="Commands to run Graviton locally"><code>{{ quickRunCommand }}</code></pre>
-        <p>Upload, download, organize, and inspect real deduplication through the built-in DataStar console.</p>
-        <a :href="withBase('/guide/run-locally')">
-          Run the complete lifecycle <span aria-hidden="true">→</span>
-        </a>
+        <div class="graviton-cas-motion__route" aria-hidden="true">
+          <section class="graviton-cas-motion__phase graviton-cas-motion__phase--stream">
+            <strong>Stream</strong>
+            <div class="graviton-cas-motion__blocks">
+              <i style="--block-index: 0">8a</i>
+              <i style="--block-index: 1">d3</i>
+              <i class="is-duplicate" style="--block-index: 2">8a</i>
+              <i style="--block-index: 3">f1</i>
+            </div>
+          </section>
+          <span class="graviton-cas-motion__rail graviton-cas-motion__rail--one"></span>
+          <section class="graviton-cas-motion__phase graviton-cas-motion__phase--address">
+            <strong>Address</strong>
+            <div class="graviton-cas-motion__digest">
+              <span></span>
+              <code>8a7f…</code>
+            </div>
+          </section>
+          <span class="graviton-cas-motion__rail graviton-cas-motion__rail--two"></span>
+          <section class="graviton-cas-motion__phase graviton-cas-motion__phase--reuse">
+            <strong>Reuse</strong>
+            <div class="graviton-cas-motion__shelf">
+              <i>8a</i>
+              <i>d3</i>
+              <i>f1</i>
+            </div>
+            <small>1 already present</small>
+          </section>
+        </div>
+        <footer>
+          <span><b>4</b> blocks seen</span>
+          <span><b>3</b> stored</span>
+          <span><b>1</b> reused</span>
+        </footer>
       </aside>
     </section>
 
@@ -157,9 +189,4 @@
 
 <script setup lang="ts">
 import { withBase } from 'vitepress'
-
-const quickRunCommand = `GRAVITON_CONSOLE_ENABLED=true \\
-  ./sbt "server/run"
-
-open http://127.0.0.1:8081/console`
 </script>
