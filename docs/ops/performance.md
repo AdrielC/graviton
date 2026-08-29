@@ -70,7 +70,11 @@ input queue chunks * I/O chunk bytes
 
 This excludes one caller-owned input chunk, the chunker's documented working set, and backend-local buffers. With the defaults and a 1 MiB fixed chunker, the Graviton-owned ceiling is 7,602,176 bytes per active ingest.
 
-Parallel block writes mainly target object stores, where a sequential `HEAD` or `PUT` round trip per block is expensive. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
+Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Objects written before proof metadata was introduced use one bounded `GetObject` for exact-byte verification. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
+
+The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. This adds at most one block-size byte array per active block write. With the default 1 MiB chunker and four concurrent writes, that backend-local allowance is 4 MiB. At the supported 16 MiB maximum block size and 64-way maximum parallelism, the theoretical configuration ceiling is 1 GiB per upload, so operators should not combine both maxima without an explicit memory budget.
+
+The opt-in MinIO integration gate uploads the same 32 MiB stream twice with 1 MiB blocks, verifies the reconstructed content by streaming it through the hasher, asserts 32 fresh blocks followed by 32 duplicate blocks, and records both elapsed times in the CI log. Those figures are a regression signal for that runner, not a portable throughput claim.
 
 ## Inline CAS versus staged acceptance
 

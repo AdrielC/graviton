@@ -160,6 +160,8 @@ Example:
 
 - `cas/blocks/blake3/0123abcd...-1048576`
 
+The S3-compatible endpoint must support `PutObject` with `If-None-Match: *`, SHA-256 request checksums, `HeadObject`, and user metadata. Graviton uses those features to create an immutable content key atomically and to verify duplicate writes without fetching tagged object bodies. Existing objects without Graviton proof metadata remain readable and are verified with one bounded exact-byte download when a duplicate is written.
+
 Quarantined objects use the configured block prefix followed by `.graviton-quarantine/`. Applications should access them through `BlockMaintenance`, not by constructing object keys.
 
 #### Bucket creation (MinIO)

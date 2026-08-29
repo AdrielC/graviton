@@ -2,6 +2,7 @@ package graviton.backend.s3
 
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, DefaultCredentialsProvider, StaticCredentialsProvider}
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
+import software.amazon.awssdk.core.checksums.{RequestChecksumCalculation, ResponseChecksumValidation}
 import software.amazon.awssdk.core.retry.RetryMode
 import software.amazon.awssdk.http.apache.ApacheHttpClient
 import software.amazon.awssdk.services.s3.{S3Configuration, S3Client}
@@ -26,14 +27,15 @@ object S3ClientLayer:
               .builder()
               .apiCallAttemptTimeout(java.time.Duration.ofSeconds(15))
               .apiCallTimeout(java.time.Duration.ofSeconds(45))
-              .retryPolicy(RetryMode.STANDARD)
+              .retryStrategy(RetryMode.STANDARD)
               .build()
           )
+          .requestChecksumCalculation(RequestChecksumCalculation.WHEN_SUPPORTED)
+          .responseChecksumValidation(ResponseChecksumValidation.WHEN_SUPPORTED)
           .serviceConfiguration(
             S3Configuration
               .builder()
               .pathStyleAccessEnabled(config.forcePathStyle)
-              .checksumValidationEnabled(true)
               .build()
           )
 
@@ -41,7 +43,7 @@ object S3ClientLayer:
         case (Some(accessKey), Some(secretKey)) =>
           builder.credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
         case (None, None)                       =>
-          builder.credentialsProvider(DefaultCredentialsProvider.create())
+          builder.credentialsProvider(DefaultCredentialsProvider.builder().build())
         case _                                  =>
           throw new IllegalArgumentException("S3 access key and secret key must be configured together")
 
