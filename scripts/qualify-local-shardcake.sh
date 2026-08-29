@@ -69,6 +69,13 @@ compose ps --status running --services | grep -qx graviton-node-2 || {
   exit 1
 }
 
+# Recreate the manager and both nodes as one cold-start cohort. Nodes may reach
+# the manager before their control endpoints are ready, so this is a permanent
+# regression gate for bounded registration retry and startup convergence.
+compose up -d --force-recreate shardcake-manager graviton-node-1 graviton-node-2 >/dev/null
+wait_ready "$node_one"
+wait_ready "$node_two"
+
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/graviton-failure-proof.XXXXXX")"
 remove_work_dir() { find "$work_dir" -depth -delete 2>/dev/null || true; }
 trap 'cleanup; remove_work_dir' EXIT INT TERM

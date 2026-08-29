@@ -1,7 +1,7 @@
 package graviton.server
 
 import graviton.core.types.UploadChunkSize
-import graviton.integration.shardcake.ShardcakeUploadConfig
+import graviton.integration.shardcake.{ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.runtime.config.GravitonConfig
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
@@ -40,6 +40,7 @@ object ConfigurationValidation:
   def validate(
     config: GravitonConfig,
     shardcake: ShardcakeUploadConfig,
+    registration: ShardcakeRegistrationConfig,
     console: ConsoleConfig,
     security: SecurityConfig,
     environment: Map[String, String] = sys.env,
@@ -63,6 +64,7 @@ object ConfigurationValidation:
                        "GRAVITON_SECURITY_AUDIT_BACKEND must be memory or jdbc",
                      )
           _       <- shardcake.validate.left.map(message => s"invalid GRAVITON_SHARDCAKE_* config: $message")
+          _       <- registration.validate.left.map(message => s"invalid GRAVITON_SHARDCAKE_* config: $message")
           _       <- require(
                        !shardcake.enabled || Set("s3", "minio").contains(backend),
                        "Shardcake upload locality requires the shared S3 plus PostgreSQL composition",

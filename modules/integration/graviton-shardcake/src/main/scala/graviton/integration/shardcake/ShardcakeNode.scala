@@ -1,7 +1,7 @@
 package graviton.integration.shardcake
 
 import com.devsisters.shardcake.interfaces.{Pods, Serialization, Storage}
-import com.devsisters.shardcake.{Config, GrpcConfig, GrpcPods, GrpcShardingService, ShardManagerClient, Sharding}
+import com.devsisters.shardcake.{Config, GrpcConfig, GrpcPods, GrpcShardingService, PodAddress, ShardManagerClient, Sharding}
 import graviton.pdf.PdfUploadSupport
 import graviton.runtime.stores.BlobStore
 import graviton.runtime.metrics.MetricsRegistry
@@ -55,6 +55,7 @@ object ShardcakeNode:
   ] =
     ZLayer.makeSome[BlobStore & ShardcakeUploadConfig & MetricsRegistry, ShardcakeNode](
       ShardcakeUploadConfig.upstream,
+      ShardcakeRegistrationConfig.layer,
       ShardcakeGrpcConfig.live,
       ZioBlocksShardcakeSerialization.layer,
       ShardcakeDataSource.Config.layer,
@@ -76,24 +77,34 @@ object ShardcakeNode:
       LocalityAwareUpload.instrumented,
       ZLayer.scoped {
         for
-          config    <- ZIO.service[ShardcakeUploadConfig]
-          token     <- ZIO.fromOption(config.internalToken).orElseFail(ShardcakeGrpcConfig.Error.MissingInternalToken)
-          _         <- ZIO.service[ControlServer]
-          placement <- ZIO.service[UploadPlacement]
-          ingest    <- ZIO.service[UploadNodeIngest]
-          locality  <- ZIO.service[LocalityAwareUpload]
-          hotState  <- ZIO.service[UploadHotState]
-          health    <- ZIO.service[ShardcakeHealth]
-          _         <- UploadControlEntity.register(config.node, config.entityMaxIdleTime)
-          _         <- Sharding.registerScoped
-          routes     = UploadNodeHttpApi(token, ingest).routes
-          _         <- Server
-                         .serve(routes)
-                         .provide(Server.defaultWith(_.port(config.node.uploadPort.value).enableRequestStreaming))
-                         .forkScoped
-          _         <- ZIO.logInfo(
-                         s"Shardcake upload node ${config.node.id.value} listening for streamed uploads on :${config.node.uploadPort.value}"
-                       )
+          config             <- ZIO.service[ShardcakeUploadConfig]
+          registrationConfig <- ZIO.service[ShardcakeRegistrationConfig]
+          token              <- ZIO.fromOption(config.internalToken).orElseFail(ShardcakeGrpcConfig.Error.MissingInternalToken)
+          _                  <- ZIO.service[ControlServer]
+          sharding           <- ZIO.service[Sharding]
+          storage            <- ZIO.service[Storage]
+          placement          <- ZIO.service[UploadPlacement]
+          ingest             <- ZIO.service[UploadNodeIngest]
+          locality           <- ZIO.service[LocalityAwareUpload]
+          hotState           <- ZIO.service[UploadHotState]
+          health             <- ZIO.service[ShardcakeHealth]
+          _                  <- UploadControlEntity.register(config.node, config.entityMaxIdleTime)
+          address             = PodAddress(config.node.host.value, config.node.controlPort.value)
+          _                  <- ShardcakeRegistration.scoped(
+                                  sharding.register,
+                                  storage.getPods.map(_.get(address).exists(_.version == config.serverVersion)),
+                                  sharding.unregister,
+                                  registrationConfig.retryInterval,
+                                  registrationConfig.timeout,
+                                )
+          routes              = UploadNodeHttpApi(token, ingest).routes
+          _                  <- Server
+                                  .serve(routes)
+                                  .provide(Server.defaultWith(_.port(config.node.uploadPort.value).enableRequestStreaming))
+                                  .forkScoped
+          _                  <- ZIO.logInfo(
+                                  s"Shardcake upload node ${config.node.id.value} listening for streamed uploads on :${config.node.uploadPort.value}"
+                                )
         yield ShardcakeNode(locality, placement, hotState, health)
       },
     )

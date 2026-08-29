@@ -2,7 +2,7 @@ package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator}
 import graviton.backend.s3.S3BlockStore
-import graviton.integration.shardcake.{ShardcakeNode, ShardcakeUploadConfig}
+import graviton.integration.shardcake.{ShardcakeNode, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
@@ -50,7 +50,8 @@ object Main extends ZIOAppDefault:
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
-      _                                            <- ConfigurationValidation.validate(cfg, shardcake, console, sec)
+      registration                                 <- ZIO.config(ShardcakeRegistrationConfig.config)
+      _                                            <- ConfigurationValidation.validate(cfg, shardcake, registration, console, sec)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- validateShardcakeTopology(cfg, shardcake)
       _                                            <- validateConsoleSecurity(sec, console)

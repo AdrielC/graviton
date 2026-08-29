@@ -58,7 +58,7 @@ verify_checksums() {
 }
 
 resolve_image() {
-  local requested="${GRAVITON_RELEASE_IMAGE:-ghcr.io/adrielc/graviton:0.6.0}"
+  local requested="${GRAVITON_RELEASE_IMAGE:-ghcr.io/adrielc/graviton:0.6.1}"
   docker pull "$requested" >/dev/null
   if [[ "$requested" == *@sha256:* ]]; then
     printf '%s\n' "$requested"
@@ -85,7 +85,7 @@ init() {
   umask 077
   {
     printf 'GRAVITON_IMAGE=%s\n' "$image"
-    printf 'GRAVITON_RELEASE_VERSION=0.6.0\n'
+    printf 'GRAVITON_RELEASE_VERSION=0.6.1\n'
     printf 'GRAVITON_MAINTENANCE_NAMESPACE=graviton-production\n'
     printf 'GRAVITON_POSTGRES_PASSWORD=%s\n' "$postgres_password"
     printf 'GRAVITON_S3_ACCESS_KEY=graviton\n'

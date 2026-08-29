@@ -207,6 +207,8 @@ Node configuration:
 | `GRAVITON_SHARDCAKE_ENTITY_TERMINATION_TIMEOUT` | `10s` | no | Grace period for entity termination. |
 | `GRAVITON_SHARDCAKE_SEND_TIMEOUT` | `10s` | no | Bounded control-message timeout. It does not retry upload bytes. |
 | `GRAVITON_SHARDCAKE_REFRESH_ASSIGNMENTS_RETRY_INTERVAL` | `5s` | no | Assignment refresh retry interval. |
+| `GRAVITON_SHARDCAKE_REGISTRATION_RETRY_INTERVAL` | `500ms` | no | Delay between transient manager registration retries while the node control endpoint becomes reachable. |
+| `GRAVITON_SHARDCAKE_REGISTRATION_TIMEOUT` | `30s` | no | Maximum startup window for node registration before startup fails. |
 | `GRAVITON_SHARDCAKE_UNHEALTHY_POD_REPORT_INTERVAL` | `5s` | no | Failed-pod report interval. |
 | `GRAVITON_SHARDCAKE_HOT_MAX_SESSIONS` | `4096` | no | Maximum reconstructable hot-state entries on one node. |
 | `GRAVITON_SHARDCAKE_INTERNAL_TOKEN` | none | yes when enabled | Iron-refined 32 to 256 character internal bearer token. |
