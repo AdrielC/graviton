@@ -117,10 +117,9 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// The 0.6 line is an intentional pre-1.0 product boundary: unpublished
-// document-layer and compatibility APIs are removed instead of carried
-// indefinitely. Return to BinaryCompatible after the v0.6.0 tag.
-ThisBuild / versionPolicyIntention := Compatibility.None
+// The v0.6.0 boundary removed unpublished document-layer and compatibility
+// APIs. Patch releases from this point must preserve the published API.
+ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(

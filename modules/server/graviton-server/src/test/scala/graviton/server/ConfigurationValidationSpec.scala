@@ -1,6 +1,6 @@
 package graviton.server
 
-import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeUploadConfig}
+import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.runtime.config.GravitonConfig
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
@@ -28,6 +28,7 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
       for result <- ConfigurationValidation.validate(
                       GravitonConfig(),
                       ShardcakeUploadConfig.Default,
+                      ShardcakeRegistrationConfig.Default,
                       ConsoleConfig.Default,
                       SecurityConfig.Default,
                       Map.empty,
@@ -42,6 +43,7 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
                     .validate(
                       GravitonConfig(blobBackend = "s3"),
                       clusterShardcake,
+                      ShardcakeRegistrationConfig.Default,
                       ConsoleConfig.Default,
                       SecurityConfig.Default,
                       clusterEnvironment,
@@ -61,6 +63,7 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
       for result <- ConfigurationValidation.validate(
                       GravitonConfig(blobBackend = "s3"),
                       clusterShardcake,
+                      ShardcakeRegistrationConfig.Default,
                       ConsoleConfig.Default,
                       security,
                       clusterEnvironment,
@@ -77,6 +80,24 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
                     .validate(
                       invalid,
                       ShardcakeUploadConfig.Default,
+                      ShardcakeRegistrationConfig.Default,
+                      ConsoleConfig.Default,
+                      SecurityConfig.Default,
+                      Map.empty,
+                    )
+                    .exit
+      yield assertTrue(exit.isFailure)
+    },
+    test("rejects an invalid Shardcake registration retry window before startup") {
+      val invalidRegistration = ShardcakeRegistrationConfig(
+        retryInterval = zio.Duration.fromSeconds(2),
+        timeout = zio.Duration.fromSeconds(1),
+      )
+      for exit <- ConfigurationValidation
+                    .validate(
+                      GravitonConfig(),
+                      ShardcakeUploadConfig.Default,
+                      invalidRegistration,
                       ConsoleConfig.Default,
                       SecurityConfig.Default,
                       Map.empty,
