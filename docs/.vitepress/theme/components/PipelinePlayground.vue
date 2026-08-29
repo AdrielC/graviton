@@ -188,7 +188,7 @@
         <header>
           <div>
             <h3 id="cas-pdf-title">Make a font variant</h3>
-            <p>Choose two embedded resources. Unsafe replacements stop before a PDF is written.</p>
+            <p>Choose two embedded resources. ZIO PDF proves code and metric compatibility before writing.</p>
           </div>
           <span :class="['cas-pdf__state', selectedRecord.fontState]">{{ fontStateLabel(selectedRecord) }}</span>
         </header>
@@ -208,6 +208,7 @@
           <label>
             <span>Source font</span>
             <select v-model="selectedRecord.sourceFont" @change="selectDefaultTarget(selectedRecord)">
+              <option value="" disabled>Choose a source resource</option>
               <option v-for="font in fontOptions(selectedRecord)" :key="`source:${font.baseFont}`" :value="font.baseFont">
                 {{ fontOptionLabel(font) }}
               </option>
@@ -216,6 +217,7 @@
           <label>
             <span>Replacement font</span>
             <select v-model="selectedRecord.targetFont" @change="selectedRecord.transformError = ''">
+              <option value="" disabled>Choose a same-subtype candidate</option>
               <option
                 v-for="font in targetFonts(selectedRecord)"
                 :key="`target:${font.baseFont}`"
@@ -231,7 +233,7 @@
             :disabled="!canTransform(selectedRecord) || selectedRecord.transformState === 'running'"
             @click="createFontVariant(selectedRecord)"
           >
-            {{ selectedRecord.transformState === 'running' ? 'Building variant…' : 'Build variant' }}
+            {{ selectedRecord.transformState === 'running' ? 'Testing and building…' : 'Test and build' }}
           </button>
         </div>
         <p v-else-if="selectedRecord.fontState === 'ready'" class="cas-pdf__empty">
@@ -635,20 +637,20 @@ function fontOptions(record: FileRecord): FontOption[] {
   return Array.from(grouped.values())
 }
 function targetFonts(record: FileRecord) {
-  return fontOptions(record).filter(font => font.baseFont !== record.sourceFont && font.objectNumbers.length === 1)
+  const source = fontOptions(record).find(font => font.baseFont === record.sourceFont)
+  if (!source) return []
+  return fontOptions(record).filter(font =>
+    font.baseFont !== record.sourceFont && font.objectNumbers.length === 1 && font.subtype === source.subtype
+  )
 }
 function selectDefaultTarget(record: FileRecord) {
-  const targets = targetFonts(record)
-  record.targetFont = targets.find(font => cleanFontName(font.baseFont) === cleanFontName(record.sourceFont))?.baseFont || targets[0]?.baseFont || ''
+  record.targetFont = ''
   record.transformError = ''
 }
 function selectInitialFonts(record: FileRecord) {
-  const sources = fontOptions(record)
-  const matchingSource = sources.find(source =>
-    sources.some(target => target.baseFont !== source.baseFont && target.objectNumbers.length === 1 && cleanFontName(target.baseFont) === cleanFontName(source.baseFont))
-  )
-  record.sourceFont = matchingSource?.baseFont || sources[0]?.baseFont || ''
-  selectDefaultTarget(record)
+  record.sourceFont = ''
+  record.targetFont = ''
+  record.transformError = ''
 }
 function fontOptionLabel(font: FontOption) {
   const resource = font.objectNumbers.length === 1 ? `#${font.objectNumbers[0]}` : `${font.objectNumbers.length} resources`
@@ -747,6 +749,14 @@ function transformErrorMessage(cause: unknown) {
   const detail = errorMessage(cause)
   const field = detail.match(/not code-and-metric compatible .* at \/([^\s]+)/)?.[1]
   if (field) return `No PDF was created. These resources differ at /${field}, so rebinding would change text or layout.`
+  const missingCompositeData = detail.match(/composite font object (\d+) lacks a usable \/([^\s]+) required/)
+  if (missingCompositeData) {
+    return `No PDF was created. Font resource #${missingCompositeData[1]} does not expose a usable /${missingCompositeData[2]}. Choose another resource.`
+  }
+  const missingMetrics = detail.match(/font objects (\d+) and (\d+) lack explicit layout metadata: (.+)$/)
+  if (missingMetrics) {
+    return `No PDF was created. Resources #${missingMetrics[1]} and #${missingMetrics[2]} do not declare ${missingMetrics[3]}, so layout safety cannot be proven.`
+  }
   if (detail.includes('resolves to more than one document font')) {
     return 'No PDF was created. The replacement name is ambiguous in this document.'
   }

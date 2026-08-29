@@ -36,7 +36,7 @@ Before either output is shown, ZIO PDF validates the edited document and compare
 
 These are intentionally different measurements. The byte map uses exact SHA-256 content IDs to calculate reusable storage. The PDF structure result explains which document components changed. A component can change without eliminating reuse in neighboring byte ranges, and a streaming window diff does not claim a globally minimal edit script.
 
-The font transformation fails closed unless subtype, encoding, widths, metrics, and `ToUnicode` data prove the existing glyph codes retain their meaning. A successful rewrite means the resource binding passed those checks; it does not claim that every PDF or every pair of fonts is interchangeable.
+The controls do not presume that two resources are compatible. After you choose a source, the replacement list is narrowed to the same font subtype. **Test and build** then fails closed unless encoding, widths, metrics, and `ToUnicode` data prove the existing glyph codes retain their meaning. A successful rewrite means the resource binding passed those checks; it does not claim that every PDF or every pair of fonts is interchangeable.
 
 PDF inspection remains streaming. Rewriting intentionally has a separate 32 MiB input and output limit because the current transform builds a decoded document graph. Both sides of that materialization are enforced with named Iron refinements; files above the limit can still be chunked and inspected.
 
