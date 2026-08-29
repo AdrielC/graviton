@@ -24,11 +24,9 @@ Graviton is a storage substrate for immutable byte content. It accepts a stream,
 
 The local console includes mutable filenames and folders so an operator can organize references to immutable blobs. Those references are a local catalog convenience. They are not a document model, and deleting one does not silently delete shared CAS blocks.
 
-## Where Quasar fits
+## Downstream composition
 
-Quasar is an internal document layer built above Graviton. It can associate document identity, versions, metadata, permissions, and workflows with opaque Graviton content IDs while leaving byte storage to Graviton.
-
-Quasar is not a dependency of `graviton-server`, is not published as a Graviton Maven artifact, and exposes no endpoint through the packaged Graviton process. This repository retains source-only Quasar prototypes and design material for internal integration work; they are excluded from the public documentation navigation and release assets.
+Application and document systems can associate their own identities, versions, metadata, permissions, and workflows with opaque Graviton content IDs. Those concerns remain outside this repository and outside every published Graviton artifact.
 
 ```mermaid
 flowchart TB
@@ -40,4 +38,4 @@ flowchart TB
   graviton --> storage
 ```
 
-The dependency direction is one-way: a document system may consume Graviton, but Graviton does not need to understand a document.
+The dependency direction is one-way: downstream systems consume Graviton, while Graviton remains unaware of their domain models.

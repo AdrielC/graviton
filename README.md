@@ -6,7 +6,7 @@
 
 Graviton is a typed, streaming content-addressable storage runtime for Scala 3 and ZIO. It chunks blobs into bounded blocks, derives cryptographic content keys, deduplicates writes, persists versioned manifests, and streams bytes back through pluggable storage ports.
 
-Graviton's boundary is deliberately narrow: bytes, cryptographic content identity, integrity, and storage. It does not define documents, document versions, metadata namespaces, permissions, search, or workflows. Internally, we use **Quasar** as a separate document layer that consumes Graviton content IDs and streams. Quasar is not a dependency of `graviton-server`, is not published as a Graviton Maven artifact, and is not part of Graviton's public API. See [Scope and product boundary](docs/scope.md).
+Graviton's boundary is deliberately narrow: bytes, cryptographic content identity, integrity, and storage. It does not define documents, document versions, business metadata, search, or workflows. Downstream systems consume opaque Graviton content IDs and byte streams without extending the storage runtime's domain. See [Scope and product boundary](docs/scope.md).
 
 This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage and backend-wide operation/maintenance coordination, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
 
@@ -64,7 +64,7 @@ cmp README.md retrieved.md
 curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$blob_id/verify" | jq .
 ```
 
-Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The legacy `/api/blobs` routes remain available with deprecation headers; new clients should use `/api/v1/blobs`.
+Default data is persisted below `.graviton/`. Select `s3` or `minio` for S3-compatible blocks with PostgreSQL manifests. The only HTTP blob contract is `/api/v1/blobs`.
 
 For the built-in DataStar operator console, enable the local-only surface and open it directly from the running server:
 

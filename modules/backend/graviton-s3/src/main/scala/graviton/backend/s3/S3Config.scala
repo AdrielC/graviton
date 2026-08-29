@@ -22,12 +22,9 @@ final case class S3Config(
 )
 
 object S3Config:
-  private val EndpointEnv        = "GRAVITON_S3_ENDPOINT"
-  private val LegacyEndpointEnv  = "QUASAR_MINIO_URL"
-  private val AccessKeyEnv       = "GRAVITON_S3_ACCESS_KEY"
-  private val SecretKeyEnv       = "GRAVITON_S3_SECRET_KEY"
-  private val LegacyAccessKeyEnv = "MINIO_ROOT_USER"
-  private val LegacySecretKeyEnv = "MINIO_ROOT_PASSWORD"
+  private val EndpointEnv  = "GRAVITON_S3_ENDPOINT"
+  private val AccessKeyEnv = "GRAVITON_S3_ACCESS_KEY"
+  private val SecretKeyEnv = "GRAVITON_S3_SECRET_KEY"
 
   /**
    * Build an S3-compatible config from an explicit endpoint contract, but with the bucket/prefix
@@ -50,22 +47,13 @@ object S3Config:
     regionEnv: String = "GRAVITON_S3_REGION",
     forcePathStyle: Boolean = true,
   ): Either[String, S3Config] =
-    def get(name: String, legacyName: Option[String]): Either[String, String] =
-      val value = sys.env
-        .get(name)
-        .map(_.trim)
-        .filter(_.nonEmpty)
-        .orElse(legacyName.flatMap(sys.env.get).map(_.trim).filter(_.nonEmpty))
-      value.toRight(s"Missing env var '$name'")
-
-    val legacyUrl       = Option.when(urlEnv == EndpointEnv)(LegacyEndpointEnv)
-    val legacyAccessKey = Option.when(accessKeyEnv == AccessKeyEnv)(LegacyAccessKeyEnv)
-    val legacySecretKey = Option.when(secretKeyEnv == SecretKeyEnv)(LegacySecretKeyEnv)
+    def get(name: String): Either[String, String] =
+      sys.env.get(name).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env var '$name'")
 
     for
-      url      <- get(urlEnv, legacyUrl)
-      ak       <- get(accessKeyEnv, legacyAccessKey)
-      sk       <- get(secretKeyEnv, legacySecretKey)
+      url      <- get(urlEnv)
+      ak       <- get(accessKeyEnv)
+      sk       <- get(secretKeyEnv)
       region    = sys.env.get(regionEnv).map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
       endpoint <- scala.util.Try(URI.create(url)).toEither.left.map(err => s"Invalid URI in '$urlEnv': ${err.getMessage}")
     yield S3Config(
@@ -104,13 +92,8 @@ object S3Config:
 
   /** Use explicit S3-compatible settings when an endpoint exists, otherwise AWS defaults. */
   def fromEnvironment(bucket: String, prefix: String = ""): Either[String, S3Config] =
-    val endpointEnv =
-      if sys.env.get(EndpointEnv).exists(_.trim.nonEmpty) then Some(EndpointEnv)
-      else if sys.env.get(LegacyEndpointEnv).exists(_.trim.nonEmpty) then Some(LegacyEndpointEnv)
-      else None
-
-    endpointEnv match
-      case Some(name) => fromEndpointEnv(bucket, prefix, urlEnv = name)
-      case None       =>
+    sys.env.get(EndpointEnv).map(_.trim).filter(_.nonEmpty) match
+      case Some(_) => fromEndpointEnv(bucket, prefix)
+      case None    =>
         val region = sys.env.get("GRAVITON_S3_REGION").map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
         Right(S3Config(bucket = bucket, region = region, prefix = prefix))

@@ -26,21 +26,6 @@ final case class HttpApi(
   localizedUpload: Option[LocalityAwareUpload] = None,
 ) {
 
-  /** Binary-compatible constructor retained for the published 0.5.0 API. */
-  def this(
-    blobStore: BlobStore,
-    metrics: Option[MetricsHttpApi],
-    security: Option[HttpSecurityPolicy],
-  ) = this(blobStore, metrics, security, None)
-
-  /** Binary-compatible copy retained for the published 0.5.0 API. */
-  def copy(
-    blobStore: BlobStore,
-    metrics: Option[MetricsHttpApi],
-    security: Option[HttpSecurityPolicy],
-  ): HttpApi =
-    new HttpApi(blobStore, metrics, security, None)
-
   private final case class UploadOutcome(
     key: BinaryKey.Blob,
     stats: graviton.core.attributes.IngestStats,
@@ -124,7 +109,7 @@ final case class HttpApi(
     bytes: Option[Long] = None,
   )(effect: UIO[Response]): UIO[Response] =
     val guarded = security match
-      case None         => effect.map(versionHeaders(request, _))
+      case None         => effect
       case Some(policy) =>
         policy
           .authorize(request, action, capability, resource)
@@ -133,7 +118,7 @@ final case class HttpApi(
             _ =>
               effect.flatMap { response =>
                 policy.recordOutcome(action, resource, response, bytes) *>
-                  ZIO.succeed(policy.addCorsHeaders(request, versionHeaders(request, response)))
+                  ZIO.succeed(policy.addCorsHeaders(request, response))
               },
           )
 
@@ -148,13 +133,6 @@ final case class HttpApi(
                     ZIO.whenDiscard(response.status.code >= 400)(api.registry.counter(MetricKeys.HttpErrorsTotal, tags))
                   )
     yield response
-
-  private def versionHeaders(request: Request, response: Response): Response =
-    if request.url.path.toString.startsWith("/api/blobs") then
-      response
-        .addHeader(Header.Custom("Deprecation", "true"))
-        .addHeader(Header.Custom("Link", "</api/v1/blobs>; rel=successor-version"))
-    else response
 
   private def blobHeaders(key: BinaryKey.Blob, stat: graviton.runtime.model.BlobStat): Headers =
     val lastModified = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.ofInstant(stat.lastModified, ZoneOffset.UTC))
@@ -191,7 +169,7 @@ final case class HttpApi(
             blobStore.stat(result.key).flatMap {
               case Some(stat) =>
                 val id       = BlobId.applyUnsafe(result.key.bits.render)
-                val basePath = if req.url.path.toString.startsWith("/api/v1/") then "/api/v1/blobs" else "/api/blobs"
+                val basePath = "/api/v1/blobs"
                 val listing  = graviton.runtime.model.BlobListing(result.key, stat, result.stats.blockCount)
                 val payload  = BlobUploadResult(
                   blob = toSummary(listing),
@@ -481,13 +459,6 @@ final case class HttpApi(
     Method.GET / "api" / "v1" / "blobs" / string("id")              -> getBlobHandler,
     Method.HEAD / "api" / "v1" / "blobs" / string("id")             -> headBlobHandler,
     Method.DELETE / "api" / "v1" / "blobs" / string("id")           -> deleteBlobHandler,
-    Method.GET / "api" / "blobs"                                    -> listBlobsHandler,
-    Method.POST / "api" / "blobs"                                   -> uploadBlobHandler,
-    Method.GET / "api" / "blobs" / string("id") / "metadata"        -> inspectBlobHandler,
-    Method.POST / "api" / "blobs" / string("id") / "verify"         -> verifyBlobHandler,
-    Method.GET / "api" / "blobs" / string("id")                     -> getBlobHandler,
-    Method.HEAD / "api" / "blobs" / string("id")                    -> headBlobHandler,
-    Method.DELETE / "api" / "blobs" / string("id")                  -> deleteBlobHandler,
   ) ++ metrics.map(_.routes).getOrElse(Routes.empty)
 
   val app: Handler[Any, Nothing, Request, Response] = routes.toHandler

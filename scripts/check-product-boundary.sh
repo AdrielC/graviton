@@ -9,31 +9,25 @@ fail() {
   exit 1
 }
 
-if rg -n 'buildQuasarFrontend|docs/public/quasar' build.sbt docs/README.md docs/.vitepress/config.ts; then
-  fail 'the public documentation build still links the internal document frontend'
+document_layer_name='qua''sar'
+retired_blob_path='/api/''blobs'
+
+if git grep -n -i "${document_layer_name}" -- \
+  build.sbt project modules dbcodegen docs deploy scripts .github README.md PRODUCT.md BUILD_AND_TEST.md; then
+  fail 'the downstream document layer leaked into the Graviton source, schema, docs, deployment, or release surface'
 fi
 
-if find docs/public -type f -iname '*quasar*' -print -quit | grep -q .; then
-  fail 'an internal document-layer asset remains in docs/public'
+if git grep -n "${retired_blob_path}" -- \
+  build.sbt project modules dbcodegen docs deploy scripts .github README.md PRODUCT.md BUILD_AND_TEST.md; then
+  fail 'the retired unversioned HTTP compatibility surface is still present'
 fi
 
-if rg -n "link: '/(quasar|api/quasar|design/quasar)|link: '/ops/postgres-schema" docs/.vitepress/config.ts; then
-  fail 'public navigation links to an internal document-layer page'
+if find modules -path '*/target' -prune -o -type f -path '*/legacy/*' -print -quit | grep -q .; then
+  fail 'legacy import code is still shipped in a public module'
 fi
 
-for project in quasarCore quasarHttp quasarLegacy quasarFrontend; do
-  block="$(awk -v start="lazy val ${project} =" '
-    index($0, start) == 1 { found = 1 }
-    found && index($0, "lazy val ") == 1 && index($0, start) != 1 { exit }
-    found { print }
-  ' build.sbt)"
-  [[ -n "${block}" ]] || fail "${project} is missing from build.sbt"
-  grep -Fq 'publish / skip := true' <<<"${block}" || fail "${project} is publishable"
-done
-
-if rg -n 'graviton-quasar|quasar-(core|http|legacy|frontend)' \
-  scripts/audit-published-artifacts.sh .github/workflows/release.yml; then
-  fail 'release automation includes an internal document-layer artifact'
+if find docs/guide -maxdepth 1 -type f -name 'migration-*.md' -print -quit | grep -q .; then
+  fail 'historical migration pages are still published for the clean pre-1.0 line'
 fi
 
 printf 'Graviton product boundary check passed.\n'

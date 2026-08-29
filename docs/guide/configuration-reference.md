@@ -48,8 +48,6 @@ export GRAVITON_S3_REGION="us-east-1"
 | `HEAD /api/v1/blobs/:id` | metadata headers | Checks existence without a response body |
 | `DELETE /api/v1/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
 
-The `/api/blobs` aliases remain available with `Deprecation: true` and a successor `Link` header.
-
 ## Environment variables
 
 ### Server

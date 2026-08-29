@@ -116,8 +116,8 @@ trait BlobManifestRepo:
    *
    * Implementations that back production repository maintenance must override
    * this with a cursor or directory walk whose resources remain alive for the
-   * lifetime of the returned stream. The default keeps source compatibility for
-   * legacy repositories, but inherits the boundedness of [[listSummaries]] and
+   * lifetime of the returned stream. The default is convenient for bounded
+   * development stores, but inherits the boundedness of [[listSummaries]] and
    * is therefore not suitable for repository-scale maintenance.
    */
   def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =

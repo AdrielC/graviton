@@ -146,7 +146,7 @@ object Main extends ZIOAppDefault:
                                                           statsRoutes: Routes[Any, Nothing]   =
                                                             Routes(
                                                               Method.GET / "api" / "stats" -> Handler.fromFunctionZIO[Request] { request =>
-                                                                val resource = ResourceRef(ResourceKind.Namespace, None)
+                                                                val resource = ResourceRef(ResourceKind.Observability, None)
                                                                 val response =
                                                                   metrics.snapshot.map(snapshot => Response.json(ApiJson.encode(RuntimeStats.from(snapshot))))
                                                                 policy match

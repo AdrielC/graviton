@@ -89,8 +89,7 @@ object DevAuthRoutes:
         Capability.BlobRead,
         Capability.BlobWrite,
         Capability.BlobDelete,
-        Capability.DocumentRead,
-        Capability.DocumentWrite,
         Capability.ObservabilityRead,
+        Capability.AuditRead,
       )
       .mask

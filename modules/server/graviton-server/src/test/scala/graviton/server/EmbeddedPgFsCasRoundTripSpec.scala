@@ -401,7 +401,6 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
 
           for
             ds    <- ZIO.service[javax.sql.DataSource]
-            _     <- ZIO.attemptBlocking(seedAuditOrg(ds, orgId))
             audit <- ZIO.service[AuditSink].provide(ZLayer.succeed(ds), AuditSink.jdbc)
             _     <- CallerContext.scopedWith(caller) {
                        ZIO.foreachParDiscard(1 to 20) { index =>
@@ -458,32 +457,11 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       finally s.close()
     }
 
-  private def seedAuditOrg(dataSource: javax.sql.DataSource, orgId: UUID): Unit =
-    val tenantId   = UUID.fromString("00000000-0000-0000-0000-000000000100")
-    val connection = dataSource.getConnection
-    try
-      val tenant = connection.prepareStatement(
-        "INSERT INTO quasar.tenant(tenant_id, name) VALUES (?, 'embedded-audit') ON CONFLICT (tenant_id) DO NOTHING"
-      )
-      try
-        tenant.setObject(1, tenantId)
-        val _ = tenant.executeUpdate()
-      finally tenant.close()
-      val org    = connection.prepareStatement(
-        "INSERT INTO quasar.org(org_id, tenant_id, name) VALUES (?, ?, 'embedded-audit') ON CONFLICT (org_id) DO NOTHING"
-      )
-      try
-        org.setObject(1, orgId)
-        org.setObject(2, tenantId)
-        val _ = org.executeUpdate()
-      finally org.close()
-    finally connection.close()
-
   private def readAuditChain(dataSource: javax.sql.DataSource, orgId: UUID): Vector[(Long, Array[Byte], Array[Byte])] =
     val connection = dataSource.getConnection
     try
       val statement = connection.prepareStatement(
-        "SELECT seq, prev_hash, row_hash FROM quasar.audit_log WHERE org_id = ? ORDER BY seq"
+        "SELECT seq, prev_hash, row_hash FROM graviton.audit_log WHERE org_id = ? ORDER BY seq"
       )
       try
         statement.setObject(1, orgId)

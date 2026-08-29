@@ -27,15 +27,6 @@ const withBase = (path: string) => {
 }
 
 export default withMermaid(defineConfig({
-  srcExclude: [
-    // Quasar is a separate internal document layer. Preserve its source notes
-    // in the repository without publishing them as Graviton product docs.
-    'quasar-demo.md',
-    'api/quasar-*.md',
-    'api/legacy-repos.md',
-    'design/quasar-*.md',
-    'ops/postgres-schema.md'
-  ],
   vite: {
     build: {
       rollupOptions: {
@@ -238,16 +229,6 @@ export default withMermaid(defineConfig({
               { text: 'Compatibility & Releases', link: '/adr/0002-compatibility-and-releases' },
               { text: 'Deployment Profiles', link: '/adr/0003-deployment-profiles' },
               { text: 'Maintenance Coordination', link: '/adr/0004-maintenance-coordination' }
-            ]
-          },
-          {
-            text: 'Migration Guides',
-            collapsed: true,
-            items: [
-              { text: '0.5', link: '/guide/migration-0.5' },
-              { text: '0.4', link: '/guide/migration-0.4' },
-              { text: '0.3', link: '/guide/migration-0.3' },
-              { text: '0.2', link: '/guide/migration-0.2' }
             ]
           }
         ]

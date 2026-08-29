@@ -59,7 +59,7 @@ object DbMain {
       propOrEnv("dbcodegen.schemas", "DBCODEGEN_SCHEMAS")
         .orElse(propOrEnv("dbcodegen.includeSchemas", "DBCODEGEN_INCLUDE_SCHEMAS"))
         .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet)
-        .getOrElse(Set("core", "graviton", "quasar"))
+        .getOrElse(Set("core", "graviton"))
 
     val excludeSchemas =
       propOrEnv("dbcodegen.excludeSchemas", "DBCODEGEN_EXCLUDE_SCHEMAS")
