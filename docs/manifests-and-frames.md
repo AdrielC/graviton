@@ -27,7 +27,7 @@ Writers append entries in increasing offset order and never reorder blocks. File
 
 ## Operational persistence formats
 
-- Filesystem: `GVM2` magic, total-size and block-count header, then length-delimited key, offset, and length records. Publication uses a forced temporary file and atomic rename. Legacy `FramedManifest` version 1 remains readable.
+- Filesystem: `GVM2` magic, total-size and block-count header, then length-delimited key, offset, and length records. Publication uses a forced temporary file and atomic rename. Readers reject any other header.
 - PostgreSQL: one `graviton.blob` summary and ordered `graviton.blob_block` rows. Writes are transactional and batched; reads use a forward cursor with auto-commit disabled so JDBC fetch size is effective.
 - In-memory: a bounded compatibility implementation intended for tests and short-lived applications.
 

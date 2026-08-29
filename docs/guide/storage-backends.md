@@ -47,9 +47,7 @@ Example:
 
 - `<root>/cas/manifests/<algo>/<hex>-<size>.manifest`
 
-New CAS writes use the versioned `GVM2` format: a fixed header followed by length-delimited block-key, offset, and length records. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, and total-size checks. Writes use a temporary file, force contents, and atomically replace the destination.
-
-Legacy version-1 `FramedManifest` files remain readable. Their materialized decoder retains its 16,384-entry and 64 MiB safety limits. Large `GVM2` manifests remain available to `stat` and `BlobStore.get`; the explicitly materialized `inspect` operation rejects them above 16,384 entries.
+CAS writes use the single `GVM2` format: a fixed header followed by length-delimited block-key, offset, and length records. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, and total-size checks. Writes use a temporary file, force contents, and atomically replace the destination. Files without the current `GVM2` header are rejected. Large manifests remain available to `stat` and `BlobStore.get`; the explicitly materialized `inspect` operation rejects them above 16,384 entries.
 
 ## S3 / MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
@@ -80,7 +78,7 @@ Example:
 
 - Existence checks use `HeadObject`; missing keys return `false` (MinIO sometimes uses a generic `S3Exception` for missing keys).
 - New blocks use `PutObject` with `If-None-Match: *`, an explicit SHA-256 checksum, and Graviton proof metadata. A fresh write therefore needs no preliminary `HeadObject` and cannot overwrite a racing writer.
-- Duplicate writes verify the stored length, content key, and SHA-256 checksum with `HeadObject`, without downloading tagged block bytes. Legacy objects without proof metadata receive one bounded exact-byte comparison.
+- Duplicate writes verify the stored length, content key, and SHA-256 checksum with `HeadObject`, without downloading block bytes. Objects without the complete current proof metadata are rejected.
 - The object store must preserve user metadata and support conditional `PutObject` requests. A backend that cannot enforce `If-None-Match: *` is not compatible with the CAS write contract.
 - Credentials are static (access key id + secret access key).
 
@@ -90,7 +88,7 @@ Example:
 
 - **Block bytes** in the chosen block store
 - **Manifest references** in Postgres for the S3/MinIO server paths
-- **Streaming `GVM2` manifest files**, with legacy framed-manifest reads, for `Graviton.fs`, `graviton-cli`, and default server mode
+- **Streaming `GVM2` manifest files** for `Graviton.fs`, `graviton-cli`, and default server mode
 - **BlobId** returned from the HTTP API is derived from the blob hash + total byte length
 
 ### Deletion and metadata semantics

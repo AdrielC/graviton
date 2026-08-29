@@ -2,10 +2,8 @@ package graviton.backend.s3
 
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.model.Block.*
 import graviton.runtime.model.*
 import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock}
-import graviton.streams.BoundedByteStream
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -182,19 +180,10 @@ final class S3BlockStore(
     ZIO.attemptBlocking(client.headObject(request)).flatMap { response =>
       val expected = objectProof(block, checksum)
       val actual   = response.metadata().asScala.toMap
-      val proof    = expected.keySet.intersect(actual.keySet)
-
       if response.contentLength() != block.size.value.toLong then
         ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
-      else if proof.isEmpty then verifyExistingBytes(block)
-      else if proof == expected.keySet && expected.forall { case (key, value) => actual.get(key).contains(value) } then ZIO.unit
+      else if expected.forall { case (key, value) => actual.get(key).contains(value) } then ZIO.unit
       else ZIO.fail(new IllegalStateException(s"Existing S3 block has inconsistent CAS proof for ${block.key.bits.render}"))
-    }
-
-  private def verifyExistingBytes(block: CanonicalBlock): Task[Unit] =
-    BoundedByteStream.collectBlock(get(block.key)).flatMap { stored =>
-      if stored.bytes == block.bytes then ZIO.unit
-      else ZIO.fail(new IllegalStateException(s"Existing S3 block does not match content key ${block.key.bits.render}"))
     }
 
   private def objectProof(block: CanonicalBlock, checksum: String): Map[String, String] =
