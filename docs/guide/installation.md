@@ -112,12 +112,12 @@ The RocksDB module contains a restart-safe key-value adapter with scoped native 
 ## Build the documentation site
 
 ```bash
-./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm ci --prefix docs
+./sbt docs/mdoc checkDocSnippets buildDocsAssets
 npm run docs:build --prefix docs
 ```
 
-`buildDocsAssets` generates Scaladoc, links the shared CAS content lab, and rebuilds both Scala.js console assets used by the docs.
+`buildDocsAssets` generates Scaladoc, links the streamed CAS analyzer and bounded PDF editor, and rebuilds the Scala.js console assets used by the docs.
 
 ## Artifact availability
 

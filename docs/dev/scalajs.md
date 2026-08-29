@@ -1,69 +1,72 @@
 # Scala.js Browser Surfaces
 
-Graviton ships two honest Scala.js surfaces. The Laminar **Connect Your Server** console calls a running server supplied by the visitor. The CAS Playground links the bounded `graviton-shared` content-addressing analyzer and computes locally without claiming persistence. The published GitHub Pages site has no hosted backend, so only the local lab works without an operator-supplied endpoint.
+Graviton ships three distinct Scala.js browser surfaces. They share types where that prevents protocol drift, but they do not pretend to be one runtime.
 
-## Project layout
+| Surface | Module | Boundary |
+| --- | --- | --- |
+| Operations console | `modules/frontend` | Calls a real Graviton HTTP server selected by the operator |
+| Streamed file analyzer | `modules/frontend/graviton-content-lab` | Reads local browser files, computes chunk maps and reuse, never persists |
+| PDF editor | `modules/frontend/graviton-pdf-lab` | Inspects PDFs and performs explicitly bounded document rewrites |
 
-- `modules/frontend/src/main/scala/graviton/frontend/` contains the console and HTTP client.
-- `modules/protocol/graviton-shared/shared` contains common response models, refined CAS types, and analysis logic.
-- `modules/protocol/graviton-shared/jvm` uses JCA SHA-256.
-- `modules/protocol/graviton-shared/js` uses Web Crypto and exports `analyzeGravitonContent`.
-- `docs/public/content-lab/main.js` is the linked shared library written by `buildContentLab`.
-- `docs/public/js/main.js` is the linked Graviton bundle written by `buildFrontend`.
+The published GitHub Pages site has no hosted Graviton backend. The CAS Playground therefore proves local content analysis, while the operations console requires an operator-supplied server.
 
-The repository retains an unpublished, source-only internal document-layer prototype. It is not linked into the public Graviton documentation build.
+## Build outputs
+
+- `./sbt buildFrontend` writes the Laminar operations console to `docs/public/js/`.
+- `./sbt buildContentLab` full-links the file analyzer into `docs/.vitepress/generated/content-lab/` and the PDF editor into `docs/.vitepress/generated/pdf-lab/`.
+- Vite bundles the analyzer as the playground's first dynamic dependency. The larger document graph editor is imported only after bytes confirm a PDF.
+
+Generated Vite inputs are ignored by Git. CI and a clean local build must run the sbt asset task before `npm run docs:build`.
 
 ## Development workflow
 
-Start the server:
-
 ```bash
-./sbt 'server/run'
-```
-
-Build the frontend and serve the docs in another terminal:
-
-```bash
-./sbt buildContentLab buildFrontend
 npm ci --prefix docs
+./sbt buildContentLab buildFrontend
 npm run docs:dev --prefix docs
 ```
 
-Open `http://localhost:5173/demo`. The app defaults to `http://localhost:8081` and lets you persist a different endpoint from the connection bar. You can also use `?api=http://host:port` or a `graviton-api-url` meta element.
+Open `http://localhost:5173/cas-playground` for local file comparison. Start `./sbt 'server/run'` and open `http://localhost:5173/demo` for the HTTP-backed operations console.
 
-For repeated console edits, run `./sbt ~frontend/fastLinkJS`. For shared CAS edits, run `./sbt ~sharedProtocolJS/fastLinkJS`. Rerun the corresponding copy task before testing through VitePress.
+## Byte ownership
+
+The analyzer does not call `File.arrayBuffer()` and does not collect a complete upload. `BrowserBlobSource` advances through the browser-owned file with explicit 64 KiB `Blob.slice()` requests. Each bounded slice is copied into a ZIO chunk, then the byte stream is broadcast to an incremental whole-file digest and a chunker with a lag of two bytes per subscriber.
+
+The exported working-byte ceiling includes:
+
+- the five-byte PDF signature;
+- one 64 KiB browser slice and one 64 KiB digest window;
+- the two broadcast queues at their configured two-byte lag;
+- the PDF scanner carry, capped at the smaller of the target and 1 MiB;
+- the chunker's 4 MiB backing buffer and at most one emitted Iron-refined block from 1 byte through 4 MiB; and
+- the final block metadata, capped at 20,000 entries; and
+- the constant-size incremental SHA-256 state.
+
+The ceiling excludes the browser-owned input `Blob`, JavaScript module code, Vue state, and the capped metadata objects because those are not file-byte buffers. `BrowserFileAnalysisSpec` verifies exact identity, reusable source opening, manifest overflow, and release of an active source when its analysis fiber is interrupted.
+
+Font inventory uses ZIO PDF's separately scoped `Blob.stream()` source and does not collect the complete file. Font replacement is different: the current ZIO PDF transform needs a decoded document graph, so the browser editor accepts at most 32 MiB and caps each canonical or edited output at 32 MiB. The output collector reads at most that limit plus one byte before refinement.
 
 ## Request boundaries
 
-- Upload sends the browser `File` directly as an `application/octet-stream` request body.
+- Console upload sends the browser `File` directly as an `application/octet-stream` request body.
 - Inventory and manifest views decode shared response models.
-- Verify is a server operation that streams and hashes persisted bytes.
+- Verify streams and hashes persisted bytes on the server.
 - Download uses authenticated Fetch against the raw blob route.
 - Delete removes the manifest and refreshes durable inventory.
-- The CAS Playground accepts text only, checks a 2,048-code-unit limit before UTF-8 encoding, refines the result to at most 8 KiB, and calls the exported shared analyzer.
+- The CAS Playground uses byte sniffing for PDF selection and displays a mismatch when the browser-advertised MIME type disagrees.
 
-No request has a bundled fallback. A stopped server, CORS failure, malformed response, or storage error remains visible in the component that made the request.
+No surface has a fallback dataset or bundled success path. A failed import, parser error, CORS error, stopped server, or storage error remains visible where it occurred.
 
 ## Quality gates
 
 ```bash
-./sbt 'frontend/compile'
-./sbt 'sharedProtocolJVM/test' 'sharedProtocolJS/test'
+npm ci --prefix docs
+./sbt 'contentLab/test' 'pdfContentLab/test'
 ./sbt buildContentLab buildFrontend
-./scripts/verify-http-lifecycle.sh
+./scripts/check-byte-streaming-hygiene.sh
 npm run docs:build --prefix docs
 ```
 
-Before shipping, use browser developer tools to confirm that upload, inventory, metadata, verification, download, and deletion each issue the expected HTTP request. Stop the server once and verify that the UI shows a connection error rather than retaining success state.
+Browser QA should include multiple similar binary files, a real PDF, a narrow viewport, a deliberate MIME mismatch, and a compatible or fail-closed font replacement attempt.
 
-## Troubleshooting
-
-| Symptom | Fix |
-| --- | --- |
-| Console bundle unavailable | Run `./sbt buildFrontend` and refresh the page. |
-| CAS Playground says Scala.js unavailable | Run `./sbt buildContentLab` and refresh the page. |
-| API request blocked by CORS | Use the default local security-disabled server, configure the console's exact origin in `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS`, or use a same-origin reverse proxy. |
-| Wrong API endpoint | Change the connection bar or append `?api=http://host:port`. |
-| Shared model or analyzer type error | Run `./sbt clean sharedProtocolJVM/compile sharedProtocolJS/compile frontend/compile` to force recompilation of cross-project sources. |
-
-See the [frontend module reference](../modules/frontend.md) and [HTTP API](../api/http.md) for the full data contract.
+See the [CAS Playground](../cas-playground.md), [frontend module reference](../modules/frontend.md), and [HTTP API](../api/http.md).

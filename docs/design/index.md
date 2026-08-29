@@ -14,6 +14,7 @@ This section contains detailed design documents for major Graviton features and 
 ### Product boundary
 
 - **Bytes, identity, and storage** — the public Graviton surface and its deliberate exclusion of document semantics (see [Scope & Boundary](../scope.md))
+- **CAS Playground** — the local byte-atlas workflow, browser memory contract, and canonical PDF edit comparison (see [CAS Playground design contract](./cas-playground.md))
 
 ### Schema & Types
 
