@@ -2,6 +2,11 @@ name: Production qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Git ref to qualify as the rolling-upgrade baseline (defaults to the newest reachable release tag)
+        required: false
+        type: string
   schedule:
     - cron: '17 7 * * 0'
 
@@ -11,7 +16,7 @@ permissions:
 jobs:
   two-node-fault-and-performance:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,36 +30,82 @@ jobs:
         run: ./scripts/demo-shardcake-local.sh up
       - name: Prove node and backend failure behavior
         run: |
-          mkdir -p qualification
-          ./scripts/qualify-local-shardcake.sh > qualification/failure-proof.json
-      - name: Retain performance distribution
+          mkdir -p "$RUNNER_TEMP/graviton-qualification"
+          ./scripts/qualify-local-shardcake.sh > "$RUNNER_TEMP/graviton-qualification/failure-proof.json"
+      - name: Retain workload distributions and CAS reuse transitions
         env:
           GRAVITON_BENCHMARK_BACKEND_DESCRIPTION: GitHub-hosted runner, MinIO, PostgreSQL, two Shardcake nodes
-          GRAVITON_BENCHMARK_WARMUPS: '2'
+          GRAVITON_BENCHMARK_WARMUPS: '1'
           GRAVITON_BENCHMARK_TENANT_ID: 00000000-0000-4000-8000-000000000605
           GRAVITON_BENCHMARK_SESSION_ID: 00000000-0000-4000-8000-000000000606
           GRAVITON_BENCHMARK_MEDIA_TYPE: application/octet-stream
         run: |
-          dd if=/dev/urandom of=/tmp/graviton-qualification.bin bs=1M count=32 status=none
-          ./scripts/benchmark-suite.sh \
-            http://127.0.0.1:58081 \
-            /tmp/graviton-qualification.bin \
-            20 \
-            4 \
-            qualification/benchmark
+          evidence="$RUNNER_TEMP/graviton-qualification"
+          corpus="$evidence/corpus"
+          mkdir -p "$evidence/reuse-transition" "$evidence/benchmarks"
+          ./scripts/generate-qualification-corpus.py "$corpus" > "$evidence/corpus-generation.json"
+
+          ./scripts/benchmark-http.sh http://127.0.0.1:58081 "$corpus/base-32m.bin" > "$evidence/reuse-transition/01-base-fresh.json"
+          ./scripts/benchmark-http.sh http://127.0.0.1:58081 "$corpus/sparse-edit-32m.bin" > "$evidence/reuse-transition/02-sparse-edit.json"
+          ./scripts/benchmark-http.sh http://127.0.0.1:58081 "$corpus/base-32m.bin" > "$evidence/reuse-transition/03-base-duplicate.json"
+          jq -e '.freshBlocks > 0 and .duplicateBlocks == 0' "$evidence/reuse-transition/01-base-fresh.json" >/dev/null
+          jq -e '.freshBlocks > 0 and .duplicateBlocks > 0' "$evidence/reuse-transition/02-sparse-edit.json" >/dev/null
+          jq -e '.freshBlocks == 0 and .duplicateBlocks > 0' "$evidence/reuse-transition/03-base-duplicate.json" >/dev/null
+
+          for payload in base-32m sparse-edit-32m repeated-block-32m; do
+            ./scripts/benchmark-suite.sh \
+              http://127.0.0.1:58081 \
+              "$corpus/$payload.bin" \
+              8 \
+              4 \
+              "$evidence/benchmarks/$payload"
+          done
+      - name: Build exact rolling-upgrade images
+        env:
+          REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          evidence="$RUNNER_TEMP/graviton-qualification"
+          baseline_ref="$REQUESTED_BASELINE_REF"
+          if [[ -z "$baseline_ref" ]]; then
+            baseline_ref="$(git describe --tags --abbrev=0 HEAD^)"
+          fi
+          baseline_dir="$RUNNER_TEMP/graviton-baseline"
+          git worktree add --detach "$baseline_dir" "$baseline_ref"
+          (
+            cd "$baseline_dir"
+            TESTCONTAINERS=0 ./sbt -Dsbt.server.autostart=false -Dsbt.supershell=false 'server/assembly'
+            docker build -t graviton-qualification:baseline .
+          )
+          docker tag graviton-local:current graviton-qualification:candidate
+          printf '{"schema":"graviton-rolling-images-v1","baselineRef":"%s","candidateRef":"%s"}\n' \
+            "$(git -C "$baseline_dir" rev-parse HEAD)" "$(git rev-parse HEAD)" > "$evidence/rolling-images.json"
+          git worktree remove "$baseline_dir"
+      - name: Qualify mixed-version rollout and rollback
+        run: |
+          ./scripts/qualify-rolling-upgrade.sh \
+            graviton-qualification:baseline \
+            graviton-qualification:candidate \
+            baseline \
+            candidate \
+            > "$RUNNER_TEMP/graviton-qualification/rolling-upgrade.json"
+      - name: Run sustained resumable workload through repeated faults
+        run: |
+          ./scripts/qualify-long-failure.sh 600 4194304 \
+            > "$RUNNER_TEMP/graviton-qualification/long-failure.json"
       - name: Capture topology logs
         if: always()
         run: |
-          docker compose -f deploy/local-shardcake/docker-compose.yml ps -a > qualification/compose-status.txt
-          docker compose -f deploy/local-shardcake/docker-compose.yml logs --no-color > qualification/compose.log
+          mkdir -p "$RUNNER_TEMP/graviton-qualification"
+          docker compose -f deploy/local-shardcake/docker-compose.yml ps -a > "$RUNNER_TEMP/graviton-qualification/compose-status.txt"
+          docker compose -f deploy/local-shardcake/docker-compose.yml logs --no-color > "$RUNNER_TEMP/graviton-qualification/compose.log"
       - name: Upload qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-qualification-${{ github.sha }}
-          path: qualification
+          path: ${{ runner.temp }}/graviton-qualification
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
       - name: Stop topology
         if: always()
         run: ./scripts/demo-shardcake-local.sh stop

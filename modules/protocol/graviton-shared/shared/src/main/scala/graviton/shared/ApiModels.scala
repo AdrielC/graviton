@@ -45,6 +45,22 @@ object ApiModels {
     given JsonCodec[Ratio] =
       summon[JsonCodec[Double]].transformOrFail(either, _.value)
 
+  /** Canonical UUID identifying one resumable upload session. */
+  type UploadId = UploadId.T
+  object UploadId extends RefinedSubtype[String, Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]]:
+    given JsonCodec[UploadId] = summon[JsonCodec[String]].transformOrFail(either, _.value)
+
+  /** Durable byte offset, including zero and the completed 1 TiB boundary. */
+  type UploadOffsetBytes = UploadOffsetBytes.T
+  object UploadOffsetBytes extends RefinedSubtype[Long, GreaterEqual[0L] & LessEqual[1099511627776L]]:
+    given JsonCodec[UploadOffsetBytes] = summon[JsonCodec[Long]].transformOrFail(either, _.value)
+
+  enum UploadState derives JsonCodec:
+    case Open
+    case Committing
+    case Committed
+    case Cancelled
+
   /** Plain wire records avoid the opaque numeric wrapper defect in 0.0.51. */
   private object Wire:
     final case class SystemStats(
@@ -95,6 +111,17 @@ object ApiModels {
     final case class BlobVerificationResult(id: String, verified: Boolean, bytesChecked: Long)
     object BlobVerificationResult:
       given BlocksSchema[BlobVerificationResult] = BlocksSchema.derived
+
+    final case class ResumableUploadStatus(
+      id: String,
+      offset: Long,
+      expectedSize: Option[Long],
+      expiresAt: Long,
+      state: String,
+      committedBlob: Option[String],
+    )
+    object ResumableUploadStatus:
+      given BlocksSchema[ResumableUploadStatus] = BlocksSchema.derived
 
   private def validated[A](field: String, value: Either[String, A]): Either[String, A] =
     value.left.map(message => s"$field: $message")
@@ -270,5 +297,40 @@ object ApiModels {
           id           <- validated("id", BlobId.either(value.id))
           bytesChecked <- validated("bytesChecked", SizeBytes.either(value.bytesChecked))
         yield BlobVerificationResult(id, value.verified, bytesChecked)
+      )
+
+  /** Durable checkpoint returned by create, append, status, and commit calls. */
+  final case class ResumableUploadStatus(
+    id: UploadId,
+    offset: UploadOffsetBytes,
+    expectedSize: Option[SizeBytes],
+    expiresAt: Long,
+    state: UploadState,
+    committedBlob: Option[BlobId],
+  ) derives JsonCodec
+
+  object ResumableUploadStatus:
+    given ApiJsonCodec[ResumableUploadStatus] =
+      ApiJsonCodec.mapped[ResumableUploadStatus, Wire.ResumableUploadStatus](value =>
+        Wire.ResumableUploadStatus(
+          value.id.value,
+          value.offset.value,
+          value.expectedSize.map(_.value),
+          value.expiresAt,
+          value.state.toString,
+          value.committedBlob.map(_.value),
+        )
+      )(value =>
+        for
+          id       <- validated("id", UploadId.either(value.id))
+          offset   <- validated("offset", UploadOffsetBytes.either(value.offset))
+          expected <- value.expectedSize match
+                        case None        => Right(None)
+                        case Some(bytes) => validated("expectedSize", SizeBytes.either(bytes)).map(Some(_))
+          state    <- UploadState.values.find(_.toString == value.state).toRight(s"state: invalid value '${value.state}'")
+          blob     <- value.committedBlob match
+                        case None       => Right(None)
+                        case Some(blob) => validated("committedBlob", BlobId.either(blob)).map(Some(_))
+        yield ResumableUploadStatus(id, offset, expected, value.expiresAt, state, blob)
       )
 }

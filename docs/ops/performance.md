@@ -57,6 +57,8 @@ output directory contains every raw sample, a newline-delimited copy, and a
 summary with latency and throughput distributions. A failed or unverified
 sample fails the suite instead of disappearing from the aggregate.
 
+The scheduled `Production qualification` workflow retains its complete record for 90 days. It generates a checksummed deterministic corpus outside the Git worktree: one 32 MiB base object, a sparse edit that preserves 24 of 32 fixed-size blocks, and one block repeated 32 times. The gate first proves fresh, partial-reuse, and duplicate transitions, then retains eight raw samples plus distributions for every workload. Generated-runner results are regression evidence for that exact commit and topology, not a portable performance claim.
+
 ## ZIO HTTP transport choices
 
 Graviton currently resolves ZIO HTTP 3.11.4 and explicitly enables request streaming. Upload handlers consume `request.body.asStream`; download handlers use `Body.fromStream(stream, contentLength)` because manifest size is known. This keeps Netty demand connected to the ZIO stream and avoids whole-body aggregation.
@@ -130,15 +132,15 @@ HTTP range requests select intersecting manifest entries before block retrieval.
 
 Selected blocks are still verified in full before any requested bytes from that block are emitted. Range efficiency does not weaken the content-addressed integrity check, and peak ordered-prefetch memory remains bounded by `maxInFlight * 16 MiB`.
 
-## Inline CAS versus staged acceptance
+## Inline CAS versus resumable staging
 
 The implemented upload endpoint performs CAS inline: it reads the stream once, sniffs a bounded prefix, selects a chunker, hashes the complete blob, hashes each bounded block, persists blocks with back pressure, and atomically publishes the manifest last. The response therefore contains the final content ID.
 
-An asynchronous staging mode can reduce request completion time only by changing the contract to `202 Accepted`. It does not remove CAS work. A worker must still read every staged byte to validate length and media type, choose the chunker, derive block and blob hashes, persist unique blocks, and commit the manifest. Compared with inline CAS, staging adds one full temporary-object write and one full temporary-object read.
+The implemented `/api/v1/uploads` protocol changes that cost shape to obtain durable recovery. Each bounded part is written once to filesystem or S3 staging. Commit then reads every part once, in ledger order, to validate the exact total, sniff media, choose the chunker, derive block and blob hashes, persist unique blocks, and publish the manifest. Staging therefore adds one complete temporary write and one complete temporary read; it cannot make CAS hashing free.
 
-Staging is useful for resumable multipart upload, quarantine, admission control, or absorbing backend outages. It should use a typed upload receipt rather than pretending the temporary locator is a content ID, plus a durable state machine, idempotent worker lease, expiry, and orphan cleanup. The staged object must stream through the same ingest service and must never be materialized in memory. This mode is not implemented by the current HTTP API.
+The advantage is operational rather than computational: acknowledged offsets survive process restart, repeated part IDs are idempotent, transient SDK retries replay only one Iron-bounded part, commit is leased and content-idempotent, and expiry cleans orphans. The response is not a temporary content ID. Only successful commit returns the final immutable blob key.
 
-S3 multipart upload belongs at that whole-object staging boundary. Graviton CAS blocks are bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are the appropriate default rather than multipart upload per block.
+The current S3 staging adapter stores each client-defined part as one generic object and internally switches to adaptive multipart upload under its existing Iron-bounded buffer and abort finalizer. This is separate from CAS block persistence. Graviton CAS blocks remain bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are still the appropriate CAS default rather than multipart upload per block.
 
 ## Comparing revisions
 
@@ -153,4 +155,4 @@ S3 multipart upload belongs at that whole-object staging boundary. Graviton CAS 
 
 ## Current observability boundary
 
-`/api/stats` and `/metrics` expose process-local ingest, byte-weighted CAS reuse, HTTP request, error, and latency observations. They reset on restart and do not establish durable capacity or a service-level objective. The reuse ratio reports logical block bytes whose write Graviton avoided; it does not include replication, erasure coding, compression, metadata, or allocator overhead. Backend physical-utilization metrics and retained dashboards remain deployment work.
+`/api/stats` and `/metrics` expose process-local ingest, byte-weighted CAS reuse, HTTP request, error, latency, resumable session, replica placement, write, repair, and repair-cycle observations. They reset on restart and do not establish durable capacity or a service-level objective. The reuse ratio reports logical block bytes whose write Graviton avoided; it does not include replication, erasure coding, compression, metadata, or allocator overhead. Backend physical-utilization metrics and retained dashboards remain deployment work.

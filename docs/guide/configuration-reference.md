@@ -41,9 +41,14 @@ export GRAVITON_S3_REGION="us-east-1"
 | Path | Meaning | Notes |
 | --- | --- | --- |
 | `GET /api/health/live` | liveness | Always available when the process is up |
-| `GET /api/health/ready` | backend readiness | Checks the configured block and manifest stores; with Shardcake enabled, also requires the local upload node to own at least one shard |
+| `GET /api/health/ready` | backend readiness | Checks block, manifest, resumable-ledger, and staging targets; with Shardcake enabled, also requires the local upload node to own at least one shard |
 | `GET /metrics` | Prometheus scrape | Exposes `text/plain; version=0.0.4` (metric names are evolving) |
 | `POST /api/v1/blobs` | upload | Uses the selected storage composition |
+| `POST /api/v1/uploads` | create resumable upload | Persists a durable filesystem or PostgreSQL checkpoint |
+| `GET /api/v1/uploads/:id` or `HEAD /api/v1/uploads/:id` | resume state | Returns the committed byte offset and expiry |
+| `PATCH /api/v1/uploads/:id` | append resumable part | Requires `Upload-Offset`, `Upload-Part-Id`, and exact `Content-Length` |
+| `POST /api/v1/uploads/:id/commit` | finalize resumable upload | Streams staged parts through the normal MIME-aware CAS ingest path |
+| `DELETE /api/v1/uploads/:id` | cancel resumable upload | Removes the ledger and staged parts |
 | `GET /api/v1/blobs/:id` | download | Supports ranges and conditional requests |
 | `HEAD /api/v1/blobs/:id` | metadata headers | Checks existence without a response body |
 | `DELETE /api/v1/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
@@ -109,8 +114,47 @@ Notes:
 
 - `minio` and `s3` select the same S3-compatible adapter.
 - Set `GRAVITON_S3_ENDPOINT` for an explicit S3-compatible endpoint and credentials, including MinIO or Ceph RGW.
-- The packaged S3 adapter requires an explicit endpoint, access key, and secret key. Use the provider's S3 endpoint for AWS, MinIO, Ceph RGW, or another compatible implementation.
+- Set an explicit endpoint, access key, and secret key together for MinIO, Ceph RGW, or another S3-compatible service. When no endpoint is set, the AWS SDK uses its default credential provider and `GRAVITON_S3_REGION`.
 - Filesystem mode stores blocks and manifests locally and is the zero-service default.
+
+### Resumable upload staging
+
+Resumable routes are mounted by the packaged server for both backends. Filesystem mode writes bounded ZIO Blocks session ledgers under `<GRAVITON_FS_ROOT>/cas/upload-sessions` and atomic part objects under `<GRAVITON_FS_ROOT>/cas/upload-staging`. S3/MinIO mode uses the `graviton.upload_session` and `graviton.upload_part` PostgreSQL tables plus the configured temporary bucket. The temporary bucket must exist before startup.
+
+| Name | Default | Meaning |
+| --- | --- | --- |
+| `GRAVITON_RESUMABLE_UPLOADS_SESSION_TTL` | `24h` | Lifetime of an open upload checkpoint. |
+| `GRAVITON_RESUMABLE_UPLOADS_PART_LEASE` | `15m` | Expiring exclusive lease for one idempotent part write. |
+| `GRAVITON_RESUMABLE_UPLOADS_COMMIT_LEASE` | `30m` | Expiring lease for final CAS ingest. |
+| `GRAVITON_RESUMABLE_UPLOADS_CLEANUP_INTERVAL` | `15m` | Scoped maintenance cadence for expiry and deferred post-commit cleanup. |
+| `GRAVITON_RESUMABLE_UPLOADS_MAX_PART_BYTES` | `268435456` | Maximum bytes in one streamed part, checked incrementally. |
+| `GRAVITON_RESUMABLE_UPLOADS_MAX_PARTS` | `8192` | Maximum completed parts in one session. |
+| `GRAVITON_S3_TMP_BUCKET` | `graviton-tmp` | S3-compatible staging bucket in S3/MinIO mode. |
+
+The server never joins parts in memory. It streams each staged object in durable part order into the same declared-size validation, byte sniffing, chunker selection, hashing, and CAS publication used by `POST /api/v1/blobs`. A committed session retains only its final content ID after cleanup. Maintenance also recognizes a committed ledger with leftover locators, which closes the process-crash window between CAS commit and staging deletion.
+
+### Automatic block replication
+
+Leave `GRAVITON_REPLICATION_TARGETS` empty for one block target. To enable deterministic placement and repair, declare one to sixteen targets using comma-separated `name|failure-domain|location` records:
+
+```bash
+# Filesystem locations are independent roots.
+export GRAVITON_REPLICATION_TARGETS='west|rack-a|/srv/graviton-a,east|rack-b|/srv/graviton-b'
+
+# In S3/MinIO mode, each location is a bucket using the shared endpoint,
+# credentials, region, and block prefix.
+export GRAVITON_REPLICATION_TARGETS='zone-a|az-a|graviton-blocks-a,zone-b|az-b|graviton-blocks-b,zone-c|az-c|graviton-blocks-c'
+```
+
+| Name | Default | Meaning |
+| --- | --- | --- |
+| `GRAVITON_REPLICATION_TARGETS` | empty | Named failure-domain targets. Empty disables the replicated store. |
+| `GRAVITON_REPLICATION_DESIRED_REPLICAS` | all configured targets | Stable rendezvous-selected copies per block. |
+| `GRAVITON_REPLICATION_WRITE_QUORUM` | desired replica count | Successful target writes required before the manifest may commit. |
+| `GRAVITON_REPLICATION_REPAIR_INTERVAL` | `5m` | Cadence of the supervised manifest-reference scrub. |
+| `GRAVITON_REPLICATION_REPAIR_BATCH_SIZE` | `10000` | Iron-refined maximum referenced blocks per cycle, from 1 through 1,000,000. |
+
+Target labels are trusted topology declarations. Use distinct physical racks, zones, accounts, or providers when that is the durability contract; different labels cannot make two paths on one disk independent. The manifest repository remains `GRAVITON_FS_ROOT` in filesystem mode or PostgreSQL in S3 mode. Every configured block root or bucket must already exist and be writable.
 
 ### Filesystem blocks and manifests (`GRAVITON_BLOB_BACKEND=fs`)
 

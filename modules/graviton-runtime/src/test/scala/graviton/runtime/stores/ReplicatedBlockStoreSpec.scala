@@ -75,13 +75,66 @@ object ReplicatedBlockStoreSpec extends ZIOSpecDefault:
         repaired <- missing.exists(block.key)
       yield assertTrue(bytes == block.bytes, repaired, report.repairedReplicas == 1)
     },
+    test("rendezvous placement is stable and spreads across failure domains") {
+      for
+        first   <- InMemoryBlockStore.make
+        second  <- InMemoryBlockStore.make
+        third   <- InMemoryBlockStore.make
+        block   <- canonical("stable-placement")
+        replicas = Chunk(
+                     ReplicatedBlockStore.Replica("rack-a-1", "rack-a", first),
+                     ReplicatedBlockStore.Replica("rack-a-2", "rack-a", second),
+                     ReplicatedBlockStore.Replica("rack-b-1", "rack-b", third),
+                   )
+        one     <- ReplicaPlacement.rendezvous.select(block.key, replicas, desiredReplicas = 2)
+        two     <- ReplicaPlacement.rendezvous.select(block.key, replicas, desiredReplicas = 2)
+      yield assertTrue(
+        one.map(_.name) == two.map(_.name),
+        one.length == 2,
+        one.map(_.failureDomain).distinct.length == 2,
+      )
+    },
+    test("topology expansion migrates a block from an old configured target") {
+      val oldPlacement = new ReplicaPlacement:
+        override def select(
+          key: BinaryKey.Block,
+          candidates: Chunk[ReplicatedBlockStore.Replica],
+          desiredReplicas: Int,
+        ): UIO[Chunk[ReplicatedBlockStore.Replica]] = ZIO.succeed(candidates.takeRight(desiredReplicas))
+      val newPlacement = new ReplicaPlacement:
+        override def select(
+          key: BinaryKey.Block,
+          candidates: Chunk[ReplicatedBlockStore.Replica],
+          desiredReplicas: Int,
+        ): UIO[Chunk[ReplicatedBlockStore.Replica]] = ZIO.succeed(candidates.take(desiredReplicas))
+
+      for
+        first   <- InMemoryBlockStore.make
+        second  <- InMemoryBlockStore.make
+        old     <- InMemoryBlockStore.make
+        block   <- canonical("expanded-topology")
+        replicas = Chunk(
+                     ReplicatedBlockStore.Replica("new-a", first),
+                     ReplicatedBlockStore.Replica("new-b", second),
+                     ReplicatedBlockStore.Replica("old", old),
+                   )
+        oldStore = ReplicatedBlockStore.make(replicas, 1, 1, oldPlacement).toOption.get
+        _       <- oldStore.putBlock(block)
+        newStore = ReplicatedBlockStore.make(replicas, 2, 2, newPlacement).toOption.get
+        report  <- newStore.repair(block.key)
+        a       <- first.exists(block.key)
+        b       <- second.exists(block.key)
+        bytes   <- newStore.get(block.key).runCollect
+      yield assertTrue(report.repairedReplicas == 2, a, b, bytes == block.bytes)
+    },
   )
 
-  private object FailingStore extends BlockStore:
+  private object FailingStore extends RepairableBlockStore:
     override def putBlocks(plan: BlockWritePlan): BlockSink               = ZSink.fail(new IOException("replica unavailable"))
     override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] = ZStream.fail(new IOException("replica unavailable"))
     override def exists(key: BinaryKey.Block): Task[Boolean]              = ZIO.fail(new IOException("replica unavailable"))
     override def healthCheck: Task[Unit]                                  = ZIO.fail(new IOException("replica unavailable"))
+    override def repairBlock(block: CanonicalBlock): Task[Unit]           = ZIO.fail(new IOException("replica unavailable"))
 
   private def canonical(value: String): Task[CanonicalBlock] =
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))

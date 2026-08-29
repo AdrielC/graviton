@@ -138,6 +138,63 @@ CREATE TABLE IF NOT EXISTS graviton.replica_index (
 CREATE INDEX IF NOT EXISTS replica_index_key_idx
   ON graviton.replica_index (key_kind, alg, hash_bytes, byte_length);
 
+-- Durable resumable-upload control plane. Payload bytes live in the selected
+-- MutableObjectStore; these rows retain only bounded metadata and opaque
+-- locators. Row locks serialize append and commit leases across nodes.
+CREATE TABLE IF NOT EXISTS graviton.upload_session (
+  tenant_id uuid NOT NULL,
+  upload_session_id uuid NOT NULL,
+  content_type text NOT NULL CHECK (length(content_type) BETWEEN 3 AND 255),
+  expected_size core.byte_size NULL CHECK (expected_size BETWEEN 1 AND 1099511627776),
+  byte_offset core.byte_size NOT NULL DEFAULT 0 CHECK (byte_offset <= 1099511627776),
+  part_count integer NOT NULL DEFAULT 0 CHECK (part_count BETWEEN 0 AND 65535),
+  phase text NOT NULL DEFAULT 'Open' CHECK (phase IN ('Open', 'Committing', 'Committed', 'Cancelled')),
+  committed_blob text NULL CHECK (committed_blob IS NULL OR length(committed_blob) BETWEEN 8 AND 256),
+  commit_lease_id uuid NULL,
+  commit_lease_expires_at timestamptz NULL,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (tenant_id, upload_session_id),
+  CONSTRAINT upload_session_commit_lease_pair CHECK (
+    (commit_lease_id IS NULL AND commit_lease_expires_at IS NULL) OR
+    (commit_lease_id IS NOT NULL AND commit_lease_expires_at IS NOT NULL)
+  ),
+  CONSTRAINT upload_session_committed_blob_state CHECK (
+    (phase = 'Committed' AND committed_blob IS NOT NULL) OR
+    (phase <> 'Committed' AND committed_blob IS NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS upload_session_expiry_idx
+  ON graviton.upload_session (expires_at, tenant_id, upload_session_id)
+  WHERE phase <> 'Committed';
+
+CREATE TABLE IF NOT EXISTS graviton.upload_part (
+  tenant_id uuid NOT NULL,
+  upload_session_id uuid NOT NULL,
+  part_id uuid NOT NULL,
+  part_number integer NOT NULL CHECK (part_number BETWEEN 0 AND 65535),
+  byte_offset core.byte_size NOT NULL CHECK (byte_offset <= 1099511627776),
+  byte_length core.byte_size NULL CHECK (byte_length BETWEEN 1 AND 1099511627776),
+  locator text NOT NULL CHECK (locator ~ '^[a-z][a-z0-9+.-]*://'),
+  lease_id uuid NULL,
+  lease_expires_at timestamptz NULL,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  completed_at timestamptz NULL,
+  PRIMARY KEY (tenant_id, upload_session_id, part_id),
+  UNIQUE (tenant_id, upload_session_id, part_number),
+  FOREIGN KEY (tenant_id, upload_session_id)
+    REFERENCES graviton.upload_session(tenant_id, upload_session_id)
+    ON DELETE CASCADE,
+  CONSTRAINT upload_part_state CHECK (
+    (byte_length IS NULL AND lease_id IS NOT NULL AND lease_expires_at IS NOT NULL AND completed_at IS NULL) OR
+    (byte_length IS NOT NULL AND lease_id IS NULL AND lease_expires_at IS NULL AND completed_at IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS upload_part_one_reservation_idx
+  ON graviton.upload_part (tenant_id, upload_session_id)
+  WHERE byte_length IS NULL;
+
 -- generic updated_at trigger helper
 CREATE OR REPLACE FUNCTION core.touch_updated_at()
 RETURNS trigger

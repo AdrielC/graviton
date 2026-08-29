@@ -24,7 +24,7 @@ import java.util.UUID
 final class FsBlockStore(
   root: Path,
   prefix: String = "cas/blocks",
-) extends BlockStore
+) extends RepairableBlockStore
     with BlockMaintenance:
 
   override def putBlock(
@@ -65,6 +65,38 @@ final class FsBlockStore(
       else if Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then true
       else throw new IllegalStateException(s"Block path is not a regular file: $path")
     }
+
+  override def repairBlock(block: CanonicalBlock): Task[Unit] =
+    ZIO
+      .fail(
+        new IllegalArgumentException(
+          s"Canonical block key declares ${block.key.bits.size} bytes but repair payload contains ${block.size.value}"
+        )
+      )
+      .unless(block.key.bits.size == block.size.value.toLong) *>
+      ZIO.attemptBlocking {
+        val destination = pathFor(block.key)
+        Files.createDirectories(destination.getParent)
+        val temporary   = Files.createTempFile(destination.getParent, "repair-", ".tmp")
+        try
+          val channel = FileChannel.open(temporary, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+          try
+            val bytes = ByteBuffer.wrap(block.bytes.toArray)
+            while bytes.hasRemaining do
+              val _ = channel.write(bytes)
+            channel.force(true)
+          finally channel.close()
+          Files.move(
+            temporary,
+            destination,
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+          )
+          fsyncDirectory(destination.getParent)
+        finally
+          try { val _ = Files.deleteIfExists(temporary); () }
+          catch case _: java.io.IOException => ()
+      }
 
   override def healthCheck: ZIO[Any, Throwable, Unit] =
     ZIO.attemptBlocking {

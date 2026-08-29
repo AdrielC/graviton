@@ -1,6 +1,7 @@
 package graviton.protocol.http
 
 import graviton.runtime.Graviton
+import graviton.runtime.stores.FsMutableObjectStore
 import graviton.runtime.upload.*
 import graviton.shared.ApiModels.*
 import zio.*
@@ -9,6 +10,8 @@ import zio.json.*
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
+import scala.jdk.CollectionConverters.*
 
 object HttpApiSpec extends ZIOSpecDefault:
 
@@ -84,6 +87,92 @@ object HttpApiSpec extends ZIOSpecDefault:
           head.status == Status.Ok,
           headBody.isEmpty,
         )
+      },
+      test("resumable HTTP protocol checkpoints, rejects stale offsets, replays parts, and commits to CAS") {
+        ZIO.scoped {
+          val sessionId                                             = "44444444-4444-4444-8444-444444444444"
+          val partOne                                               = "55555555-5555-4555-8555-555555555555"
+          val partTwo                                               = "66666666-6666-4666-8666-666666666666"
+          val createHeaders                                         = Headers(
+            Header.Custom("Content-Type", "application/octet-stream"),
+            Header.Custom(UploadHttpHeaders.UploadSession, sessionId),
+            Header.Custom(UploadHttpHeaders.UploadLength, "11"),
+          )
+          def partHeaders(offset: Long, partId: String, size: Long) = Headers(
+            Header.Custom(UploadHttpHeaders.UploadOffset, offset.toString),
+            Header.Custom(UploadHttpHeaders.UploadPartId, partId),
+            Header.Custom("Content-Length", size.toString),
+          )
+
+          for
+            api          <- makeResumableApi
+            created      <- call(api, Method.POST, "/api/v1/uploads", headers = createHeaders)
+            createdBody  <- created.body.asString
+            checkpoint   <- ZIO.fromEither(createdBody.fromJson[ResumableUploadStatus]).mapError(new IllegalArgumentException(_))
+            first        <- call(
+                              api,
+                              Method.PATCH,
+                              s"/api/v1/uploads/$sessionId",
+                              Body.fromString("hello "),
+                              partHeaders(0L, partOne, 6L),
+                            )
+            pulled       <- Ref.make(false)
+            retryBody     = Body.fromStream(
+                              zio.stream.ZStream.fromZIO(pulled.set(true).as('x'.toByte)),
+                              1L,
+                            )
+            retried      <- call(
+                              api,
+                              Method.PATCH,
+                              s"/api/v1/uploads/$sessionId",
+                              retryBody,
+                              partHeaders(0L, partOne, 1L),
+                            )
+            bodyPulled   <- pulled.get
+            stale        <- call(
+                              api,
+                              Method.PATCH,
+                              s"/api/v1/uploads/$sessionId",
+                              Body.fromString("world"),
+                              partHeaders(1L, partTwo, 5L),
+                            )
+            staleBody    <- stale.body.asString
+            second       <- call(
+                              api,
+                              Method.PATCH,
+                              s"/api/v1/uploads/$sessionId",
+                              Body.fromString("world"),
+                              partHeaders(6L, partTwo, 5L),
+                            )
+            head         <- call(api, Method.HEAD, s"/api/v1/uploads/$sessionId")
+            committed    <- call(api, Method.POST, s"/api/v1/uploads/$sessionId/commit")
+            committedRaw <- committed.body.asString
+            finalStatus  <- ZIO.fromEither(committedRaw.fromJson[ResumableUploadStatus]).mapError(new IllegalArgumentException(_))
+            blobId       <- ZIO.fromOption(finalStatus.committedBlob).orElseFail(new IllegalStateException("missing committed blob"))
+            downloaded   <- call(api, Method.GET, s"/api/v1/blobs/${blobId.value}")
+            bytes        <- downloaded.body.asString
+          yield assertTrue(
+            created.status == Status.Created,
+            checkpoint.offset.value == 0L,
+            first.status == Status.NoContent,
+            first.headers.get(UploadHttpHeaders.UploadOffset).contains("6"),
+            retried.status == Status.NoContent,
+            retried.headers.get(UploadHttpHeaders.UploadOffset).contains("6"),
+            !bodyPulled,
+            stale.status == Status.Conflict,
+            stale.headers.get(UploadHttpHeaders.UploadOffset).contains("6"),
+            staleBody.contains("upload_offset_mismatch"),
+            second.status == Status.NoContent,
+            second.headers.get(UploadHttpHeaders.UploadOffset).contains("11"),
+            head.status == Status.Ok,
+            head.headers.get(UploadHttpHeaders.UploadOffset).contains("11"),
+            committed.status == Status.Ok,
+            finalStatus.state == UploadState.Committed,
+            finalStatus.offset.value == 11L,
+            downloaded.status == Status.Ok,
+            bytes == "hello world",
+          )
+        }
       },
       test("inventory, manifest inspection, and server verification report persisted bytes") {
         val text = "inspect and verify over http"
@@ -374,6 +463,29 @@ object HttpApiSpec extends ZIOSpecDefault:
   private def makeApi: UIO[HttpApi] =
     for graviton <- Graviton.inMemory(chunkSize = 64)
     yield HttpApi(graviton.blobStore)
+
+  private def makeResumableApi: ZIO[Scope, Throwable, HttpApi] =
+    for
+      root      <- temporaryDirectory
+      graviton  <- Graviton.inMemory(chunkSize = 64)
+      repository = new FsResumableUploadRepository(root)
+      staging    = new FsMutableObjectStore(root)
+      target    <- ZIO
+                     .fromEither(UploadStagingTarget.from("file", "graviton-staging"))
+                     .mapError(new IllegalArgumentException(_))
+      service    = new ResumableUploadService(repository, staging, target)
+    yield HttpApi(graviton.blobStore, resumableUploads = Some(service))
+
+  private def temporaryDirectory: ZIO[Scope, Throwable, Path] =
+    ZIO.acquireRelease(ZIO.attemptBlocking(Files.createTempDirectory("graviton-http-resumable-")))(deleteTree)
+
+  private def deleteTree(path: Path): UIO[Unit] =
+    ZIO.attemptBlocking {
+      if Files.exists(path) then
+        val paths = Files.walk(path)
+        try paths.iterator().asScala.toVector.sortBy(_.getNameCount).reverse.foreach(Files.deleteIfExists)
+        finally paths.close()
+    }.orDie
 
   private def call(
     api: HttpApi,

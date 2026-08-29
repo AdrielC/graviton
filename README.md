@@ -164,7 +164,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-The highest-value remaining work is resumable HTTP upload contracts, automated replica maintenance, coordinated backup snapshots, long-duration failure injection, and target-environment multi-process rolling-upgrade acceptance. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The repository now ships durable resumable HTTP uploads, automated failure-domain replica placement and repair, retained workload distributions, and executable mixed-version and sustained-failure qualification. The highest-value remaining work is coordinated provider snapshots, abrupt power-loss and disk-fault injection, target IdP and network acceptance, and retained benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 

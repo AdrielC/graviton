@@ -43,9 +43,19 @@ object ConsumerProof extends ZIOAppDefault:
                     .fail(new IllegalStateException("published PDF artifact did not round-trip bytes"))
                     .unless(restoredPdf == pdfPayload && pdf.stats.blockCount > 0)
       baseUrl  <- ZIO.fromEither(URL.decode("http://127.0.0.1:8081"))
-      _        <- GravitonClient.make(GravitonClient.Config(baseUrl)).provideLayer(Client.default)
+      client   <- GravitonClient.make(GravitonClient.Config(baseUrl)).provideLayer(Client.default)
       mediaType = MediaType.unsafeFromString("application/octet-stream")
       maxSize   = GravitonClient.BlobByteLength.applyUnsafe(1099511627776L)
+      resumablePartSize = GravitonClient.ResumablePartSize.Default
+      resumableCall     = client.uploadResumable(
+                            GravitonClient.Upload(
+                              ZStream.fromChunk(payload),
+                              mediaType,
+                              Some(GravitonClient.BlobByteLength.applyUnsafe(payload.length.toLong)),
+                            ),
+                            resumablePartSize,
+                            _ => ZIO.unit,
+                          )
       kvKey     = KvKey.applyUnsafe("consumer/proof")
       kvValue  <- ZIO.fromEither(KvValue.fromChunk(payload)).mapError(new IllegalArgumentException(_))
       token     = GravitonGrpcClient.BearerToken.applyUnsafe("consumer-proof-token")
@@ -71,6 +81,7 @@ object ConsumerProof extends ZIOAppDefault:
       _        <- Console.printLine(
                     s"external-consumer-proof key=${protoKey.value} bytes=${restored.length} pdf=${pdf.key.bits.render}:${restoredPdf.length} " +
                       s"media=${mediaType.fullType} max=$maxSize kv=${kvKey.value}:${kvValue.length} token-bytes=${token.value.length} " +
-                      s"maintenance=ok health=${health.status} locality=${sessionKey.tenantId.value}/${sessionKey.uploadSessionId.value}:${locality.numberOfShards}"
+                      s"maintenance=ok resumable-part=${resumablePartSize.value} resumable-effect=${resumableCall.getClass.getSimpleName} " +
+                      s"health=${health.status} locality=${sessionKey.tenantId.value}/${sessionKey.uploadSessionId.value}:${locality.numberOfShards}"
                   )
     yield ()

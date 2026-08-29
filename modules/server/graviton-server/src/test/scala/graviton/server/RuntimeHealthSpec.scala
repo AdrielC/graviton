@@ -2,9 +2,12 @@ package graviton.server
 
 import graviton.integration.shardcake.ShardcakeNode
 import graviton.runtime.Graviton
+import graviton.core.locator.BlobLocator
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKeys, MetricsRegistry}
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, MutableObjectStore}
+import graviton.runtime.upload.{InMemoryResumableUploadRepository, ResumableUploadService, UploadStagingTarget}
 import zio.*
+import zio.stream.{ZSink, ZStream}
 import zio.test.*
 
 import java.time.Instant
@@ -16,6 +19,12 @@ object RuntimeHealthSpec extends ZIOSpecDefault:
         _        <- TestClock.setTime(Instant.ofEpochMilli(73000L))
         graviton <- Graviton.inMemory()
         registry <- InMemoryMetricsRegistry.make
+        uploads  <- InMemoryResumableUploadRepository.make
+        resumable = new ResumableUploadService(
+                      uploads,
+                      HealthyStaging,
+                      UploadStagingTarget.from("memory", "health").toOption.get,
+                    )
         _        <- registry.counterBy(MetricKeys.BlobIngestsTotal, 3L, Map("backend" -> "cas"))
         _        <- registry.counterBy(MetricKeys.BytesIngestedTotal, 4096L, Map("backend" -> "cas"))
         _        <- registry.counterBy(MetricKeys.FreshBlocksTotal, 5L, Map("backend" -> "cas"))
@@ -24,6 +33,7 @@ object RuntimeHealthSpec extends ZIOSpecDefault:
         _        <- registry.counterBy(MetricKeys.UploadLocalityDecisionsTotal, 1L, Map("route" -> "remote"))
         snapshot <- RuntimeHealth.refresh.provide(
                       ZLayer.succeed[BlobStore](graviton.blobStore),
+                      ZLayer.succeed(resumable),
                       ZLayer.succeed[MetricsRegistry](registry),
                       ZLayer.succeed[Option[ShardcakeNode]](None),
                       ZLayer.succeed(RuntimeHealth.Config.Default),
@@ -48,3 +58,11 @@ object RuntimeHealthSpec extends ZIOSpecDefault:
       yield assertTrue(exit.isFailure)
     },
   )
+
+  private object HealthyStaging extends MutableObjectStore:
+    override def head(locator: BlobLocator): UIO[Option[Long]]                       = ZIO.none
+    override def list(prefix: String): ZStream[Any, Nothing, BlobLocator]            = ZStream.empty
+    override def get(locator: BlobLocator): ZStream[Any, Nothing, Byte]              = ZStream.empty
+    override def put(locator: BlobLocator): ZSink[Any, Nothing, Byte, Nothing, Unit] = ZSink.drain
+    override def delete(locator: BlobLocator): UIO[Unit]                             = ZIO.unit
+    override def copy(src: BlobLocator, dest: BlobLocator): UIO[Unit]                = ZIO.unit

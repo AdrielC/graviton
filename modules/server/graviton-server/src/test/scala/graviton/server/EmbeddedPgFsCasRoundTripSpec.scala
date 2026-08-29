@@ -1,6 +1,14 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgKeyValueStore, PgMaintenanceCoordinator, PgMutableObjectStore, PgReplicaIndex}
+import graviton.backend.pg.{
+  PgBlobManifestRepo,
+  PgCatalog,
+  PgKeyValueStore,
+  PgMaintenanceCoordinator,
+  PgMutableObjectStore,
+  PgReplicaIndex,
+  PgResumableUploadRepository,
+}
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.manifest.ManifestEntry
@@ -11,6 +19,7 @@ import graviton.runtime.catalog.{CatalogError, CatalogName}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
 import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore}
+import graviton.runtime.upload.*
 import graviton.security.*
 import graviton.core.types.UploadChunkSize
 import graviton.streams.Chunker
@@ -301,6 +310,55 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
                       .exit
             head <- store.head(locator)
           yield assertTrue(exit.isFailure, head.isEmpty)
+        },
+        test("PostgreSQL resumable ledger resumes across service instances and commits staged objects") {
+          val sessionKey = UploadSessionKey(
+            TenantId.applyUnsafe("9f2f172c-8e6b-4aef-8be8-4c750420d971"),
+            UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c"),
+          )
+          val firstPart  = UploadPartId.applyUnsafe("11111111-1111-4111-8111-111111111111")
+          val secondPart = UploadPartId.applyUnsafe("22222222-2222-4222-8222-222222222222")
+          val bytes      = Chunk(1, 2, 3, 4, 5, 6).map(_.toByte)
+
+          for
+            ds        <- ZIO.service[javax.sql.DataSource]
+            blobStore <- ZIO.service[BlobStore]
+            target    <- ZIO.fromEither(UploadStagingTarget.from("pg", "integration"))
+            staging    = new PgMutableObjectStore(ds)
+            first      = new ResumableUploadService(new PgResumableUploadRepository(ds), staging, target)
+            _         <- first.create(
+                           sessionKey,
+                           UploadIntent(MediaTypes.application.`octet-stream`, Some(FileSize.applyUnsafe(6L))),
+                         )
+            appended  <- first.append(
+                           sessionKey,
+                           firstPart,
+                           UploadOffset.applyUnsafe(0L),
+                           Some(FileSize.applyUnsafe(3L)),
+                           ZStream.fromChunk(bytes.take(3)),
+                         )
+            restarted  = new ResumableUploadService(new PgResumableUploadRepository(ds), staging, target)
+            status    <- restarted.status(sessionKey)
+            _         <- restarted.append(
+                           sessionKey,
+                           secondPart,
+                           UploadOffset.applyUnsafe(3L),
+                           Some(FileSize.applyUnsafe(3L)),
+                           ZStream.fromChunk(bytes.drop(3)),
+                         )
+            committed <- restarted.commit(sessionKey) { (_, stream) =>
+                           stream.run(blobStore.put()).map(_.key)
+                         }
+            roundTrip <- blobStore.get(committed.blob).runCollect
+            cleaned   <- staging
+                           .head(appended.part.locator)
+                           .repeatUntil(_.isEmpty)
+                           .timeoutFail(new IllegalStateException("PostgreSQL staging cleanup did not finish"))(2.seconds)
+          yield assertTrue(
+            status.offset.value == 3L,
+            roundTrip == bytes,
+            cleaned.isEmpty,
+          )
         },
         test("PostgreSQL advisory locks coordinate independent server instances") {
           val config = MaintenanceConfig(

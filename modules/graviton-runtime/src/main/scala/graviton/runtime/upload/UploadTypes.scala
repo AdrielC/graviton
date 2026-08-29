@@ -55,6 +55,10 @@ object UploadSessionKey:
 object UploadHttpHeaders:
   val TenantId      = "X-Graviton-Tenant-Id"
   val UploadSession = "X-Graviton-Upload-Session-Id"
+  val UploadLength  = "Upload-Length"
+  val UploadOffset  = "Upload-Offset"
+  val UploadPartId  = "Upload-Part-Id"
+  val UploadExpires = "Upload-Expires"
 
 final case class UploadNode(
   id: UploadNodeId,

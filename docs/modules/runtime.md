@@ -16,7 +16,7 @@ The ports are intentionally minimal—backends compose them to express capabilit
 ## Policies and layout
 
 - `BlobLayout` and `StorePolicy` describe how manifests and chunks are stored (single object vs framed) and how large each part should be.
-- `ReplicationMode` captures sync/async strategies; policies flow into replication planners once they are implemented in the runtime.
+- `ReplicaPlacement` selects a stable failure-domain-spread target set with rendezvous hashing; `ReplicatedBlockStore` enforces desired count and write quorum.
 
 ## Indexes and range tracking
 
@@ -31,11 +31,13 @@ Under `graviton.runtime.constraints` you will find:
 - `Quota`, `Throttle`, and `SemaphoreLimit` primitives for concurrency control and rate limiting.
 - `SpillPolicy` and related value objects that describe how to offload large uploads to disk when in-memory buffering would exceed limits.
 
-The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. Replica scheduling and background repair remain separate operator work.
+The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. When replica targets are configured, the server starts one supervised bounded repair worker that walks durable manifest references fairly across cycles.
 
 ## Upload orchestration
 
 `UploadIngestor` is the transport-neutral service for one-pass ingest preparation. HTTP, the packaged gRPC server, and Shardcake owners pass it an `UploadIntent` and a live byte stream. It performs optional declared-size validation, bounded media sniffing, keyed `ChunkerProvider` selection, scoped acquisition, attribute confirmation, and CAS storage.
+
+`ResumableUploadService` is the durable pre-ingest boundary. It leases idempotent parts, writes them to `MutableObjectStore` without collecting the stream, reconstructs parts lazily in committed order, and passes that stream back through `UploadIngestor`. Filesystem ledgers use bounded ZIO Blocks JSON plus atomic rename and fsync; shared deployments use transactional PostgreSQL rows and S3-compatible staging. Expiry and post-commit orphan cleanup are scheduled in a scoped server fiber.
 
 The probe is an Iron-refined `Chunk[Byte]` with a 4 KiB compile-time ceiling. Provider and detector identifiers are refined, and media routing uses normalized ZIO Blocks `MediaType` keys. Detectors see only the bounded prefix; they never consume or collect the upload. Unknown formats select the registered default provider without recording a fabricated detected type.
 

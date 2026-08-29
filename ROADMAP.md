@@ -17,9 +17,11 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - Clean external-consumer resolution for every published module plus a JAR-content gate that rejects empty or unsupported-operation artifacts
 - Packaged JAR smoke proof, non-root container, Kubernetes and on-prem examples, backup/restore tooling, SPDX SBOM, checksums, attestations, and signed Maven Central publication
 - Shardcake upload locality with typed ZIO Blocks wire codecs, stable session ownership, real two-node reassignment proof, and native ZIO Metrics health observations
+- Crash-safe resumable HTTP sessions with durable filesystem or PostgreSQL ledgers, streamed filesystem or S3 staging, idempotent bounded parts, expiry cleanup, and a typed JVM SDK
+- Deterministic rendezvous block placement across declared failure domains, safe-by-default write quorum, validating reads, atomic corrupt-replica replacement, and supervised bounded repair cycles
 - PDF-aware chunker selection through bounded media sniffing and scoped ZIO services, with the reusable `graviton-pdf` adapter consuming `zio-pdf`
 - Operator console backed by live storage and Shardcake state, using ZIO Blocks DataStar actions and the official local browser runtime
-- Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, retained benchmark distributions, backend failure drills, container SBOM, provenance, and keyless image signing
+- Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, 90-day retained benchmark distributions, rolling upgrade and rollback proof, sustained backend failure drills, container SBOM, provenance, and keyless image signing
 
 ## Operator acceptance
 
@@ -27,21 +29,19 @@ These items depend on the deployment and cannot be completed once for every user
 
 - Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, CORS, and gRPC ingress against the real identity provider and network
 - Run the restore drill from real backups and record recovery time and recovery point objectives
-- Run `scripts/benchmark-suite.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings
-- Run `scripts/qualify-local-shardcake.sh`, then exercise storage throttling, credential rotation, and rollback in the target environment
-- For shared S3 plus PostgreSQL, qualify concurrent processes and rolling upgrades before claiming high availability
+- Run `scripts/benchmark-suite.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings; repository-generated corpus results are regression evidence, not target capacity
+- Run `scripts/qualify-local-shardcake.sh`, `scripts/qualify-rolling-upgrade.sh`, and `scripts/qualify-long-failure.sh`, then repeat storage throttling, credential rotation, and rollback against the exact target images and infrastructure
+- For shared S3 plus PostgreSQL, retain the exact version-pair rolling record before claiming high availability
 
 ## Next product work
 
 ### Protocols and clients
 
-- Add resumable HTTP upload contracts with restart, retry, expiry, and idempotency acceptance suites
 - Add optional gRPC range reads and server-side verification if production consumers need parity with those HTTP extensions
 - Define an explicit idempotency-key contract for non-content-derived operations
 
 ### Storage and reliability
 
-- Schedule replica scrub and repair jobs around `ReplicatedBlockStore` and `PgReplicaIndex`
 - Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
 - Add operator-facing inventory and restore commands for S3 quarantine records
 - Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
@@ -49,10 +49,10 @@ These items depend on the deployment and cannot be completed once for every user
 
 ### Operations
 
-- Publish benchmark envelopes after multiple controlled environments produce retained raw samples
+- Publish portable benchmark envelopes only after multiple controlled operator environments produce retained raw samples
 - Add dashboards and backend-specific latency distributions
 - Add signed migration sequencing beyond the initial schema ledger
-- Document and test multi-process zero-downtime upgrades
+- Retain more exact release-pair upgrade records as storage formats and dependencies evolve
 
 ## Compatibility stance
 

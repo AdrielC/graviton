@@ -1,7 +1,15 @@
 package graviton.server
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.config.GravitonConfig
+import graviton.runtime.config.{
+  GravitonConfig,
+  ReplicaFailureDomain,
+  ReplicaRepairBatchSize,
+  ReplicaTargetConfig,
+  ReplicaTargetLocation,
+  ReplicaTargetName,
+  ReplicationConfig,
+}
 import graviton.runtime.metrics.InMemoryMetricsRegistry
 import graviton.runtime.stores.BlobStore
 import graviton.integration.shardcake.ShardcakeUploadConfig
@@ -30,6 +38,48 @@ object DefaultStorageSpec extends ZIOSpecDefault:
             cfg.blobBackend == "fs",
             restored == data,
           )
+        }
+      },
+      test("packaged filesystem topology repairs a corrupt replica automatically") {
+        withTempDir { root =>
+          val metadata    = root.resolve("metadata")
+          val replicaA    = root.resolve("replica-a")
+          val replicaB    = root.resolve("replica-b")
+          val replication = ReplicationConfig(
+            targets = Chunk(
+              ReplicaTargetConfig(
+                ReplicaTargetName.applyUnsafe("replica-a"),
+                ReplicaFailureDomain.applyUnsafe("rack-a"),
+                ReplicaTargetLocation.applyUnsafe(replicaA.toString),
+              ),
+              ReplicaTargetConfig(
+                ReplicaTargetName.applyUnsafe("replica-b"),
+                ReplicaFailureDomain.applyUnsafe("rack-b"),
+                ReplicaTargetLocation.applyUnsafe(replicaB.toString),
+              ),
+            ),
+            desiredReplicas = Some(2),
+            writeQuorum = Some(2),
+            repairInterval = 25.millis,
+            repairBatchSize = ReplicaRepairBatchSize.applyUnsafe(32),
+          )
+          val cfg         = GravitonConfig().copy(
+            fs = GravitonConfig.FsConfig(root = metadata.toString),
+            replication = replication,
+          )
+          val data        = Chunk.fromArray("server-automatic-replica-repair".getBytes(StandardCharsets.UTF_8))
+
+          for
+            written     <- ingest(cfg, data)
+            corruptPath <- onlyBlock(replicaA)
+            _           <- ZIO.attemptBlocking(
+                             Files.write(corruptPath, Array.fill[Byte](data.length)(0.toByte))
+                           )
+            restored    <- awaitRepairAndRetrieve(cfg, written, corruptPath, data)
+            repaired    <- ZIO.attemptBlocking(Chunk.fromArray(Files.readAllBytes(corruptPath)))
+            otherPath   <- onlyBlock(replicaB)
+            other       <- ZIO.attemptBlocking(Chunk.fromArray(Files.readAllBytes(otherPath)))
+          yield assertTrue(restored == data, repaired == data, other == data)
         }
       },
       test("rejects Shardcake locality with a node-local filesystem backend") {
@@ -83,6 +133,31 @@ object DefaultStorageSpec extends ZIOSpecDefault:
       store <- ZIO.service[BlobStore]
       bytes <- store.get(key).runCollect
     yield bytes).provide(InMemoryMetricsRegistry.layer, Main.blobLayer(cfg))
+
+  private def awaitRepairAndRetrieve(
+    cfg: GravitonConfig,
+    key: BinaryKey.Blob,
+    repairedPath: Path,
+    expected: Chunk[Byte],
+  ): Task[Chunk[Byte]] =
+    (for
+      store <- ZIO.service[BlobStore]
+      _     <- ZIO
+                 .attemptBlocking(Chunk.fromArray(Files.readAllBytes(repairedPath)) == expected)
+                 .repeatUntil(identity)
+                 .timeoutFail(new IllegalStateException("replica repair did not converge"))(5.seconds)
+      bytes <- store.get(key).runCollect
+    yield bytes).provide(InMemoryMetricsRegistry.layer, Main.blobLayer(cfg))
+
+  private def onlyBlock(root: Path): Task[Path] =
+    ZIO.attemptBlocking {
+      val paths = Files.walk(root.resolve("cas/blocks"))
+      try
+        val files = paths.filter(Files.isRegularFile(_)).toList
+        if files.size() != 1 then throw new IllegalStateException(s"expected one replica block, found ${files.size()}")
+        files.get(0)
+      finally paths.close()
+    }
 
   private def withTempDir[A](f: Path => Task[A]): Task[A] =
     ZIO.acquireReleaseWith(
