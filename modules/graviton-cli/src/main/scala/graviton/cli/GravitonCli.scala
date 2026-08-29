@@ -63,7 +63,7 @@ object GravitonCli extends ZIOAppDefault:
       _      <- Console.printLine(s"  Locator:      ${result.locator.render}")
       _      <- Console.printLine(s"  Total bytes:  ${stats.totalBytes}")
       _      <- Console.printLine(s"  Blocks:       ${stats.blockCount} (${stats.freshBlocks} fresh, ${stats.duplicateBlocks} duplicate)")
-      _      <- Console.printLine(s"  Dedup ratio:  ${f"${stats.dedupRatio * 100}%.1f"}%")
+      _      <- Console.printLine(s"  Block reuse:  ${f"${stats.dedupRatio * 100}%.1f"}%")
       _      <- Console.printLine(s"  Duration:     ${f"${stats.durationSeconds}%.3f"}s")
       _      <- Console.printLine("  Done.")
     yield ()

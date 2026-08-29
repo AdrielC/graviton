@@ -297,12 +297,12 @@ object S3BlockStore:
       extends RuntimeException("Existing conditional-write target disappeared before verification", cause)
 
   /**
-   * Minimal env contract for the on-prem v1 compose bundle:
+   * Explicit S3-compatible endpoint contract:
    *
    * Required:
-   * - QUASAR_MINIO_URL
-   * - MINIO_ROOT_USER
-   * - MINIO_ROOT_PASSWORD
+   * - GRAVITON_S3_ENDPOINT
+   * - GRAVITON_S3_ACCESS_KEY
+   * - GRAVITON_S3_SECRET_KEY
    *
    * Optional:
    * - GRAVITON_S3_BLOCK_BUCKET (defaults to graviton-blocks)

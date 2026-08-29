@@ -134,6 +134,33 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.counters
             .get(MetricKey(MetricKeys.DuplicateBlocksTotal, tags))
             .contains(result.stats.duplicateBlocks.toLong),
+          snapshot.counters.get(MetricKey(MetricKeys.FreshBlockBytesTotal, tags)).contains(data.length.toLong),
+          snapshot.counters.get(MetricKey(MetricKeys.DuplicateBlockBytesTotal, tags)).contains(0L),
+        )
+      },
+      test("records byte-weighted CAS reuse independently of block counts") {
+        val data    = Chunk.fromArray("seven-byte blocks with a short tail".getBytes(StandardCharsets.UTF_8))
+        val chunker = Chunker.fixed(UploadChunkSize(7))
+
+        for
+          registry   <- InMemoryMetricsRegistry.make
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo, metrics = registry)
+          first      <- Chunker.locally(chunker)(ZStream.fromChunk(data).run(blobStore.put()))
+          second     <- Chunker.locally(chunker)(ZStream.fromChunk(data).run(blobStore.put()))
+          snapshot   <- registry.snapshot
+          tags        = Map(
+                          "backend" -> "cas",
+                          "store"   -> "blob",
+                          "chunker" -> chunker.name,
+                          "program" -> "default",
+                        )
+        yield assertTrue(
+          first.stats.freshBlocks == first.stats.blockCount,
+          second.stats.duplicateBlocks == second.stats.blockCount,
+          snapshot.counters.get(MetricKey(MetricKeys.FreshBlockBytesTotal, tags)).contains(data.length.toLong),
+          snapshot.counters.get(MetricKey(MetricKeys.DuplicateBlockBytesTotal, tags)).contains(data.length.toLong),
         )
       },
       test("rejects BlobWritePlan attributes with invalid digest metadata") {

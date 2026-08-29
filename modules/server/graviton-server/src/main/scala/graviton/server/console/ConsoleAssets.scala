@@ -17,7 +17,7 @@ private[console] object ConsoleAssets:
       |  --pink: #f783ac;
       |  --danger: #ff8787;
       |  --shadow: 0 28px 80px rgba(0, 0, 0, .28);
-      |  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      |  font-family: "Avenir Next", Avenir, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       |}
       |* { box-sizing: border-box; }
       |html { min-height: 100%; background: #09110f; }
@@ -63,7 +63,7 @@ private[console] object ConsoleAssets:
       |.summary-item:first-child { padding-left: 0; }
       |.summary-item:last-child { border-right: 0; }
       |.summary-item > span { text-transform: uppercase; letter-spacing: .07em; }
-      |.summary-item strong { margin-top: 5px; color: var(--ink); font: 780 1.15rem Inter, ui-sans-serif, system-ui, sans-serif; }
+      |.summary-item strong { margin-top: 5px; color: var(--ink); font: 780 1.15rem "Avenir Next", Avenir, ui-sans-serif, system-ui, sans-serif; }
       |.summary-item small { margin-top: -18px; justify-self: end; color: var(--muted); }
       |.summary-item.reuse { grid-template-columns: auto auto; align-items: center; }
       |.summary-item.reuse strong { justify-self: end; color: var(--cyan); }
@@ -202,8 +202,8 @@ private[console] object ConsoleAssets:
       |        return;
       |      }
       |      const total = payload.freshBlocks + payload.duplicateBlocks;
-      |      const saved = total === 0 ? 0 : Math.round((payload.duplicateBlocks / total) * 100);
-      |      const prefix = payload.referenceCreated ? `${saved}% reused` : 'Already present';
+      |      const reused = total === 0 ? 0 : Math.round((payload.duplicateBlocks / total) * 100);
+      |      const prefix = payload.referenceCreated ? `${reused}% blocks reused` : 'Already present';
       |      const summary = `${prefix} · ${payload.duplicateBlocks} duplicate / ${total} blocks`;
       |      fetch(refreshUrl, { headers: { Accept: 'text/html' } })
       |        .then(response => {

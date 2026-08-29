@@ -11,7 +11,7 @@ BLOB_ID=""
 
 cleanup() {
   if [[ -n "${BLOB_ID}" ]]; then
-    curl -fsS -X DELETE "${API_ROOT}/api/blobs/${BLOB_ID}" >/dev/null 2>&1 || true
+    curl -fsS -X DELETE "${API_ROOT}/api/v1/blobs/${BLOB_ID}" >/dev/null 2>&1 || true
   fi
   rm -rf "${VERIFY_ROOT}"
 }
@@ -33,7 +33,7 @@ UPLOAD_JSON="$(
     -H 'Content-Type: application/octet-stream' \
     -X POST \
     --data-binary "@${INPUT_FILE}" \
-    "${API_ROOT}/api/blobs"
+    "${API_ROOT}/api/v1/blobs"
 )"
 BLOB_ID="$(jq -er '.blob.id' <<<"${UPLOAD_JSON}")"
 
@@ -42,27 +42,27 @@ jq -e \
   '.blob.id == $blob_id and .blob.size > 0 and .blob.blockCount > 0 and .freshBlocks > 0' \
   <<<"${UPLOAD_JSON}" >/dev/null
 
-curl -fsS "${API_ROOT}/api/blobs" \
+curl -fsS "${API_ROOT}/api/v1/blobs" \
   | jq -e --arg blob_id "${BLOB_ID}" '.blobs | any(.id == $blob_id)' >/dev/null
 
-curl -fsS "${API_ROOT}/api/blobs/${BLOB_ID}/metadata" \
+curl -fsS "${API_ROOT}/api/v1/blobs/${BLOB_ID}/metadata" \
   | jq -e \
       --arg blob_id "${BLOB_ID}" \
       '.summary.id == $blob_id and (.blocks | length) == .summary.blockCount' >/dev/null
 
-curl -fsS -X POST "${API_ROOT}/api/blobs/${BLOB_ID}/verify" \
+curl -fsS -X POST "${API_ROOT}/api/v1/blobs/${BLOB_ID}/verify" \
   | jq -e \
       --arg blob_id "${BLOB_ID}" \
       '.id == $blob_id and .verified == true and .bytesChecked > 0' >/dev/null
 
-curl -fsS "${API_ROOT}/api/blobs/${BLOB_ID}" --output "${OUTPUT_FILE}"
+curl -fsS "${API_ROOT}/api/v1/blobs/${BLOB_ID}" --output "${OUTPUT_FILE}"
 cmp "${INPUT_FILE}" "${OUTPUT_FILE}"
 
-curl -fsS -X DELETE "${API_ROOT}/api/blobs/${BLOB_ID}" >/dev/null
+curl -fsS -X DELETE "${API_ROOT}/api/v1/blobs/${BLOB_ID}" >/dev/null
 
 STATUS_CODE="$(
   curl -sS -o /dev/null -w '%{http_code}' \
-    "${API_ROOT}/api/blobs/${BLOB_ID}/metadata"
+    "${API_ROOT}/api/v1/blobs/${BLOB_ID}/metadata"
 )"
 if [[ "${STATUS_CODE}" != "404" ]]; then
   printf 'Expected deleted manifest to return 404, got %s.\n' "${STATUS_CODE}" >&2

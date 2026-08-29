@@ -7,7 +7,7 @@ The frontend is a Scala.js and Laminar operations console embedded in the VitePr
 | View | Server-backed behavior |
 | --- | --- |
 | Operations | Health, durable inventory totals, process counters, and direct workflow links |
-| Upload | Sends the selected file bytes to `POST /api/blobs` and displays the committed result |
+| Upload | Sends the selected file bytes to `POST /api/v1/blobs` and displays the committed result |
 | Inventory | Lists persisted manifests, inspects real block layouts, verifies bytes, downloads blobs, and deletes manifests |
 | Counters | Displays the current server process counters with their reset boundary |
 
@@ -22,7 +22,7 @@ From the repository root:
 ./sbt buildFrontend
 ```
 
-`buildFrontend` links the Scala.js application and copies it into `docs/public/js/`. `./sbt buildDocsAssets` also builds the Quasar bundle and Scaladoc.
+`buildFrontend` links the Scala.js application and copies it into `docs/public/js/`. `./sbt buildDocsAssets` also builds the shared content lab and Scaladoc.
 
 Build the complete site with the locked Node dependency graph:
 

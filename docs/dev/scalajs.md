@@ -10,7 +10,8 @@ Graviton ships two honest Scala.js surfaces. The Laminar **Connect Your Server**
 - `modules/protocol/graviton-shared/js` uses Web Crypto and exports `analyzeGravitonContent`.
 - `docs/public/content-lab/main.js` is the linked shared library written by `buildContentLab`.
 - `docs/public/js/main.js` is the linked Graviton bundle written by `buildFrontend`.
-- `modules/quasar-frontend` and `docs/public/quasar/js/main.js` are the separate Quasar UI surface.
+
+The repository retains an unpublished, source-only internal document-layer prototype. It is not linked into the public Graviton documentation build.
 
 ## Development workflow
 

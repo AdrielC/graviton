@@ -327,7 +327,7 @@ final class ConsoleApi(
        |        <div class="summary-item"><span>Files</span><strong>${listing.files.length}</strong></div>
        |        <div class="summary-item"><span>Logical size</span><strong>${formatBytes(totalBytes)}</strong></div>
        |        <div class="summary-item"><span>Block spans</span><strong>$totalBlocks</strong></div>
-       |        <div class="summary-item reuse"><span>Ingest reuse</span><strong>$reused%</strong><div class="reuse-track" aria-hidden="true"><i style="--reuse: $reused%"></i></div></div>
+       |        <div class="summary-item reuse"><span>Blocks reused</span><strong>$reused%</strong><div class="reuse-track" aria-hidden="true"><i style="--reuse: $reused%"></i></div></div>
        |      </div>
        |      <div class="entries">
        |        <div class="entries-head" aria-hidden="true"><span>Name and content ID</span><span>Size</span><span>Reuse</span><span>Actions</span></div>
@@ -373,7 +373,7 @@ final class ConsoleApi(
        |  <div class="entry-name"><span class="entry-icon">${escape(kind)}</span><div class="name-stack"><div class="name">${escape(
         file.name.value
       )}</div><div class="hash" title="${escape(file.blob.bits.render)}">${escape(file.blob.bits.render)}</div></div></div>
-       |  <span class="metric">${formatBytes(file.blob.bits.size)}</span><span class="metric dedup">$ratio% reused</span>
+       |  <span class="metric">${formatBytes(file.blob.bits.size)}</span><span class="metric dedup">$ratio% blocks</span>
        |  <div class="row-actions"><a class="icon-button" href="${escape(download)}" download="${escape(
         file.name.value
       )}" title="Download" aria-label="Download ${escape(

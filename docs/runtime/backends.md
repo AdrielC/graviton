@@ -28,13 +28,17 @@ Deleting a blob removes its manifest. Shared content-addressed blocks remain ava
 
 `PgImmutableObjectStore` and `PgMutableObjectStore` stream objects through ordered rows capped at 1 MiB. Writes, replacement, copy, and cleanup are transactional. `PgKeyValueStore`, `PgReplicaIndex`, and `PgRangeTracker` use the same schema and propagate database failures rather than silently degrading to empty state.
 
-See [Postgres schema notes](../ops/postgres-schema.md) for the database layout.
+See [PostgreSQL storage](../ops/postgres-storage.md) for the database layout.
 
-## S3 and MinIO
+## S3-compatible object storage
 
 `S3BlockStore` implements content-addressed block writes, reads, existence checks, and duplicate detection. The server uses it with `PgBlobManifestRepo` for the S3/MinIO deployment path.
 
 `S3BlobStore` is a separate full-object adapter with adaptive bounded multipart upload, server-side multipart promotion for large content-addressed objects, retrieval, stat, inventory, inspection, deletion, health, and interrupted-upload abort. `S3ImmutableObjectStore` and `S3MutableObjectStore` provide prefix-isolated locator operations, including adaptive multipart put, list, copy, and delete. Those generic object types are reusable adapters rather than the server's block-oriented CAS path.
+
+The adapter is exercised against MinIO in CI. A Ceph cluster can be addressed through [Ceph Object Gateway's S3-compatible endpoint](https://docs.ceph.com/en/latest/radosgw/) using the same endpoint, bucket, credential, and path-style settings. That is an architectural compatibility path, not a qualified native Ceph backend: this repository has no `librados` client, no RADOS implementation of `BlockStore`, and no Ceph integration test. A `ceph` locator value in the legacy combined PostgreSQL schema is descriptive metadata only.
+
+Graviton performs content addressing and block reuse before the backend write, so equal blocks already share one RGW object key. Ceph's experimental full-object deduplication targets duplicate data behind distinct RGW objects; it is a separate storage-layer mechanism and is not enabled or managed by Graviton.
 
 ## RocksDB
 

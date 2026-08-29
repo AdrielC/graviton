@@ -8,7 +8,7 @@ import javax.sql.DataSource
 /**
  * Resolves the effective capabilities of a caller against a specific
  * resource by folding the caller's JWT-scoped capabilities together with
- * any `quasar.acl_entry` rows for the same `(org_id, principal_id,
+ * any `graviton.acl_entry` rows for the same `(org_id, principal_id,
  * resource_kind, resource_id)`.
  *
  * Deny entries always win: a single `effect='deny'` row clears the bit
@@ -39,7 +39,7 @@ object CapabilityCheck:
       CallerContext.required.map(_.capabilities)
 
   /**
-   * Layer that consults `quasar.acl_entry` on top of the JWT-scoped caps.
+   * Layer that consults `graviton.acl_entry` on top of the JWT-scoped caps.
    *
    * Uses a short, parameterised SQL query; relies on Postgres RLS to scope
    * rows to the caller's org (the calling code is responsible for having
@@ -74,10 +74,10 @@ object CapabilityCheck:
     private def queryAclMask(orgId: UUID, principalId: UUID, kind: String, resourceId: UUID): (Long, Long) =
       val sql  = """
         SELECT effect::text, capabilities
-        FROM quasar.acl_entry
+        FROM graviton.acl_entry
         WHERE org_id = ?
           AND principal_id = ?
-          AND resource_kind = ?::quasar.resource_kind
+          AND resource_kind = ?::graviton.resource_kind
           AND resource_id = ?
       """
       val conn = ds.getConnection

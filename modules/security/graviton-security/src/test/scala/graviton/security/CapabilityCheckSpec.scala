@@ -40,7 +40,7 @@ object CapabilityCheckSpec extends ZIOSpecDefault:
     test("effective returns the caller's token caps when no resource id is given") {
       val ctx   = fixture(CapabilitySet.of(Capability.BlobRead, Capability.BlobWrite))
       val check = CapabilityCheck.tokenOnly
-      for result <- CallerContext.scopedWith(ctx)(check.effective(ResourceRef(ResourceKind.Document, None)))
+      for result <- CallerContext.scopedWith(ctx)(check.effective(ResourceRef(ResourceKind.Observability, None)))
       yield assert(result.mask)(equalTo(CapabilitySet.of(Capability.BlobRead, Capability.BlobWrite).mask))
     },
   )

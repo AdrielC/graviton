@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets
  * - wall clock time
  * - random seeds
  * - machine ids / hostnames
- * - tenant/system ids (Quasar concerns)
+ * - tenant or application identifiers outside the byte transform
  */
 object ViewKeyDerivation:
 

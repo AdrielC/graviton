@@ -11,11 +11,9 @@ This section contains detailed design documents for major Graviton features and 
 - **Content-Defined Chunking** — Operational FastCDC and PDF-aware structural chunking, with generic anchored strategies remaining design work (see [Chunking Strategies](../ingest/chunking.md))
 - **Replication Model** — Replica index + roadmap (see [Replication & Replica Index](../runtime/replication.md))
 
-### Quasar integration
+### Product boundary
 
-- **Quasar HTTP API v1** — tenant-implicit, streaming-first, versioned docs/metadata/workflows (see [Quasar HTTP API v1](./quasar-http-api-v1.md))
-- **ContentRef + Views + Selectors** — frozen inputs for deterministic workflows and audit replay (see [ContentRef, Views, Selectors, and Frozen Snapshots](./quasar-contentref-views-selectors.md))
-- **Patch-based metadata** — namespace-scoped RFC 6902 patches with governance guardrails (see [Patch-based Metadata](./quasar-metadata-patching.md))
+- **Bytes, identity, and storage** — the public Graviton surface and its deliberate exclusion of document semantics (see [Scope & Boundary](../scope.md))
 
 ### Schema & Types
 

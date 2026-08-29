@@ -24,9 +24,9 @@ export PG_USERNAME="postgres"
 export PG_PASSWORD="postgres"
 
 export GRAVITON_BLOB_BACKEND="minio" # or "s3"
-export QUASAR_MINIO_URL="http://localhost:9000"
-export MINIO_ROOT_USER="minioadmin"
-export MINIO_ROOT_PASSWORD="minioadmin"
+export GRAVITON_S3_ENDPOINT="http://localhost:9000"
+export GRAVITON_S3_ACCESS_KEY="minioadmin"
+export GRAVITON_S3_SECRET_KEY="minioadmin"
 
 # Optional (defaults shown)
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
@@ -47,8 +47,6 @@ export GRAVITON_S3_REGION="us-east-1"
 | `GET /api/v1/blobs/:id` | download | Supports ranges and conditional requests |
 | `HEAD /api/v1/blobs/:id` | metadata headers | Checks existence without a response body |
 | `DELETE /api/v1/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
-
-The `/api/blobs` aliases remain available with `Deprecation: true` and a successor `Link` header.
 
 ## Environment variables
 
@@ -107,7 +105,7 @@ The namespace separates repositories that share one PostgreSQL database. Filesys
 Notes:
 
 - `minio` and `s3` select the same S3-compatible adapter.
-- Set `QUASAR_MINIO_URL` for an explicit MinIO-style endpoint and credentials.
+- Set `GRAVITON_S3_ENDPOINT` for an explicit S3-compatible endpoint and credentials, including MinIO or Ceph RGW.
 - Without an explicit endpoint, the AWS SDK default credential provider chain is used.
 - Filesystem mode stores blocks and manifests locally and is the zero-service default.
 
@@ -132,15 +130,15 @@ Example:
 
 - `<GRAVITON_FS_ROOT>/cas/manifests/<algo>/<hex>-<size>.manifest`
 
-### S3/MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
+### S3-compatible blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
-Endpoint and explicit credentials for MinIO:
+Endpoint and explicit credentials:
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
-| `QUASAR_MINIO_URL` | (none) | only for explicit endpoint | S3-compatible endpoint URL, such as `http://localhost:9000`. |
-| `MINIO_ROOT_USER` | (none) | with endpoint | Access key id. |
-| `MINIO_ROOT_PASSWORD` | (none) | with endpoint | Secret access key. |
+| `GRAVITON_S3_ENDPOINT` | (none) | only for explicit endpoint | S3-compatible endpoint URL, such as `http://localhost:9000`. |
+| `GRAVITON_S3_ACCESS_KEY` | (none) | with endpoint | Access key id. |
+| `GRAVITON_S3_SECRET_KEY` | (none) | with endpoint | Secret access key. |
 
 Block object layout:
 
@@ -149,6 +147,8 @@ Block object layout:
 | `GRAVITON_S3_BLOCK_BUCKET` | `graviton-blocks` | no | Bucket used for block objects. |
 | `GRAVITON_S3_BLOCK_PREFIX` | `cas/blocks` | no | Key prefix for block objects inside the bucket. |
 | `GRAVITON_S3_REGION` | `us-east-1` | no | Region passed to the AWS SDK client. |
+
+Ceph RGW uses this S3-compatible path. It is not a native RADOS integration and is not yet exercised by Graviton's CI; use `GRAVITON_BLOB_BACKEND=s3` and qualify the target cluster before calling it production support.
 
 #### S3 object key layout (exact)
 
@@ -171,7 +171,7 @@ You must ensure `GRAVITON_S3_BLOCK_BUCKET` exists before your first upload.
 If you have `mc` installed:
 
 ```bash
-mc alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc alias set local "$GRAVITON_S3_ENDPOINT" "$GRAVITON_S3_ACCESS_KEY" "$GRAVITON_S3_SECRET_KEY"
 mc mb local/"$GRAVITON_S3_BLOCK_BUCKET"
 ```
 
@@ -179,7 +179,7 @@ If you don’t have `mc`, you can run it via Docker:
 
 ```bash
 docker run --rm --network host minio/mc \
-  alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  alias set local "$GRAVITON_S3_ENDPOINT" "$GRAVITON_S3_ACCESS_KEY" "$GRAVITON_S3_SECRET_KEY"
 
 docker run --rm --network host minio/mc \
   mb local/"$GRAVITON_S3_BLOCK_BUCKET"
@@ -303,7 +303,7 @@ psql -U postgres -d graviton -f modules/pg/ddl.sql
 
 Symptoms: server fails at startup with “Missing env var …”.
 
-Fix: set both `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`, unset `QUASAR_MINIO_URL` to use the AWS default credential chain, or switch to filesystem blocks.
+Fix: set both `GRAVITON_S3_ACCESS_KEY` and `GRAVITON_S3_SECRET_KEY`, unset `GRAVITON_S3_ENDPOINT` to use the AWS default credential chain, or switch to filesystem blocks.
 
 ### Bucket does not exist
 

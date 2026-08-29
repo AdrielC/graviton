@@ -1,4 +1,4 @@
--- Graviton/Quasar "authoritative" schema (alpha: major overhauls welcome)
+-- Graviton authoritative schema (pre-1.0: major overhauls welcome)
 --
 -- Target: Postgres 18+.
 -- Notes:
@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS graviton.shardcake_pod (
   server_version varchar(64) NOT NULL CHECK (length(server_version) >= 1),
   PRIMARY KEY (pod_host, pod_port)
 );
-CREATE SCHEMA IF NOT EXISTS quasar;
 
 -- ----------------- Core domains + enums -------------------------
 DO $$
@@ -150,10 +149,8 @@ BEGIN
 END;
 $$;
 
--- Generic change notification trigger (for cache invalidation / subscriptions).
--- Emits json payload to:
---   - channel 'graviton_inval' for graviton.*
---   - channel 'quasar_inval'   for quasar.*
+-- Generic change notification trigger for Graviton cache invalidation and subscriptions.
+-- Emits JSON payloads to the 'graviton_inval' channel.
 CREATE OR REPLACE FUNCTION core.notify_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -164,7 +161,6 @@ DECLARE
 BEGIN
   chan := CASE TG_TABLE_SCHEMA
     WHEN 'graviton' THEN 'graviton_inval'
-    WHEN 'quasar' THEN 'quasar_inval'
     ELSE 'core_inval'
   END;
 
@@ -555,320 +551,7 @@ CREATE TABLE graviton.view_materialization (
     REFERENCES graviton.blob(alg, hash_bytes, byte_length)
 );
 
--- ---------------- Quasar (application substrate) ----------------
-
--- Tenancy roots (not partitioned)
-CREATE TABLE quasar.tenant (
-  tenant_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name      core.nonempty_text NOT NULL UNIQUE,
-  status    core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc()
-);
-
-CREATE TABLE quasar.org (
-  org_id    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id uuid NOT NULL REFERENCES quasar.tenant(tenant_id),
-  name      core.nonempty_text NOT NULL,
-  status    core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  UNIQUE (tenant_id, name)
-);
-
--- Principals (partitioned by org_id)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'principal_kind'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.principal_kind AS ENUM (''user'',''group'',''service'')';
-  END IF;
-END $$;
-
-CREATE TABLE quasar.principal (
-  org_id       uuid NOT NULL REFERENCES quasar.org(org_id),
-  principal_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  kind         quasar.principal_kind NOT NULL,
-  display_name text NOT NULL,
-  status       core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at   timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, principal_id)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.principal_p%1$s PARTITION OF quasar.principal FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX principal_org_kind_idx ON quasar.principal (org_id, kind, status);
-
-CREATE TABLE quasar.principal_external_identity (
-  org_id       uuid NOT NULL,
-  principal_id uuid NOT NULL,
-  issuer       core.nonempty_text NOT NULL,
-  subject      core.nonempty_text NOT NULL,
-  claims       jsonb NOT NULL DEFAULT '{}'::jsonb,
-  last_seen_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, principal_id, issuer, subject),
-  UNIQUE (org_id, issuer, subject),
-  FOREIGN KEY (org_id, principal_id)
-    REFERENCES quasar.principal(org_id, principal_id)
-    ON DELETE CASCADE,
-  CONSTRAINT claims_is_object CHECK (jsonb_typeof(claims) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.principal_external_identity_p%1$s PARTITION OF quasar.principal_external_identity FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
--- Upload staging (partitioned by org_id)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'upload_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.upload_status AS ENUM (''open'',''uploading'',''sealed'',''expired'',''aborted'',''finalized'')';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'upload_file_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.upload_file_status AS ENUM (''uploading'',''complete'',''failed'')';
-  END IF;
-END $$;
-
-CREATE TABLE quasar.upload_session (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  upload_session_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  created_by_principal_id uuid NOT NULL,
-  status quasar.upload_status NOT NULL DEFAULT 'open',
-  expires_at timestamptz NOT NULL,
-  constraints jsonb NOT NULL DEFAULT '{}'::jsonb,
-  client_context jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, upload_session_id),
-  FOREIGN KEY (org_id, created_by_principal_id)
-    REFERENCES quasar.principal(org_id, principal_id),
-  CONSTRAINT constraints_is_object CHECK (jsonb_typeof(constraints) = 'object'),
-  CONSTRAINT client_context_is_object CHECK (jsonb_typeof(client_context) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.upload_session_p%1$s PARTITION OF quasar.upload_session FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE TABLE quasar.upload_file (
-  org_id uuid NOT NULL,
-  upload_file_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  upload_session_id uuid NOT NULL,
-  client_file_name text NOT NULL,
-  declared_size core.byte_size NULL,
-  declared_hash jsonb NULL,
-  status quasar.upload_file_status NOT NULL DEFAULT 'uploading',
-  result_blob_ref jsonb NULL,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, upload_file_id),
-  FOREIGN KEY (org_id, upload_session_id)
-    REFERENCES quasar.upload_session(org_id, upload_session_id)
-    ON DELETE CASCADE,
-  CONSTRAINT declared_hash_is_object CHECK (declared_hash IS NULL OR jsonb_typeof(declared_hash) = 'object'),
-  CONSTRAINT result_blob_ref_is_object CHECK (result_blob_ref IS NULL OR jsonb_typeof(result_blob_ref) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.upload_file_p%1$s PARTITION OF quasar.upload_file FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX upload_file_session_idx ON quasar.upload_file (org_id, upload_session_id);
-
-CREATE TABLE quasar.upload_part (
-  org_id uuid NOT NULL,
-  upload_file_id uuid NOT NULL,
-  part_no int NOT NULL,
-  byte_range int8range NOT NULL,
-  etag text NULL,
-  status core.present_status NOT NULL DEFAULT 'present',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, upload_file_id, part_no),
-  FOREIGN KEY (org_id, upload_file_id)
-    REFERENCES quasar.upload_file(org_id, upload_file_id)
-    ON DELETE CASCADE,
-  CONSTRAINT nonempty_range CHECK (lower(byte_range) < upper(byte_range))
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.upload_part_p%1$s PARTITION OF quasar.upload_part FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX upload_part_range_gist ON quasar.upload_part USING gist (upload_file_id, byte_range);
-
--- Documents + read model (partitioned by org_id)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'doc_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.doc_status AS ENUM (''draft'',''active'',''deleted'')';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'content_kind'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.content_kind AS ENUM (''blob'',''view'')';
-  END IF;
-END $$;
-
-CREATE TABLE quasar.document (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  doc_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  created_by_principal_id uuid NOT NULL,
-  title text NOT NULL,
-  status quasar.doc_status NOT NULL DEFAULT 'draft',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, doc_id),
-  FOREIGN KEY (org_id, created_by_principal_id)
-    REFERENCES quasar.principal(org_id, principal_id)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.document_p%1$s PARTITION OF quasar.document FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE TABLE quasar.document_version (
-  org_id uuid NOT NULL,
-  doc_version_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  doc_id uuid NOT NULL,
-  version int NOT NULL,
-  created_by_principal_id uuid NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  content_kind quasar.content_kind NOT NULL,
-  content_ref jsonb NOT NULL,
-  PRIMARY KEY (org_id, doc_version_id),
-  UNIQUE (org_id, doc_id, version),
-  FOREIGN KEY (org_id, doc_id)
-    REFERENCES quasar.document(org_id, doc_id)
-    ON DELETE CASCADE,
-  FOREIGN KEY (org_id, created_by_principal_id)
-    REFERENCES quasar.principal(org_id, principal_id),
-  CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.document_version_p%1$s PARTITION OF quasar.document_version FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX document_version_doc_idx ON quasar.document_version (org_id, doc_id, version DESC);
-
-CREATE TABLE quasar.document_current (
-  org_id uuid NOT NULL,
-  doc_id uuid NOT NULL,
-  current_version_id uuid NOT NULL,
-  content_kind quasar.content_kind NOT NULL,
-  content_ref jsonb NOT NULL,
-  status quasar.doc_status NOT NULL,
-  title text NOT NULL,
-  last_modified_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, doc_id),
-  FOREIGN KEY (org_id, doc_id)
-    REFERENCES quasar.document(org_id, doc_id)
-    ON DELETE CASCADE,
-  FOREIGN KEY (org_id, current_version_id)
-    REFERENCES quasar.document_version(org_id, doc_version_id),
-  CONSTRAINT content_ref_is_object CHECK (jsonb_typeof(content_ref) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.document_current_p%1$s PARTITION OF quasar.document_current FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX document_current_org_status_idx ON quasar.document_current (org_id, status, last_modified_at DESC);
-
-CREATE TABLE quasar.document_alias (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  system core.nonempty_text NOT NULL,
-  external_id text NOT NULL,
-  doc_id uuid NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, system, external_id),
-  FOREIGN KEY (org_id, doc_id)
-    REFERENCES quasar.document(org_id, doc_id)
-    ON DELETE CASCADE
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.document_alias_p%1$s PARTITION OF quasar.document_alias FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX document_alias_doc_idx ON quasar.document_alias (org_id, doc_id);
-
--- ---------------- Legacy repository mappings (compat) ----------------
+-- ---------------- Security and audit -----------------------------
 
 DO $$
 BEGIN
@@ -876,337 +559,31 @@ BEGIN
     SELECT 1
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'legacy_import_status'
+    WHERE n.nspname = 'graviton' AND t.typname = 'resource_kind'
   ) THEN
-    EXECUTE 'CREATE TYPE quasar.legacy_import_status AS ENUM (''importing'',''imported'',''failed'')';
-  END IF;
-END $$;
-
--- Map (org_id, legacy_repo, legacy_doc_id) -> doc_id + status.
-CREATE TABLE quasar.legacy_doc_map (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  legacy_repo core.nonempty_text NOT NULL,
-  legacy_doc_id text NOT NULL,
-  doc_id uuid NOT NULL,
-  status quasar.legacy_import_status NOT NULL DEFAULT 'imported',
-  imported_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, legacy_repo, legacy_doc_id)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.legacy_doc_map_p%1$s PARTITION OF quasar.legacy_doc_map FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX legacy_doc_map_doc_idx ON quasar.legacy_doc_map (org_id, doc_id);
-
--- Map (org_id, legacy_repo, legacy_binary_hash) -> blob key (as opaque text).
--- This supports dedupe across multiple legacy doc ids referencing the same binary hash.
-CREATE TABLE quasar.legacy_binary_map (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  legacy_repo core.nonempty_text NOT NULL,
-  legacy_binary_hash core.nonempty_text NOT NULL,
-  blob_key core.nonempty_text NOT NULL,
-  imported_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, legacy_repo, legacy_binary_hash)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.legacy_binary_map_p%1$s PARTITION OF quasar.legacy_binary_map FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
--- Namespaces + schema registry
-CREATE TABLE quasar.namespace (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  namespace_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  urn core.nonempty_text NOT NULL,
-  status core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, namespace_id),
-  UNIQUE (org_id, urn)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.namespace_p%1$s PARTITION OF quasar.namespace FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'schema_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.schema_status AS ENUM (''draft'',''active'',''deprecated'',''revoked'')';
-  END IF;
-END $$;
-
--- Not partitioned: org_id may be NULL (global schemas), and we want global uniqueness for canonical_hash.
-CREATE TABLE quasar.schema_registry (
-  schema_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id uuid NULL REFERENCES quasar.org(org_id),  -- NULL = global schema
-  schema_urn core.nonempty_text NOT NULL,
-  schema_json jsonb NOT NULL,
-  canonical_hash bytea NOT NULL UNIQUE,
-  status quasar.schema_status NOT NULL DEFAULT 'draft',
-  supersedes_schema_id uuid NULL REFERENCES quasar.schema_registry(schema_id),
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  CONSTRAINT schema_json_is_object CHECK (jsonb_typeof(schema_json) = 'object')
-);
-CREATE INDEX schema_registry_lookup_idx ON quasar.schema_registry (schema_urn, status, created_at DESC);
-
-CREATE TABLE quasar.document_namespace (
-  org_id uuid NOT NULL,
-  doc_version_id uuid NOT NULL,
-  namespace_id uuid NOT NULL,
-  schema_id uuid NULL REFERENCES quasar.schema_registry(schema_id),
-  data jsonb NOT NULL,
-  is_valid boolean NOT NULL DEFAULT true,
-  validation_errors jsonb NOT NULL DEFAULT '[]'::jsonb,
-  PRIMARY KEY (org_id, doc_version_id, namespace_id),
-  FOREIGN KEY (org_id, doc_version_id)
-    REFERENCES quasar.document_version(org_id, doc_version_id)
-    ON DELETE CASCADE,
-  FOREIGN KEY (org_id, namespace_id)
-    REFERENCES quasar.namespace(org_id, namespace_id),
-  CONSTRAINT data_is_object_or_array CHECK (jsonb_typeof(data) IN ('object','array')),
-  CONSTRAINT validation_errors_is_array CHECK (jsonb_typeof(validation_errors) = 'array')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.document_namespace_p%1$s PARTITION OF quasar.document_namespace FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX doc_namespace_data_gin ON quasar.document_namespace USING gin (data jsonb_path_ops);
-
--- JSON extraction view (PG16-safe; JSON_TABLE is PG17+).
-CREATE OR REPLACE VIEW quasar.v_doc_upload_claims AS
-SELECT
-  dn.org_id,
-  dn.doc_version_id,
-  dn.namespace_id,
-  (dn.data #>> '{claimedLength}')::bigint AS claimed_size,
-  dn.data #>> '{mediaType}'              AS media_type,
-  dn.data #>> '{fileName}'               AS file_name
-FROM quasar.document_namespace dn;
-
--- Permissions
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'resource_kind'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.resource_kind AS ENUM (''blob'',''document'',''folder'',''namespace'',''schema'')';
+    EXECUTE 'CREATE TYPE graviton.resource_kind AS ENUM (''blob'',''catalog'',''observability'',''audit'')';
   END IF;
 
   IF NOT EXISTS (
     SELECT 1
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'effect'
+    WHERE n.nspname = 'graviton' AND t.typname = 'acl_effect'
   ) THEN
-    EXECUTE 'CREATE TYPE quasar.effect AS ENUM (''allow'',''deny'')';
+    EXECUTE 'CREATE TYPE graviton.acl_effect AS ENUM (''allow'',''deny'')';
   END IF;
-END $$;
 
-ALTER TYPE quasar.resource_kind ADD VALUE IF NOT EXISTS 'blob';
-
-DO $$
-BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_type t
     JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'audit_outcome'
+    WHERE n.nspname = 'graviton' AND t.typname = 'audit_outcome'
   ) THEN
-    EXECUTE 'CREATE TYPE quasar.audit_outcome AS ENUM (''allow'',''deny'',''error'',''auth_fail'')';
+    EXECUTE 'CREATE TYPE graviton.audit_outcome AS ENUM (''allow'',''deny'',''error'',''auth_fail'')';
   END IF;
 END $$;
 
-CREATE TABLE quasar.acl_entry (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  acl_entry_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  resource_kind quasar.resource_kind NOT NULL,
-  resource_id uuid NOT NULL,
-  principal_id uuid NOT NULL,
-  effect quasar.effect NOT NULL,
-  capabilities bigint NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, acl_entry_id),
-  FOREIGN KEY (org_id, principal_id)
-    REFERENCES quasar.principal(org_id, principal_id)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.acl_entry_p%1$s PARTITION OF quasar.acl_entry FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX acl_resource_idx ON quasar.acl_entry (org_id, resource_kind, resource_id);
-CREATE INDEX acl_principal_idx ON quasar.acl_entry (org_id, principal_id);
-
--- Append-only, per-org audit hash chain. JDBC writers serialize each org
--- with a transaction-scoped advisory lock before selecting the next seq.
-CREATE TABLE quasar.audit_log (
-  org_id        uuid                  NOT NULL REFERENCES quasar.org(org_id),
-  seq           bigint                NOT NULL,
-  ts            timestamptz           NOT NULL DEFAULT core.now_utc(),
-  principal_id  uuid                  NOT NULL,
-  action        core.nonempty_text    NOT NULL,
-  resource_kind quasar.resource_kind  NOT NULL,
-  resource_id   uuid                  NULL,
-  request_id    uuid                  NOT NULL,
-  source_ip     inet                  NULL,
-  user_agent    text                  NULL,
-  outcome       quasar.audit_outcome  NOT NULL,
-  reason        text                  NULL,
-  bytes         bigint                NULL,
-  prev_hash     bytea                 NOT NULL CHECK (octet_length(prev_hash) = 32),
-  row_hash      bytea                 NOT NULL CHECK (octet_length(row_hash) = 32),
-  PRIMARY KEY (org_id, seq)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.audit_log_p%1$s PARTITION OF quasar.audit_log FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX audit_log_ts_idx ON quasar.audit_log (org_id, ts DESC);
-CREATE INDEX audit_log_principal_idx ON quasar.audit_log (org_id, principal_id, ts DESC);
-CREATE INDEX audit_log_resource_idx ON quasar.audit_log (org_id, resource_kind, resource_id)
-  WHERE resource_id IS NOT NULL;
-
-CREATE TABLE quasar.policy (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  policy_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  name core.nonempty_text NOT NULL,
-  ast jsonb NOT NULL,
-  status core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, policy_id),
-  CONSTRAINT ast_is_object CHECK (jsonb_typeof(ast) = 'object'),
-  UNIQUE (org_id, name)
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.policy_p%1$s PARTITION OF quasar.policy FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX policy_org_status_idx ON quasar.policy (org_id, status);
-
--- Semantic search (optional pgvector)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'quasar' AND t.typname = 'embedding_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE quasar.embedding_status AS ENUM (''pending'',''ready'',''stale'',''failed'')';
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
-    EXECUTE $sql$
-      CREATE TABLE IF NOT EXISTS quasar.document_embedding (
-        org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-        doc_id uuid NOT NULL,
-        current_version_id uuid NOT NULL,
-        model core.nonempty_text NOT NULL,
-        dims int NOT NULL,
-        embedding vector NOT NULL,
-        status quasar.embedding_status NOT NULL DEFAULT 'pending',
-        updated_at timestamptz NOT NULL DEFAULT core.now_utc(),
-        PRIMARY KEY (org_id, doc_id),
-        FOREIGN KEY (org_id, doc_id)
-          REFERENCES quasar.document(org_id, doc_id)
-          ON DELETE CASCADE,
-        CONSTRAINT dims_positive CHECK (dims > 0)
-      );
-    $sql$;
-  END IF;
-END $$;
-
--- Jobs / outbox (partitioned by org_id; dedupe_key is tenant-scoped)
-CREATE TABLE quasar.outbox_job (
-  org_id uuid NOT NULL REFERENCES quasar.org(org_id),
-  job_id uuid NOT NULL DEFAULT gen_random_uuid(),
-  kind core.nonempty_text NOT NULL,
-  dedupe_key core.nonempty_text NOT NULL,
-  payload jsonb NOT NULL,
-  status core.job_status NOT NULL DEFAULT 'queued',
-  lease_owner text NULL,
-  lease_expires_at timestamptz NULL,
-  attempts int NOT NULL DEFAULT 0,
-  next_run_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  PRIMARY KEY (org_id, job_id),
-  UNIQUE (org_id, dedupe_key),
-  CONSTRAINT payload_is_object CHECK (jsonb_typeof(payload) = 'object')
-) PARTITION BY HASH (org_id);
-
-DO $$
-BEGIN
-  FOR i IN 0..15 LOOP
-    EXECUTE format(
-      'CREATE TABLE IF NOT EXISTS quasar.outbox_job_p%1$s PARTITION OF quasar.outbox_job FOR VALUES WITH (MODULUS 16, REMAINDER %1$s)',
-      i
-    );
-  END LOOP;
-END $$;
-
-CREATE INDEX outbox_runnable_idx ON quasar.outbox_job (org_id, status, next_run_at)
-  WHERE status IN ('queued','leased');
-CREATE INDEX outbox_lease_idx ON quasar.outbox_job (org_id, lease_owner, lease_expires_at);
-
--- ----------------------- RLS scaffolding ------------------------
-CREATE OR REPLACE FUNCTION quasar.current_org_id()
+CREATE OR REPLACE FUNCTION graviton.current_org_id()
 RETURNS uuid
 LANGUAGE sql
 STABLE
@@ -1214,111 +591,54 @@ AS $$
   SELECT nullif(current_setting('app.org_id', true), '')::uuid;
 $$;
 
--- ---------------------------- RLS --------------------------------
--- App is expected to set:
---   SET LOCAL app.org_id = '<uuid>';
---
--- Let Postgres enforce organization isolation.
+CREATE TABLE graviton.acl_entry (
+  org_id uuid NOT NULL,
+  principal_id uuid NOT NULL,
+  resource_kind graviton.resource_kind NOT NULL,
+  resource_id uuid NOT NULL,
+  capabilities bigint NOT NULL CHECK (capabilities >= 0),
+  effect graviton.acl_effect NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (org_id, principal_id, resource_kind, resource_id, effect)
+);
+CREATE INDEX graviton_acl_resource_idx
+  ON graviton.acl_entry (org_id, resource_kind, resource_id);
 
-ALTER TABLE quasar.principal ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_principal_org_isolation
-  ON quasar.principal
-  USING (org_id = quasar.current_org_id());
+CREATE TABLE graviton.audit_log (
+  org_id uuid NOT NULL,
+  seq bigint NOT NULL CHECK (seq > 0),
+  ts timestamptz NOT NULL DEFAULT core.now_utc(),
+  principal_id uuid NOT NULL,
+  action core.nonempty_text NOT NULL,
+  resource_kind graviton.resource_kind NOT NULL,
+  resource_id uuid NULL,
+  request_id uuid NOT NULL,
+  source_ip inet NULL,
+  user_agent text NULL,
+  outcome graviton.audit_outcome NOT NULL,
+  reason text NULL,
+  bytes core.byte_size NULL,
+  prev_hash bytea NOT NULL CHECK (octet_length(prev_hash) = 32),
+  row_hash bytea NOT NULL CHECK (octet_length(row_hash) = 32),
+  PRIMARY KEY (org_id, seq)
+);
+CREATE INDEX graviton_audit_ts_idx
+  ON graviton.audit_log (org_id, ts DESC);
+CREATE INDEX graviton_audit_resource_idx
+  ON graviton.audit_log (org_id, resource_kind, resource_id, ts DESC);
 
-ALTER TABLE quasar.principal_external_identity ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_principal_ext_org_isolation
-  ON quasar.principal_external_identity
-  USING (org_id = quasar.current_org_id());
+ALTER TABLE graviton.acl_entry ENABLE ROW LEVEL SECURITY;
+CREATE POLICY graviton_acl_org_isolation
+  ON graviton.acl_entry
+  USING (org_id = graviton.current_org_id())
+  WITH CHECK (org_id = graviton.current_org_id());
 
-ALTER TABLE quasar.upload_session ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_upload_session_org_isolation
-  ON quasar.upload_session
-  USING (org_id = quasar.current_org_id());
+ALTER TABLE graviton.audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY graviton_audit_org_isolation
+  ON graviton.audit_log
+  USING (org_id = graviton.current_org_id())
+  WITH CHECK (org_id = graviton.current_org_id());
 
-ALTER TABLE quasar.upload_file ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_upload_file_org_isolation
-  ON quasar.upload_file
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.upload_part ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_upload_part_org_isolation
-  ON quasar.upload_part
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.document ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_document_org_isolation
-  ON quasar.document
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.document_version ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_document_version_org_isolation
-  ON quasar.document_version
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.document_current ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_document_current_org_isolation
-  ON quasar.document_current
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.document_alias ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_document_alias_org_isolation
-  ON quasar.document_alias
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.namespace ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_namespace_org_isolation
-  ON quasar.namespace
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.document_namespace ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_document_namespace_org_isolation
-  ON quasar.document_namespace
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.acl_entry ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_acl_entry_org_isolation
-  ON quasar.acl_entry
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.audit_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_audit_log_org_isolation
-  ON quasar.audit_log
-  USING (org_id = quasar.current_org_id())
-  WITH CHECK (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.policy ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_policy_org_isolation
-  ON quasar.policy
-  USING (org_id = quasar.current_org_id());
-
-ALTER TABLE quasar.outbox_job ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_outbox_job_org_isolation
-  ON quasar.outbox_job
-  USING (org_id = quasar.current_org_id());
-
--- Schema registry is special: org_id NULL means "global schema"
-ALTER TABLE quasar.schema_registry ENABLE ROW LEVEL SECURITY;
-CREATE POLICY quasar_schema_registry_visible
-  ON quasar.schema_registry
-  USING (org_id IS NULL OR org_id = quasar.current_org_id());
-
--- Optional: if vector table exists, protect it too.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'quasar' AND c.relname = 'document_embedding'
-  ) THEN
-    EXECUTE 'ALTER TABLE quasar.document_embedding ENABLE ROW LEVEL SECURITY';
-    EXECUTE $pol$
-      CREATE POLICY quasar_document_embedding_org_isolation
-        ON quasar.document_embedding
-        USING (org_id = quasar.current_org_id())
-    $pol$;
-  END IF;
-END $$;
 
 -- ----------------------- Change notifications -------------------
 -- Keep triggers small: focus on metadata + hot-path tables.
@@ -1341,14 +661,6 @@ FOR EACH ROW EXECUTE FUNCTION core.notify_change();
 
 CREATE TRIGGER graviton_blob_block_inval_trg
 AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_block
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER quasar_document_current_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON quasar.document_current
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER quasar_outbox_job_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON quasar.outbox_job
 FOR EACH ROW EXECUTE FUNCTION core.notify_change();
 
 -- ----------------------------------------------------------------

@@ -10,6 +10,8 @@ object MetricKeys:
   val BytesIngestedTotal           = "graviton_bytes_ingested_total"
   val FreshBlocksTotal             = "graviton_fresh_blocks_total"
   val DuplicateBlocksTotal         = "graviton_duplicate_blocks_total"
+  val FreshBlockBytesTotal         = "graviton_fresh_block_bytes_total"
+  val DuplicateBlockBytesTotal     = "graviton_duplicate_block_bytes_total"
   val HttpRequestsTotal            = "graviton_http_requests_total"
   val HttpErrorsTotal              = "graviton_http_errors_total"
   val HttpLatencySeconds           = "graviton_http_request_duration_seconds"

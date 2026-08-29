@@ -10,7 +10,7 @@ import java.util.UUID
 import javax.sql.DataSource
 
 /**
- * Append-only audit log. Every [[AuditEvent]] goes into `quasar.audit_log`
+ * Append-only audit log. Every [[AuditEvent]] goes into `graviton.audit_log`
  * with a per-org hash chain:
  * {{{
  *   row_hash = sha256(prev_hash || canonical_fields)
@@ -206,7 +206,7 @@ object AuditSink:
     def authFail(action: String, requestId: UUID, reason: String, sourceIp: Option[String]): IO[SecurityError, Unit] =
       // Auth-failures have no org_id and no chain; we log them via ZIO logging,
       // SIEM pickups should tail the app log. Persisting them per-org is
-      // risky (no trusted org id) so we keep them out of quasar.audit_log.
+      // risky (no trusted org id) so we keep them out of graviton.audit_log.
       ZIO.logWarning(s"audit.auth_fail action=$action request_id=$requestId reason=$reason ip=${sourceIp.getOrElse("-")}")
 
     private def appendWithLock(ctx: CallerContext, event: AuditEvent): IO[SecurityError, Unit] =
@@ -245,7 +245,7 @@ object AuditSink:
         finally lockStmt.close()
 
         val seqStmt         = conn.prepareStatement(
-          "SELECT coalesce(max(seq), 0) + 1, coalesce((SELECT row_hash FROM quasar.audit_log WHERE org_id = ? ORDER BY seq DESC LIMIT 1), decode('0000000000000000000000000000000000000000000000000000000000000000','hex')) FROM quasar.audit_log WHERE org_id = ?"
+          "SELECT coalesce(max(seq), 0) + 1, coalesce((SELECT row_hash FROM graviton.audit_log WHERE org_id = ? ORDER BY seq DESC LIMIT 1), decode('0000000000000000000000000000000000000000000000000000000000000000','hex')) FROM graviton.audit_log WHERE org_id = ?"
         )
         val (seq, prevHash) =
           try
@@ -275,10 +275,10 @@ object AuditSink:
         val rowHash = computeRowHash(rec)
 
         val ins = conn.prepareStatement(
-          """INSERT INTO quasar.audit_log
+          """INSERT INTO graviton.audit_log
             | (org_id, seq, ts, principal_id, action, resource_kind, resource_id,
             |  request_id, source_ip, user_agent, outcome, reason, bytes, prev_hash, row_hash)
-            | VALUES (?, ?, ?, ?, ?, ?::quasar.resource_kind, ?, ?, ?::inet, ?, ?::quasar.audit_outcome, ?, ?, ?, ?)
+            | VALUES (?, ?, ?, ?, ?, ?::graviton.resource_kind, ?, ?, ?::inet, ?, ?::graviton.audit_outcome, ?, ?, ?, ?)
             |""".stripMargin
         )
         try

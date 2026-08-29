@@ -1,6 +1,6 @@
 # HTTP Blob API
 
-The canonical pre-1.0 surface is `/api/v1`. The legacy `/api/blobs` aliases return `Deprecation: true` and `Link: </api/v1/blobs>; rel=successor-version`.
+The pre-1.0 HTTP surface is `/api/v1`. Graviton ships one blob contract and no compatibility aliases.
 
 Default base URL: `http://localhost:8081`.
 

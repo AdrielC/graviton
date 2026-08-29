@@ -49,15 +49,15 @@ Example:
 
 CAS writes use the single `GVM2` format: a fixed header followed by length-delimited block-key, offset, and length records. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, and total-size checks. Writes use a temporary file, force contents, and atomically replace the destination. Files without the current `GVM2` header are rejected. Large manifests remain available to `stat` and `BlobStore.get`; the explicitly materialized `inspect` operation rejects them above 16,384 entries.
 
-## S3 / MinIO blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
+## S3-compatible blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
-### What to set (MinIO-style contract)
+### What to set
 
 ```bash
 export GRAVITON_BLOB_BACKEND="minio" # or "s3"
-export QUASAR_MINIO_URL="http://localhost:9000"
-export MINIO_ROOT_USER="minioadmin"
-export MINIO_ROOT_PASSWORD="minioadmin"
+export GRAVITON_S3_ENDPOINT="http://localhost:9000"
+export GRAVITON_S3_ACCESS_KEY="minioadmin"
+export GRAVITON_S3_SECRET_KEY="minioadmin"
 
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"  # optional (default shown)
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"       # optional (default shown)
@@ -81,6 +81,22 @@ Example:
 - Duplicate writes verify the stored length, content key, and SHA-256 checksum with `HeadObject`, without downloading block bytes. Objects without the complete current proof metadata are rejected.
 - The object store must preserve user metadata and support conditional `PutObject` requests. A backend that cannot enforce `If-None-Match: *` is not compatible with the CAS write contract.
 - Credentials are static (access key id + secret access key).
+
+### Ceph Object Gateway
+
+[Ceph Object Gateway](https://docs.ceph.com/en/latest/radosgw/) exposes an S3-compatible API, so Graviton can address RGW through the existing `graviton-s3` adapter:
+
+```bash
+export GRAVITON_BLOB_BACKEND="s3"
+export GRAVITON_S3_ENDPOINT="https://rgw.example.internal"
+export GRAVITON_S3_ACCESS_KEY="..."
+export GRAVITON_S3_SECRET_KEY="..."
+export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
+```
+
+This is not a native RADOS backend. Graviton has no `librados` client or RADOS `BlockStore`, and CI currently qualifies the S3-compatible path against MinIO rather than a Ceph cluster. The `ceph` locator accepted by the repository's legacy combined DDL does not create a working backend by itself.
+
+Graviton already chunks and content-addresses bytes before writing block objects. Equal blocks map to the same object key, so a Graviton bucket does not create separate RGW objects for identical content. Ceph's current [full RGW object deduplication](https://docs.ceph.com/en/latest/radosgw/s3_objects_dedup/) targets identical data behind distinct RGW objects; its own documentation labels execution experimental and warns that it can cause data loss. Do not run it on a production Graviton bucket. Track Graviton's byte-weighted logical reuse separately from Ceph's physical pool utilization.
 
 ## What is persisted today
 

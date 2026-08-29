@@ -89,9 +89,9 @@ export PG_JDBC_URL="jdbc:postgresql://localhost:5432/graviton"
 export PG_USERNAME="postgres"
 export PG_PASSWORD="postgres"
 
-export QUASAR_MINIO_URL="http://localhost:9000"
-export MINIO_ROOT_USER="minioadmin"
-export MINIO_ROOT_PASSWORD="minioadmin"
+export GRAVITON_S3_ENDPOINT="http://localhost:9000"
+export GRAVITON_S3_ACCESS_KEY="minioadmin"
+export GRAVITON_S3_SECRET_KEY="minioadmin"
 export GRAVITON_S3_BLOCK_BUCKET="graviton-blocks"
 export GRAVITON_S3_BLOCK_PREFIX="cas/blocks"
 export GRAVITON_S3_REGION="us-east-1"
@@ -150,7 +150,7 @@ psql -U postgres -d graviton -f modules/pg/ddl.sql
 Create `GRAVITON_S3_BLOCK_BUCKET` before the first upload in S3/MinIO mode. For local MinIO:
 
 ```bash
-mc alias set local "$QUASAR_MINIO_URL" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc alias set local "$GRAVITON_S3_ENDPOINT" "$GRAVITON_S3_ACCESS_KEY" "$GRAVITON_S3_SECRET_KEY"
 mc mb --ignore-existing local/"$GRAVITON_S3_BLOCK_BUCKET"
 ```
 

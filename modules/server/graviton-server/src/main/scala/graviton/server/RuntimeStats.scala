@@ -10,10 +10,11 @@ private[server] object RuntimeStats:
     def total(name: String): Long =
       snapshot.counters.iterator.collect { case (key, value) if key.name == name => value }.sum
 
-    val fresh     = total(MetricKeys.FreshBlocksTotal)
-    val duplicate = total(MetricKeys.DuplicateBlocksTotal)
-    val blocks    = fresh + duplicate
-    val ratio     = if blocks == 0L then 0.0 else duplicate.toDouble / blocks.toDouble
+    val fresh          = total(MetricKeys.FreshBlocksTotal)
+    val freshBytes     = total(MetricKeys.FreshBlockBytesTotal)
+    val duplicateBytes = total(MetricKeys.DuplicateBlockBytesTotal)
+    val blockBytes     = freshBytes + duplicateBytes
+    val ratio          = if blockBytes == 0L then 0.0 else duplicateBytes.toDouble / blockBytes.toDouble
 
     SystemStats(
       totalBlobs = Count.applyUnsafe(total(MetricKeys.BlobIngestsTotal)),

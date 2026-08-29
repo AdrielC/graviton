@@ -6,7 +6,7 @@ import zio.Chunk
 /**
  * A maximally-composed (but still practical) ingest telemetry scan.
  *
- * - Designed for Graviton/Quasar ingest streams that operate on `Chunk[Byte]`
+ * - Designed for Graviton ingest streams that operate on `Chunk[Byte]`
  * - Emits one [[IngestTelemetryEvent]] per input chunk, plus a final event on `flush`
  * - Uses all Scan operators: `>>>`, `dimap`, `|||`, `+++`, `&&&`, `first`, `second`, `labelled`
  *

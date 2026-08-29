@@ -170,12 +170,6 @@ Application code should keep arbitrary-size values on `Graviton.stream`. The `Gr
 
 For remote applications, use the [Scala Streaming SDK](./scala-sdk.md). It carries typed ZIO Blocks media types at the public boundary and caps all collected JSON control responses at 1 MiB.
 
-## Namespace metadata as DynamicValue
-
-- **Canonical form**: each namespace resolves to a `NamespaceBlock` whose `data` field is a `zio.schema.DynamicValue.Record`. `NamespacesDyn` just hangs on to a map of `NamespaceUrn -> NamespaceBlock` plus a routing table of schema IDs for migrations.
-- **Typed helpers**: `DynamicRecordCodec.toRecord` / `fromRecord` wrap `Schema.toDynamic` and `Schema.fromDynamic` so system schemas can keep compiling down to DynamicValue while remaining typesafe.
-- **Encoding**: `DynamicJsonCodec.encodeDynamic/decodeDynamicRecord` bridge DynamicValue ↔ `zio.json.ast.Json`. For system namespaces the flow is JSON → typed meta → DynamicValue.Record; for tenant namespaces you can skip the typed hop and work directly with DynamicValue once validation succeeds.
-
 ## Transducer components
 
 The [Transducer algebra](../core/transducers.md) supplies reusable pure stages such as block-key derivation and scans. `CasBlobStore` embeds those stages in a ZIO Stream pipeline while keeping persistence, backpressure, resource scopes, and failure propagation effectful. A transducer example is not a replacement for the operational storage orchestration.
