@@ -9,7 +9,7 @@ import scala.collection.immutable.Map
 
 final class InMemoryBlockStore private (
   state: Ref[Map[BinaryKey.Block, CanonicalBlock]]
-) extends BlockStore:
+) extends RepairableBlockStore:
 
   override def putBlock(
     block: CanonicalBlock,
@@ -72,6 +72,9 @@ final class InMemoryBlockStore private (
 
   override def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean] =
     state.get.map(_.contains(key))
+
+  override def repairBlock(block: CanonicalBlock): UIO[Unit] =
+    state.update(_.updated(block.key, block))
 
   private def storeBlock(block: CanonicalBlock): UIO[BlockStoredStatus] =
     state.modify { current =>

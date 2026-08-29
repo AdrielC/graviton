@@ -12,6 +12,12 @@ x-graviton-storage: &graviton-storage
   GRAVITON_S3_SECRET_KEY: graviton-local-secret
   GRAVITON_S3_BLOCK_BUCKET: graviton-blocks
   GRAVITON_S3_BLOCK_PREFIX: cas/blocks
+  GRAVITON_S3_TMP_BUCKET: graviton-tmp
+  # Qualification favors quick recovery from an unclean node/backend stop.
+  # Production should size leases above ordinary part and commit latency.
+  GRAVITON_RESUMABLE_UPLOADS_PART_LEASE: 20s
+  GRAVITON_RESUMABLE_UPLOADS_COMMIT_LEASE: 60s
+  GRAVITON_RESUMABLE_UPLOADS_CLEANUP_INTERVAL: 10s
 
 x-shardcake: &shardcake
   GRAVITON_SHARDCAKE_ENABLED: "true"
@@ -28,6 +34,7 @@ x-shardcake: &shardcake
   GRAVITON_SHARDCAKE_UNHEALTHY_POD_REPORT_INTERVAL: 1s
 
 x-node: &node
+  image: ${GRAVITON_NODE_IMAGE:-graviton-local:current}
   build:
     context: ../..
     dockerfile: Dockerfile
@@ -99,9 +106,11 @@ services:
       - |
         mc alias set local http://minio:9000 graviton graviton-local-secret
         mc mb --ignore-existing local/graviton-blocks
+        mc mb --ignore-existing local/graviton-tmp
     networks: [graviton]
 
   shardcake-manager:
+    image: ${GRAVITON_MANAGER_IMAGE:-graviton-local:current}
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -133,6 +142,7 @@ services:
 
   graviton-node-1:
     <<: *node
+    image: ${GRAVITON_NODE_1_IMAGE:-graviton-local:current}
     environment:
       <<: [*graviton-storage, *shardcake]
       GRAVITON_HTTP_PORT: "8081"
@@ -142,6 +152,7 @@ services:
       GRAVITON_CONSOLE_ENABLED: "true"
       GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
       GRAVITON_SHARDCAKE_HOST: graviton-node-1
+      GRAVITON_SHARDCAKE_SERVER_VERSION: ${GRAVITON_NODE_1_VERSION:-local}
       GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
       GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
     ports:
@@ -150,6 +161,7 @@ services:
 
   graviton-node-2:
     <<: *node
+    image: ${GRAVITON_NODE_2_IMAGE:-graviton-local:current}
     environment:
       <<: [*graviton-storage, *shardcake]
       GRAVITON_HTTP_PORT: "8081"
@@ -159,6 +171,7 @@ services:
       GRAVITON_CONSOLE_ENABLED: "true"
       GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
       GRAVITON_SHARDCAKE_HOST: graviton-node-2
+      GRAVITON_SHARDCAKE_SERVER_VERSION: ${GRAVITON_NODE_2_VERSION:-local}
       GRAVITON_SHARDCAKE_CONTROL_PORT: "54321"
       GRAVITON_SHARDCAKE_UPLOAD_PORT: "54322"
     ports:

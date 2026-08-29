@@ -3,6 +3,7 @@ package graviton.server
 import graviton.integration.shardcake.{ShardcakeHealth, ShardcakeNode}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry, MetricsSnapshot}
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.upload.ResumableUploadService
 import zio.*
 
 /** One operational read model shared by readiness and the local console. */
@@ -52,25 +53,27 @@ object RuntimeHealth:
   val refresh: ZIO[RuntimeHealth, Nothing, Snapshot] =
     ZIO.serviceWithZIO[RuntimeHealth](_.refresh)
 
-  val live: ZLayer[BlobStore & MetricsRegistry & Option[ShardcakeNode] & Config, Nothing, RuntimeHealth] =
+  val live: ZLayer[BlobStore & ResumableUploadService & MetricsRegistry & Option[ShardcakeNode] & Config, Nothing, RuntimeHealth] =
     ZLayer.fromZIO {
       for
         blobStore <- ZIO.service[BlobStore]
+        resumable <- ZIO.service[ResumableUploadService]
         metrics   <- ZIO.service[MetricsRegistry]
         shardcake <- ZIO.service[Option[ShardcakeNode]]
         config    <- ZIO.service[Config]
-      yield Live(blobStore, shardcake.map(_.health), metrics, config)
+      yield Live(blobStore, resumable, shardcake.map(_.health), metrics, config)
     }
 
   private final case class Live(
     blobStore: BlobStore,
+    resumable: ResumableUploadService,
     shardcake: Option[ShardcakeHealth],
     metrics: MetricsRegistry,
     config: Config,
   ) extends RuntimeHealth:
     override val refresh: UIO[Snapshot] =
       for
-        storageResult <- blobStore.healthCheck.timeout(config.checkTimeout).either
+        storageResult <- blobStore.healthCheck.zipPar(resumable.healthCheck).timeout(config.checkTimeout).either
         cluster       <- ZIO.foreach(shardcake)(_.refresh)
         metricValues  <- metrics.snapshot
         checkedAt     <- Clock.currentTime(java.util.concurrent.TimeUnit.MILLISECONDS)

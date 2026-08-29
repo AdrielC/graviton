@@ -3,7 +3,19 @@ package graviton.protocol.http
 import graviton.core.bytes.Hasher
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.stores.BlobStore
-import graviton.runtime.upload.{LocalityAwareUpload, TenantId, UploadHttpHeaders, UploadIntent, UploadSessionId, UploadSessionKey}
+import graviton.runtime.upload.{
+  LocalityAwareUpload,
+  ResumableUploadPhase,
+  ResumableUploadRepository,
+  ResumableUploadService,
+  TenantId,
+  UploadHttpHeaders,
+  UploadIntent,
+  UploadOffset,
+  UploadPartId,
+  UploadSessionId,
+  UploadSessionKey,
+}
 import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
@@ -24,6 +36,7 @@ final case class HttpApi(
   metrics: Option[MetricsHttpApi] = None,
   security: Option[HttpSecurityPolicy] = None,
   localizedUpload: Option[LocalityAwareUpload] = None,
+  resumableUploads: Option[ResumableUploadService] = None,
 ) {
 
   private final case class UploadOutcome(
@@ -33,6 +46,8 @@ final case class HttpApi(
   private val blobIngest                              = BlobIngest.make(blobStore, localizedUpload)
   private val defaultUploadMediaType: BlocksMediaType =
     BlocksMediaTypes.application.`octet-stream`
+  private val defaultResumableTenant: TenantId        =
+    TenantId.applyUnsafe("00000000-0000-4000-8000-000000000000")
 
   private def error(status: Status, code: String, message: String): Response =
     Response(
@@ -69,6 +84,249 @@ final case class HttpApi(
             value <- raw.toLongOption.toRight(new IllegalArgumentException("Invalid Content-Length: value exceeds a signed 64-bit integer"))
             size  <- FileSize.either(value).left.map(message => new IllegalArgumentException(s"Invalid Content-Length: $message"))
           yield Some(size)
+
+  private def resumableUploadLength(request: Request): Either[IllegalArgumentException, Option[FileSize]] =
+    request.headers.get(UploadHttpHeaders.UploadLength) match
+      case None      => Right(None)
+      case Some(raw) => parsePositiveFileSize(raw, UploadHttpHeaders.UploadLength).map(Some(_))
+
+  private def resumableUploadOffset(request: Request): Either[IllegalArgumentException, UploadOffset] =
+    request.headers
+      .get(UploadHttpHeaders.UploadOffset)
+      .toRight(new IllegalArgumentException(s"Missing ${UploadHttpHeaders.UploadOffset} header"))
+      .flatMap { raw =>
+        if raw.isEmpty || !raw.forall(_.isDigit) then
+          Left(new IllegalArgumentException(s"Invalid ${UploadHttpHeaders.UploadOffset}: expected ASCII decimal digits"))
+        else
+          raw.toLongOption
+            .toRight(new IllegalArgumentException(s"Invalid ${UploadHttpHeaders.UploadOffset}: value exceeds a signed 64-bit integer"))
+            .flatMap(value => UploadOffset.either(value).left.map(message => new IllegalArgumentException(message)))
+      }
+
+  private def resumablePartId(request: Request): Either[IllegalArgumentException, UploadPartId] =
+    request.headers
+      .get(UploadHttpHeaders.UploadPartId)
+      .toRight(new IllegalArgumentException(s"Missing ${UploadHttpHeaders.UploadPartId} header"))
+      .flatMap(value => UploadPartId.either(value).left.map(message => new IllegalArgumentException(message)))
+
+  private def parsePositiveFileSize(raw: String, header: String): Either[IllegalArgumentException, FileSize] =
+    if raw.isEmpty || !raw.forall(_.isDigit) then Left(new IllegalArgumentException(s"Invalid $header: expected ASCII decimal digits"))
+    else
+      raw.toLongOption
+        .toRight(new IllegalArgumentException(s"Invalid $header: value exceeds a signed 64-bit integer"))
+        .flatMap(value => FileSize.either(value).left.map(message => new IllegalArgumentException(s"Invalid $header: $message")))
+
+  private def requestTenant(request: Request): IO[Response, TenantId] =
+    CallerContext.current.flatMap {
+      case Some(caller) =>
+        val tenant = TenantId.applyUnsafe(caller.orgId.toString)
+        request.headers.get(UploadHttpHeaders.TenantId) match
+          case None      => ZIO.succeed(tenant)
+          case Some(raw) =>
+            ZIO
+              .fromEither(TenantId.either(raw))
+              .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
+              .filterOrFail(_ == tenant)(
+                error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization")
+              )
+      case None         =>
+        if security.nonEmpty then ZIO.fail(error(Status.Unauthorized, "unauthenticated", "Authentication required"))
+        else
+          request.headers.get(UploadHttpHeaders.TenantId) match
+            case None      => ZIO.succeed(defaultResumableTenant)
+            case Some(raw) =>
+              ZIO
+                .fromEither(TenantId.either(raw))
+                .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
+    }
+
+  private def requestSessionId(request: Request): IO[Response, UploadSessionId] =
+    request.headers.get(UploadHttpHeaders.UploadSession) match
+      case Some(raw) =>
+        ZIO
+          .fromEither(UploadSessionId.either(raw))
+          .mapError(message => error(Status.BadRequest, "invalid_upload_id", message))
+      case None      => Random.nextUUID.map(value => UploadSessionId.applyUnsafe(value.toString))
+
+  private def resumableKey(rawId: String, request: Request): IO[Response, UploadSessionKey] =
+    for
+      decoded <- ZIO
+                   .attempt(URLDecoder.decode(rawId, StandardCharsets.UTF_8))
+                   .mapError(_ => error(Status.BadRequest, "invalid_upload_id", "Invalid upload ID encoding"))
+      id      <- ZIO
+                   .fromEither(UploadSessionId.either(decoded))
+                   .mapError(message => error(Status.BadRequest, "invalid_upload_id", message))
+      tenant  <- requestTenant(request)
+    yield UploadSessionKey(tenant, id)
+
+  private def resumableHeaders(session: graviton.runtime.upload.ResumableUploadSession): Headers =
+    val base = Headers(
+      Header.Custom(UploadHttpHeaders.UploadOffset, session.offset.value.toString),
+      Header.Custom(UploadHttpHeaders.UploadExpires, session.expiresAt.toString),
+      Header.Custom(UploadHttpHeaders.UploadSession, session.key.uploadSessionId.value),
+      Header.Custom("Cache-Control", "no-store"),
+    )
+    session.intent.expectedSize.fold(base)(size => base ++ Headers(Header.Custom(UploadHttpHeaders.UploadLength, size.value.toString)))
+
+  private def toResumableStatus(
+    session: graviton.runtime.upload.ResumableUploadSession
+  ): ResumableUploadStatus =
+    ResumableUploadStatus(
+      UploadId.applyUnsafe(session.key.uploadSessionId.value),
+      UploadOffsetBytes.applyUnsafe(session.offset.value),
+      session.intent.expectedSize.map(size => SizeBytes.applyUnsafe(size.value)),
+      session.expiresAt.toEpochMilli,
+      session.phase match
+        case ResumableUploadPhase.Open       => UploadState.Open
+        case ResumableUploadPhase.Committing => UploadState.Committing
+        case ResumableUploadPhase.Committed  => UploadState.Committed
+        case ResumableUploadPhase.Cancelled  => UploadState.Cancelled,
+      session.committedBlob.map(blob => BlobId.applyUnsafe(blob.bits.render)),
+    )
+
+  private def resumableResponse(
+    session: graviton.runtime.upload.ResumableUploadSession,
+    status: Status = Status.Ok,
+    body: Boolean = true,
+  ): Response =
+    val headers =
+      if body then resumableHeaders(session) ++ Headers(Header.Custom("Content-Type", "application/json; charset=utf-8"))
+      else resumableHeaders(session)
+    Response(
+      status = status,
+      headers = headers,
+      body = if body then Body.fromString(ApiJson.encode(toResumableStatus(session))) else Body.empty,
+    )
+
+  private def resumableError(errorValue: ResumableUploadService.Error): Response =
+    errorValue match
+      case ResumableUploadService.Error.NotFound(_)                                           =>
+        error(Status.NotFound, "upload_not_found", errorValue.getMessage)
+      case ResumableUploadService.Error.Repository(value)                                     =>
+        value match
+          case _: ResumableUploadRepository.Error.Missing                                                             =>
+            error(Status.NotFound, "upload_not_found", value.getMessage)
+          case _: ResumableUploadRepository.Error.Expired                                                             =>
+            error(Status.Gone, "upload_expired", value.getMessage)
+          case mismatch: ResumableUploadRepository.Error.OffsetMismatch                                               =>
+            error(Status.Conflict, "upload_offset_mismatch", mismatch.getMessage)
+              .addHeader(Header.Custom(UploadHttpHeaders.UploadOffset, mismatch.actual.value.toString))
+          case _: ResumableUploadRepository.Error.PartBusy | _: ResumableUploadRepository.Error.CommitBusy            =>
+            error(Status.Conflict, "upload_busy", value.getMessage)
+          case _: ResumableUploadRepository.Error.AlreadyExists                                                       =>
+            error(Status.Conflict, "upload_exists", value.getMessage)
+          case _: ResumableUploadRepository.Error.InvalidState                                                        =>
+            error(Status.Conflict, "upload_state", value.getMessage)
+          case _: ResumableUploadRepository.Error.PartLimitExceeded | _: ResumableUploadRepository.Error.SizeExceeded =>
+            error(Status.BadRequest, "invalid_upload", value.getMessage)
+          case _                                                                                                      => error(Status.InternalServerError, "upload_repository_failure", "Resumable upload state failed")
+      case _: ResumableUploadService.Error.InvalidPart | _: ResumableUploadService.Error.EmptyOrInvalidPart |
+          _: ResumableUploadService.Error.Incomplete =>
+        error(Status.BadRequest, "invalid_upload", errorValue.getMessage)
+      case ResumableUploadService.Error.Finalization(value: BlobIngest.Error.InvalidInput)    =>
+        error(Status.BadRequest, "invalid_blob", value.getMessage)
+      case ResumableUploadService.Error.Finalization(_: BlobIngest.Error.Locality)            =>
+        error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream")
+      case ResumableUploadService.Error.Staging(_, rejected: HttpSecurityPolicy.BodyRejected) =>
+        rejected.error match
+          case SecurityError.PayloadTooLarge(_) =>
+            error(Status.RequestEntityTooLarge, "payload_too_large", "Request payload is too large")
+          case SecurityError.RateLimited(_)     =>
+            error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded")
+          case _                                =>
+            error(Status.Forbidden, "forbidden", "Request denied")
+      case _                                                                                  => error(Status.InternalServerError, "resumable_upload_failure", "Resumable upload failed")
+
+  private val createResumableUploadHandler: Handler[Any, Nothing, Request, Response] =
+    Handler.fromFunctionZIO[Request] { request =>
+      secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
+        resumableUploads match
+          case None          => ZIO.succeed(error(Status.NotImplemented, "resumable_uploads_disabled", "Resumable uploads are not configured"))
+          case Some(service) =>
+            (for
+              tenant    <- requestTenant(request)
+              sessionId <- requestSessionId(request)
+              mediaType <-
+                ZIO.fromEither(uploadMediaType(request)).mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
+              length    <- ZIO
+                             .fromEither(resumableUploadLength(request))
+                             .mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
+              created   <- service
+                             .create(UploadSessionKey(tenant, sessionId), UploadIntent(mediaType, length))
+                             .mapError(resumableError)
+            yield resumableResponse(created, Status.Created)
+              .addHeader(Header.Custom("Location", s"/api/v1/uploads/${sessionId.value}"))).catchAll(ZIO.succeed(_))
+      }
+    }
+
+  private val statusResumableUploadHandler: Handler[Any, Nothing, (String, Request), Response] =
+    Handler.fromFunctionZIO[(String, Request)] { case (rawId, request) =>
+      secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
+        resumableUploads match
+          case None          => ZIO.succeed(error(Status.NotImplemented, "resumable_uploads_disabled", "Resumable uploads are not configured"))
+          case Some(service) =>
+            (for
+              key     <- resumableKey(rawId, request)
+              current <- service.status(key).mapError(resumableError)
+            yield resumableResponse(current, body = request.method != Method.HEAD)).catchAll(ZIO.succeed(_))
+      }
+    }
+
+  private val appendResumableUploadHandler: Handler[Any, Nothing, (String, Request), Response] =
+    Handler.fromFunctionZIO[(String, Request)] { case (rawId, request) =>
+      val body = security match
+        case None         => ZIO.succeed(request.body.asStream)
+        case Some(policy) => policy.checkedUpload(request)
+
+      secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
+        resumableUploads match
+          case None          => ZIO.succeed(error(Status.NotImplemented, "resumable_uploads_disabled", "Resumable uploads are not configured"))
+          case Some(service) =>
+            (for
+              key      <- resumableKey(rawId, request)
+              offset   <- ZIO
+                            .fromEither(resumableUploadOffset(request))
+                            .mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
+              partId   <-
+                ZIO.fromEither(resumablePartId(request)).mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
+              partSize <-
+                ZIO.fromEither(uploadContentLength(request)).mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
+              stream   <- body
+              appended <- service.append(key, partId, offset, partSize, stream).mapError(resumableError)
+            yield resumableResponse(appended.session, Status.NoContent, body = false)).catchAll(ZIO.succeed(_))
+      }
+    }
+
+  private val commitResumableUploadHandler: Handler[Any, Nothing, (String, Request), Response] =
+    Handler.fromFunctionZIO[(String, Request)] { case (rawId, request) =>
+      secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
+        resumableUploads match
+          case None          => ZIO.succeed(error(Status.NotImplemented, "resumable_uploads_disabled", "Resumable uploads are not configured"))
+          case Some(service) =>
+            (for
+              key       <- resumableKey(rawId, request)
+              committed <- service
+                             .commit(key)((intent, bytes) =>
+                               blobIngest.uploadResumable(key, intent, bytes).map(_.key).mapError(value => value: Throwable)
+                             )
+                             .mapError(resumableError)
+            yield resumableResponse(committed.session)
+              .addHeader(Header.Custom("Location", s"/api/v1/blobs/${committed.blob.bits.render}"))).catchAll(ZIO.succeed(_))
+      }
+    }
+
+  private val cancelResumableUploadHandler: Handler[Any, Nothing, (String, Request), Response] =
+    Handler.fromFunctionZIO[(String, Request)] { case (rawId, request) =>
+      secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
+        resumableUploads match
+          case None          => ZIO.succeed(error(Status.NotImplemented, "resumable_uploads_disabled", "Resumable uploads are not configured"))
+          case Some(service) =>
+            (for
+              key <- resumableKey(rawId, request)
+              _   <- service.cancel(key).mapError(resumableError)
+            yield Response.status(Status.NoContent)).catchAll(ZIO.succeed(_))
+      }
+    }
 
   private def uploadSession(request: Request): Either[IllegalArgumentException, Option[UploadSessionKey]] =
     val tenant  = request.headers.get(UploadHttpHeaders.TenantId)
@@ -447,18 +705,27 @@ final case class HttpApi(
     Method.OPTIONS / "api" / "v1" / "blobs" / string("id")              -> preflightBlobHandler(Set("DELETE", "GET", "HEAD")),
     Method.OPTIONS / "api" / "v1" / "blobs" / string("id") / "metadata" -> preflightBlobHandler(Set("GET")),
     Method.OPTIONS / "api" / "v1" / "blobs" / string("id") / "verify"   -> preflightBlobHandler(Set("POST")),
+    Method.OPTIONS / "api" / "v1" / "uploads"                           -> preflightHandler(Set("POST")),
+    Method.OPTIONS / "api" / "v1" / "uploads" / string("id")            -> preflightBlobHandler(Set("DELETE", "GET", "HEAD", "PATCH")),
+    Method.OPTIONS / "api" / "v1" / "uploads" / string("id") / "commit" -> preflightBlobHandler(Set("POST")),
   )
 
   val preflightApp: Handler[Any, Nothing, Request, Response] = preflightRoutes.toHandler
 
   val routes: Routes[Any, Nothing] = Routes(
-    Method.GET / "api" / "v1" / "blobs"                             -> listBlobsHandler,
-    Method.POST / "api" / "v1" / "blobs"                            -> uploadBlobHandler,
-    Method.GET / "api" / "v1" / "blobs" / string("id") / "metadata" -> inspectBlobHandler,
-    Method.POST / "api" / "v1" / "blobs" / string("id") / "verify"  -> verifyBlobHandler,
-    Method.GET / "api" / "v1" / "blobs" / string("id")              -> getBlobHandler,
-    Method.HEAD / "api" / "v1" / "blobs" / string("id")             -> headBlobHandler,
-    Method.DELETE / "api" / "v1" / "blobs" / string("id")           -> deleteBlobHandler,
+    Method.GET / "api" / "v1" / "blobs"                              -> listBlobsHandler,
+    Method.POST / "api" / "v1" / "blobs"                             -> uploadBlobHandler,
+    Method.GET / "api" / "v1" / "blobs" / string("id") / "metadata"  -> inspectBlobHandler,
+    Method.POST / "api" / "v1" / "blobs" / string("id") / "verify"   -> verifyBlobHandler,
+    Method.GET / "api" / "v1" / "blobs" / string("id")               -> getBlobHandler,
+    Method.HEAD / "api" / "v1" / "blobs" / string("id")              -> headBlobHandler,
+    Method.DELETE / "api" / "v1" / "blobs" / string("id")            -> deleteBlobHandler,
+    Method.POST / "api" / "v1" / "uploads"                           -> createResumableUploadHandler,
+    Method.GET / "api" / "v1" / "uploads" / string("id")             -> statusResumableUploadHandler,
+    Method.HEAD / "api" / "v1" / "uploads" / string("id")            -> statusResumableUploadHandler,
+    Method.PATCH / "api" / "v1" / "uploads" / string("id")           -> appendResumableUploadHandler,
+    Method.POST / "api" / "v1" / "uploads" / string("id") / "commit" -> commitResumableUploadHandler,
+    Method.DELETE / "api" / "v1" / "uploads" / string("id")          -> cancelResumableUploadHandler,
   ) ++ metrics.map(_.routes).getOrElse(Routes.empty)
 
   val app: Handler[Any, Nothing, Request, Response] = routes.toHandler

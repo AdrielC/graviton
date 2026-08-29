@@ -122,6 +122,19 @@ java -jar graviton-server.jar
 
 Set the provider's explicit S3 endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
 
+For Graviton-managed block replication, create each bucket first and declare its real failure domain:
+
+```bash
+export GRAVITON_REPLICATION_TARGETS='zone-a|az-a|graviton-blocks-a,zone-b|az-b|graviton-blocks-b,zone-c|az-c|graviton-blocks-c'
+export GRAVITON_REPLICATION_DESIRED_REPLICAS=3
+export GRAVITON_REPLICATION_WRITE_QUORUM=2
+export GRAVITON_REPLICATION_REPAIR_INTERVAL=5m
+```
+
+The packaged server then uses stable rendezvous placement for each block and starts a supervised bounded repair scrub. Omitting the quorum requires every desired target, which is the safe default. A lower explicit quorum trades immediate durability for availability; failed targets remain observable repair work.
+
+Resumable S3 uploads also require `GRAVITON_S3_TMP_BUCKET` and the current PostgreSQL schema. Staging parts use adaptive bounded multipart writes, but final commit still streams every staged byte through MIME validation, content-defined or fixed chunking, hashing, deduplication, and manifest-last publication.
+
 ## Multi-node upload locality
 
 Shardcake locality requires the shared S3 plus PostgreSQL composition above. Apply the current schema and give the manager and nodes the same placement database, shard count, and internal token.
@@ -189,7 +202,7 @@ Do not set `GRAVITON_SECURITY_DEV_SHARED_SECRET` in production. Enable trusted p
 | Endpoint | Meaning |
 | --- | --- |
 | `GET /api/health/live` | Process is alive and returns the packaged build version |
-| `GET /api/health/ready` | Active block and manifest backends respond within five seconds; a Shardcake node must also have an assigned shard |
+| `GET /api/health/ready` | Active block, manifest, resumable-ledger, and staging targets respond within five seconds; a Shardcake node must also have an assigned shard |
 | `GET /api/health` | Compatibility alias for liveness |
 | `GET /api/stats` | JSON process counters |
 | `GET /metrics` | Native ZIO Metrics Prometheus text including JVM, ingest, HTTP, locality, and Shardcake health observations |
@@ -206,7 +219,21 @@ Stats and metrics require `observability.read` when security is enabled. Readine
 6. Wait for readiness, upload a canary, retrieve it, and run server verification.
 7. Retain the prior artifact and data snapshot until the acceptance window closes.
 
-For filesystem mode, stop the prior writer before starting the new one. For S3 plus PostgreSQL, do not use rolling replicas until that exact version pair has passed concurrent-process and rollback tests.
+For filesystem mode, stop the prior writer before starting the new one. For S3 plus PostgreSQL, build immutable baseline and candidate images and run:
+
+```bash
+./scripts/qualify-rolling-upgrade.sh graviton:baseline graviton:candidate
+```
+
+The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs and content IDs. Do not infer that another version pair is compatible.
+
+After the rolling gate, run a longer fault workload:
+
+```bash
+./scripts/qualify-long-failure.sh 900 4194304 > long-failure.json
+```
+
+That workload uses durable resumable offsets and byte-exact readback while repeatedly stopping both nodes independently, restarting the manager, and taking the object and manifest stores offline. It retries acknowledged parts with stable identities and fails if recovery exhausts its bound or any readback differs.
 
 ## Backup, GC, and performance
 

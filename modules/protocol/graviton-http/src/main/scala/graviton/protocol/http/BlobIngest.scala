@@ -16,6 +16,17 @@ trait BlobIngest:
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[BlobIngest.Error, BlobIngest.Result]
 
+  /**
+   * Finalize a durable resumable session. Shardcake owns the stream when it is
+   * configured; embedded deployments use the exact same UploadIngestor
+   * directly without pretending locality is unavailable.
+   */
+  def uploadResumable(
+    session: UploadSessionKey,
+    intent: UploadIntent,
+    bytes: ZStream[Any, Throwable, Byte],
+  ): IO[BlobIngest.Error, BlobIngest.Result]
+
 object BlobIngest:
   final case class Result(
     key: BinaryKey.Blob,
@@ -78,13 +89,32 @@ object BlobIngest:
           uploadIngestor
             .put(intent, bytes)
             .map(result => Result(result.stored.key, result.stored.stats, None))
-            .mapError {
-              case UploadIngestor.Error.InvalidInput(message)                          => Error.InvalidInput(message)
-              case mismatch: UploadIngestor.Error.MediaTypeMismatch                    => Error.InvalidInput(mismatch.getMessage)
-              case ambiguous: UploadIngestor.Error.AmbiguousDetection                  => Error.InvalidInput(ambiguous.getMessage)
-              case validation: UploadIngestor.Error.Validation                         => Error.InvalidInput(validation.getMessage)
-              case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected) => Error.Rejected(error)
-              case UploadIngestor.Error.Storage(error: IllegalArgumentException)       =>
-                Error.InvalidInput(Option(error.getMessage).getOrElse("Invalid blob"))
-              case error: UploadIngestor.Error                                         => Error.Storage(error)
-            }
+            .mapError(classifyIngestError)
+
+    override def uploadResumable(
+      session: UploadSessionKey,
+      intent: UploadIntent,
+      bytes: ZStream[Any, Throwable, Byte],
+    ): IO[Error, Result] =
+      localizedUpload match
+        case Some(localized) =>
+          localized
+            .upload(session, intent, bytes)
+            .map(result => Result(result.key, result.stats, Some(result.owner)))
+            .mapError(Error.Locality(_))
+        case None            =>
+          uploadIngestor
+            .put(intent, bytes)
+            .map(result => Result(result.stored.key, result.stored.stats, None))
+            .mapError(classifyIngestError)
+
+    private def classifyIngestError(error: UploadIngestor.Error): Error =
+      error match
+        case UploadIngestor.Error.InvalidInput(message)                          => Error.InvalidInput(message)
+        case mismatch: UploadIngestor.Error.MediaTypeMismatch                    => Error.InvalidInput(mismatch.getMessage)
+        case ambiguous: UploadIngestor.Error.AmbiguousDetection                  => Error.InvalidInput(ambiguous.getMessage)
+        case validation: UploadIngestor.Error.Validation                         => Error.InvalidInput(validation.getMessage)
+        case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected) => Error.Rejected(error)
+        case UploadIngestor.Error.Storage(error: IllegalArgumentException)       =>
+          Error.InvalidInput(Option(error.getMessage).getOrElse("Invalid blob"))
+        case other                                                               => Error.Storage(other)

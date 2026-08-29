@@ -27,6 +27,9 @@ final class HttpSecurityPolicy(
     "range",
     UploadHttpHeaders.TenantId.toLowerCase,
     UploadHttpHeaders.UploadSession.toLowerCase,
+    UploadHttpHeaders.UploadLength.toLowerCase,
+    UploadHttpHeaders.UploadOffset.toLowerCase,
+    UploadHttpHeaders.UploadPartId.toLowerCase,
   )
 
   def authorize(
@@ -114,7 +117,7 @@ final class HttpSecurityPolicy(
           .addHeader(
             Header.Custom(
               "Access-Control-Expose-Headers",
-              "Accept-Ranges, Content-Length, Content-Range, ETag, Last-Modified, Location",
+              s"Accept-Ranges, Content-Length, Content-Range, ETag, Last-Modified, Location, ${UploadHttpHeaders.UploadLength}, ${UploadHttpHeaders.UploadOffset}, ${UploadHttpHeaders.UploadExpires}, ${UploadHttpHeaders.UploadSession}",
             )
           )
           .addHeader(Header.Custom("Vary", "Origin"))

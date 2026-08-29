@@ -1,21 +1,29 @@
 package graviton.runtime.stores
 
+import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.BinaryKey
+import graviton.core.model.Block
 import graviton.core.model.Block.*
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.*
 import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 
 /**
- * Quorum-writing, integrity-checking block store across independent backends.
- * Reads fall through corrupt or unavailable replicas and repair missing copies
- * from a validated source.
+ * Failure-domain-aware block replication with deterministic rendezvous
+ * placement, quorum writes, validating fallback reads, and bounded repair.
+ *
+ * At most two compile-time bounded blocks are retained while comparing a
+ * source and candidate. Arbitrary blob streams are never materialized.
  */
 final class ReplicatedBlockStore private (
   replicas: Chunk[ReplicatedBlockStore.Replica],
+  desiredReplicas: Int,
   writeQuorum: Int,
+  placement: ReplicaPlacement,
+  metrics: MetricsRegistry,
 ) extends BlockStore:
   import ReplicatedBlockStore.*
 
@@ -35,94 +43,175 @@ final class ReplicatedBlockStore private (
 
   override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
     ZStream.unwrap {
-      inspectReplicas(key).flatMap { states =>
-        states.collectFirst { case ReplicaState.Valid(_, bytes) => bytes } match
-          case None        =>
-            ZIO.fail(new NoSuchElementException(s"No valid replica for ${key.bits.render}"))
-          case Some(bytes) =>
-            val missing = states.collect { case ReplicaState.Unavailable(replica, _) => replica }
-            ZIO.foreachDiscard(missing)(replica => repairReplica(replica, key, bytes).forkDaemon).as(ZStream.fromChunk(bytes))
-      }
+      for
+        selected <- select(key)
+        source   <- findSource(key, sourceCandidates(selected))
+        targets   = selected.iterator.map(_.name).toSet
+        _        <- ZIO.foreachDiscard(source.failedBefore.filter { case (replica, _) => targets.contains(replica.name) }) { case (replica, _) =>
+                      replaceReplica(replica, source.block, "read_repair").ignore
+                    }
+      yield ZStream.fromChunk(source.block.bytes)
     }
 
   override def exists(key: BinaryKey.Block): Task[Boolean] =
-    inspectReplicas(key).map(_.exists {
-      case ReplicaState.Valid(_, _) => true
-      case _                        => false
-    })
+    select(key)
+      .flatMap(selected => findSource(key, sourceCandidates(selected)))
+      .as(true)
+      .catchSome { case _: NoValidReplica => ZIO.succeed(false) }
 
   override def healthCheck: Task[Unit] =
     ZIO.foreachPar(replicas)(replica => replica.store.healthCheck.either).flatMap { checks =>
       val healthy = checks.count(_.isRight)
-      if healthy >= writeQuorum then ZIO.unit
-      else ZIO.fail(WriteQuorumFailed(writeQuorum, healthy, replicas.length))
+      metrics.gauge(MetricKeys.ReplicaHealthyTargets, healthy.toDouble, Map.empty) *>
+        ZIO
+          .fail(WriteQuorumFailed(writeQuorum, healthy, replicas.length))
+          .when(healthy < writeQuorum)
+          .unit
     }
 
-  /** Validate every copy and synchronously repair missing replicas. */
+  /** Validate the selected copies and atomically replace every bad replica. */
   def repair(key: BinaryKey.Block): Task[RepairReport] =
-    inspectReplicas(key).flatMap { states =>
-      states.collectFirst { case ReplicaState.Valid(_, bytes) => bytes } match
-        case None        => ZIO.fail(new NoSuchElementException(s"No valid source replica for ${key.bits.render}"))
-        case Some(bytes) =>
-          val targets = states.collect { case ReplicaState.Unavailable(replica, _) => replica }
-          ZIO.foreach(targets)(replica => repairReplica(replica, key, bytes).either.map(replica.name -> _)).map { repaired =>
-            RepairReport(
-              validReplicas = states.count(_.isInstanceOf[ReplicaState.Valid]),
-              repairedReplicas = repaired.count(_._2.isRight),
-              failedReplicas = repaired.collect { case (name, Left(error)) =>
-                name -> Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
-              }.toMap,
-            )
-          }
+    for
+      selected <- select(key)
+      source   <- findSource(key, sourceCandidates(selected))
+      report   <- ZIO.foldLeft(selected)(RepairAcc.empty) { (acc, replica) =>
+                    if replica.name == source.replica.name then ZIO.succeed(acc.valid)
+                    else
+                      source.failedBefore.find(_._1.name == replica.name) match
+                        case Some((_, initialError)) => repairKnownBad(acc, replica, source.block, initialError)
+                        case None                    =>
+                          readValidated(replica, key).either.flatMap {
+                            case Right(_)    => ZIO.succeed(acc.valid)
+                            case Left(error) => repairKnownBad(acc, replica, source.block, error)
+                          }
+                  }
+      result    = RepairReport(report.validReplicas, report.repairedReplicas, report.failedReplicas)
+      _        <- metrics.counterBy(MetricKeys.ReplicaRepairsTotal, result.repairedReplicas.toLong, Map("outcome" -> "repaired"))
+      _        <- metrics.counterBy(MetricKeys.ReplicaRepairsTotal, result.failedReplicas.size.toLong, Map("outcome" -> "failed"))
+    yield result
+
+  /**
+   * Selected targets are always tried first. Remaining configured targets are
+   * recovery sources when a topology expansion changes rendezvous placement;
+   * scheduled repair then migrates the block into its new selected set.
+   */
+  private def sourceCandidates(selected: Chunk[Replica]): Chunk[Replica] =
+    val selectedNames = selected.iterator.map(_.name).toSet
+    selected ++ replicas.filterNot(replica => selectedNames.contains(replica.name))
+
+  private def repairKnownBad(
+    acc: RepairAcc,
+    replica: Replica,
+    source: CanonicalBlock,
+    initialError: Throwable,
+  ): UIO[RepairAcc] =
+    replaceReplica(replica, source, "scheduled_repair").either.map {
+      case Right(_)    => acc.repaired
+      case Left(error) =>
+        val detail = Option(error.getMessage)
+          .orElse(Option(initialError.getMessage))
+          .getOrElse(error.getClass.getSimpleName)
+        acc.failed(replica.name, detail)
     }
 
   private def writeOne(block: CanonicalBlock, plan: BlockWritePlan): Task[BlockStoredStatus] =
-    ZIO
-      .foreachPar(replicas) { replica =>
-        replica.store.putBlock(block, plan).either.map(replica.name -> _)
-      }
-      .flatMap { results =>
-        val successes = results.collect { case (_, Right(result)) => result }
-        if successes.length < writeQuorum then ZIO.fail(WriteQuorumFailed(writeQuorum, successes.length, replicas.length))
+    for
+      selected <- select(block.key)
+      results  <- ZIO.foreachPar(selected) { replica =>
+                    replica.store.putBlock(block, plan).either.flatMap { result =>
+                      metrics
+                        .counter(
+                          MetricKeys.ReplicaWritesTotal,
+                          Map("replica" -> replica.name, "outcome" -> result.fold(_ => "failed", _ => "succeeded")),
+                        )
+                        .as(replica.name -> result)
+                    }
+                  }
+      successes = results.collect { case (_, Right(result)) => result }
+      status   <-
+        if successes.length < writeQuorum then ZIO.fail(WriteQuorumFailed(writeQuorum, successes.length, selected.length))
         else if successes.exists(_.status == BlockStoredStatus.Fresh) then ZIO.succeed(BlockStoredStatus.Fresh)
         else ZIO.succeed(BlockStoredStatus.Duplicate)
-      }
+    yield status
 
-  private def inspectReplicas(key: BinaryKey.Block): UIO[Chunk[ReplicaState]] =
-    ZIO.foreachPar(replicas) { replica =>
-      readValidated(replica, key).fold(
-        error => ReplicaState.Unavailable(replica, error),
-        bytes => ReplicaState.Valid(replica, bytes),
-      )
+  private def select(key: BinaryKey.Block): Task[Chunk[Replica]] =
+    placement.select(key, replicas, desiredReplicas).flatMap { selected =>
+      metrics.counter(MetricKeys.ReplicaPlacementsTotal, Map("replicas" -> selected.length.toString)) *>
+        ZIO
+          .fail(InvalidPlacement(desiredReplicas, selected.length))
+          .unless(selected.length == desiredReplicas)
+          .as(selected)
     }
 
-  private def readValidated(replica: Replica, key: BinaryKey.Block): Task[Chunk[Byte]] =
+  private def findSource(key: BinaryKey.Block, candidates: Chunk[Replica]): Task[Source] =
+    def loop(remaining: List[Replica], failed: Chunk[(Replica, Throwable)]): Task[Source] =
+      remaining match
+        case Nil          =>
+          ZIO.fail(
+            NoValidReplica(
+              key,
+              failed.iterator.map { case (replica, error) =>
+                replica.name -> Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
+              }.toMap,
+            )
+          )
+        case head :: tail =>
+          readValidated(head, key).foldZIO(
+            error => loop(tail, failed :+ (head -> error)),
+            block => ZIO.succeed(Source(head, block, failed)),
+          )
+
+    loop(candidates.toList, Chunk.empty)
+
+  private def readValidated(replica: Replica, key: BinaryKey.Block): Task[CanonicalBlock] =
     BoundedByteStream.collectBlock(replica.store.get(key)).flatMap { block =>
-      validate(key, block.bytes).as(block.bytes)
+      validate(key, block) *>
+        ZIO
+          .fromEither(CanonicalBlock.make(key, block.bytes, BinaryAttributes.empty))
+          .mapError(new IllegalStateException(_))
     }
 
-  private def validate(key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =
+  private def validate(key: BinaryKey.Block, bytes: Block): Task[Unit] =
     for
-      _      <-
-        ZIO.fail(new IllegalStateException(s"Replica length mismatch for ${key.bits.render}")).unless(bytes.length.toLong == key.bits.size)
+      _      <- ZIO
+                  .fail(new IllegalStateException(s"Replica length mismatch for ${key.bits.render}"))
+                  .unless(bytes.length.toLong == key.bits.size)
       hasher <- ZIO.fromEither(Hasher.hasher(key.bits.algo)).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes.toArray))
+      _      <- ZIO.attempt(hasher.update(bytes.bytes))
       digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.fail(new IllegalStateException(s"Replica digest mismatch for ${key.bits.render}")).unless(digest == key.bits.digest)
+      _      <- ZIO
+                  .fail(new IllegalStateException(s"Replica digest mismatch for ${key.bits.render}"))
+                  .unless(digest == key.bits.digest)
     yield ()
 
-  private def repairReplica(replica: Replica, key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =
-    for
-      block <- ZIO.fromEither(CanonicalBlock.make(key, bytes)).mapError(new IllegalArgumentException(_))
-      _     <- replica.store.putBlock(block).unit
-    yield ()
+  private def replaceReplica(replica: Replica, block: CanonicalBlock, trigger: String): Task[Unit] =
+    replica.store
+      .repairBlock(block)
+      .tapBoth(
+        _ =>
+          metrics
+            .counter(MetricKeys.ReplicaRepairAttemptsTotal, Map("replica" -> replica.name, "trigger" -> trigger, "outcome" -> "failed")),
+        _ =>
+          metrics
+            .counter(MetricKeys.ReplicaRepairAttemptsTotal, Map("replica" -> replica.name, "trigger" -> trigger, "outcome" -> "succeeded")),
+      )
 
 object ReplicatedBlockStore:
-  final case class Replica(name: String, store: BlockStore):
+  final case class Replica(name: String, failureDomain: String, store: RepairableBlockStore):
     require(name.trim.nonEmpty, "replica name must be non-empty")
+    require(failureDomain.trim.nonEmpty, "replica failureDomain must be non-empty")
+
+  object Replica:
+    def apply(name: String, store: RepairableBlockStore): Replica = Replica(name, name, store)
 
   final case class WriteQuorumFailed(required: Int, succeeded: Int, total: Int)
       extends RuntimeException(s"Block write quorum failed: required=$required succeeded=$succeeded total=$total")
+
+  final case class InvalidPlacement(expected: Int, actual: Int)
+      extends RuntimeException(s"Replica placement returned $actual targets, expected $expected")
+
+  final case class NoValidReplica(key: BinaryKey.Block, failures: Map[String, String])
+      extends RuntimeException(s"No valid replica for ${key.bits.render}; checked ${failures.keys.toList.sorted.mkString(",")}")
 
   final case class RepairReport(
     validReplicas: Int,
@@ -130,16 +219,44 @@ object ReplicatedBlockStore:
     failedReplicas: Map[String, String],
   )
 
-  private enum ReplicaState:
-    case Valid(replica: Replica, bytes: Chunk[Byte])
-    case Unavailable(replica: Replica, error: Throwable)
-
   def make(replicas: Chunk[Replica], writeQuorum: Int): Either[String, ReplicatedBlockStore] =
+    make(replicas, replicas.length, writeQuorum, ReplicaPlacement.rendezvous, MetricsRegistry.noop)
+
+  def make(
+    replicas: Chunk[Replica],
+    desiredReplicas: Int,
+    writeQuorum: Int,
+    placement: ReplicaPlacement,
+    metrics: MetricsRegistry = MetricsRegistry.noop,
+  ): Either[String, ReplicatedBlockStore] =
     Either.cond(
-      replicas.nonEmpty && writeQuorum >= 1 && writeQuorum <= replicas.length && replicas.map(_.name).distinct.length == replicas.length,
-      new ReplicatedBlockStore(replicas, writeQuorum),
-      "replicas must be non-empty with unique names and writeQuorum within replica count",
+      replicas.nonEmpty &&
+        desiredReplicas >= 1 &&
+        desiredReplicas <= replicas.length &&
+        writeQuorum >= 1 &&
+        writeQuorum <= desiredReplicas &&
+        replicas.map(_.name).distinct.length == replicas.length,
+      new ReplicatedBlockStore(replicas, desiredReplicas, writeQuorum, placement, metrics),
+      "replicas must be non-empty with unique names, desiredReplicas within target count, and writeQuorum within desiredReplicas",
     )
+
+  private final case class Source(
+    replica: Replica,
+    block: CanonicalBlock,
+    failedBefore: Chunk[(Replica, Throwable)],
+  )
+
+  private final case class RepairAcc(
+    validReplicas: Int,
+    repairedReplicas: Int,
+    failedReplicas: Map[String, String],
+  ):
+    def valid: RepairAcc                                   = copy(validReplicas = validReplicas + 1)
+    def repaired: RepairAcc                                = copy(repairedReplicas = repairedReplicas + 1)
+    def failed(replica: String, detail: String): RepairAcc = copy(failedReplicas = failedReplicas.updated(replica, detail))
+
+  private object RepairAcc:
+    val empty: RepairAcc = RepairAcc(validReplicas = 0, repairedReplicas = 0, failedReplicas = Map.empty)
 
   private final case class WriteAcc(
     entries: ChunkBuilder[BlockManifestEntry],

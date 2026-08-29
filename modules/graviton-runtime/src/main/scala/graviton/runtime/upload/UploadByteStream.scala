@@ -21,6 +21,9 @@ object UploadByteStream:
     final case class InvalidFrame(reason: String) extends Error:
       override def getMessage: String = s"invalid bounded upload frame: $reason"
 
+    final case class MaximumSizeExceeded(maximum: FileSize, actual: Long) extends Error:
+      override def getMessage: String = s"upload exceeds the ${maximum.value}-byte part limit at byte $actual"
+
   def enforceExpectedSize(
     bytes: ZStream[Any, Throwable, Byte],
     expected: Option[FileSize],
@@ -45,6 +48,25 @@ object UploadByteStream:
             )
             .drain
           checked ++ exact
+        }
+      }
+    }
+
+  /** Reject a stream immediately after its running byte count crosses a logical maximum. */
+  def enforceMaximumSize(
+    bytes: ZStream[Any, Throwable, Byte],
+    maximum: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    ZStream.unwrap {
+      Ref.make(0L).map { observed =>
+        bytes.mapChunksZIO { chunk =>
+          observed.modify { current =>
+            if current > Long.MaxValue - chunk.length.toLong then Left(Error.ByteCountOverflow()) -> current
+            else
+              val actual = current + chunk.length.toLong
+              if actual > maximum.value then Left(Error.MaximumSizeExceeded(maximum, actual)) -> actual
+              else Right(chunk)                                                               -> actual
+          }.absolve
         }
       }
     }

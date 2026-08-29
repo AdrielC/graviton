@@ -2,6 +2,7 @@ package graviton.runtime.config
 
 import zio.*
 import zio.Config
+import graviton.runtime.upload.ResumableUploadConfig
 
 /**
  * Typed Graviton configuration via ZIO Config.
@@ -18,6 +19,8 @@ final case class GravitonConfig(
   fs: GravitonConfig.FsConfig = GravitonConfig.FsConfig(),
   s3: GravitonConfig.S3EnvConfig = GravitonConfig.S3EnvConfig(),
   pg: GravitonConfig.PgConfig = GravitonConfig.PgConfig(),
+  resumableUploads: ResumableUploadConfig = ResumableUploadConfig.Default,
+  replication: ReplicationConfig = ReplicationConfig.Default,
 )
 
 object GravitonConfig:
@@ -75,9 +78,9 @@ object GravitonConfig:
       Config.string("blob-backend").withDefault("fs") ++
       Config.string("data-dir").withDefault(".graviton") ++
       Config.int("chunk-size").withDefault(1048576) ++
-      fsConfig ++ s3Config ++ pgConfig)
-      .map { case (httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg) =>
-        GravitonConfig(httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg)
+      fsConfig ++ s3Config ++ pgConfig ++ ResumableUploadConfig.config ++ ReplicationConfig.config)
+      .map { case (httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg, resumable, replication) =>
+        GravitonConfig(httpPort, grpcPort, backend, dataDir, chunk, fs, s3, pg, resumable, replication)
       }
       .nested("graviton")
 

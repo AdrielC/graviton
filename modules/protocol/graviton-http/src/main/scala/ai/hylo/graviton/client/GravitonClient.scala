@@ -20,7 +20,8 @@ final class GravitonClient private (
 ) {
   import GravitonClient.*
 
-  private val blobsUrl = config.baseUrl / "api" / "v1" / "blobs"
+  private val blobsUrl   = config.baseUrl / "api" / "v1" / "blobs"
+  private val uploadsUrl = config.baseUrl / "api" / "v1" / "uploads"
 
   /** Persist a stream without materializing it in the SDK. */
   def upload(upload: Upload): IO[Error, BlobUploadResult] =
@@ -35,6 +36,72 @@ final class GravitonClient private (
           .addHeader(Header.Custom(UploadHttpHeaders.UploadSession, s"${session.uploadSessionId.value}"))
       )
       .flatMap(executeJson[BlobUploadResult])
+
+  /**
+   * Crash-safe upload using bounded retry parts. Session identifiers and
+   * offsets remain internal unless a caller explicitly opts into the lower
+   * level resume methods.
+   */
+  def uploadResumable(
+    upload: Upload,
+    partSize: ResumablePartSize = ResumablePartSize.Default,
+    onCheckpoint: ResumableUploadStatus => Task[Unit] = _ => ZIO.unit,
+  ): IO[Error, ResumableUploadStatus] =
+    for
+      created   <- createResumable(upload).tap(persistCheckpoint(onCheckpoint))
+      appended  <- appendRemaining(created, upload.bytes, partSize, onCheckpoint)
+      committed <- commitResumable(appended.id).tap(persistCheckpoint(onCheckpoint))
+    yield committed
+
+  /** Create a typed checkpoint for applications that persist their own retry state. */
+  def createResumable(upload: Upload): IO[Error, ResumableUploadStatus] =
+    for
+      contentType <- ZIO.fromEither(
+                       MediaTypeText.renderEither(upload.contentType).left.map(Error.InvalidMediaType.apply)
+                     )
+      sessionId   <- Random.nextUUID.map(value => UploadId.applyUnsafe(value.toString))
+      headers      = config.defaultHeaders ++ Headers(
+                       Header.Custom("Content-Type", contentType),
+                       Header.Custom(UploadHttpHeaders.UploadSession, sessionId.value),
+                     ) ++ upload.contentLength.fold(Headers.empty)(length =>
+                       Headers(Header.Custom(UploadHttpHeaders.UploadLength, length.value.toString))
+                     )
+      request      = Request(method = Method.POST, url = uploadsUrl, headers = headers)
+      create       = executeJson[ResumableUploadStatus](request).catchSome {
+                       // A response can be lost after durable creation. Every retry
+                       // reuses the same client-generated ID and resolves conflict
+                       // by reading that checkpoint.
+                       case Error.UnexpectedStatus(Status.Conflict, body) if body.contains("upload_exists") =>
+                         resumableStatus(sessionId)
+                     }
+      status      <- retryControl(create)
+    yield status
+
+  /**
+   * Resume from a previously returned checkpoint. `remaining` must begin at
+   * `checkpoint.offset`; this avoids silently re-reading or dropping a large
+   * caller-owned source.
+   */
+  def resumeResumable(
+    checkpoint: ResumableUploadStatus,
+    remaining: ZStream[Any, Throwable, Byte],
+    partSize: ResumablePartSize = ResumablePartSize.Default,
+    onCheckpoint: ResumableUploadStatus => Task[Unit] = _ => ZIO.unit,
+  ): IO[Error, ResumableUploadStatus] =
+    appendRemaining(checkpoint, remaining, partSize, onCheckpoint)
+
+  def resumableStatus(id: UploadId): IO[Error, ResumableUploadStatus] =
+    retryControl(executeJson[ResumableUploadStatus](Request.get(uploadsUrl / id.value).copy(headers = config.defaultHeaders)))
+
+  def commitResumable(id: UploadId): IO[Error, ResumableUploadStatus] =
+    retryControl(
+      executeJson[ResumableUploadStatus](
+        Request(method = Method.POST, url = uploadsUrl / id.value / "commit", headers = config.defaultHeaders)
+      )
+    )
+
+  def cancelResumable(id: UploadId): IO[Error, Unit] =
+    execute(Request(method = Method.DELETE, url = uploadsUrl / id.value, headers = config.defaultHeaders))(_ => ZIO.unit)
 
   /** Lazily download a full blob or one byte range while retaining response scope. */
   def download(id: BlobId, range: Option[DownloadRange] = None): ZStream[Any, Error, Byte] =
@@ -89,7 +156,93 @@ final class GravitonClient private (
       body = body,
     )
 
+  private def appendRemaining(
+    initial: ResumableUploadStatus,
+    remaining: ZStream[Any, Throwable, Byte],
+    partSize: ResumablePartSize,
+    onCheckpoint: ResumableUploadStatus => Task[Unit],
+  ): IO[Error, ResumableUploadStatus] =
+    for
+      current <- Ref.make(initial)
+      _       <- remaining
+                   .rechunk(partSize.value)
+                   .chunks
+                   .mapZIO { bytes =>
+                     for
+                       bounded    <- ZIO.fromEither(
+                                       bytes
+                                         .refineEither[ResumablePartBytes.Constraint]
+                                         .left
+                                         .map(_ => Error.ProtocolViolation("SDK produced an empty or oversized resumable part"))
+                                     )
+                       checkpoint <- current.get
+                       partId     <- Random.nextUUID.map(_.toString)
+                       request     = Request(
+                                       method = Method.PATCH,
+                                       url = uploadsUrl / checkpoint.id.value,
+                                       headers = config.defaultHeaders ++ Headers(
+                                         Header.Custom(UploadHttpHeaders.UploadOffset, checkpoint.offset.value.toString),
+                                         Header.Custom(UploadHttpHeaders.UploadPartId, partId),
+                                         Header.Custom("Content-Length", bounded.length.toString),
+                                       ),
+                                       body = Body.fromStream(ZStream.fromChunk(bounded), bounded.length.toLong),
+                                     )
+                       updated    <- retryControl(executeJsonOrHeaders(request, checkpoint))
+                       expected    = checkpoint.offset.value + bounded.length.toLong
+                       _          <- ZIO
+                                       .fail(Error.ProtocolViolation(s"append returned offset ${updated.offset.value}, expected $expected"))
+                                       .unless(updated.offset.value == expected)
+                       _          <- current.set(updated)
+                       _          <- persistCheckpoint(onCheckpoint)(updated)
+                     yield ()
+                   }
+                   .runDrain
+                   .mapError {
+                     case value: Error => value
+                     case value        => Error.TransportFailure(value)
+                   }
+      result  <- current.get
+    yield result
+
+  private def persistCheckpoint(
+    sink: ResumableUploadStatus => Task[Unit]
+  )(status: ResumableUploadStatus): IO[Error, Unit] =
+    sink(status).mapError(Error.CheckpointFailure.apply)
+
+  private def executeJsonOrHeaders(
+    request: Request,
+    previous: ResumableUploadStatus,
+  ): IO[Error, ResumableUploadStatus] =
+    execute(request) { response =>
+      response.headers.get(UploadHttpHeaders.UploadOffset) match
+        case Some(raw) =>
+          ZIO
+            .fromEither(raw.toLongOption.toRight(Error.ProtocolViolation("append response has an invalid Upload-Offset")))
+            .flatMap(value => ZIO.fromEither(UploadOffsetBytes.either(value).left.map(Error.ProtocolViolation.apply)))
+            .map(offset => previous.copy(offset = offset))
+        case None      => ZIO.fail(Error.ProtocolViolation("append response is missing Upload-Offset"))
+    }
+
   private def blobUrl(id: BlobId): URL = blobsUrl / id.value
+
+  private def retryControl[A](effect: => IO[Error, A]): IO[Error, A] =
+    def loop(remaining: Int, delay: Duration): IO[Error, A] =
+      effect.catchAll { error =>
+        if remaining > 0 && retryable(error) then
+          val doubled = delay * 2L
+          val next    = if doubled > config.resumableRetryMaxDelay then config.resumableRetryMaxDelay else doubled
+          ZIO.sleep(delay) *> loop(remaining - 1, next)
+        else ZIO.fail(error)
+      }
+
+    loop(config.resumableRetryLimit.value, config.resumableRetryBaseDelay)
+
+  private def retryable(error: Error): Boolean =
+    error match
+      case _: Error.TransportFailure            => true
+      case Error.UnexpectedStatus(status, body) =>
+        status.code == 429 || status.code >= 500 || (status == Status.Conflict && body.contains("upload_busy"))
+      case _                                    => false
 
   private def executeJson[A: ApiJsonCodec](request: Request): IO[Error, A] =
     execute(request) { response =>
@@ -130,10 +283,28 @@ object GravitonClient {
   object ListLimit extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[1000]]:
     val Default: ListLimit = applyUnsafe(100)
 
+  type ResumablePartSize = ResumablePartSize.T
+  object ResumablePartSize extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[67108864]]:
+    val Default: ResumablePartSize = applyUnsafe(8 * 1024 * 1024)
+
+  /** The only materialized upload payload in the SDK, statically bounded to 64 MiB. */
+  type ResumablePartBytes = Chunk[Byte] :| ResumablePartBytes.Constraint
+  object ResumablePartBytes:
+    type Constraint = MinLength[1] & MaxLength[67108864]
+
+  type ResumableRetryLimit = ResumableRetryLimit.T
+  object ResumableRetryLimit extends RefinedSubtype[Int, GreaterEqual[0] & LessEqual[20]]:
+    val Default: ResumableRetryLimit = applyUnsafe(5)
+
   final case class Config(
     baseUrl: URL,
     defaultHeaders: Headers = Headers.empty,
-  )
+    resumableRetryLimit: ResumableRetryLimit = ResumableRetryLimit.Default,
+    resumableRetryBaseDelay: Duration = 100.millis,
+    resumableRetryMaxDelay: Duration = 2.seconds,
+  ):
+    require(resumableRetryBaseDelay > Duration.Zero, "resumableRetryBaseDelay must be positive")
+    require(resumableRetryMaxDelay >= resumableRetryBaseDelay, "resumableRetryMaxDelay must not be below the base delay")
 
   final case class Upload(
     bytes: ZStream[Any, Throwable, Byte],
@@ -171,6 +342,12 @@ object GravitonClient {
 
     final case class InvalidMediaType(reason: String) extends Error:
       override def message: String = s"Invalid upload media type: $reason"
+
+    final case class ProtocolViolation(reason: String) extends Error:
+      override def message: String = s"Invalid resumable-upload response: $reason"
+
+    final case class CheckpointFailure(cause: Throwable) extends Error:
+      override def message: String = Option(cause.getMessage).getOrElse("failed to persist resumable-upload checkpoint")
 
   def make(config: Config): ZIO[Client, Nothing, GravitonClient] =
     ZIO.service[Client].map(new GravitonClient(_, config))

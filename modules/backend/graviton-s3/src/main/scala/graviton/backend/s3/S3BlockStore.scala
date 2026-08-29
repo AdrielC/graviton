@@ -3,7 +3,7 @@ package graviton.backend.s3
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.runtime.model.*
-import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock}
+import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock, RepairableBlockStore}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -22,7 +22,7 @@ final case class S3BlockStoreConfig(
 final class S3BlockStore(
   client: S3Client,
   config: S3BlockStoreConfig,
-) extends BlockStore,
+) extends RepairableBlockStore,
       BlockMaintenance:
 
   override def putBlock(
@@ -75,6 +75,29 @@ final class S3BlockStore(
         case error: S3Exception if error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(_.errorCode() == "NoSuchKey") =>
           ZIO.succeed(false)
       }
+
+  override def repairBlock(block: CanonicalBlock): Task[Unit] =
+    for
+      _        <- ZIO
+                    .fail(
+                      new IllegalArgumentException(
+                        s"Canonical block key declares ${block.key.bits.size} bytes but repair payload contains ${block.size.value}"
+                      )
+                    )
+                    .unless(block.key.bits.size == block.size.value.toLong)
+      payload   = block.bytes.toArray
+      checksum <- sha256Checksum(block, payload)
+      request   = PutObjectRequest
+                    .builder()
+                    .bucket(config.blocks.bucket)
+                    .key(objectKeyFor(block.key))
+                    .contentLength(payload.length.toLong)
+                    .checksumSHA256(checksum)
+                    .metadata(objectProof(block, checksum).asJava)
+                    .build()
+      _        <- ZIO.attemptBlocking(client.putObject(request, RequestBody.fromBytes(payload))).unit
+      _        <- verifyExisting(block, checksum)
+    yield ()
 
   override def healthCheck: ZIO[Any, Throwable, Unit] =
     ZIO.attemptBlocking {

@@ -20,12 +20,16 @@ The protocol modules expose Graviton through shared JSON response models plus op
 - `GET /api/v1/blobs/:id` for streaming retrieval
 - `HEAD /api/v1/blobs/:id` for metadata headers
 - `DELETE /api/v1/blobs/:id` for logical manifest deletion
+- `POST /api/v1/uploads` for a durable resumable checkpoint
+- `GET` or `HEAD /api/v1/uploads/:id` for recovery state
+- `PATCH /api/v1/uploads/:id` for one idempotent bounded part
+- `POST /api/v1/uploads/:id/commit` and `DELETE /api/v1/uploads/:id` for finalization or cancellation
 
 Uploads return `201 Created`, a stable `<algorithm>:<hex-digest>:<byte-length>` content ID, committed block counts, `Location`, and `ETag`. Invalid IDs produce a structured `400`, missing blobs produce `404`, and unexpected storage errors do not expose exception details.
 
 The contract suite performs the complete lifecycle against the in-memory CAS. Filesystem and PostgreSQL repository suites prove that inventory and manifest inspection are derived from durable metadata. See the [HTTP API](../api/http.md) for examples.
 
-`ai.hylo.graviton.client.GravitonClient` is the supported JVM SDK for this surface. Uploads accept a stream, ZIO Blocks media type, and optional Iron-refined 1 TiB length. Downloads return a scoped stream. See the [Scala Streaming SDK](../guide/scala-sdk.md).
+`ai.hylo.graviton.client.GravitonClient` is the supported JVM SDK for this surface. Uploads accept a stream, ZIO Blocks media type, and optional Iron-refined 1 TiB length. Resumable uploads materialize only one Iron-refined 1 to 64 MiB retry part, persist checkpoints explicitly when the caller needs restart control, and commit through the same content-aware ingest service. Downloads return a scoped stream. See the [Scala Streaming SDK](../guide/scala-sdk.md).
 
 ## Authentication
 
@@ -41,7 +45,7 @@ Stats and Prometheus metrics are process-lifetime observations. They reset on re
 
 ## Transport boundaries
 
-The published HTTP and gRPC clients target routes served by the default process and exercised over real sockets. Graviton 0.6 does not publish clients for proposed resumable or multipart routes. The stable gRPC surface deliberately models a stream as the upload session and exposes the core blob lifecycle. HTTP remains the richer transport for byte ranges, conditional requests, and server-side verification.
+The published HTTP and gRPC clients target routes served by the default process and are exercised over real sockets. HTTP includes the durable resumable session protocol; gRPC deliberately models a live stream as its upload session. HTTP remains the richer transport for recovery checkpoints, byte ranges, conditional requests, and server-side verification.
 
 ## Shared JVM and Scala.js contract
 

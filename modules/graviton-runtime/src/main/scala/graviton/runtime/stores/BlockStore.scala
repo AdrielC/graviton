@@ -44,3 +44,10 @@ trait BlockStore:
 
 object BlockStore:
   val service: ZIO[BlockStore, Nothing, BlockStore] = ZIO.service[BlockStore]
+
+/**
+ * A block backend that can atomically replace a missing or corrupt replica
+ * with bytes already validated against its content key.
+ */
+trait RepairableBlockStore extends BlockStore:
+  def repairBlock(block: CanonicalBlock): ZIO[Any, Throwable, Unit]
