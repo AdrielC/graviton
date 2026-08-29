@@ -191,6 +191,36 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           result.stats.totalBytes == data.length.toLong,
         )
       },
+      test("range reads fetch only intersecting CAS blocks") {
+        val blockBytes = 1024
+        val data       = Chunk.fromArray(Array.tabulate(4 * blockBytes)(index => (index % 251).toByte))
+        val start      = 3L * blockBytes + 100L
+        val length     = 32L
+
+        for
+          delegate  <- InMemoryBlockStore.make
+          repo      <- InMemoryBlobManifestRepo.make
+          writer     = new CasBlobStore(delegate, repo)
+          result    <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024)))(ZStream.fromChunk(data).run(writer.put()))
+          fetched   <- Ref.make(Chunk.empty[graviton.core.keys.BinaryKey.Block])
+          tracking   = new BlockStore:
+                         override def putBlocks(plan: BlockWritePlan)                 = delegate.putBlocks(plan)
+                         override def exists(key: graviton.core.keys.BinaryKey.Block) = delegate.exists(key)
+                         override def get(key: graviton.core.keys.BinaryKey.Block)    =
+                           ZStream.fromZIO(fetched.update(_ :+ key)).drain ++ delegate.get(key)
+          reader     = new CasBlobStore(tracking, repo)
+          bytes     <- reader
+                         .getRange(result.key, BlobOffset.unsafe(start), FileSize.unsafe(length))
+                         .runCollect
+          requested <- fetched.get
+          stored    <- repo.get(result.key).someOrFail(new NoSuchElementException("Manifest missing"))
+          lastKey    = stored.manifest.entries.last.key
+        yield assertTrue(
+          bytes == data.slice(start.toInt, (start + length).toInt),
+          requested.length == 1,
+          requested.head == lastKey,
+        )
+      },
       test("fails when a chunker violates its declared block ceiling") {
         val base      = Chunker.fixed(UploadChunkSize(1024))
         val dishonest = new Chunker:

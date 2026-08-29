@@ -1,6 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, BlobWriteResult}
 import zio.*
 import zio.stream.*
@@ -16,6 +17,24 @@ trait BlobStore:
 
   /** Retrieve the bytes for a blob by logical key (reassembling blocks as needed). */
   def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte]
+
+  /**
+   * Retrieve a non-empty half-open byte range without requiring callers to
+   * discard the preceding blob bytes. CAS implementations override this to
+   * fetch only manifest blocks that intersect the requested range.
+   */
+  def getRange(
+    key: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    get(key).chunks
+      .mapAccum(start.value: Long) { (remaining, chunk) =>
+        val dropped = math.min(remaining, chunk.length.toLong).toInt
+        (remaining - dropped.toLong) -> chunk.drop(dropped)
+      }
+      .flatMap(ZStream.fromChunk)
+      .take(length.value)
 
   /** Return metadata (size, etag, timestamps) when supported by the backend. */
   def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]]

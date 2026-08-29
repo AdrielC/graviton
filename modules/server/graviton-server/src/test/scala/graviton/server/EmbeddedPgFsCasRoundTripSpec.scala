@@ -87,6 +87,38 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
         },
+        test("late ranges select only intersecting Postgres manifest rows") {
+          val data   = Chunk.fromArray(Array.tabulate(4096)(index => (index % 251).toByte))
+          val start  = 3L * 1024L + 100L
+          val length = 32L
+
+          for
+            store   <- ZIO.service[BlobStore]
+            written <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                         ZStream.fromChunk(data).run(store.put())
+                       }
+            ds      <- ZIO.service[javax.sql.DataSource]
+            repo     = new PgBlobManifestRepo(ds)
+            refs    <- repo
+                         .streamBlockRefsRange(
+                           written.key,
+                           BlobOffset.unsafe(start),
+                           FileSize.unsafe(length),
+                         )
+                         .runCollect
+            bytes   <- store
+                         .getRange(
+                           written.key,
+                           BlobOffset.unsafe(start),
+                           FileSize.unsafe(length),
+                         )
+                         .runCollect
+          yield assertTrue(
+            refs.length == 1,
+            refs.head.offset.value == 3L * 1024L,
+            bytes == data.slice(start.toInt, (start + length).toInt),
+          )
+        },
         test("stat returns real ingestion timestamp and correct size") {
           val data    = Chunk.fromArray(("stat-test-" * 500).getBytes(StandardCharsets.UTF_8))
           val chunker = Chunker.fixed(UploadChunkSize(1024))

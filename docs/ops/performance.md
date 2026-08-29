@@ -31,6 +31,14 @@ The script performs a real upload, byte-for-byte download comparison, and server
 
 This is one measured sample, not a distribution.
 
+## ZIO HTTP transport choices
+
+Graviton currently resolves ZIO HTTP 3.11.4 and explicitly enables request streaming. Upload handlers consume `request.body.asStream`; download handlers use `Body.fromStream(stream, contentLength)` because manifest size is known. This keeps Netty demand connected to the ZIO stream and avoids whole-body aggregation.
+
+The server retains ZIO HTTP's 64 KiB pre-connect request-body buffer, TCP no-delay, and keep-alive defaults. It does not enable `avoidContextSwitching`: upload handlers hash, chunk, and persist before their first asynchronous boundary, which is the workload the option warns can monopolize an event loop. Global response compression and request decompression also remain disabled because CAS payloads are commonly already compressed and decompression would change the bytes being content-addressed.
+
+See the official [server](https://ziohttp.com/reference/server/), [body](https://ziohttp.com/reference/body/), and [client](https://ziohttp.com/reference/client/) references and the [3.11.4 release](https://github.com/zio/zio-http/releases/tag/v3.11.4).
+
 ## Soak loop
 
 ```bash
@@ -70,11 +78,17 @@ input queue chunks * I/O chunk bytes
 
 This excludes one caller-owned input chunk, the chunker's documented working set, and backend-local buffers. With the defaults and a 1 MiB fixed chunker, the Graviton-owned ceiling is 7,602,176 bytes per active ingest.
 
-Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Objects written before proof metadata was introduced use one bounded `GetObject` for exact-byte verification. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
+Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Missing or inconsistent proof metadata fails closed without downloading the object. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
 
 The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. This adds at most one block-size byte array per active block write. With the default 1 MiB chunker and four concurrent writes, that backend-local allowance is 4 MiB. At the supported 16 MiB maximum block size and 64-way maximum parallelism, the theoretical configuration ceiling is 1 GiB per upload, so operators should not combine both maxima without an explicit memory budget.
 
 The opt-in MinIO integration gate uploads the same 32 MiB stream twice with 1 MiB blocks, verifies the reconstructed content by streaming it through the hasher, asserts 32 fresh blocks followed by 32 duplicate blocks, and records both elapsed times in the CI log. Those figures are a regression signal for that runner, not a portable throughput claim.
+
+## Range reads
+
+HTTP range requests select intersecting manifest entries before block retrieval. PostgreSQL applies the byte-span predicate in the manifest query; filesystem manifests scan only their lightweight entry records. The CAS then fetches and verifies only selected bounded blocks. A request near the end of a large blob therefore avoids object-store reads, digest work, and network transfer for every preceding block.
+
+Selected blocks are still verified in full before any requested bytes from that block are emitted. Range efficiency does not weaken the content-addressed integrity check, and peak ordered-prefetch memory remains bounded by `maxInFlight * 16 MiB`.
 
 ## Inline CAS versus staged acceptance
 

@@ -3,7 +3,7 @@ package graviton.backend.pg
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
-import graviton.core.types.FileSize
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.streaming.BlobStreamer
 import graviton.runtime.stores.{BlobManifestRepo, StoredManifest, StoredManifestSummary}
 import zio.*
@@ -357,6 +357,37 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       }
     }
 
+  override def streamBlockRefsRange(
+    blob: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, BlobStreamer.RangedBlockRef] =
+    val endExclusive = java.lang.Math.addExact(start.value, length.value)
+    val sql          =
+      """
+        |SELECT
+        |  ordinal,
+        |  block_alg,
+        |  block_hash_bytes,
+        |  block_byte_length,
+        |  block_offset
+        |FROM graviton.blob_block
+        |WHERE alg = ?::core.hash_alg
+        |  AND hash_bytes = ?
+        |  AND byte_length = ?
+        |  AND span && int8range(?, ?, '[)')
+        |ORDER BY ordinal ASC
+        |""".stripMargin
+
+    ZStream.acquireReleaseWith(openRangeCursor(sql, blob, start, endExclusive))(closeCursor).flatMap { cursor =>
+      ZStream.unfoldZIO(cursor) { c =>
+        ZIO.attemptBlocking(c.rs.next()).flatMap { hasNext =>
+          if !hasNext then ZIO.succeed(None)
+          else readRangedBlockRef(c.rs).map(ref => Some((ref, c)))
+        }
+      }
+    }
+
   private def withTransaction[A](f: Connection => Task[A]): Task[A] =
     ZIO.scoped {
       ZIO
@@ -420,6 +451,42 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
         }
       }
 
+  private def openRangeCursor(
+    sql: String,
+    blob: BinaryKey.Blob,
+    start: BlobOffset,
+    endExclusive: Long,
+  ): Task[Cursor] =
+    ZIO
+      .fromEither(toDbAlg(blob.bits.algo))
+      .mapError(msg => new IllegalArgumentException(msg))
+      .flatMap { blobAlg =>
+        ZIO.attemptBlocking {
+          val conn = ds.getConnection()
+          try
+            conn.setReadOnly(true)
+            conn.setAutoCommit(false)
+            val ps = conn.prepareStatement(sql)
+            try
+              ps.setFetchSize(256)
+              ps.setString(1, blobAlg)
+              ps.setBytes(2, blob.bits.digest.bytes)
+              ps.setLong(3, blob.bits.size)
+              ps.setLong(4, start.value)
+              ps.setLong(5, endExclusive)
+              val rs = ps.executeQuery()
+              Cursor(conn, ps, rs)
+            catch
+              case error: Throwable =>
+                ps.close()
+                throw error
+          catch
+            case error: Throwable =>
+              conn.close()
+              throw error
+        }
+      }
+
   private def openSummaryCursor(sql: String): Task[Cursor] =
     ZIO.attemptBlocking {
       val conn = ds.getConnection()
@@ -464,6 +531,13 @@ final class PgBlobManifestRepo(private val ds: DataSource) extends BlobManifestR
       bits        <- ZIO.fromEither(KeyBits.create(blockAlg, digest, blockLen)).mapError(msg => new IllegalArgumentException(msg))
       key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
     yield BlobStreamer.BlockRef(ordinal, key)
+
+  private def readRangedBlockRef(rs: ResultSet): Task[BlobStreamer.RangedBlockRef] =
+    for
+      ref       <- readBlockRef(rs)
+      rawOffset <- ZIO.attempt(rs.getLong(5))
+      offset    <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(msg => new IllegalArgumentException(msg))
+    yield BlobStreamer.RangedBlockRef(ref.idx, ref.key, offset)
 
   private def readSummary(rs: ResultSet): Task[(BinaryKey.Blob, StoredManifestSummary)] =
     for

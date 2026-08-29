@@ -330,6 +330,19 @@ final class CasBlobStore(
   override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
     BlobStreamer.streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
 
+  override def getRange(
+    key: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    BlobStreamer.streamRange(
+      manifests.streamBlockRefsRange(key, start, length),
+      blockStore,
+      start,
+      length,
+      streamerConfig,
+    )
+
   override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
     manifests.getSummary(key).map {
       case None          => None

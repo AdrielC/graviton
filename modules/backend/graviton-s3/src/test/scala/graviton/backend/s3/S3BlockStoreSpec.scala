@@ -5,14 +5,12 @@ import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
 import graviton.runtime.model.{BlockStoredStatus, CanonicalBlock}
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails
-import software.amazon.awssdk.core.ResponseInputStream
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
 import zio.*
 import zio.test.*
 
-import java.io.ByteArrayInputStream
 import java.lang.reflect.Proxy
 import java.nio.charset.StandardCharsets
 import java.util.Base64
@@ -62,19 +60,18 @@ object S3BlockStoreSpec extends ZIOSpecDefault:
           calls.get.get() == 0,
         )
       },
-      test("legacy duplicates fall back to one bounded exact-byte comparison") {
+      test("objects without the current CAS proof fail closed without downloading bytes") {
         val calls = BlockCalls()
 
         for
-          block     <- canonical("legacy-block")
-          client     = legacyClient(calls, block.bytes.toArray)
-          store      = new S3BlockStore(client, testConfig)
-          duplicate <- store.putBlock(block)
+          block <- canonical("missing-proof")
+          store  = new S3BlockStore(missingProofClient(calls, block), testConfig)
+          exit  <- store.putBlock(block).exit
         yield assertTrue(
-          duplicate.status == BlockStoredStatus.Duplicate,
+          exit.isFailure,
           calls.put.get() == 1,
           calls.head.get() == 1,
-          calls.get.get() == 1,
+          calls.get.get() == 0,
         )
       },
       test("inconsistent CAS proof fails closed without downloading bytes") {
@@ -172,7 +169,7 @@ object S3BlockStoreSpec extends ZIOSpecDefault:
       )
       .asInstanceOf[S3Client]
 
-  private def legacyClient(calls: BlockCalls, bytes: Array[Byte]): S3Client =
+  private def missingProofClient(calls: BlockCalls, block: CanonicalBlock): S3Client =
     Proxy
       .newProxyInstance(
         classOf[S3Client].getClassLoader,
@@ -184,16 +181,17 @@ object S3BlockStoreSpec extends ZIOSpecDefault:
               throw s3Failure(412, "PreconditionFailed")
             case "headObject"  =>
               calls.head.incrementAndGet()
-              HeadObjectResponse.builder().contentLength(bytes.length.toLong).metadata(Map.empty[String, String].asJava).build()
+              HeadObjectResponse
+                .builder()
+                .contentLength(block.size.value.toLong)
+                .metadata(Map.empty[String, String].asJava)
+                .build()
             case "getObject"   =>
               calls.get.incrementAndGet()
-              new ResponseInputStream(
-                GetObjectResponse.builder().contentLength(bytes.length.toLong).build(),
-                new ByteArrayInputStream(bytes),
-              )
+              throw new AssertionError("an object without current proof metadata must not be downloaded")
             case "close"       => null
             case "serviceName" => "s3"
-            case "toString"    => "legacy-block-client"
+            case "toString"    => "missing-proof-block-client"
             case other         => throw new UnsupportedOperationException(s"Unexpected S3 client method: $other"),
       )
       .asInstanceOf[S3Client]

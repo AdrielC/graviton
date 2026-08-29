@@ -8,7 +8,7 @@ import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.types.FileSize
+import graviton.core.types.{BlobOffset, FileSize}
 import zio.*
 import zio.http.*
 import zio.blocks.mediatype.{MediaType as BlocksMediaType, MediaTypes as BlocksMediaTypes}
@@ -374,7 +374,15 @@ final case class HttpApi(
             Header.Custom("Content-Range", s"bytes ${range.start}-${range.endInclusive}/${stat.size.value}"),
             Header.Custom("Accept-Ranges", "bytes"),
           )
-          val stream  = checkedDownload(slice(blobStore.get(key), range.start, length))
+          // SAFETY: parseRange proves non-negative start, positive length, and
+          // containment within the refined persisted blob size.
+          val stream  = checkedDownload(
+            blobStore.getRange(
+              key,
+              BlobOffset.unsafe(range.start),
+              FileSize.unsafe(length),
+            )
+          )
           Response(
             status = Status.PartialContent,
             headers = headers,
@@ -394,21 +402,6 @@ final case class HttpApi(
 
   private def withoutHeader(headers: Headers, name: String): Headers =
     Headers.fromIterable(headers.filterNot(_.headerName.equalsIgnoreCase(name)))
-
-  private def slice(stream: zio.stream.ZStream[Any, Throwable, Byte], start: Long, length: Long): zio.stream.ZStream[Any, Throwable, Byte] =
-    val done = new java.util.concurrent.atomic.AtomicBoolean(false)
-    stream.chunks
-      .takeWhile(_ => !done.get())
-      .mapAccum((start, length)) { case ((toDrop, remaining), chunk) =>
-        val dropped   = math.min(toDrop, chunk.length.toLong).toInt
-        val available = chunk.length - dropped
-        val emitted   = math.min(remaining, available.toLong).toInt
-        val output    = chunk.drop(dropped).take(emitted)
-        val next      = (toDrop - dropped.toLong, remaining - emitted.toLong)
-        if next._2 <= 0L then done.set(true)
-        (next, output)
-      }
-      .flatMap(zio.stream.ZStream.fromChunk)
 
   private def parseRange(raw: String, size: Long): Either[String, ByteRange] =
     if !raw.startsWith("bytes=") || raw.contains(",") then Left("Only one bytes range is supported")
