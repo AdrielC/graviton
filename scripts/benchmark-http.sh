@@ -11,8 +11,25 @@ PAYLOAD="$2"
 [[ -f "${PAYLOAD}" ]] || { echo "payload not found: ${PAYLOAD}" >&2; exit 1; }
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 run_curl() {
+  local headers=()
   if [[ -n "${GRAVITON_BEARER_TOKEN:-}" ]]; then
-    command curl -H "Authorization: Bearer ${GRAVITON_BEARER_TOKEN}" "$@"
+    headers+=(-H "Authorization: Bearer ${GRAVITON_BEARER_TOKEN}")
+  fi
+  if [[ -n "${GRAVITON_BENCHMARK_TENANT_ID:-}" || -n "${GRAVITON_BENCHMARK_SESSION_ID:-}" ]]; then
+    if [[ -z "${GRAVITON_BENCHMARK_TENANT_ID:-}" || -z "${GRAVITON_BENCHMARK_SESSION_ID:-}" ]]; then
+      echo "GRAVITON_BENCHMARK_TENANT_ID and GRAVITON_BENCHMARK_SESSION_ID must be set together" >&2
+      return 2
+    fi
+    headers+=(
+      -H "X-Graviton-Tenant-Id: ${GRAVITON_BENCHMARK_TENANT_ID}"
+      -H "X-Graviton-Upload-Session-Id: ${GRAVITON_BENCHMARK_SESSION_ID}"
+    )
+  fi
+  if [[ -n "${GRAVITON_BENCHMARK_MEDIA_TYPE:-}" ]]; then
+    headers+=(-H "Content-Type: ${GRAVITON_BENCHMARK_MEDIA_TYPE}")
+  fi
+  if ((${#headers[@]} > 0)); then
+    command curl "${headers[@]}" "$@"
   else
     command curl "$@"
   fi

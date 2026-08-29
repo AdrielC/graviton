@@ -47,6 +47,34 @@ GRAVITON_DATABASE_URL=postgresql://.../graviton_restore ./scripts/migrate-postgr
 
 `scripts/backup.sh` does not copy an S3 bucket. Use provider-native versioning, replication, object lock, inventory, and recovery controls that fit the deployment. Coordinate the retained object version with the PostgreSQL manifest backup. Test restoring into a new bucket and database rather than overwriting the active deployment.
 
+### Compose snapshot and isolated restore
+
+The production Compose operator can establish a consistent maintenance window
+for the topology it owns:
+
+```bash
+./deploy/production/operator.sh backup
+```
+
+It stops both public nodes and the Shardcake manager, dumps PostgreSQL in custom
+format, mirrors the block bucket, writes per-file SHA-256 checksums, and restarts
+the topology even if the backup fails. This is a coordinated snapshot only when
+that Compose project is the sole writer to its manifest database and bucket.
+
+Restore never overwrites the active project. It verifies every backup checksum,
+rejects a target whose volumes already exist, and creates a separate Compose
+project on alternate loopback ports:
+
+```bash
+./deploy/production/operator.sh restore \
+  ./deploy/production/backups/20260829T020000Z \
+  graviton-restore-20260829
+```
+
+After readiness, use an operator token to enumerate and verify every restored
+blob before promotion. Remove the isolated project and volumes only after the
+acceptance record has been retained.
+
 ## Filesystem garbage collection
 
 Logical deletion removes a manifest and leaves shared blocks in place. The filesystem CLI uses a two-pass mark, minimum object age, and reversible quarantine. Each run streams manifest summaries and block inventory once into an exact temporary-disk join. The second mark streams manifests again and checks only the candidate spool before moving a block. Heap use is bounded by the configured digest partition, not by blob or block count.

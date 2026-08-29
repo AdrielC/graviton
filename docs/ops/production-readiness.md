@@ -1,6 +1,6 @@
 # Production Readiness
 
-Graviton 0.5 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL path is integration-tested and suitable for environment qualification. It is not a universal high-availability claim.
+Graviton 0.6 is a production candidate for controlled embedded and single-node filesystem use. Its shared S3 plus PostgreSQL and two-node Shardcake path is integration-tested, fault-drilled locally, and packaged for target-environment qualification. It is not a universal high-availability claim.
 
 ## Support matrix
 
@@ -83,8 +83,8 @@ Treat these as operational signals, not a capacity guarantee. Alerts and service
 
 ## Release integrity
 
-A `v*` tag validates the build, runs the packaged smoke, proves external consumption, creates checksums and an SPDX SBOM, attests the JAR and container, pushes a multi-architecture GHCR image, publishes signed Maven Central modules, and creates a GitHub release. Missing or invalid Sonatype and PGP credentials fail the release instead of silently omitting publication.
+A `v*` tag validates the build, runs the packaged smoke, proves external consumption, creates checksums and SPDX SBOMs for the JAR and image, attests the JAR and container, signs the immutable multi-architecture GHCR digest with GitHub OIDC through Sigstore, publishes signed Maven Central modules, and creates a GitHub release. Missing or invalid Sonatype and PGP credentials fail the release instead of silently omitting publication.
 
 ## Remaining product work
 
-The main product gaps are resumable HTTP uploads, automatic replica scheduling, coordinated backup snapshots, long-duration fault injection, and a qualified multi-process upgrade story. RocksDB is deliberately scoped as a durable key-value module rather than advertised as a blob backend. These boundaries are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.
+The main product gaps are resumable HTTP uploads, automatic replica scheduling, long-duration power-loss injection, retained target-environment benchmark envelopes, and a qualified multi-process upgrade story. RocksDB is deliberately scoped as a durable key-value module rather than advertised as a blob backend. These boundaries are tracked in the root `ROADMAP.md` without downgrading the functionality that already works.
