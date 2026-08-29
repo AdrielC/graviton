@@ -82,8 +82,8 @@ trap 'cleanup; remove_work_dir' EXIT INT TERM
 payload="$work_dir/payload.bin"
 download="$work_dir/download.bin"
 interrupted="$work_dir/interrupted.bin"
-dd if=/dev/urandom of="$payload" bs=1m count=8 2>/dev/null
-dd if=/dev/urandom of="$interrupted" bs=1m count=64 2>/dev/null
+dd if=/dev/urandom of="$payload" bs=1048576 count=8 2>/dev/null
+dd if=/dev/urandom of="$interrupted" bs=1048576 count=64 2>/dev/null
 
 headers=(
   -H "X-Graviton-Tenant-Id: $tenant_id"
