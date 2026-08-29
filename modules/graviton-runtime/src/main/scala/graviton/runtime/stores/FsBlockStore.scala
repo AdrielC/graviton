@@ -8,6 +8,7 @@ import graviton.runtime.model.*
 import zio.*
 import zio.stream.*
 
+import java.nio.ByteBuffer
 import java.nio.channels.{Channels, FileChannel}
 import java.nio.file.{Files, LinkOption, Path, StandardCopyOption, StandardOpenOption}
 import java.util.UUID
@@ -127,32 +128,53 @@ final class FsBlockStore(
     val dest = pathFor(block.key)
     ZIO.attemptBlocking {
       Files.createDirectories(dest.getParent)
-      val tmp = Files.createTempFile(dest.getParent, "blk-", ".tmp")
-      try
-        val channel = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+      if Files.exists(dest, LinkOption.NOFOLLOW_LINKS) then verifyExisting(dest, block)
+      else
+        val tmp = Files.createTempFile(dest.getParent, "blk-", ".tmp")
         try
-          channel.write(java.nio.ByteBuffer.wrap(block.bytes.toArray))
-          channel.force(true)
-        finally channel.close()
+          val channel = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+          try
+            val bytes = ByteBuffer.wrap(block.bytes.toArray)
+            while bytes.hasRemaining do
+              val _ = channel.write(bytes)
+            channel.force(true)
+          finally channel.close()
 
-        def duplicateOrFail(): BlockStoredStatus =
-          if !Files.isRegularFile(dest, LinkOption.NOFOLLOW_LINKS) then
-            throw new IllegalStateException(s"Existing block path is not a regular file: $dest")
-          else if Files.mismatch(tmp, dest) != -1L then
-            throw new IllegalStateException(s"Existing block does not match its content key: $dest")
-          else BlockStoredStatus.Duplicate
-
-        if Files.exists(dest, LinkOption.NOFOLLOW_LINKS) then duplicateOrFail()
-        else
           try
             Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE)
             fsyncDirectory(dest.getParent)
             BlockStoredStatus.Fresh
-          catch case _: java.nio.file.FileAlreadyExistsException => duplicateOrFail()
-      finally
-        try { val _ = Files.deleteIfExists(tmp); () }
-        catch case _: java.io.IOException => ()
+          catch case _: java.nio.file.FileAlreadyExistsException => verifyExisting(dest, block)
+        finally
+          try { val _ = Files.deleteIfExists(tmp); () }
+          catch case _: java.io.IOException => ()
     }
+
+  /** Compare a bounded in-memory block with an existing file without rewriting it. */
+  private def verifyExisting(dest: Path, block: CanonicalBlock): BlockStoredStatus =
+    if !Files.isRegularFile(dest, LinkOption.NOFOLLOW_LINKS) then
+      throw new IllegalStateException(s"Existing block path is not a regular file: $dest")
+    else if Files.size(dest) != block.size.value.toLong then
+      throw new IllegalStateException(s"Existing block does not match its content key: $dest")
+    else
+      val channel = FileChannel.open(dest, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
+      try
+        val buffer = ByteBuffer.allocate(math.min(64 * 1024, block.size.value))
+        var offset = 0
+        var done   = false
+        while !done do
+          buffer.clear()
+          val read = channel.read(buffer)
+          if read < 0 then done = true
+          else
+            buffer.flip()
+            while buffer.hasRemaining do
+              if buffer.get() != block.bytes(offset) then
+                throw new IllegalStateException(s"Existing block does not match its content key: $dest")
+              offset += 1
+        if offset != block.size.value then throw new IllegalStateException(s"Existing block does not match its content key: $dest")
+        BlockStoredStatus.Duplicate
+      finally channel.close()
 
   private[stores] def pathFor(key: BinaryKey.Block): Path =
     val algo = algoPathSegment(key.bits.algo)

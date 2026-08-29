@@ -59,6 +59,7 @@ The `/api/blobs` aliases remain available with `Deprecation: true` and a success
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
 | `GRAVITON_GRPC_PORT` | `9090` | no | Port for the gRPC server. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
+| `GRAVITON_BLOCK_WRITE_PARALLELISM` | `4` | no | Concurrent bounded block writes per ingest. Must be between `1` and `64`. |
 
 ### Local DataStar console
 
