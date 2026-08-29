@@ -10,10 +10,13 @@ BASE_URL="${1%/}"
 PAYLOAD="$2"
 [[ -f "${PAYLOAD}" ]] || { echo "payload not found: ${PAYLOAD}" >&2; exit 1; }
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
-AUTH_ARGS=()
-if [[ -n "${GRAVITON_BEARER_TOKEN:-}" ]]; then
-  AUTH_ARGS=(-H "Authorization: Bearer ${GRAVITON_BEARER_TOKEN}")
-fi
+run_curl() {
+  if [[ -n "${GRAVITON_BEARER_TOKEN:-}" ]]; then
+    command curl -H "Authorization: Bearer ${GRAVITON_BEARER_TOKEN}" "$@"
+  else
+    command curl "$@"
+  fi
+}
 
 BYTES="$(wc -c < "${PAYLOAD}" | tr -d ' ')"
 if command -v sha256sum >/dev/null; then
@@ -22,18 +25,21 @@ else
   PAYLOAD_SHA256="$(shasum -a 256 "${PAYLOAD}" | awk '{print $1}')"
 fi
 START_NS="$(python3 -c 'import time; print(time.time_ns())')"
-UPLOAD="$(curl --fail --silent --show-error "${AUTH_ARGS[@]}" -X POST --data-binary "@${PAYLOAD}" "${BASE_URL}/api/v1/blobs")"
+UPLOAD="$(run_curl --fail --silent --show-error -X POST --data-binary "@${PAYLOAD}" "${BASE_URL}/api/v1/blobs")"
 END_NS="$(python3 -c 'import time; print(time.time_ns())')"
 BLOB_ID="$(jq -r '.blob.id' <<<"${UPLOAD}")"
+FRESH_BLOCKS="$(jq -r '.freshBlocks' <<<"${UPLOAD}")"
+DUPLICATE_BLOCKS="$(jq -r '.duplicateBlocks' <<<"${UPLOAD}")"
+SERVER_INGEST_SECONDS="$(jq -r '.durationSeconds' <<<"${UPLOAD}")"
 DOWNLOAD_START_NS="$(python3 -c 'import time; print(time.time_ns())')"
-curl --fail --silent --show-error "${AUTH_ARGS[@]}" "${BASE_URL}/api/v1/blobs/${BLOB_ID}" | cmp --silent - "${PAYLOAD}"
+run_curl --fail --silent --show-error "${BASE_URL}/api/v1/blobs/${BLOB_ID}" | cmp --silent - "${PAYLOAD}"
 DOWNLOAD_END_NS="$(python3 -c 'import time; print(time.time_ns())')"
 VERIFY_START_NS="$(python3 -c 'import time; print(time.time_ns())')"
-VERIFY="$(curl --fail --silent --show-error "${AUTH_ARGS[@]}" -X POST "${BASE_URL}/api/v1/blobs/${BLOB_ID}/verify")"
+VERIFY="$(run_curl --fail --silent --show-error -X POST "${BASE_URL}/api/v1/blobs/${BLOB_ID}/verify")"
 VERIFY_END_NS="$(python3 -c 'import time; print(time.time_ns())')"
 jq -e '.verified == true' <<<"${VERIFY}" >/dev/null
 
-python3 - "${BYTES}" "${START_NS}" "${END_NS}" "${DOWNLOAD_START_NS}" "${DOWNLOAD_END_NS}" "${VERIFY_START_NS}" "${VERIFY_END_NS}" "${BLOB_ID}" "${PAYLOAD_SHA256}" <<'PY'
+python3 - "${BYTES}" "${START_NS}" "${END_NS}" "${DOWNLOAD_START_NS}" "${DOWNLOAD_END_NS}" "${VERIFY_START_NS}" "${VERIFY_END_NS}" "${BLOB_ID}" "${PAYLOAD_SHA256}" "${FRESH_BLOCKS}" "${DUPLICATE_BLOCKS}" "${SERVER_INGEST_SECONDS}" <<'PY'
 import json, os, platform, subprocess, sys, time
 size, upload_start, upload_end, download_start, download_end, verify_start, verify_end = map(int, sys.argv[1:8])
 upload_seconds = (upload_end - upload_start) / 1_000_000_000
@@ -66,6 +72,9 @@ print(json.dumps({
     "downloadMiBPerSecond": (size / 1048576) / download_seconds if download_seconds else None,
     "verifySeconds": verify_seconds,
     "blobId": sys.argv[8],
+    "freshBlocks": int(sys.argv[10]),
+    "duplicateBlocks": int(sys.argv[11]),
+    "serverIngestSeconds": float(sys.argv[12]),
     "verified": True,
 }, sort_keys=True))
 PY

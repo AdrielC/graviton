@@ -114,7 +114,7 @@ final class HttpSecurityPolicy(
           .addHeader(
             Header.Custom(
               "Access-Control-Expose-Headers",
-              "Accept-Ranges, Content-Length, Content-Range, Deprecation, ETag, Last-Modified, Link, Location",
+              "Accept-Ranges, Content-Length, Content-Range, ETag, Last-Modified, Location",
             )
           )
           .addHeader(Header.Custom("Vary", "Origin"))

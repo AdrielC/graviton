@@ -6,16 +6,15 @@ import java.security.MessageDigest
 import java.util.UUID
 
 /**
- * Typed resource reference mirroring the `quasar.resource_kind` enum. Passed
+ * Typed resource reference mirroring the `graviton.resource_kind` enum. Passed
  * to [[CapabilityCheck]] so both the JWT scope and ACL table agree on what
  * is being protected.
  */
 enum ResourceKind(val dbValue: String):
-  case Blob      extends ResourceKind("blob")
-  case Document  extends ResourceKind("document")
-  case Folder    extends ResourceKind("folder")
-  case Namespace extends ResourceKind("namespace")
-  case Schema    extends ResourceKind("schema")
+  case Blob          extends ResourceKind("blob")
+  case Catalog       extends ResourceKind("catalog")
+  case Observability extends ResourceKind("observability")
+  case Audit         extends ResourceKind("audit")
 
 object ResourceKind:
   def fromString(raw: String): Option[ResourceKind] =

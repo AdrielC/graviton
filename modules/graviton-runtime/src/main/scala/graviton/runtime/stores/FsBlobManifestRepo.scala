@@ -2,11 +2,9 @@ package graviton.runtime.stores
 
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.manifest.{FramedManifest, Manifest, ManifestEntry}
+import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.types.FileSize
 import graviton.runtime.streaming.BlobStreamer
-import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.collection.MaxLength
 import zio.*
 import zio.stream.ZStream
 
@@ -20,10 +18,9 @@ import scala.jdk.CollectionConverters.*
 /**
  * Durable, filesystem-backed manifest repository.
  *
- * New manifests use the incremental `GVM2` format and are written via a
- * temporary file plus atomic rename. Legacy `FramedManifest` version 1 files
- * remain readable. The file's modification time records the ingestion timestamp
- * returned by [[BlobStore.stat]].
+ * Manifests use the incremental `GVM2` format and are written via a temporary
+ * file plus atomic rename. The file's modification time records the ingestion
+ * timestamp returned by [[BlobStore.stat]].
  *
  * Layout:
  *   `<root>/<prefix>/<algo>/<digest>-<size>.manifest`
@@ -39,10 +36,10 @@ final class FsBlobManifestRepo(
     ingestedAt: Instant,
   ): ZIO[Any, Throwable, Unit] =
     for
-      frame <- ZIO
-                 .fromEither(FramedManifest.encode(manifest))
-                 .mapError(message => new IllegalArgumentException(s"Cannot encode manifest: $message"))
-      _     <- writeAtomically(pathFor(blob), frame.bytes, ingestedAt)
+      size <- ZIO
+                .fromEither(FileSize.either(manifest.size))
+                .mapError(message => new IllegalArgumentException(message))
+      _    <- putStream(blob, size, manifest.entries.length, ZStream.fromIterable(manifest.entries), ingestedAt)
     yield ()
 
   override def putStream(
@@ -85,11 +82,7 @@ final class FsBlobManifestRepo(
     val path = pathFor(blob)
     ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
       case false => ZIO.none
-      case true  =>
-        StreamingManifestFile.isStreaming(path).flatMap {
-          case true  => readStreamingManifest(path).map(Some(_))
-          case false => ZIO.attemptBlocking(Some(readLegacyManifest(path)))
-        }
+      case true  => readStreamingManifest(path).map(Some(_))
     }
 
   override def getSummary(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifestSummary]] =
@@ -141,26 +134,15 @@ final class FsBlobManifestRepo(
       ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
         case false => ZIO.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.render}"))
         case true  =>
-          StreamingManifestFile.isStreaming(path).map {
-            case true  =>
-              StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
-                entry.key match
-                  case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
-                  case other                  =>
-                    throw new IllegalArgumentException(
-                      s"CAS manifest entry $index must reference a block key, got $other"
-                    )
-              }
-            case false =>
-              ZStream.fromZIO(get(blob)).flatMap {
-                case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.render}"))
-                case Some(stored) =>
-                  ZStream.fromIterable(
-                    stored.manifest.entries.zipWithIndex.collect { case (ManifestEntry(block: BinaryKey.Block, _, _), index) =>
-                      BlobStreamer.BlockRef(index.toLong, block)
-                    }
+          ZIO.succeed {
+            StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
+              entry.key match
+                case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
+                case other                  =>
+                  throw new IllegalArgumentException(
+                    s"CAS manifest entry $index must reference a block key, got $other"
                   )
-              }
+            }
           }
       }
     }
@@ -187,23 +169,6 @@ final class FsBlobManifestRepo(
     val name = s"${blob.bits.digest.hex.value}-${blob.bits.size}.manifest"
     root.resolve(prefix).resolve(algo).resolve(name)
 
-  private def readLegacyManifest(path: Path): StoredManifest =
-    if !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then
-      throw new IllegalStateException(s"Manifest path is not a regular file: $path")
-
-    val size = Files.size(path)
-    if size > FsBlobManifestRepo.MaxManifestBytes then
-      throw new IllegalArgumentException(
-        s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
-      )
-
-    val frame      = FramedManifest.Frame(readBoundedManifest(path))
-    val manifest   = FramedManifest
-      .decode(frame)
-      .fold(message => throw new IllegalArgumentException(s"Invalid manifest at $path: $message"), identity)
-    val ingestedAt = Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant
-    StoredManifest(manifest, ingestedAt)
-
   private def readStreamingManifest(path: Path): Task[StoredManifest] =
     for
       header     <- StreamingManifestFile.readHeader(path)
@@ -223,18 +188,10 @@ final class FsBlobManifestRepo(
     yield StoredManifest(manifest, ingestedAt)
 
   private def readSummary(path: Path): Task[StoredManifestSummary] =
-    StreamingManifestFile.isStreaming(path).flatMap {
-      case true  =>
-        for
-          header     <- StreamingManifestFile.readHeader(path)
-          ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
-        yield StoredManifestSummary(header.totalSize, header.blockCount, ingestedAt)
-      case false =>
-        ZIO.attemptBlocking {
-          val stored = readLegacyManifest(path)
-          StoredManifestSummary(FileSize.unsafe(stored.manifest.size), stored.manifest.entries.length, stored.ingestedAt)
-        }
-    }
+    for
+      header     <- StreamingManifestFile.readHeader(path)
+      ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
+    yield StoredManifestSummary(header.totalSize, header.blockCount, ingestedAt)
 
   private def manifestPaths: ZStream[Any, Throwable, Path] =
     FsBlobManifestRepo.walkFiles(root.resolve(prefix)) { path =>
@@ -262,19 +219,6 @@ final class FsBlobManifestRepo(
         finally paths.close()
     }
 
-  private def readBoundedManifest(path: Path): FsBlobManifestRepo.ManifestBytes =
-    val input = Files.newInputStream(path, StandardOpenOption.READ)
-    try
-      val bytes = input.readNBytes(FsBlobManifestRepo.MaxManifestBytes + 1)
-      if bytes.length > FsBlobManifestRepo.MaxManifestBytes then
-        throw new IllegalArgumentException(
-          s"Manifest exceeds ${FsBlobManifestRepo.MaxManifestBytes} byte safety limit: $path"
-        )
-      bytes
-        .refineEither[MaxLength[67108864]]
-        .fold(message => throw new IllegalArgumentException(message), identity)
-    finally input.close()
-
   private def keyFromPath(path: Path): Either[String, BinaryKey.Blob] =
     val algorithmDirectory = Option(path.getParent).flatMap(parent => Option(parent.getFileName)).map(_.toString).getOrElse("")
     val fileName           = path.getFileName.toString.stripSuffix(".manifest")
@@ -291,32 +235,6 @@ final class FsBlobManifestRepo(
       blob   <- BinaryKey.blob(bits)
     yield blob
 
-  private def writeAtomically(path: Path, bytes: Array[Byte], ingestedAt: Instant): Task[Unit] =
-    ZIO.attemptBlocking {
-      Files.createDirectories(path.getParent)
-      val tmp = Files.createTempFile(path.getParent, ".manifest-", ".tmp")
-      try
-        val tmpChannel       = FileChannel.open(tmp, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
-        try
-          tmpChannel.write(java.nio.ByteBuffer.wrap(bytes))
-          tmpChannel.force(true)
-        finally tmpChannel.close()
-        Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        Files.setLastModifiedTime(path, FileTime.from(ingestedAt))
-        val fileChannel      = FileChannel.open(path, StandardOpenOption.READ)
-        try fileChannel.force(true)
-        finally fileChannel.close()
-        val directoryChannel = FileChannel.open(path.getParent, StandardOpenOption.READ)
-        try directoryChannel.force(true)
-        finally directoryChannel.close()
-        ()
-      finally
-        try
-          val _ = Files.deleteIfExists(tmp)
-          ()
-        catch case _: java.io.IOException => ()
-    }
-
   private def commitStreamingManifest(tmp: Path, path: Path, ingestedAt: Instant): Task[Unit] =
     ZIO.attemptBlocking {
       val fileChannel      = FileChannel.open(tmp, StandardOpenOption.WRITE)
@@ -330,8 +248,7 @@ final class FsBlobManifestRepo(
     }
 
 object FsBlobManifestRepo:
-  type ManifestBytes = Array[Byte] :| MaxLength[67108864]
-
+  /** Historical public safety bound; the active GVM2 reader is streaming. */
   val MaxManifestBytes: Int       = 64 * 1024 * 1024
   val MaxMaterializedEntries: Int = BlobManifestRepo.MaxMaterializedEntries
   private val WriteBatchEntries   = 512

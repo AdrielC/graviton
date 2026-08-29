@@ -65,19 +65,20 @@ object HttpApiSpec extends ZIOSpecDefault:
         val text = "http round trip"
         for
           api          <- makeApi
-          upload       <- call(api, Method.POST, "/api/blobs", Body.fromString(text))
+          upload       <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(text))
           uploadBody   <- upload.body.asString
           uploadResult <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
           blobId        = uploadResult.blob.id
-          downloaded   <- call(api, Method.GET, s"/api/blobs/${blobId.value}")
+          downloaded   <- call(api, Method.GET, s"/api/v1/blobs/${blobId.value}")
           downloadBody <- downloaded.body.asString
-          head         <- call(api, Method.HEAD, s"/api/blobs/${blobId.value}")
+          head         <- call(api, Method.HEAD, s"/api/v1/blobs/${blobId.value}")
           headBody     <- head.body.asString
         yield assertTrue(
           upload.status == Status.Created,
-          upload.headers.get("Location").contains(s"/api/blobs/${blobId.value}"),
+          upload.headers.get("Location").contains(s"/api/v1/blobs/${blobId.value}"),
           downloaded.status == Status.Ok,
           downloaded.headers.get("Content-Length").contains(text.getBytes(StandardCharsets.UTF_8).length.toString),
+          downloaded.body.knownContentLength.contains(text.getBytes(StandardCharsets.UTF_8).length.toLong),
           downloaded.headers.get("ETag").exists(_.nonEmpty),
           downloadBody == text,
           head.status == Status.Ok,
@@ -88,18 +89,18 @@ object HttpApiSpec extends ZIOSpecDefault:
         val text = "inspect and verify over http"
         for
           api              <- makeApi
-          upload           <- call(api, Method.POST, "/api/blobs", Body.fromString(text))
+          upload           <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(text))
           uploadBody       <- upload.body.asString
           uploadResult     <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
           blobId            = uploadResult.blob.id
           encodedId         = blobId.value.replace(":", "%3A")
-          inventory        <- call(api, Method.GET, "/api/blobs")
+          inventory        <- call(api, Method.GET, "/api/v1/blobs")
           inventoryBody    <- inventory.body.asString
           inventoryResult  <- ZIO.fromEither(inventoryBody.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
-          metadata         <- call(api, Method.GET, s"/api/blobs/$encodedId/metadata")
+          metadata         <- call(api, Method.GET, s"/api/v1/blobs/$encodedId/metadata")
           metadataBody     <- metadata.body.asString
           details          <- ZIO.fromEither(metadataBody.fromJson[BlobDetails]).mapError(new IllegalArgumentException(_))
-          verification     <- call(api, Method.POST, s"/api/blobs/$encodedId/verify")
+          verification     <- call(api, Method.POST, s"/api/v1/blobs/$encodedId/verify")
           verificationBody <- verification.body.asString
           verified         <- ZIO
                                 .fromEither(verificationBody.fromJson[BlobVerificationResult])
@@ -119,7 +120,7 @@ object HttpApiSpec extends ZIOSpecDefault:
       test("invalid IDs return a structured 400 response") {
         for
           api      <- makeApi
-          response <- call(api, Method.GET, "/api/blobs/not-a-content-key")
+          response <- call(api, Method.GET, "/api/v1/blobs/not-a-content-key")
           body     <- response.body.asString
         yield assertTrue(
           response.status == Status.BadRequest,
@@ -131,7 +132,7 @@ object HttpApiSpec extends ZIOSpecDefault:
         val missing = s"sha-256:${"a" * 64}:12"
         for
           api      <- makeApi
-          response <- call(api, Method.GET, s"/api/blobs/$missing")
+          response <- call(api, Method.GET, s"/api/v1/blobs/$missing")
           body     <- response.body.asString
         yield assertTrue(
           response.status == Status.NotFound,
@@ -141,12 +142,12 @@ object HttpApiSpec extends ZIOSpecDefault:
       test("DELETE removes a manifest and subsequent GET returns 404") {
         for
           api        <- makeApi
-          upload     <- call(api, Method.POST, "/api/blobs", Body.fromString("delete over http"))
+          upload     <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("delete over http"))
           uploadBody <- upload.body.asString
           result     <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
           blobId      = result.blob.id
-          deleted    <- call(api, Method.DELETE, s"/api/blobs/${blobId.value}")
-          missing    <- call(api, Method.GET, s"/api/blobs/${blobId.value}")
+          deleted    <- call(api, Method.DELETE, s"/api/v1/blobs/${blobId.value}")
+          missing    <- call(api, Method.GET, s"/api/v1/blobs/${blobId.value}")
         yield assertTrue(
           deleted.status == Status.NoContent,
           missing.status == Status.NotFound,
@@ -155,7 +156,7 @@ object HttpApiSpec extends ZIOSpecDefault:
       test("empty uploads are rejected as bad requests") {
         for
           api      <- makeApi
-          response <- call(api, Method.POST, "/api/blobs")
+          response <- call(api, Method.POST, "/api/v1/blobs")
           body     <- response.body.asString
         yield assertTrue(
           response.status == Status.BadRequest,
@@ -254,6 +255,34 @@ object HttpApiSpec extends ZIOSpecDefault:
           uploadResult.blob.size.value == pdf.getBytes(StandardCharsets.UTF_8).length.toLong,
         )
       },
+      test("byte sniffing selects PDF ingest when Content-Type is omitted") {
+        val pdf =
+          "%PDF-1.7\n" +
+            "1 0 obj\n<</Type /Catalog>>\nendobj\n" +
+            "trailer\n<</Root 1 0 R>>\nstartxref\n0\n%%EOF\n"
+
+        for
+          api          <- makeApi
+          upload       <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(pdf))
+          uploadBody   <- upload.body.asString
+          uploadResult <- ZIO.fromEither(uploadBody.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
+          downloaded   <- call(api, Method.GET, s"/api/v1/blobs/${uploadResult.blob.id.value}")
+          restored     <- downloaded.body.asString
+        yield assertTrue(upload.status == Status.Created, restored == pdf)
+      },
+      test("byte sniffing rejects a concrete MIME claim that disagrees with a PDF") {
+        val pdf         = "%PDF-1.7\n1 0 obj\n<</Type /Catalog>>\nendobj\n%%EOF\n"
+        val contentType = Headers(Header.Custom("Content-Type", "text/plain"))
+
+        for
+          api      <- makeApi
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString(pdf), contentType)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.BadRequest,
+          body.contains("advertised text/plain does not match detected application/pdf"),
+        )
+      },
       test("application/pdf rejects a mismatched byte signature") {
         val contentType = Headers(Header.Custom("Content-Type", "application/pdf"))
 
@@ -301,11 +330,12 @@ object HttpApiSpec extends ZIOSpecDefault:
         yield assertTrue(
           upload.status == Status.Created,
           upload.headers.get("Location").contains(path),
-          upload.headers.get("Deprecation").isEmpty,
           ranged.status == Status.PartialContent,
           ranged.headers.get("Content-Range").contains(s"bytes 3-7/${text.length}"),
+          ranged.body.knownContentLength.contains(5L),
           rangeBody == "34567",
           suffix.status == Status.PartialContent,
+          suffix.body.knownContentLength.contains(4L),
           suffixBody == "ghij",
           cached.status == Status.NotModified,
           cached.headers.get("Content-Length").isEmpty,
@@ -315,7 +345,7 @@ object HttpApiSpec extends ZIOSpecDefault:
           rejected.headers.get("Content-Range").contains(s"bytes */${text.length}"),
         )
       },
-      test("cursor pagination is stable and legacy routes advertise their successor") {
+      test("cursor pagination is stable and rejects invalid requests") {
         for
           api        <- makeApi
           _          <-
@@ -327,7 +357,6 @@ object HttpApiSpec extends ZIOSpecDefault:
           second     <- call(api, Method.GET, s"/api/v1/blobs?limit=1&cursor=$cursor")
           secondBody <- second.body.asString
           secondPage <- ZIO.fromEither(secondBody.fromJson[BlobListResponse]).mapError(new IllegalArgumentException(_))
-          legacy     <- call(api, Method.GET, "/api/blobs?limit=1")
           invalid    <- call(api, Method.GET, "/api/v1/blobs?limit=0")
           badCursor  <- call(api, Method.GET, "/api/v1/blobs?cursor=missing")
         yield assertTrue(
@@ -336,8 +365,6 @@ object HttpApiSpec extends ZIOSpecDefault:
           second.status == Status.Ok,
           secondPage.blobs.size == 1,
           secondPage.blobs.head.id != firstPage.blobs.head.id,
-          legacy.headers.get("Deprecation").contains("true"),
-          legacy.headers.get("Link").exists(_.contains("/api/v1/blobs")),
           invalid.status == Status.BadRequest,
           badCursor.status == Status.BadRequest,
         )

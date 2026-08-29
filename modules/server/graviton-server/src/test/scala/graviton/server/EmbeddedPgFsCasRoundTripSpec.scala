@@ -87,6 +87,38 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
         },
+        test("late ranges select only intersecting Postgres manifest rows") {
+          val data   = Chunk.fromArray(Array.tabulate(4096)(index => (index % 251).toByte))
+          val start  = 3L * 1024L + 100L
+          val length = 32L
+
+          for
+            store   <- ZIO.service[BlobStore]
+            written <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                         ZStream.fromChunk(data).run(store.put())
+                       }
+            ds      <- ZIO.service[javax.sql.DataSource]
+            repo     = new PgBlobManifestRepo(ds)
+            refs    <- repo
+                         .streamBlockRefsRange(
+                           written.key,
+                           BlobOffset.unsafe(start),
+                           FileSize.unsafe(length),
+                         )
+                         .runCollect
+            bytes   <- store
+                         .getRange(
+                           written.key,
+                           BlobOffset.unsafe(start),
+                           FileSize.unsafe(length),
+                         )
+                         .runCollect
+          yield assertTrue(
+            refs.length == 1,
+            refs.head.offset.value == 3L * 1024L,
+            bytes == data.slice(start.toInt, (start + length).toInt),
+          )
+        },
         test("stat returns real ingestion timestamp and correct size") {
           val data    = Chunk.fromArray(("stat-test-" * 500).getBytes(StandardCharsets.UTF_8))
           val chunker = Chunker.fixed(UploadChunkSize(1024))
@@ -369,7 +401,6 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
 
           for
             ds    <- ZIO.service[javax.sql.DataSource]
-            _     <- ZIO.attemptBlocking(seedAuditOrg(ds, orgId))
             audit <- ZIO.service[AuditSink].provide(ZLayer.succeed(ds), AuditSink.jdbc)
             _     <- CallerContext.scopedWith(caller) {
                        ZIO.foreachParDiscard(1 to 20) { index =>
@@ -426,32 +457,11 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       finally s.close()
     }
 
-  private def seedAuditOrg(dataSource: javax.sql.DataSource, orgId: UUID): Unit =
-    val tenantId   = UUID.fromString("00000000-0000-0000-0000-000000000100")
-    val connection = dataSource.getConnection
-    try
-      val tenant = connection.prepareStatement(
-        "INSERT INTO quasar.tenant(tenant_id, name) VALUES (?, 'embedded-audit') ON CONFLICT (tenant_id) DO NOTHING"
-      )
-      try
-        tenant.setObject(1, tenantId)
-        val _ = tenant.executeUpdate()
-      finally tenant.close()
-      val org    = connection.prepareStatement(
-        "INSERT INTO quasar.org(org_id, tenant_id, name) VALUES (?, ?, 'embedded-audit') ON CONFLICT (org_id) DO NOTHING"
-      )
-      try
-        org.setObject(1, orgId)
-        org.setObject(2, tenantId)
-        val _ = org.executeUpdate()
-      finally org.close()
-    finally connection.close()
-
   private def readAuditChain(dataSource: javax.sql.DataSource, orgId: UUID): Vector[(Long, Array[Byte], Array[Byte])] =
     val connection = dataSource.getConnection
     try
       val statement = connection.prepareStatement(
-        "SELECT seq, prev_hash, row_hash FROM quasar.audit_log WHERE org_id = ? ORDER BY seq"
+        "SELECT seq, prev_hash, row_hash FROM graviton.audit_log WHERE org_id = ? ORDER BY seq"
       )
       try
         statement.setObject(1, orgId)

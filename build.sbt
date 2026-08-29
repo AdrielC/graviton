@@ -117,9 +117,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// Keep MiMa active for every module. The v0.5 migration declares and narrowly
-// filters only core's cold-TASTy hierarchy repair below.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
+// The 0.6 line is an intentional pre-1.0 product boundary: unpublished
+// document-layer and compatibility APIs are removed instead of carried
+// indefinitely. Return to BinaryCompatible after the v0.6.0 tag.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -354,9 +355,6 @@ lazy val root = (project in file(".")).aggregate(
   runtime,
   pdf,
   cli,
-  quasarCore,
-  quasarHttp,
-  quasarLegacy,
   proto,
   grpc,
   http,
@@ -369,7 +367,6 @@ lazy val root = (project in file(".")).aggregate(
   sharedProtocol.jvm,
   sharedProtocol.js,
   frontend,
-  quasarFrontend,
   docs,
 ).settings(
   baseSettings,
@@ -741,46 +738,6 @@ lazy val server = (project in file("modules/server/graviton-server"))
     ),
   )
 
-lazy val quasarCore = (project in file("modules/quasar-core"))
-  .dependsOn(core)
-  .settings(
-    baseSettings,
-    name := "quasar-core",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-json" % V.zioJson,
-      "dev.zio" %% "zio-test"          % V.zio % Test,
-      "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
-      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
-    ),
-  )
-
-lazy val quasarHttp = (project in file("modules/quasar-http"))
-  .dependsOn(quasarCore, quasarLegacy)
-  .settings(
-    baseSettings,
-    name := "quasar-http",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "dev.zio" %% "zio-http" % V.zioHttp,
-      "org.postgresql" % "postgresql" % V.pg,
-    ),
-  )
-
-lazy val quasarLegacy = (project in file("modules/quasar-legacy"))
-  .dependsOn(quasarCore, runtime, http)
-  .settings(
-    baseSettings,
-    name := "quasar-legacy",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "dev.zio" %% "zio" % V.zio,
-      "org.postgresql" % "postgresql" % V.pg,
-    ),
-  )
-
 // Shared protocol models for JVM and JS
 lazy val sharedProtocol = crossProject(JVMPlatform, JSPlatform)
   .crossType(CrossType.Full)
@@ -826,7 +783,6 @@ lazy val frontend = (project in file("modules/frontend"))
       "org.scala-js"    %%% "scalajs-dom"  % V.scalajsDom
     )
   )
-
 // Browser-only streamed CAS comparison. It is kept out of graviton-shared so
 // the published protocol artifact does not inherit a documentation UI runtime.
 lazy val contentLab = (project in file("modules/frontend/graviton-content-lab"))
@@ -869,27 +825,5 @@ lazy val pdfContentLab = (project in file("modules/frontend/graviton-pdf-lab"))
       "org.scala-js"         %%% "scalajs-dom" % V.scalajsDom,
       "dev.zio"              %%% "zio-test"     % V.zio % Test,
       "dev.zio"              %%% "zio-test-sbt" % V.zio % Test,
-    ),
-  )
-
-// Quasar frontend module with Scala.js + Laminar
-lazy val quasarFrontend = (project in file("modules/quasar-frontend"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    baseSettings,
-    name := "quasar-frontend",
-    publish / skip := true,
-    Test / fork := false, // Scala.js tests cannot be forked
-    scalaJSUseMainModuleInitializer := true,
-    scalaJSLinkerConfig ~= {
-      _.withModuleKind(ModuleKind.ESModule)
-        .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("quasar.frontend")))
-    },
-    libraryDependencies ++= Seq(
-      "dev.zio"      %%% "zio"         % V.zio,
-      "dev.zio"      %%% "zio-json"    % V.zioJson,
-      "com.raquo"    %%% "laminar"     % V.laminar,
-      "com.raquo"    %%% "waypoint"    % V.waypoint,
-      "org.scala-js" %%% "scalajs-dom" % V.scalajsDom,
     ),
   )

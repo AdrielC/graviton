@@ -5,7 +5,7 @@ x-graviton-storage: &graviton-storage
   PG_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
   PG_USERNAME: postgres
   PG_PASSWORD: postgres
-  QUASAR_MINIO_URL: http://minio:9000
+  GRAVITON_S3_ENDPOINT: http://minio:9000
   MINIO_ROOT_USER: graviton
   MINIO_ROOT_PASSWORD: graviton-local-secret
   GRAVITON_S3_BLOCK_BUCKET: graviton-blocks

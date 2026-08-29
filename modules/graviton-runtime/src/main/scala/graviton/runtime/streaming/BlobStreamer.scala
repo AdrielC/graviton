@@ -3,6 +3,7 @@ package graviton.runtime.streaming
 import graviton.core.keys.BinaryKey
 import graviton.core.bytes.Hasher
 import graviton.core.model.Block.*
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.stores.BlockStore
 import graviton.streams.BoundedByteStream
 import zio.*
@@ -24,6 +25,12 @@ object BlobStreamer:
   final case class BlockRef(
     idx: Long,
     key: BinaryKey.Block,
+  )
+
+  final case class RangedBlockRef(
+    idx: Long,
+    key: BinaryKey.Block,
+    offset: BlobOffset,
   )
 
   final case class Config(
@@ -51,12 +58,44 @@ object BlobStreamer:
     // - worst-case memory: par * MaxBlockBytes (default: 2 * 16 MiB = 32 MiB)
     refs
       .buffer(window)
-      .mapZIOPar(par)(ref =>
-        BoundedByteStream
-          .collectBlock(blockStore.get(ref.key))
-          .tap(block => verify(ref.key, block.bytes))
-      )
+      .mapZIOPar(par)(ref => fetchVerified(ref.key, blockStore))
       .flatMap(block => ZStream.fromChunk(block.bytes))
+
+  /**
+   * Reconstruct a half-open byte range while fetching only intersecting
+   * blocks. Each selected block remains bounded and is fully verified before
+   * any of its requested bytes are emitted.
+   */
+  def streamRange(
+    refs: ZStream[Any, Throwable, RangedBlockRef],
+    blockStore: BlockStore,
+    start: BlobOffset,
+    length: FileSize,
+    config: Config = Config(),
+  ): ZStream[Any, Throwable, Byte] =
+    val requestedStart = start.value
+    val requestedEnd   = java.lang.Math.addExact(requestedStart, length.value)
+    val window         = math.max(1, config.windowRefs)
+    val par            = math.max(1, config.maxInFlight)
+
+    refs
+      .buffer(window)
+      .mapZIOPar(par)(ref => fetchVerified(ref.key, blockStore).map(ref -> _))
+      .flatMap { case (ref, block) =>
+        val blockStart = ref.offset.value
+        val blockEnd   = java.lang.Math.addExact(blockStart, block.bytes.length.toLong)
+        val from       = math.max(requestedStart, blockStart) - blockStart
+        val until      = math.min(requestedEnd, blockEnd) - blockStart
+        ZStream.fromChunk(block.bytes.slice(from.toInt, until.toInt))
+      }
+
+  private def fetchVerified(
+    key: BinaryKey.Block,
+    blockStore: BlockStore,
+  ): Task[graviton.core.model.Block] =
+    BoundedByteStream
+      .collectBlock(blockStore.get(key))
+      .tap(block => verify(key, block.bytes))
 
   private def verify(key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =
     for

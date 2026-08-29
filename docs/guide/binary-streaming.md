@@ -164,7 +164,7 @@ Fetching a blob reverses the ingest pipeline:
 2. The runtime streams ordered block keys through the `BlockStore`, collects only one refined block per in-flight fetch, and verifies its declared length and digest before emitting any bytes from that block.
 3. Blocks are reassembled into a `ZStream[Byte]`. Partial reads use manifest offsets so large blobs can seek without decoding the entire payload.
 
-Because manifest offsets and block lengths are validated during ingest and decode, retrieval never buffers the whole object. The current `BlobStore.get` API reconstructs from the beginning; HTTP range handling is a separate protocol concern.
+Because manifest offsets and block lengths are validated during ingest and decode, retrieval never buffers the whole object. `BlobStore.getRange` selects intersecting manifest entries before block I/O. PostgreSQL performs that selection in the range query, so a late HTTP range does not fetch or hash every preceding block.
 
 Application code should keep arbitrary-size values on `Graviton.stream`. The `Graviton.retrieve` convenience method now returns an Iron-refined `InMemoryBytes` and rejects anything larger than 16 MiB. Internal block prefetch uses the same enforced block limit, so its worst-case payload memory is `maxInFlight × 16 MiB`.
 

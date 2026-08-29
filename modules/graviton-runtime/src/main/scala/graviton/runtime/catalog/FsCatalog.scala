@@ -4,7 +4,7 @@ import graviton.core.attributes.IngestStats
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.shared.MediaTypeText
 import io.github.iltotore.iron.*
-import io.github.iltotore.iron.constraint.collection.MaxLength
+import io.github.iltotore.iron.constraint.all.MaxLength
 import zio.*
 import zio.blocks.mediatype.MediaType
 import zio.blocks.schema.*

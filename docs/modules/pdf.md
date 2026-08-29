@@ -10,7 +10,9 @@
 - The chunker prefers the first object boundary at or after the target size.
 - An oversized object is cut at the configured maximum block size.
 - Unsupported structural forms use bounded fixed-size cuts by default. Strict callers can reject them instead.
-- The HTTP `POST /api/v1/blobs` route selects this path automatically for `Content-Type: application/pdf`.
+- HTTP, the packaged gRPC server, and Shardcake upload owners share the same automatic selection path.
+- An omitted or generic `application/octet-stream` content type is upgraded to `application/pdf` only when the bounded signature detector confirms `%PDF-`.
+- A concrete media-type mismatch fails before the PDF provider or manifest is created.
 
 The parser and CAS writer receive the upload as a stream. Neither API collects the full document.
 
@@ -45,7 +47,7 @@ val program =
   yield result.key -> valid
 ```
 
-`PdfIngest.put` temporarily installs the PDF chunker with `FiberRef` regional scoping. A caller's existing `Chunker.current` value is restored when the effect succeeds, fails, or is interrupted.
+`PdfIngest.put` delegates to the same `UploadIngestor` used by protocol servers. The PDF provider creates a fresh `PdfAwareChunker` for each upload and installs it with `FiberRef` regional scoping. A caller's existing `Chunker.current` value is restored when the effect succeeds, fails, or is interrupted.
 
 ## Bounds and failure policy
 
@@ -74,7 +76,7 @@ val strict = PdfAwareChunker.Config.make(
 
 ## Proof commands
 
-The module suite covers fragmented transport chunks, signature mismatch, object-boundary cuts, bounded fallback, strict rejection, CAS round trips, FiberRef restoration, early termination, and its declared memory ceiling.
+The module and runtime suites cover fragmented transport chunks, signature mismatch, automatic detection, concrete media-type mismatch, object-boundary cuts, bounded fallback, strict rejection, CAS round trips, provider release, interruption, early termination, and the declared memory ceiling.
 
 ```bash
 ./sbt pdf/test

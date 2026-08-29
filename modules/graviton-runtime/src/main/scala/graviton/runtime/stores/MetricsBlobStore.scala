@@ -1,6 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
 import zio.*
@@ -41,6 +42,15 @@ final class MetricsBlobStore(
     val tags = baseTags + ("op" -> "get")
     ZStream.fromZIO(metrics.counter("graviton.blob.get.count", tags)).drain ++
       underlying.get(key)
+
+  override def getRange(
+    key: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, Byte] =
+    val tags = baseTags + ("op" -> "get_range")
+    ZStream.fromZIO(metrics.counter("graviton.blob.get.count", tags)).drain ++
+      underlying.getRange(key, start, length)
 
   override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
     val tags = baseTags + ("op" -> "stat")

@@ -8,7 +8,7 @@ import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
 import graviton.core.keys.{BinaryKey, KeyBits}
-import graviton.core.types.FileSize
+import graviton.core.types.{BlobOffset, FileSize}
 import zio.*
 import zio.http.*
 import zio.blocks.mediatype.{MediaType as BlocksMediaType, MediaTypes as BlocksMediaTypes}
@@ -25,21 +25,6 @@ final case class HttpApi(
   security: Option[HttpSecurityPolicy] = None,
   localizedUpload: Option[LocalityAwareUpload] = None,
 ) {
-
-  /** Binary-compatible constructor retained for the published 0.5.0 API. */
-  def this(
-    blobStore: BlobStore,
-    metrics: Option[MetricsHttpApi],
-    security: Option[HttpSecurityPolicy],
-  ) = this(blobStore, metrics, security, None)
-
-  /** Binary-compatible copy retained for the published 0.5.0 API. */
-  def copy(
-    blobStore: BlobStore,
-    metrics: Option[MetricsHttpApi],
-    security: Option[HttpSecurityPolicy],
-  ): HttpApi =
-    new HttpApi(blobStore, metrics, security, None)
 
   private final case class UploadOutcome(
     key: BinaryKey.Blob,
@@ -124,7 +109,7 @@ final case class HttpApi(
     bytes: Option[Long] = None,
   )(effect: UIO[Response]): UIO[Response] =
     val guarded = security match
-      case None         => effect.map(versionHeaders(request, _))
+      case None         => effect
       case Some(policy) =>
         policy
           .authorize(request, action, capability, resource)
@@ -133,7 +118,7 @@ final case class HttpApi(
             _ =>
               effect.flatMap { response =>
                 policy.recordOutcome(action, resource, response, bytes) *>
-                  ZIO.succeed(policy.addCorsHeaders(request, versionHeaders(request, response)))
+                  ZIO.succeed(policy.addCorsHeaders(request, response))
               },
           )
 
@@ -148,13 +133,6 @@ final case class HttpApi(
                     ZIO.whenDiscard(response.status.code >= 400)(api.registry.counter(MetricKeys.HttpErrorsTotal, tags))
                   )
     yield response
-
-  private def versionHeaders(request: Request, response: Response): Response =
-    if request.url.path.toString.startsWith("/api/blobs") then
-      response
-        .addHeader(Header.Custom("Deprecation", "true"))
-        .addHeader(Header.Custom("Link", "</api/v1/blobs>; rel=successor-version"))
-    else response
 
   private def blobHeaders(key: BinaryKey.Blob, stat: graviton.runtime.model.BlobStat): Headers =
     val lastModified = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.ofInstant(stat.lastModified, ZoneOffset.UTC))
@@ -191,7 +169,7 @@ final case class HttpApi(
             blobStore.stat(result.key).flatMap {
               case Some(stat) =>
                 val id       = BlobId.applyUnsafe(result.key.bits.render)
-                val basePath = if req.url.path.toString.startsWith("/api/v1/") then "/api/v1/blobs" else "/api/blobs"
+                val basePath = "/api/v1/blobs"
                 val listing  = graviton.runtime.model.BlobListing(result.key, stat, result.stats.blockCount)
                 val payload  = BlobUploadResult(
                   blob = toSummary(listing),
@@ -374,17 +352,25 @@ final case class HttpApi(
             Header.Custom("Content-Range", s"bytes ${range.start}-${range.endInclusive}/${stat.size.value}"),
             Header.Custom("Accept-Ranges", "bytes"),
           )
-          val stream  = checkedDownload(slice(blobStore.get(key), range.start, length))
+          // SAFETY: parseRange proves non-negative start, positive length, and
+          // containment within the refined persisted blob size.
+          val stream  = checkedDownload(
+            blobStore.getRange(
+              key,
+              BlobOffset.unsafe(range.start),
+              FileSize.unsafe(length),
+            )
+          )
           Response(
             status = Status.PartialContent,
             headers = headers,
-            body = if includeBody then Body.fromStreamChunked(stream) else Body.empty,
+            body = if includeBody then Body.fromStream(stream, length) else Body.empty,
           )
         case None                =>
           Response(
             status = Status.Ok,
             headers = blobHeaders(key, stat) ++ Headers(Header.Custom("Accept-Ranges", "bytes")),
-            body = if includeBody then Body.fromStreamChunked(checkedDownload(blobStore.get(key))) else Body.empty,
+            body = if includeBody then Body.fromStream(checkedDownload(blobStore.get(key)), stat.size.value) else Body.empty,
           )
 
   private def checkedDownload(stream: zio.stream.ZStream[Any, Throwable, Byte]): zio.stream.ZStream[Any, Throwable, Byte] =
@@ -394,21 +380,6 @@ final case class HttpApi(
 
   private def withoutHeader(headers: Headers, name: String): Headers =
     Headers.fromIterable(headers.filterNot(_.headerName.equalsIgnoreCase(name)))
-
-  private def slice(stream: zio.stream.ZStream[Any, Throwable, Byte], start: Long, length: Long): zio.stream.ZStream[Any, Throwable, Byte] =
-    val done = new java.util.concurrent.atomic.AtomicBoolean(false)
-    stream.chunks
-      .takeWhile(_ => !done.get())
-      .mapAccum((start, length)) { case ((toDrop, remaining), chunk) =>
-        val dropped   = math.min(toDrop, chunk.length.toLong).toInt
-        val available = chunk.length - dropped
-        val emitted   = math.min(remaining, available.toLong).toInt
-        val output    = chunk.drop(dropped).take(emitted)
-        val next      = (toDrop - dropped.toLong, remaining - emitted.toLong)
-        if next._2 <= 0L then done.set(true)
-        (next, output)
-      }
-      .flatMap(zio.stream.ZStream.fromChunk)
 
   private def parseRange(raw: String, size: Long): Either[String, ByteRange] =
     if !raw.startsWith("bytes=") || raw.contains(",") then Left("Only one bytes range is supported")
@@ -488,13 +459,6 @@ final case class HttpApi(
     Method.GET / "api" / "v1" / "blobs" / string("id")              -> getBlobHandler,
     Method.HEAD / "api" / "v1" / "blobs" / string("id")             -> headBlobHandler,
     Method.DELETE / "api" / "v1" / "blobs" / string("id")           -> deleteBlobHandler,
-    Method.GET / "api" / "blobs"                                    -> listBlobsHandler,
-    Method.POST / "api" / "blobs"                                   -> uploadBlobHandler,
-    Method.GET / "api" / "blobs" / string("id") / "metadata"        -> inspectBlobHandler,
-    Method.POST / "api" / "blobs" / string("id") / "verify"         -> verifyBlobHandler,
-    Method.GET / "api" / "blobs" / string("id")                     -> getBlobHandler,
-    Method.HEAD / "api" / "blobs" / string("id")                    -> headBlobHandler,
-    Method.DELETE / "api" / "blobs" / string("id")                  -> deleteBlobHandler,
   ) ++ metrics.map(_.routes).getOrElse(Routes.empty)
 
   val app: Handler[Any, Nothing, Request, Response] = routes.toHandler

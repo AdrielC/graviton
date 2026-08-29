@@ -81,11 +81,11 @@ This check uses separate CLI runs to prove that filesystem manifests survive pro
 ./sbt "server/run"
 
 # In another terminal
-BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/blobs | jq -r '.blob.id')"
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID/metadata" | jq .
-curl -fsS -X POST "http://localhost:8081/api/blobs/$BLOB_ID/verify" | jq .
-curl -fsSI "http://localhost:8081/api/blobs/$BLOB_ID"
-curl -fsS "http://localhost:8081/api/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
+BLOB_ID="$(curl -fsS -X POST --data-binary @README.md http://localhost:8081/api/v1/blobs | jq -r '.blob.id')"
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID/metadata" | jq .
+curl -fsS -X POST "http://localhost:8081/api/v1/blobs/$BLOB_ID/verify" | jq .
+curl -fsSI "http://localhost:8081/api/v1/blobs/$BLOB_ID"
+curl -fsS "http://localhost:8081/api/v1/blobs/$BLOB_ID" --output /tmp/graviton-readme.md
 cmp README.md /tmp/graviton-readme.md
 ```
 
@@ -112,7 +112,6 @@ Required connection variables are documented in [docs/guide/configuration-refere
 | --- | --- |
 | Streamed analyzer and bounded PDF editor inputs | `docs/.vitepress/generated/content-lab/`, `docs/.vitepress/generated/pdf-lab/` |
 | Scala.js dashboard | `docs/public/js/` |
-| Quasar Scala.js demo | `docs/public/quasar/js/` |
 | Module Scaladoc | `docs/public/scaladoc/` |
 | VitePress production site | `docs/.vitepress/dist/` |
 

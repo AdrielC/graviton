@@ -86,9 +86,7 @@ flowchart TB
   cas --> storage
 ```
 
-Graviton owns the lower three boxes. A document system may retain a Graviton content ID and stream bytes through the API, but document identity, versions, metadata, permissions, search, and workflows remain above this boundary.
-
-Internally, we use **Quasar** for that document layer. Quasar is a downstream consumer, not part of the Graviton server or Maven release. The repository keeps source-only prototypes for integration work, but the public Graviton documentation describes only behavior that Graviton actually ships. See [Scope and product boundary](./scope.md).
+Graviton owns the lower three boxes. A downstream system may retain a Graviton content ID and stream bytes through the API, but document identity, versions, metadata, permissions, search, and workflows remain above this boundary and outside this repository. See [Scope and product boundary](./scope.md).
 
 ## Transducer Algebra
 

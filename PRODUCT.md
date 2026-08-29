@@ -16,7 +16,7 @@ Graviton is the byte substrate: it stores arbitrary-size payloads as streamed, c
 
 ## Positioning
 
-The console is a direct operational surface over Graviton's real CAS and Shardcake services. It does not simulate uploads, invent storage metrics, maintain a browser-only shadow model, or present Graviton as a document-management system. Quasar is a separate internal document layer that consumes Graviton; it is not a Graviton server capability or published module.
+The console is a direct operational surface over Graviton's real CAS and Shardcake services. It does not simulate uploads, invent storage metrics, maintain a browser-only shadow model, or present Graviton as a document-management system. Document-domain systems remain downstream consumers of Graviton content IDs and streams.
 
 ## Operating Context
 

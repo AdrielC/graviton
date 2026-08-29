@@ -1,8 +1,8 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
-import graviton.core.manifest.{FramedManifest, Manifest, ManifestEntry}
-import graviton.core.types.FileSize
+import graviton.core.manifest.{Manifest, ManifestEntry}
+import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.streaming.BlobStreamer
 import zio.ZIO
 import zio.Chunk
@@ -116,8 +116,8 @@ trait BlobManifestRepo:
    *
    * Implementations that back production repository maintenance must override
    * this with a cursor or directory walk whose resources remain alive for the
-   * lifetime of the returned stream. The default keeps source compatibility for
-   * legacy repositories, but inherits the boundedness of [[listSummaries]] and
+   * lifetime of the returned stream. The default is convenient for bounded
+   * development stores, but inherits the boundedness of [[listSummaries]] and
    * is therefore not suitable for repository-scale maintenance.
    */
   def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
@@ -125,6 +125,32 @@ trait BlobManifestRepo:
 
   /** Stream block refs in manifest order for read. */
   def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]
+
+  /**
+   * Stream only block refs intersecting the requested half-open blob range.
+   *
+   * The default scans lightweight manifest refs, never block bodies. Durable
+   * repositories should override this with an indexed range query.
+   */
+  def streamBlockRefsRange(
+    blob: BinaryKey.Blob,
+    start: BlobOffset,
+    length: FileSize,
+  ): ZStream[Any, Throwable, BlobStreamer.RangedBlockRef] =
+    val requestedStart = start.value
+    val requestedEnd   = java.lang.Math.addExact(requestedStart, length.value)
+
+    streamBlockRefs(blob)
+      .mapAccumZIO(0L) { (blockStart, ref) =>
+        ZIO.attempt {
+          val blockEnd = java.lang.Math.addExact(blockStart, ref.key.bits.size)
+          blockEnd -> (ref, blockStart, blockEnd)
+        }
+      }
+      .collect {
+        case (ref, blockStart, blockEnd) if blockStart < requestedEnd && blockEnd > requestedStart =>
+          BlobStreamer.RangedBlockRef(ref.idx, ref.key, BlobOffset.unsafe(blockStart))
+      }
 
   /** Remove the manifest entry for a blob. Returns true if it existed. */
   def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean]
@@ -138,7 +164,7 @@ object BlobManifestRepo:
    * keeping all counters and on-disk formats within `Int` indexing.
    */
   val MaxEntries: Int             = 1024 * 1024
-  val MaxMaterializedEntries: Int = FramedManifest.MaxManifestEntries
+  val MaxMaterializedEntries: Int = 16384
 
   def validateStreamArguments(
     blob: BinaryKey.Blob,
