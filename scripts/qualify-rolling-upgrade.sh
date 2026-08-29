@@ -74,9 +74,9 @@ read_exact() {
 payload_baseline="$work_dir/baseline.bin"
 payload_candidate="$work_dir/candidate.bin"
 payload_rollback="$work_dir/rollback.bin"
-dd if=/dev/urandom of="$payload_baseline" bs=1m count=8 2>/dev/null
-dd if=/dev/urandom of="$payload_candidate" bs=1m count=8 2>/dev/null
-dd if=/dev/urandom of="$payload_rollback" bs=1m count=8 2>/dev/null
+dd if=/dev/urandom of="$payload_baseline" bs=1048576 count=8 2>/dev/null
+dd if=/dev/urandom of="$payload_candidate" bs=1048576 count=8 2>/dev/null
+dd if=/dev/urandom of="$payload_rollback" bs=1048576 count=8 2>/dev/null
 
 # Cold baseline cohort.
 compose_with "$baseline_image" "$baseline_image" "$baseline_image" "$baseline_version" "$baseline_version" \
