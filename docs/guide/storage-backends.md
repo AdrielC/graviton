@@ -79,7 +79,9 @@ Example:
 ### Operational notes
 
 - Existence checks use `HeadObject`; missing keys return `false` (MinIO sometimes uses a generic `S3Exception` for missing keys).
-- Puts use `PutObject` with `contentLength` set from the block bytes.
+- New blocks use `PutObject` with `If-None-Match: *`, an explicit SHA-256 checksum, and Graviton proof metadata. A fresh write therefore needs no preliminary `HeadObject` and cannot overwrite a racing writer.
+- Duplicate writes verify the stored length, content key, and SHA-256 checksum with `HeadObject`, without downloading tagged block bytes. Legacy objects without proof metadata receive one bounded exact-byte comparison.
+- The object store must preserve user metadata and support conditional `PutObject` requests. A backend that cannot enforce `If-None-Match: *` is not compatible with the CAS write contract.
 - Credentials are static (access key id + secret access key).
 
 ## What is persisted today
