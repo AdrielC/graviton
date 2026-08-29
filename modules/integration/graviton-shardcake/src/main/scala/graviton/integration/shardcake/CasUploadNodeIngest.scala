@@ -38,8 +38,7 @@ object CasUploadNodeIngest:
         .put(intent, observed)
         .map(result => LocalizedUploadResult(result.stored.key, result.stored.stats, localNode))
 
-      val hotStateTags       = Map("node" -> localNode.id.value)
-      val recordHotStateSize = hotState.size.flatMap(size => metrics.gauge(MetricKeys.UploadHotStateEntries, size.toDouble, hotStateTags))
+      val recordHotStateSize = hotState.size.flatMap(size => metrics.gauge(MetricKeys.UploadHotStateEntries, size.toDouble, Map.empty))
 
       hotState.begin(key) *> recordHotStateSize *>
         context

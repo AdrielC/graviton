@@ -13,9 +13,10 @@ final case class ShardcakeNode(
   locality: LocalityAwareUpload,
   placement: UploadPlacement,
   hotState: UploadHotState,
+  health: ShardcakeHealth,
 ):
   def healthCheck: IO[ShardcakeNode.HealthError, Unit] =
-    ShardcakeNode.verifyAssigned(placement)
+    health.readiness
 
 object ShardcakeNode:
   sealed trait HealthError extends Throwable
@@ -71,6 +72,7 @@ object ShardcakeNode:
       CasUploadNodeIngest.live,
       ZioHttpUploadNodeTransport.live,
       ShardcakeUploadPlacement.live,
+      ShardcakeHealth.live,
       LocalityAwareUpload.instrumented,
       ZLayer.scoped {
         for
@@ -81,6 +83,7 @@ object ShardcakeNode:
           ingest    <- ZIO.service[UploadNodeIngest]
           locality  <- ZIO.service[LocalityAwareUpload]
           hotState  <- ZIO.service[UploadHotState]
+          health    <- ZIO.service[ShardcakeHealth]
           _         <- UploadControlEntity.register(config.node, config.entityMaxIdleTime)
           _         <- Sharding.registerScoped
           routes     = UploadNodeHttpApi(token, ingest).routes
@@ -91,7 +94,7 @@ object ShardcakeNode:
           _         <- ZIO.logInfo(
                          s"Shardcake upload node ${config.node.id.value} listening for streamed uploads on :${config.node.uploadPort.value}"
                        )
-        yield ShardcakeNode(locality, placement, hotState)
+        yield ShardcakeNode(locality, placement, hotState, health)
       },
     )
 

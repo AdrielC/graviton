@@ -48,6 +48,7 @@ export GRAVITON_S3_REGION="us-east-1"
 | `HEAD /api/v1/blobs/:id` | metadata headers | Checks existence without a response body |
 | `DELETE /api/v1/blobs/:id` | logical delete | Removes the manifest and retains shared blocks |
 
+`GRAVITON_HEALTH_CHECK_TIMEOUT` defaults to `5s` and bounds the active storage readiness check. Shardcake placement checks additionally use `GRAVITON_SHARDCAKE_SEND_TIMEOUT`.
 ## Environment variables
 
 ### Server
@@ -56,6 +57,7 @@ export GRAVITON_S3_REGION="us-east-1"
 | --- | --- | --- | --- |
 | `GRAVITON_HTTP_PORT` | `8081` | no | Port for the HTTP server. |
 | `GRAVITON_GRPC_PORT` | `9090` | no | Port for the gRPC server. |
+| `GRAVITON_HEALTH_CHECK_TIMEOUT` | `5s` | no | Maximum duration of the active storage readiness check. Must be positive. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
 | `GRAVITON_BLOCK_WRITE_PARALLELISM` | `4` | no | Concurrent bounded block writes per ingest. Must be between `1` and `64`. |
 
@@ -65,7 +67,7 @@ The built-in console is intentionally unauthenticated and therefore disabled by 
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
-| `GRAVITON_CONSOLE_ENABLED` | `false` | no | Mount the local file, folder, upload, download, and deduplication UI at `/console`. Requires `GRAVITON_SECURITY_ENABLED=false`. |
+| `GRAVITON_CONSOLE_ENABLED` | `false` | no | Mount the local library and Runtime health UI at `/console`. Requires `GRAVITON_SECURITY_ENABLED=false`. |
 | `GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING` | `false` | no | Allow the HTTP listener to bind beyond loopback while the console is enabled. Use only inside a private container network with host ports explicitly published on `127.0.0.1`. |
 
 ### PostgreSQL (required for S3/MinIO or JDBC audit mode)

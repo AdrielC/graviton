@@ -6,8 +6,13 @@ trait MetricsRegistry:
   def counter(name: String, tags: Map[String, String]): UIO[Unit] =
     counterBy(name, 1L, tags)
 
+  /** Adds a non-negative delta; zero and negative deltas are ignored. */
   def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit]
   def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit]
+
+  /** Records one observation. Implementations choose exporter-appropriate buckets. */
+  def histogram(name: String, value: Double, tags: Map[String, String]): UIO[Unit] =
+    gauge(name, value, tags)
 
   /**
    * Best-effort snapshot for exporters (e.g. Prometheus).
@@ -15,6 +20,10 @@ trait MetricsRegistry:
    * Implementations that do not support scraping can return empty snapshots.
    */
   def snapshot: UIO[MetricsSnapshot] = ZIO.succeed(MetricsSnapshot.empty)
+
+  /** Prometheus exposition, overridable by a native ZIO Metrics publisher. */
+  def prometheus: UIO[String] =
+    snapshot.map(PrometheusTextRenderer.render)
 
 final case class MetricsSnapshot(
   counters: Map[MetricKey, Long],

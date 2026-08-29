@@ -1,7 +1,7 @@
 package graviton.server.console
 
 import zio.blocks.html.{Dom, Js, div, toDomModifier}
-import zio.http.datastar.dataOn
+import zio.http.datastar.{dataOn, dataOnInterval}
 
 /**
  * Typed Datastar attributes rendered by zio-blocks-datastar.
@@ -20,6 +20,9 @@ private[console] object ConsoleDatastar:
 
   def submit(expression: String): String =
     renderAttribute(dataOn.submit.prevent := Js(expression))
+
+  def interval(millis: Long, expression: String): String =
+    renderAttribute(dataOnInterval.duration(millis) := Js(expression))
 
   private def renderAttribute(attribute: Dom.Attribute): String =
     val wrapper = div(attribute).render

@@ -155,7 +155,7 @@ Do not set `GRAVITON_SECURITY_DEV_SHARED_SECRET` in production. Enable trusted p
 | `GET /api/health/ready` | Active block and manifest backends respond within five seconds; a Shardcake node must also have an assigned shard |
 | `GET /api/health` | Compatibility alias for liveness |
 | `GET /api/stats` | JSON process counters |
-| `GET /metrics` | Prometheus text including HTTP request, error, and latency observations |
+| `GET /metrics` | Native ZIO Metrics Prometheus text including JVM, ingest, HTTP, locality, and Shardcake health observations |
 
 Stats and metrics require `observability.read` when security is enabled. Readiness is necessary for traffic admission but is not a substitute for an end-to-end canary or restore drill.
 

@@ -35,8 +35,13 @@ The runtime stays split across orthogonal services:
 | `UploadHotState` | Keep bounded reconstructable acceleration state |
 | `UploadSessionContext` | Scope the current session through a `FiberRef` |
 | `LocalityAwareUpload` | Compose placement with local or remote execution |
+| `ShardcakeHealth` | Probe placement, retain the last successful check, drive readiness, and expose a safe operator snapshot |
 
 Each service has a testable port. Shardcake, zio-http, PostgreSQL, PDF-aware ingest, and metrics remain adapters around those ports.
+
+Health checks distinguish startup, healthy, rebalancing, unassigned, and unavailable states. A partial assignment set remains ready when the local node owns shards, so a rolling rebalance does not eject a node that can still route uploads. Placement calls use the configured Shardcake send timeout. Status transitions are logged with `component`, `operation`, and `node_id` annotations; tenant and upload session values appear only in upload log context and never in metric labels.
+
+The adapter records health outcomes, probe duration, readiness, cluster and local assignment counts, observed nodes, and tracked hot-state entries through the shared ZIO Metrics-backed registry. The local console's Runtime view reads the same health service and process counters that feed readiness and Prometheus.
 
 ## Security boundaries
 
@@ -55,6 +60,7 @@ Use a secret manager or mounted secret. Do not place the internal token in sourc
 ./sbt \
   'runtime/testOnly graviton.runtime.upload.UploadRuntimeSpec' \
   'shardcakeIntegration/testOnly graviton.integration.shardcake.ShardcakeIntegrationSpec' \
+  'shardcakeIntegration/testOnly graviton.integration.shardcake.ShardcakeHealthSpec' \
   'shardcakeIntegration/testOnly graviton.integration.shardcake.ShardcakeReassignmentSpec' \
   'shardcakeIntegration/testOnly graviton.integration.shardcake.PgShardcakeStorageSpec'
 ```

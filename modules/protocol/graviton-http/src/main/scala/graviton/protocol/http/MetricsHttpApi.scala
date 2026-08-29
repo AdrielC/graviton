@@ -1,6 +1,6 @@
 package graviton.protocol.http
 
-import graviton.runtime.metrics.{MetricsRegistry, PrometheusTextRenderer}
+import graviton.runtime.metrics.MetricsRegistry
 import graviton.security.{Capability, ResourceKind, ResourceRef}
 import zio.*
 import zio.http.*
@@ -9,8 +9,7 @@ final case class MetricsHttpApi(registry: MetricsRegistry, security: Option[Http
 
   private val metricsHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { request =>
-      val response = registry.snapshot.map { snap =>
-        val body = PrometheusTextRenderer.render(snap)
+      val response = registry.prometheus.map { body =>
         Response(
           status = Status.Ok,
           headers = Headers(Header.Custom("Content-Type", "text/plain; version=0.0.4; charset=utf-8")),

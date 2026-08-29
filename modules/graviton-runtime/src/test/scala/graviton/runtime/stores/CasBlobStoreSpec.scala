@@ -133,9 +133,9 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.counters.get(MetricKey(MetricKeys.FreshBlocksTotal, tags)).contains(result.stats.freshBlocks.toLong),
           snapshot.counters
             .get(MetricKey(MetricKeys.DuplicateBlocksTotal, tags))
-            .contains(result.stats.duplicateBlocks.toLong),
+            .getOrElse(0L) == result.stats.duplicateBlocks.toLong,
           snapshot.counters.get(MetricKey(MetricKeys.FreshBlockBytesTotal, tags)).contains(data.length.toLong),
-          snapshot.counters.get(MetricKey(MetricKeys.DuplicateBlockBytesTotal, tags)).contains(0L),
+          snapshot.counters.get(MetricKey(MetricKeys.DuplicateBlockBytesTotal, tags)).getOrElse(0L) == 0L,
         )
       },
       test("records byte-weighted CAS reuse independently of block counts") {
