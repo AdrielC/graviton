@@ -135,6 +135,23 @@ The packaged server then uses stable rendezvous placement for each block and sta
 
 Resumable S3 uploads also require `GRAVITON_S3_TMP_BUCKET` and the current PostgreSQL schema. Staging parts use adaptive bounded multipart writes, but final commit still streams every staged byte through MIME validation, content-defined or fixed chunking, hashing, deduplication, and manifest-last publication.
 
+### Three-domain erasure qualification
+
+The repository includes a complete local topology with three independent object-service processes and volumes, PostgreSQL metadata, live Prometheus rules, and a provisioned Grafana dashboard:
+
+```bash
+./scripts/demo-three-domain.sh up
+./scripts/qualify-three-domain.sh | jq .
+```
+
+The qualification stops the locally preferred target and performs a byte-exact read through the two remote targets. It then destroys the complete second target volume, recreates that endpoint empty, waits for the supervised manifest scrub to regenerate its shards, and performs another byte-exact read. This is destructive only to the dedicated `graviton-three-domain` Compose topology. It does not claim to reproduce Ceph daemon, network, or control-plane behavior.
+
+Open the live surfaces after startup:
+
+- Graviton console: `http://127.0.0.1:58181/console`
+- Prometheus: `http://127.0.0.1:59090`
+- Grafana: `http://127.0.0.1:59300/d/graviton-slo`
+
 ## Multi-node upload locality
 
 Shardcake locality requires the shared S3 plus PostgreSQL composition above. Apply the current schema and give the manager and nodes the same placement database, shard count, and internal token.

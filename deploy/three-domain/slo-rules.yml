@@ -1,0 +1,36 @@
+groups:
+  - name: graviton-slo-recording
+    interval: 15s
+    rules:
+      - record: graviton:slo:http_success_ratio_5m
+        expr: 1 - (sum(rate(graviton_http_errors_total[5m])) / clamp_min(sum(rate(graviton_http_requests_total[5m])), 1))
+      - record: graviton:slo:http_p99_seconds_5m
+        expr: histogram_quantile(0.99, sum by (le) (rate(graviton_http_request_duration_seconds_bucket[5m])))
+      - record: graviton:slo:repair_backlog
+        expr: max(graviton_replica_under_protected_blocks)
+  - name: graviton-slo-alerts
+    rules:
+      - alert: GravitonUnavailable
+        expr: up{job="graviton"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: Graviton metrics endpoint is unavailable
+      - alert: GravitonHighErrorRatio
+        expr: graviton:slo:http_success_ratio_5m < 0.99
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: Graviton HTTP success ratio is below 99 percent
+      - alert: GravitonErasureWriteThresholdLost
+        expr: graviton_erasure_healthy_targets < 2
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: Fewer than two erasure targets are healthy
+      - alert: GravitonRepairNotConverged
+        expr: graviton:slo:repair_backlog > 0
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: Referenced blocks remain under-protected

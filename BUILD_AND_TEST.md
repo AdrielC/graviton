@@ -106,6 +106,15 @@ GRAVITON_MINIO_IT=1 \
 
 Required connection variables are documented in [docs/guide/configuration-reference.md](docs/guide/configuration-reference.md).
 
+## Three-domain loss and repair qualification
+
+```bash
+./scripts/demo-three-domain.sh up
+./scripts/qualify-three-domain.sh | jq .
+```
+
+This requires a responsive Docker engine. It uses the dedicated `graviton-three-domain` Compose project, three separate S3-compatible processes and volumes, PostgreSQL, Prometheus, and Grafana. The qualification deletes one of those dedicated object-store volumes, so do not reuse that Compose project name for data you intend to keep. GitHub Actions runs the same script and retains the commit-addressed proof, metrics, rules, dashboard, status, and logs for 90 days.
+
 ## Expected generated paths
 
 | Artifact | Path |

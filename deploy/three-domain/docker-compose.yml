@@ -1,0 +1,172 @@
+name: graviton-three-domain
+
+x-minio: &minio
+  image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  command: ["server", "/data"]
+  environment:
+    MINIO_ROOT_USER: graviton
+    MINIO_ROOT_PASSWORD: graviton-three-domain-secret
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null"]
+    interval: 2s
+    timeout: 3s
+    retries: 40
+  restart: unless-stopped
+  networks: [graviton]
+
+x-runtime: &runtime
+  GRAVITON_DEPLOYMENT_PROFILE: development
+  GRAVITON_BLOB_BACKEND: s3
+  GRAVITON_MAINTENANCE_NAMESPACE: graviton-three-domain
+  PG_JDBC_URL: jdbc:postgresql://postgres:5432/graviton
+  PG_USERNAME: postgres
+  PG_PASSWORD: postgres
+  # Staging is intentionally on C so the local-A block-loss drill does not
+  # conflate read durability with the separate resumable-upload dependency.
+  GRAVITON_S3_ENDPOINT: http://minio-c:9000
+  GRAVITON_S3_ACCESS_KEY: graviton
+  GRAVITON_S3_SECRET_KEY: graviton-three-domain-secret
+  GRAVITON_S3_BLOCK_BUCKET: graviton-blocks-c
+  GRAVITON_S3_BLOCK_PREFIX: cas/blocks
+  GRAVITON_S3_TMP_BUCKET: graviton-tmp
+  GRAVITON_REPLICATION_TARGETS: a|zone-a|graviton-blocks-a,b|zone-b|graviton-blocks-b,c|zone-c|graviton-blocks-c
+  GRAVITON_REPLICATION_MODE: erasure-2-1
+  GRAVITON_REPLICATION_DESIRED_REPLICAS: "3"
+  GRAVITON_REPLICATION_WRITE_QUORUM: "2"
+  GRAVITON_REPLICATION_LOCAL_FAILURE_DOMAIN: zone-a
+  GRAVITON_REPLICATION_REPAIR_INTERVAL: 2s
+  GRAVITON_REPLICATION_REPAIR_BATCH_SIZE: "1000"
+  GRAVITON_REPLICATION_TARGET_A_ENDPOINT: http://minio-a:9000
+  GRAVITON_REPLICATION_TARGET_A_ACCESS_KEY: graviton
+  GRAVITON_REPLICATION_TARGET_A_SECRET_KEY: graviton-three-domain-secret
+  GRAVITON_REPLICATION_TARGET_B_ENDPOINT: http://minio-b:9000
+  GRAVITON_REPLICATION_TARGET_B_ACCESS_KEY: graviton
+  GRAVITON_REPLICATION_TARGET_B_SECRET_KEY: graviton-three-domain-secret
+  GRAVITON_REPLICATION_TARGET_C_ENDPOINT: http://minio-c:9000
+  GRAVITON_REPLICATION_TARGET_C_ACCESS_KEY: graviton
+  GRAVITON_REPLICATION_TARGET_C_SECRET_KEY: graviton-three-domain-secret
+  GRAVITON_SECURITY_ENABLED: "false"
+  GRAVITON_SECURITY_AUDIT_BACKEND: memory
+  GRAVITON_CONSOLE_ENABLED: "true"
+  GRAVITON_CONSOLE_ALLOW_REMOTE_BINDING: "true"
+  GRAVITON_HTTP_PORT: "8081"
+  GRAVITON_GRPC_PORT: "9090"
+
+services:
+  postgres:
+    image: postgres:16@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
+    environment:
+      POSTGRES_DB: graviton
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../modules/pg/ddl.sql:/docker-entrypoint-initdb.d/10-graviton.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d graviton"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+    networks: [graviton]
+
+  minio-a:
+    <<: *minio
+    volumes: [minio-a-data:/data]
+    ports: ["127.0.0.1:59100:9000"]
+
+  minio-b:
+    <<: *minio
+    volumes: [minio-b-data:/data]
+    ports: ["127.0.0.1:59110:9000"]
+
+  minio-c:
+    <<: *minio
+    volumes: [minio-c-data:/data]
+    ports: ["127.0.0.1:59120:9000"]
+
+  minio-init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    depends_on:
+      minio-a: {condition: service_healthy}
+      minio-b: {condition: service_healthy}
+      minio-c: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set a http://minio-a:9000 graviton graviton-three-domain-secret
+        mc alias set b http://minio-b:9000 graviton graviton-three-domain-secret
+        mc alias set c http://minio-c:9000 graviton graviton-three-domain-secret
+        mc mb --ignore-existing a/graviton-blocks-a
+        mc mb --ignore-existing c/graviton-tmp
+        mc mb --ignore-existing b/graviton-blocks-b
+        mc mb --ignore-existing c/graviton-blocks-c
+    networks: [graviton]
+
+  graviton:
+    image: ${GRAVITON_IMAGE:-graviton-local:three-domain}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      <<: *runtime
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+    ports:
+      - "127.0.0.1:58181:8081"
+      - "127.0.0.1:59190:9090"
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/app/graviton.jar", "graviton.server.HealthProbeMain", "http://127.0.0.1:8081/api/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks: [graviton]
+
+  prometheus:
+    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./slo-rules.yml:/etc/prometheus/slo-rules.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      graviton: {condition: service_healthy}
+    ports: ["127.0.0.1:59090:9090"]
+    restart: unless-stopped
+    networks: [graviton]
+
+  grafana:
+    image: grafana/grafana:13.1.0@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+    ports: ["127.0.0.1:59300:3000"]
+    restart: unless-stopped
+    networks: [graviton]
+
+  minio-client:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    profiles: [operator]
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["sleep infinity"]
+    networks: [graviton]
+
+volumes:
+  postgres-data:
+  minio-a-data:
+  minio-b-data:
+  minio-c-data:
+  prometheus-data:
+
+networks:
+  graviton:
+    driver: bridge

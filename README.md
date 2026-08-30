@@ -22,6 +22,7 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Authentication and policy | Operational | RS256 OIDC/JWKS verification, dev HS256 proof, capabilities, CORS, TLS policy, size and rate controls, and chained audit events |
 | S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
 | Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
+| Three-domain 2+1 erasure | Operational S3-compatible mode | Any-two reconstruction, original CAS verification, bounded shard repair, local-read preference, live SLO dashboard, and destructive target-volume qualification |
 | Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
 | Streaming gRPC lifecycle | Operational | Packaged listener, typed SDK, 12 MiB socket lifecycle, bounded frames, public health, authentication, capabilities, rate limiting, and audit |
 | Shardcake upload locality | Operational opt-in integration | Typed tenant/session ownership, one-shot direct ZIO HTTP streams, ZIO Blocks MessagePack control envelopes, authenticated manager and node traffic, durable PostgreSQL assignments, two-node drain/reassignment proof, and a singleton manager lease |
@@ -50,6 +51,15 @@ Those commands prove four separate boundaries:
 - every public binary artifact contains executable definitions and no unsupported-operation markers
 
 The packaged smoke uploads real bytes over HTTP, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload. It also runs open and bearer-protected 3 MiB gRPC lifecycles through the assembled JAR, validates every streamed byte, and exercises health, metadata, inventory, inspection, and deletion. The HTTP SDK suite separately proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket.
+
+For the independently addressable three-domain storage topology:
+
+```bash
+./scripts/demo-three-domain.sh up
+./scripts/qualify-three-domain.sh | jq .
+```
+
+That drill stops the preferred object-service process, proves remote reconstruction, destroys a second target's complete Docker volume, recreates it empty, waits for repair convergence, and checks the exact payload again. Prometheus and Grafana read the server's live metrics rather than fixture data. See [Failure-domain durability](docs/runtime/replication.md).
 
 ## Run the server
 
@@ -121,7 +131,9 @@ BlobStore
         │   ├── InMemoryBlockStore
         │   ├── FsBlockStore
         │   ├── S3BlockStore
-        │   └── ReplicatedBlockStore
+        │   ├── ReplicatedBlockStore
+        │   └── ErasureBlockStore
+        │       └── three named S3 or Ceph RGW shard targets
         └── BlobManifestRepo
             ├── in-memory reference implementation
             ├── FsBlobManifestRepo
@@ -164,7 +176,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-The repository now ships durable resumable HTTP uploads, automated failure-domain replica placement and repair, retained workload distributions, and executable mixed-version and sustained-failure qualification. The highest-value remaining work is coordinated provider snapshots, abrupt power-loss and disk-fault injection, target IdP and network acceptance, and retained benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The repository now ships durable resumable HTTP uploads, automated failure-domain replica or 2+1 erasure placement and repair, retained workload distributions, and executable mixed-version, sustained-failure, and target-volume-loss qualification. The highest-value remaining work is coordinated provider snapshots, physical power-loss and disk-corruption injection, a durable cross-process repair cursor, target Ceph, IdP, and network acceptance, and retained benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 

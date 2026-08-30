@@ -27,4 +27,26 @@ object ReplicationConfigSpec extends ZIOSpecDefault:
 
       assertTrue(malformed.isLeft, duplicate.isLeft, quorum.isLeft)
     },
+    test("requires exactly three distinct domains for 2+1 erasure coding") {
+      val valid          = for
+        targets <- ReplicaTargetConfig.parseList("a|zone-a|a-bucket,b|zone-b|b-bucket,c|zone-c|c-bucket")
+        config  <- ReplicationConfig(
+                     targets = targets,
+                     desiredReplicas = Some(3),
+                     writeQuorum = Some(2),
+                     mode = ReplicaStorageMode.Erasure21,
+                   ).validate
+      yield config
+      val repeatedDomain = for
+        targets <- ReplicaTargetConfig.parseList("a|zone-a|a-bucket,b|zone-a|b-bucket,c|zone-c|c-bucket")
+        config  <- ReplicationConfig(
+                     targets = targets,
+                     desiredReplicas = Some(3),
+                     writeQuorum = Some(2),
+                     mode = ReplicaStorageMode.Erasure21,
+                   ).validate
+      yield config
+
+      assertTrue(valid.isRight, repeatedDomain.isLeft)
+    },
   )

@@ -19,6 +19,7 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - Shardcake upload locality with typed ZIO Blocks wire codecs, stable session ownership, real two-node reassignment proof, and native ZIO Metrics health observations
 - Crash-safe resumable HTTP sessions with durable filesystem or PostgreSQL ledgers, streamed filesystem or S3 staging, idempotent bounded parts, expiry cleanup, and a typed JVM SDK
 - Deterministic rendezvous block placement across declared failure domains, safe-by-default write quorum, validating reads, atomic corrupt-replica replacement, and supervised bounded repair cycles
+- Independently addressed S3 or Ceph RGW targets, locality-aware reads, fixed 2+1 erasure coding, original-key verification, destructive single-target volume-loss qualification, and live Prometheus and Grafana SLO surfaces
 - PDF-aware chunker selection through bounded media sniffing and scoped ZIO services, with the reusable `graviton-pdf` adapter consuming `zio-pdf`
 - Operator console backed by live storage and Shardcake state, using ZIO Blocks DataStar actions and the official local browser runtime
 - Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, 90-day retained benchmark distributions, rolling upgrade and rollback proof, sustained backend failure drills, container SBOM, provenance, and keyless image signing
@@ -30,7 +31,7 @@ These items depend on the deployment and cannot be completed once for every user
 - Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, CORS, and gRPC ingress against the real identity provider and network
 - Run the restore drill from real backups and record recovery time and recovery point objectives
 - Run `scripts/benchmark-suite.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings; repository-generated corpus results are regression evidence, not target capacity
-- Run `scripts/qualify-local-shardcake.sh`, `scripts/qualify-rolling-upgrade.sh`, and `scripts/qualify-long-failure.sh`, then repeat storage throttling, credential rotation, and rollback against the exact target images and infrastructure
+- Run `scripts/qualify-local-shardcake.sh`, `scripts/qualify-rolling-upgrade.sh`, `scripts/qualify-long-failure.sh`, and `scripts/qualify-three-domain.sh`, then repeat storage throttling, credential rotation, target loss, and rollback against the exact target images and infrastructure
 - For shared S3 plus PostgreSQL, retain the exact version-pair rolling record before claiming high availability
 
 ## Next product work
@@ -43,6 +44,7 @@ These items depend on the deployment and cannot be completed once for every user
 ### Storage and reliability
 
 - Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
+- Persist and coordinate the repair cursor across server processes instead of allowing redundant idempotent scrubs
 - Add operator-facing inventory and restore commands for S3 quarantine records
 - Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
 - Add a RocksDB `BlockStore` only when a real embedded blob-backend use case requires it; the published RocksDB module currently promises durable typed key-value storage
@@ -50,7 +52,7 @@ These items depend on the deployment and cannot be completed once for every user
 ### Operations
 
 - Publish portable benchmark envelopes only after multiple controlled operator environments produce retained raw samples
-- Add dashboards and backend-specific latency distributions
+- Add backend-specific latency distributions and durable long-term dashboard retention
 - Add signed migration sequencing beyond the initial schema ledger
 - Retain more exact release-pair upgrade records as storage formats and dependencies evolve
 

@@ -5,6 +5,25 @@ import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlockIndex, BlockSize, FileSize, MaxBlockBytes, Offset}
 import zio.Chunk
 import zio.schema.{DeriveSchema, Schema}
+import io.github.iltotore.iron.*
+import io.github.iltotore.iron.constraint.all.*
+
+/** One bounded shard in Graviton's fixed 2+1 erasure layout. */
+type ErasureFragmentBytes = Chunk[Byte] :| (MinLength[1] & MaxLength[8388608])
+
+object ErasureFragmentBytes:
+  inline def maxBytes: Int = 8388608
+
+  def fromChunk(bytes: Chunk[Byte]): Either[String, ErasureFragmentBytes] =
+    bytes.refineEither[MinLength[1] & MaxLength[8388608]]
+
+  extension (bytes: ErasureFragmentBytes)
+    def chunk: Chunk[Byte] = bytes
+    def length: Int        = bytes.length
+
+final case class ErasureFragment(index: Int, bytes: ErasureFragmentBytes):
+  require(index >= 0 && index < 3, s"2+1 erasure shard index must be in [0, 2], received $index")
+  def chunk: Chunk[Byte] = bytes
 
 final case class CanonicalBlock private (
   key: BinaryKey.Block,

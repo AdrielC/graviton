@@ -47,7 +47,7 @@ This section contains detailed design documents for major Graviton features and 
 
 ### Phase 3 (Future)
 
-- **Erasure Coding** — Alternative to replication
+- **[2+1 Erasure Coding](../runtime/replication.md#fixed-21-erasure-mode)** — Three-domain lower-overhead durability
 - **Geo-Replication** — Cross-region strategies
 - **Query Engine** — Content search and indexing
 - **Streaming Analytics** — Real-time metrics on ingest

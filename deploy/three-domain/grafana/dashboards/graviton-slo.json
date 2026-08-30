@@ -1,0 +1,52 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat", "title": "HTTP success, 5m", "id": 1,
+      "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+      "targets": [{"expr": "graviton:slo:http_success_ratio_5m", "refId": "A"}]
+    },
+    {
+      "type": "stat", "title": "HTTP p99, 5m", "id": 2,
+      "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "targets": [{"expr": "graviton:slo:http_p99_seconds_5m", "refId": "A"}]
+    },
+    {
+      "type": "stat", "title": "Healthy erasure targets", "id": 3,
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"min": 0, "max": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "orange", "value": 2}, {"color": "green", "value": 3}]}}, "overrides": []},
+      "targets": [{"expr": "graviton_erasure_healthy_targets", "refId": "A"}]
+    },
+    {
+      "type": "stat", "title": "Under-protected blocks", "id": 4,
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+      "fieldConfig": {"defaults": {"min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "targets": [{"expr": "graviton:slo:repair_backlog", "refId": "A"}]
+    },
+    {
+      "type": "timeseries", "title": "Read locality", "id": 5,
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "targets": [{"expr": "sum by (locality) (rate(graviton_erasure_shard_reads_total[5m]))", "legendFormat": "{{locality}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries", "title": "Repair outcomes", "id": 6,
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "targets": [{"expr": "sum by (outcome) (rate(graviton_erasure_repairs_total[5m]))", "legendFormat": "{{outcome}}", "refId": "A"}]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["graviton", "cas", "erasure", "slo"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "timezone": "browser",
+  "title": "Graviton durability and SLO",
+  "uid": "graviton-slo",
+  "version": 1
+}

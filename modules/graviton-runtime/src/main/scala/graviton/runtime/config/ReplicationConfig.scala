@@ -18,6 +18,18 @@ object ReplicaTargetLocation extends RefinedTypeExt[String, MinLength[1] & MaxLe
 type ReplicaRepairBatchSize = ReplicaRepairBatchSize.T
 object ReplicaRepairBatchSize extends RefinedTypeExt[Int, numeric.GreaterEqual[1] & numeric.LessEqual[1000000]]
 
+enum ReplicaStorageMode(val configValue: String):
+  case Replicated extends ReplicaStorageMode("replicated")
+  case Erasure21  extends ReplicaStorageMode("erasure-2-1")
+
+object ReplicaStorageMode:
+  def parse(raw: String): Either[String, ReplicaStorageMode] =
+    values
+      .find(_.configValue == raw.trim.toLowerCase)
+      .toRight(
+        s"replication mode must be one of ${values.map(_.configValue).mkString(", ")}, received '$raw'"
+      )
+
 /** One operator-declared independent placement target. */
 final case class ReplicaTargetConfig(
   name: ReplicaTargetName,
@@ -64,6 +76,8 @@ final case class ReplicationConfig(
   writeQuorum: Option[Int] = None,
   repairInterval: Duration = 5.minutes,
   repairBatchSize: ReplicaRepairBatchSize = ReplicaRepairBatchSize.applyUnsafe(10000),
+  mode: ReplicaStorageMode = ReplicaStorageMode.Replicated,
+  localFailureDomain: Option[ReplicaFailureDomain] = None,
 ):
   def enabled: Boolean              = targets.nonEmpty
   def effectiveDesiredReplicas: Int = desiredReplicas.getOrElse(targets.length)
@@ -77,6 +91,21 @@ final case class ReplicationConfig(
         Either.cond(!enabled || (desired >= 1 && desired <= targets.length), (), "desired replicas must be within configured target count")
       _ <- Either.cond(!enabled || (quorum >= 1 && quorum <= desired), (), "write quorum must be within desired replicas")
       _ <- Either.cond(repairInterval > Duration.Zero, (), "repair interval must be positive")
+      _ <- Either.cond(
+             !enabled || mode != ReplicaStorageMode.Erasure21 || targets.length == 3,
+             (),
+             "erasure-2-1 requires exactly three targets",
+           )
+      _ <- Either.cond(
+             !enabled || mode != ReplicaStorageMode.Erasure21 || targets.map(_.failureDomain.value).distinct.length == 3,
+             (),
+             "erasure-2-1 requires three distinct failure domains",
+           )
+      _ <- Either.cond(
+             !enabled || mode != ReplicaStorageMode.Erasure21 || (desired == 3 && quorum == 2),
+             (),
+             "erasure-2-1 requires desired-replicas=3 and write-quorum=2",
+           )
     yield this
 
 object ReplicationConfig:
@@ -87,12 +116,18 @@ object ReplicationConfig:
       Config.int("desired-replicas").optional ++
       Config.int("write-quorum").optional ++
       Config.duration("repair-interval").withDefault(Default.repairInterval) ++
-      Config.int("repair-batch-size").withDefault(Default.repairBatchSize.value))
-      .mapOrFail { case (rawTargets, desired, quorum, interval, batch) =>
+      Config.int("repair-batch-size").withDefault(Default.repairBatchSize.value) ++
+      Config.string("mode").withDefault(Default.mode.configValue) ++
+      Config.string("local-failure-domain").optional)
+      .mapOrFail { case (rawTargets, desired, quorum, interval, batch, rawMode, rawLocalDomain) =>
         (for
           targets      <- ReplicaTargetConfig.parseList(rawTargets)
           refinedBatch <- ReplicaRepairBatchSize.either(batch)
-          config        = ReplicationConfig(targets, desired, quorum, interval, refinedBatch)
+          mode         <- ReplicaStorageMode.parse(rawMode)
+          localDomain  <- rawLocalDomain match
+                            case None        => Right(None)
+                            case Some(value) => ReplicaFailureDomain.either(value).map(Some(_))
+          config        = ReplicationConfig(targets, desired, quorum, interval, refinedBatch, mode, localDomain)
           validated    <- config.validate
         yield validated).left.map(message => Config.Error.InvalidData(Chunk.empty, message))
       }

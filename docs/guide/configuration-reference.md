@@ -141,9 +141,12 @@ Leave `GRAVITON_REPLICATION_TARGETS` empty for one block target. To enable deter
 # Filesystem locations are independent roots.
 export GRAVITON_REPLICATION_TARGETS='west|rack-a|/srv/graviton-a,east|rack-b|/srv/graviton-b'
 
-# In S3/MinIO mode, each location is a bucket using the shared endpoint,
-# credentials, region, and block prefix.
+# In S3-compatible mode, each location is a bucket on its named endpoint.
 export GRAVITON_REPLICATION_TARGETS='zone-a|az-a|graviton-blocks-a,zone-b|az-b|graviton-blocks-b,zone-c|az-c|graviton-blocks-c'
+export GRAVITON_REPLICATION_TARGET_ZONE_A_ENDPOINT='https://rgw-a.example.com'
+export GRAVITON_REPLICATION_TARGET_ZONE_A_ACCESS_KEY='...'
+export GRAVITON_REPLICATION_TARGET_ZONE_A_SECRET_KEY='...'
+# Repeat the endpoint contract for ZONE_B and ZONE_C.
 ```
 
 | Name | Default | Meaning |
@@ -153,8 +156,14 @@ export GRAVITON_REPLICATION_TARGETS='zone-a|az-a|graviton-blocks-a,zone-b|az-b|g
 | `GRAVITON_REPLICATION_WRITE_QUORUM` | desired replica count | Successful target writes required before the manifest may commit. |
 | `GRAVITON_REPLICATION_REPAIR_INTERVAL` | `5m` | Cadence of the supervised manifest-reference scrub. |
 | `GRAVITON_REPLICATION_REPAIR_BATCH_SIZE` | `10000` | Iron-refined maximum referenced blocks per cycle, from 1 through 1,000,000. |
+| `GRAVITON_REPLICATION_MODE` | `replicated` | `replicated` or fixed `erasure-2-1`. |
+| `GRAVITON_REPLICATION_LOCAL_FAILURE_DOMAIN` | empty | Prefer validated reads from this domain before remote targets. |
 
-Target labels are trusted topology declarations. Use distinct physical racks, zones, accounts, or providers when that is the durability contract; different labels cannot make two paths on one disk independent. The manifest repository remains `GRAVITON_FS_ROOT` in filesystem mode or PostgreSQL in S3 mode. Every configured block root or bucket must already exist and be writable.
+For each target name, uppercase it and replace hyphens with underscores to obtain its environment prefix. `zone-a` becomes `GRAVITON_REPLICATION_TARGET_ZONE_A`. Configure `_ENDPOINT`, `_ACCESS_KEY`, `_SECRET_KEY`, and optionally `_REGION`. Named targets never inherit `GRAVITON_S3_ENDPOINT` or its credentials. Startup validation also rejects duplicate target endpoint URLs, because separate buckets on one endpoint are not independently stoppable failure domains.
+
+`erasure-2-1` requires exactly three uniquely named targets in three distinct failure domains, `DESIRED_REPLICAS=3`, and `WRITE_QUORUM=2`. It stores two systematic data shards and one XOR parity shard. Any two reconstruct the original block. The reconstructed bytes are checked against the original cryptographic content key before they leave the store. This mode is available for S3-compatible backends, including Ceph RGW, and not for filesystem mode.
+
+Target labels are trusted topology declarations. Use distinct physical racks, zones, accounts, clusters, or providers when that is the durability contract. Distinct URLs improve configuration safety but cannot prove the infrastructure behind them is independent. The manifest repository remains `GRAVITON_FS_ROOT` in filesystem mode or PostgreSQL in S3 mode. Every configured block root or bucket must already exist and be writable.
 
 ### Filesystem blocks and manifests (`GRAVITON_BLOB_BACKEND=fs`)
 
@@ -195,7 +204,9 @@ Block object layout:
 | `GRAVITON_S3_BLOCK_PREFIX` | `cas/blocks` | no | Key prefix for block objects inside the bucket. |
 | `GRAVITON_S3_REGION` | `us-east-1` | no | Region passed to the AWS SDK client. |
 
-Ceph RGW uses this S3-compatible path. It is not a native RADOS integration and is not yet exercised by Graviton's CI; use `GRAVITON_BLOB_BACKEND=s3` and qualify the target cluster before calling it production support.
+Ceph RGW uses this S3-compatible path. Graviton does not use a native RADOS client and does not rely on Ceph's experimental object deduplication. For multi-site durability, point named targets at independently operated RGW zones and follow Ceph's multi-site guidance: each zone is backed by its own Ceph storage cluster, while a single geographically stretched cluster is discouraged without low-latency networking. Graviton's hosted qualification exercises three independent S3-compatible processes, not three production Ceph clusters, so every Ceph deployment still needs provider acceptance.
+
+Ceph may apply replication or erasure coding inside each target pool. Graviton's `erasure-2-1` is a separate cross-target durability layer. Choose both only after calculating the compounded storage, bandwidth, and repair cost. See the [Ceph multi-site](https://docs.ceph.com/en/latest/radosgw/multisite/), [CRUSH](https://docs.ceph.com/en/latest/rados/operations/crush-map/), and [erasure-code](https://docs.ceph.com/en/umbrella/rados/operations/erasure-code/) documentation.
 
 #### S3 object key layout (exact)
 
