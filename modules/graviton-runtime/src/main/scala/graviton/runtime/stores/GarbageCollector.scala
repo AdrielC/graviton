@@ -16,27 +16,13 @@ import zio.stream.ZStream
  * holds an exclusive repository maintenance lease across the full run, while
  * minimum age and the second mark remain defense-in-depth controls.
  */
-final class GarbageCollector(
-  manifests: BlobManifestRepo,
+private[stores] abstract class GarbageCollectorBase(
+  protected val manifestReferences: ManifestReferenceSource,
   blocks: BlockMaintenance,
-  config: GarbageCollectionConfig = GarbageCollectionConfig.Default,
-  coordinator: MaintenanceCoordinator = MaintenanceCoordinator.uncoordinated,
+  config: GarbageCollectionConfig,
+  coordinator: MaintenanceCoordinator,
 ) extends GarbageCollection:
   import GarbageCollector.*
-
-  /**
-   * Binary-compatible constructors retained for v0.5.0 callers. They do not
-   * coordinate with concurrent writers; production code should supply a
-   * backend-wide [[MaintenanceCoordinator]].
-   */
-  def this(manifests: BlobManifestRepo, blocks: BlockMaintenance) =
-    this(manifests, blocks, GarbageCollectionConfig.Default, MaintenanceCoordinator.uncoordinated)
-
-  def this(
-    manifests: BlobManifestRepo,
-    blocks: BlockMaintenance,
-    config: GarbageCollectionConfig,
-  ) = this(manifests, blocks, config, MaintenanceCoordinator.uncoordinated)
 
   /**
    * Run repository-scale collection with a streaming receipt sink.
@@ -197,12 +183,7 @@ final class GarbageCollector(
     yield report
 
   private def referencedBlocks: ZStream[Any, StoreError, BinaryKey.Block] =
-    manifests.streamSummaries.flatMap { case (blob, _) =>
-      // `flatMap` is sequential here: only one manifest cursor is live while
-      // its block references are consumed, preserving backend connection and
-      // file descriptor bounds.
-      manifests.streamBlockRefs(blob).map(_.key)
-    }
+    manifestReferences.referencedBlocks
 
   private def requireCompatibilityBounds(
     references: GarbageCollectionSpool.ReferenceCapture,
@@ -256,7 +237,52 @@ final class GarbageCollector(
       }
     }
 
+/**
+ * Collector for one manifest repository and its physical block namespace.
+ *
+ * The constructor and defaults are retained from 0.7.0 for source and binary
+ * compatibility. Shared physical domains must use [[GarbageCollector.forStorageDomain]].
+ */
+final class GarbageCollector(
+  manifests: BlobManifestRepo,
+  blocks: BlockMaintenance,
+  config: GarbageCollectionConfig = GarbageCollectionConfig.Default,
+  coordinator: MaintenanceCoordinator = MaintenanceCoordinator.uncoordinated,
+) extends GarbageCollectorBase(ManifestReferenceSource.repository(manifests), blocks, config, coordinator):
+
+  /** Retained for callers compiled against the 0.7.0 convenience constructor. */
+  def this(manifests: BlobManifestRepo, blocks: BlockMaintenance) =
+    this(manifests, blocks, GarbageCollectionConfig.Default, MaintenanceCoordinator.uncoordinated)
+
+  /** Retained for callers compiled against the 0.7.0 configured constructor. */
+  def this(
+    manifests: BlobManifestRepo,
+    blocks: BlockMaintenance,
+    config: GarbageCollectionConfig,
+  ) = this(manifests, blocks, config, MaintenanceCoordinator.uncoordinated)
+
 object GarbageCollector:
+  /**
+   * Construct GC for one physical block domain shared by multiple manifest
+   * repositories. Every repository capable of referencing the domain must be
+   * present. The shared coordinator must cover all writers and this collector.
+   */
+  def forStorageDomain(
+    manifests: NonEmptyChunk[BlobManifestRepo],
+    blocks: BlockMaintenance,
+    config: GarbageCollectionConfig,
+    coordinator: MaintenanceCoordinator,
+  ): GarbageCollection =
+    new GarbageCollectorBase(ManifestReferenceSource.repositories(manifests), blocks, config, coordinator) {}
+
+  def forReferenceSource(
+    manifestReferences: ManifestReferenceSource,
+    blocks: BlockMaintenance,
+    config: GarbageCollectionConfig,
+    coordinator: MaintenanceCoordinator,
+  ): GarbageCollection =
+    new GarbageCollectorBase(manifestReferences, blocks, config, coordinator) {}
+
   final case class SweepReport(
     dryRun: Boolean,
     scannedBlocks: Long,
@@ -278,12 +304,12 @@ object GarbageCollector:
     quarantined: Chunk[QuarantinedBlock],
   )
 
-  private final case class CompatibilityLimits(
+  private[stores] final case class CompatibilityLimits(
     maxReferences: Int,
     maxReceipts: Int,
   )
 
-  private final case class RunResult(
+  private[stores] final case class RunResult(
     report: SweepReport,
     compatibilityDistinctReferences: Option[Int],
   )

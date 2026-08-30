@@ -18,6 +18,8 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Typed storage failures | Operational library surface | `StoreError` ADT with operation, backend, retry classification, preserved causes, and no `Throwable` in blob, block, manifest, object, maintenance, or GC ports |
 | Native streaming inventory | Operational | Opaque Iron-refined cursors, bounded pages, filesystem bounded-heap selection, PostgreSQL keyset SQL, S3-native continuation, HTTP pages, and gRPC streaming |
 | Backend conformance kit | Published module | Reusable ZIO Test laws for streaming round trips, idempotency, exact ranges, cursor completeness, deletion, and interruption atomicity |
+| CrashLab and tenant laws | Published module | Deterministic bounded fault injection, filesystem reconstruction, fail-before-publication and lost-ack proofs, default-isolated tenant routing, explicit shared-dedup domains, and concurrent manifest-isolation laws |
+| Multi-tenant storage | Operational embeddable runtime | Parent-preserving FiberRef context, dynamic one-resolution-per-operation provider, fail-before-pull errors, separate tenant manifests, opt-in shared blocks, process-wide transfer admission, and safe domain-wide GC marks; not yet mounted by the stock server |
 | CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
 | Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
 | PDF-aware ingest | Operational | Typed `application/pdf` routing, signature validation, incremental zio-pdf object scanning, bounded fallback, filesystem-CAS probe, and external-consumer proof |
@@ -176,12 +178,13 @@ The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix
 - [HTTP API](docs/api/http.md)
 - [Performance measurement](docs/ops/performance.md)
 - [Shardcake upload locality](docs/modules/shardcake.md)
+- [Multi-tenant storage](docs/runtime/multi-tenancy.md)
 
 A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations, multi-architecture GHCR image, GitHub release, and signed Maven Central modules. The release workflow fails closed when publication credentials are configured but invalid.
 
 ## Remaining boundaries
 
-The repository now ships durable resumable HTTP uploads, backend-native streaming inventory, typed storage errors, a reusable backend-law artifact, process-wide transfer memory admission, durable repair progress and dead letters, automated failure-domain replica or 2+1 erasure placement and repair, retained workload distributions, and executable mixed-version, sustained-failure, and target-volume-loss qualification. The highest-value remaining work is coordinated provider snapshots, physical power-loss and disk-corruption injection, target Ceph, IdP, and network acceptance, and retained benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The repository now ships durable resumable HTTP uploads, backend-native streaming inventory, typed storage errors, reusable backend, crash, and tenant law contracts, default-isolated embeddable tenant routing, process-wide transfer memory admission, durable repair progress and dead letters, automated failure-domain replica or 2+1 erasure placement and repair, retained workload distributions, and executable mixed-version, sustained-failure, and target-volume-loss qualification. The highest-value remaining work is stock-server tenant identity and quota integration, durable tenant-catalog and provider snapshots, physical power-loss and disk-corruption injection, target Ceph, IdP, and network acceptance, and retained benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 ## License
 

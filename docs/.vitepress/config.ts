@@ -181,6 +181,7 @@ export default withMermaid(defineConfig({
           { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Performance', link: '/ops/performance' },
+          { text: 'Multi-Tenant Storage', link: '/runtime/multi-tenancy' },
           { text: 'PostgreSQL Storage', link: '/ops/postgres-storage' },
           { text: 'Runtime Backends', link: '/runtime/backends' },
           { text: 'Replication', link: '/runtime/replication' },

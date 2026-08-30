@@ -19,6 +19,7 @@ Current Graviton main is a production candidate for controlled embedded and sing
 | gRPC | Packaged listener, generated stubs, bounded streaming client, lifecycle calls, auth, capabilities, rate limiting, and audit | HTTP additionally supports ranges, preconditions, and verification |
 | RocksDB | Durable key-value adapter | Not a complete CAS `BlockStore` backend |
 | Storage contracts | Typed operation-specific `StoreError`, native opaque cursor pages, complete lazy inventory, published backend laws | Third-party adapters must run the same laws and retain backend-specific fault evidence |
+| Crash and tenant contracts | Deterministic bounded fault plans, reconstructed-filesystem crash laws, fail-closed tenant context, default-isolated domains, explicit shared-dedup policy, tenant law suite, and domain-wide GC marks | In-process faults are not physical power loss; the packaged server is still single-composition rather than turnkey multi-tenant |
 | Transfer admission | Process-wide weighted byte budget with scoped, interruption-safe reservations | Size the configured ceiling against heap, direct memory, and non-Graviton co-tenants |
 | Repair progress | Durable filesystem or PostgreSQL cursor plus streamed unresolved-failure records | Alert and operate the dead-letter stream; a journal does not repair an unavailable target by itself |
 
@@ -66,6 +67,10 @@ Use one writable volume, backend readiness probes, and a conservative `Recreate`
 
 Use provider-native object durability, existing staging and block buckets, PostgreSQL migrations, encrypted connections, least-privilege credentials, and coordinated backups. Configure the same `GRAVITON_MAINTENANCE_NAMESPACE` in every process that reaches the repository. Shared blob operations and exclusive maintenance use PostgreSQL session advisory locks. Drain traffic or retry if sustained activity from another process makes exclusive acquisition time out. The repository proves real adapter integration and supplies exact rolling and failure harnesses, not a particular provider service level. Re-run them with the target image pair, credentials, network, database, and object store before declaring the deployment highly available.
 
+### Embedded multi-tenant runtime
+
+Use `TenantContext` only after authenticating the caller and resolving the server-owned tenant policy. Keep the default isolated route for unrelated customers. Shared dedup domains are appropriate only for explicit trust groups because duplicate-write observations expose a content-membership signal. Every shared domain needs one coordinator, a stable catalog snapshot, and `GarbageCollector.forStorageDomain` over all tenant manifest repositories. The packaged server does not mount this topology yet. See [Multi-tenant storage](../runtime/multi-tenancy.md).
+
 ## Security acceptance
 
 Production deployments must not set `GRAVITON_SECURITY_DEV_SHARED_SECRET`. Configure an HTTPS JWKS URI and verify all of the following in the target environment:
@@ -97,4 +102,4 @@ A `v*` tag validates the build, runs the packaged smoke, proves external consump
 
 ## Remaining product work
 
-The main product gaps are physical power-loss and disk-corruption injection, coordinated provider snapshots, retained benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides resumable uploads, durable repair progress and dead letters, automatic durability orchestration, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.
+The main product gaps are packaged-server tenant binding and quotas, durable tenant-catalog snapshots, physical power-loss and disk-corruption injection, coordinated provider snapshots, retained benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides resumable uploads, durable repair progress and dead letters, automatic durability orchestration, in-process CrashLab laws, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.

@@ -82,6 +82,47 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
         observed == 0,
       )
     },
+    test("shared-domain GC marks every tenant repository before selecting candidates") {
+      val blobA    = blobKey(1)
+      val blobB    = blobKey(2)
+      val blockA   = blockKey(101)
+      val blockB   = blockKey(202)
+      val summaryA = StoredManifestSummary(FileSize.unsafe(1L), 1, Instant.EPOCH)
+      val summaryB = StoredManifestSummary(FileSize.unsafe(2L), 1, Instant.EPOCH)
+
+      for
+        quarantines <- Ref.make(0)
+        coordinator <- MaintenanceCoordinator.inProcess()
+        repositoryA  = new StreamingOnlyManifestRepo(
+                         ZStream.succeed(blobA -> summaryA),
+                         _ => ZStream.succeed(BlobStreamer.BlockRef(0L, blockA)),
+                       )
+        repositoryB  = new StreamingOnlyManifestRepo(
+                         ZStream.succeed(blobB -> summaryB),
+                         _ => ZStream.succeed(BlobStreamer.BlockRef(0L, blockB)),
+                       )
+        maintenance  = new CountingMaintenance(
+                         ZStream(
+                           BlockInventoryEntry(blockA, 1L, Instant.EPOCH),
+                           BlockInventoryEntry(blockB, 1L, Instant.EPOCH),
+                         ),
+                         quarantines,
+                       )
+        collector    = GarbageCollector.forStorageDomain(
+                         NonEmptyChunk(repositoryA, repositoryB),
+                         maintenance,
+                         GarbageCollectionConfig.Default,
+                         coordinator,
+                       )
+        report      <- collector.sweep(Duration.Zero, dryRun = false)(_ => ZIO.unit)
+        observed    <- quarantines.get
+      yield assertTrue(
+        report.referencedBlockRefs == 2L,
+        report.candidateBlocks == 0L,
+        report.quarantinedBlocks == 0L,
+        observed == 0,
+      )
+    },
     test("sub-millisecond negative age fails before touching the inventory") {
       for
         inventoryTouches <- Ref.make(0)

@@ -33,6 +33,10 @@ Under `graviton.runtime.constraints` you will find:
 
 The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. A process-wide `TransferBudget` admits only transfers whose aggregate conservative buffer reservations fit the configured byte ceiling. When replica targets are configured, the server starts one supervised bounded repair worker whose cursor and unresolved failures survive restart through `FsRepairJournal` or `PgRepairJournal`.
 
+## Tenant routing
+
+`TenantContext`, `TenantStoreProvider`, and `ContextualTenantBlobStore` provide an embeddable, fail-closed tenant boundary. Isolated block domains are the default. Cross-tenant block reuse requires both an explicit shared domain on each route and the ZIO Config policy opt-in. The provider is resolved once per logical operation, so a dynamic catalog lookup never enters the byte hot path. Shared block domains retain separate manifest repositories and must use domain-wide maintenance that marks every tenant repository. See [Multi-tenant storage](../runtime/multi-tenancy.md).
+
 ## Upload orchestration
 
 `UploadIngestor` is the transport-neutral service for one-pass ingest preparation. HTTP, the packaged gRPC server, and Shardcake owners pass it an `UploadIntent` and a live byte stream. It performs optional declared-size validation, bounded media sniffing, keyed `ChunkerProvider` selection, scoped acquisition, attribute confirmation, and CAS storage.

@@ -3,6 +3,7 @@ package graviton.runtime.stores
 import graviton.core.RefinedTypeExt
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
+import graviton.runtime.upload.TenantId
 import io.github.iltotore.iron.constraint.collection.{MaxLength, MinLength}
 
 import java.io.IOException
@@ -44,6 +45,7 @@ enum StoreOperation:
   case UpdateReplicas
   case ReadRanges
   case MergeRanges
+  case ResolveTenant
 
 type StoreBackend = StoreBackend.T
 object StoreBackend extends RefinedTypeExt[String, MinLength[1] & MaxLength[128]]:
@@ -91,6 +93,17 @@ object StoreError:
     override val operation: StoreOperation,
     reason: String,
   ) extends StoreError(operation, reason):
+    override val retryable: Boolean = false
+
+  final case class MissingTenantContext(
+    override val operation: StoreOperation
+  ) extends StoreError(operation, "no validated tenant context is active"):
+    override val retryable: Boolean = false
+
+  final case class TenantNotConfigured(
+    override val operation: StoreOperation,
+    tenantId: TenantId,
+  ) extends StoreError(operation, s"tenant ${tenantId.value} is not configured"):
     override val retryable: Boolean = false
 
   final case class CorruptData(
