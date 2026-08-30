@@ -1,7 +1,7 @@
 package graviton.backend.s3
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.MutableObjectStore
+import graviton.runtime.stores.{MutableObjectStore, StoreError, StoreOperation, TransferBudget}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -13,12 +13,14 @@ import scala.jdk.CollectionConverters.*
 final class S3MutableObjectStore(
   client: S3Client,
   config: S3ObjectStoreConfig,
+  transferBudget: TransferBudget,
 ) extends S3ImmutableObjectStore(client, config),
       MutableObjectStore:
 
-  override def put(locator: BlobLocator): ZSink[Any, Throwable, Byte, Nothing, Unit] =
+  override def put(locator: BlobLocator): ZSink[Any, StoreError, Byte, Nothing, Unit] =
     ZSink.unwrapScoped {
-      for
+      (for
+        _            <- transferBudget.reserveScoped(S3BlobStore.MaxBufferedPartBytes.toLong)
         objectTarget <- target(locator)
         active       <- Ref.make(Option.empty[ActiveMultipartUpload])
         _            <- ZIO.addFinalizer(abortActive(active))
@@ -28,22 +30,25 @@ final class S3MutableObjectStore(
         )((state, chunk) => state.ingest(client, chunk))
         .mapZIO(_.finish(client))
         .ignoreLeftover
+        .mapError(storeError(StoreOperation.PutObject))).mapError(storeError(StoreOperation.PutObject))
     }
 
-  override def delete(locator: BlobLocator): ZIO[Any, Throwable, Unit] =
-    target(locator).flatMap { objectTarget =>
-      ZIO
-        .attemptBlocking(
-          client.deleteObject(DeleteObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build())
-        )
-        .unit
-    }
+  override def delete(locator: BlobLocator): IO[StoreError, Unit] =
+    target(locator)
+      .flatMap { objectTarget =>
+        ZIO
+          .attemptBlocking(
+            client.deleteObject(DeleteObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build())
+          )
+          .unit
+      }
+      .mapError(storeError(StoreOperation.DeleteObject))
 
-  override def copy(src: BlobLocator, dest: BlobLocator): ZIO[Any, Throwable, Unit] =
-    for
+  override def copy(src: BlobLocator, dest: BlobLocator): IO[StoreError, Unit] =
+    (for
       source      <- target(src)
       destination <- target(dest)
-      size        <- head(src).someOrFail(new NoSuchElementException(s"Source object '${src.render}' does not exist"))
+      size        <- head(src).someOrFail(StoreError.ObjectNotFound(StoreOperation.CopyObject, src))
       _           <- S3BlobStore.promoteTempObject(
                        client = client,
                        sourceBucket = source.bucket,
@@ -52,7 +57,7 @@ final class S3MutableObjectStore(
                        destinationKey = destination.key,
                        size = size,
                      )
-    yield ()
+    yield ()).mapError(storeError(StoreOperation.CopyObject))
 
   private def abortActive(ref: Ref[Option[ActiveMultipartUpload]]): UIO[Unit] =
     ref.get.flatMap {

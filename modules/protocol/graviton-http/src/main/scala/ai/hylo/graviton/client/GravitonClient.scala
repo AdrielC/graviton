@@ -126,9 +126,9 @@ final class GravitonClient private (
       Request(method = Method.POST, url = blobUrl(id) / "verify", headers = config.defaultHeaders)
     )
 
-  def list(limit: ListLimit = ListLimit.Default, cursor: Option[BlobId] = None): IO[Error, BlobListResponse] =
+  def list(limit: ListLimit = ListLimit.Default, cursor: Option[ListCursor] = None): IO[Error, BlobListResponse] =
     val withLimit = blobsUrl.addQueryParam("limit", limit.value.toString)
-    val target    = cursor.fold(withLimit)(id => withLimit.addQueryParam("cursor", id.value))
+    val target    = cursor.fold(withLimit)(value => withLimit.addQueryParam("cursor", value.value))
     executeJson[BlobListResponse](Request.get(target).copy(headers = config.defaultHeaders))
 
   def delete(id: BlobId): IO[Error, Unit] =
@@ -282,6 +282,10 @@ object GravitonClient {
   type ListLimit = ListLimit.T
   object ListLimit extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[1000]]:
     val Default: ListLimit = applyUnsafe(100)
+
+  /** Opaque inventory continuation returned by a blob-list response. */
+  type ListCursor = ListCursor.T
+  object ListCursor extends RefinedSubtype[String, MinLength[1] & MaxLength[16384]]
 
   type ResumablePartSize = ResumablePartSize.T
   object ResumablePartSize extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[67108864]]:

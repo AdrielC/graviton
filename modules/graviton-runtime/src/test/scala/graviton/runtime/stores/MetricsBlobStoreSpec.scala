@@ -32,7 +32,8 @@ object MetricsBlobStoreSpec extends ZIOSpecDefault:
         )
       },
       test("records failed puts and their duration") {
-        val failure = new java.io.IOException("block backend unavailable")
+        val cause   = new java.io.IOException("block backend unavailable")
+        val failure = StoreError.Unavailable(StoreOperation.PutBlock, StoreBackend.InMemory, cause)
         val data    = Chunk.fromArray("fail-this-put".getBytes(StandardCharsets.UTF_8))
         for
           registry <- InMemoryMetricsRegistry.make
@@ -42,7 +43,7 @@ object MetricsBlobStoreSpec extends ZIOSpecDefault:
                         override def putBlock(
                           block: graviton.runtime.model.CanonicalBlock,
                           plan: graviton.runtime.model.BlockWritePlan,
-                        ): Task[graviton.runtime.model.StoredBlock] = ZIO.fail(failure)
+                        ): IO[StoreError, graviton.runtime.model.StoredBlock] = ZIO.fail(failure)
                         override def get(key: graviton.core.keys.BinaryKey.Block)           = delegate.get(key)
                         override def exists(key: graviton.core.keys.BinaryKey.Block)        = delegate.exists(key)
           repo     <- InMemoryBlobManifestRepo.make

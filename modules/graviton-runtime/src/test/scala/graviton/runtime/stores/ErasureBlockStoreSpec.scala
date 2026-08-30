@@ -83,15 +83,15 @@ object ErasureBlockStoreSpec extends ZIOSpecDefault:
         c     <- MemoryFragmentStore.make("c", "zone-c")
         block <- canonical("remote quorum must outrun a hung local endpoint")
         hungA  = new ErasureFragmentStore:
-                   override val name: String                                                                      = a.name
-                   override val failureDomain: String                                                             = a.failureDomain
-                   override def put(key: BinaryKey.Block, fragment: ErasureFragment): Task[BlockStoredStatus]     =
+                   override val name: String                                                                                = a.name
+                   override val failureDomain: String                                                                       = a.failureDomain
+                   override def put(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, BlockStoredStatus]     =
                      a.put(key, fragment)
-                   override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[ErasureFragment] =
+                   override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): IO[StoreError, ErasureFragment] =
                      ZIO.never
-                   override def repair(key: BinaryKey.Block, fragment: ErasureFragment): Task[Unit]               =
+                   override def repair(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, Unit]               =
                      a.repair(key, fragment)
-                   override def healthCheck: Task[Unit]                                                           = a.healthCheck
+                   override def healthCheck: IO[StoreError, Unit]                                                           = a.healthCheck
         store  = ErasureBlockStore.make(Chunk(hungA, b, c), preferredFailureDomain = Some("zone-a")).toOption.get
         _     <- store.putBlock(block)
         bytes <- Live.live(
@@ -110,33 +110,40 @@ object ErasureBlockStoreSpec extends ZIOSpecDefault:
     available: Ref[Boolean],
     reads: Ref[Int],
   ) extends ErasureFragmentStore:
-    override def put(key: BinaryKey.Block, fragment: ErasureFragment): Task[BlockStoredStatus] =
+    override def put(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, BlockStoredStatus] =
       ensureAvailable *> state.modify { current =>
         val locator = key.bits.render -> fragment.index
         if current.contains(locator) then BlockStoredStatus.Duplicate -> current
         else BlockStoredStatus.Fresh                                  -> current.updated(locator, fragment)
       }
 
-    override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[ErasureFragment] =
+    override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): IO[StoreError, ErasureFragment] =
       ensureAvailable *> reads.update(_ + 1) *> state.get.flatMap(values =>
         ZIO
           .fromOption(values.get(key.bits.render -> index))
-          .orElseFail(new IOException(s"missing shard $index"))
-          .filterOrFail(_.chunk.length == expectedLength)(new IOException("wrong shard length"))
+          .orElseFail(StoreError.NotFound(StoreOperation.GetBlock, key))
+          .filterOrFail(_.chunk.length == expectedLength)(
+            StoreError.CorruptData(StoreOperation.GetBlock, s"shard $index has the wrong length")
+          )
       )
 
-    override def repair(key: BinaryKey.Block, fragment: ErasureFragment): Task[Unit] =
+    override def repair(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, Unit] =
       ensureAvailable *> state.update(_.updated(key.bits.render -> fragment.index, fragment))
 
-    override def healthCheck: Task[Unit] = ensureAvailable
+    override def healthCheck: IO[StoreError, Unit] = ensureAvailable
 
     def setAvailable(value: Boolean): UIO[Unit]                  = available.set(value)
     def clear: UIO[Unit]                                         = state.set(Map.empty)
     def contains(key: BinaryKey.Block, index: Int): UIO[Boolean] = state.get.map(_.contains(key.bits.render -> index))
     def readCount: UIO[Int]                                      = reads.get
 
-    private def ensureAvailable: Task[Unit] =
-      available.get.flatMap(value => ZIO.fail(new IOException(s"$name unavailable")).unless(value).unit)
+    private def ensureAvailable: IO[StoreError, Unit] =
+      available.get.flatMap(value =>
+        ZIO
+          .fail(StoreError.Unavailable(StoreOperation.HealthCheck, StoreBackend.InMemory, new IOException(s"$name unavailable")))
+          .unless(value)
+          .unit
+      )
 
   private object MemoryFragmentStore:
     def make(name: String, failureDomain: String): UIO[MemoryFragmentStore] =

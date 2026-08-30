@@ -3,7 +3,7 @@ package graviton.runtime.stores
 import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
+import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
 import zio.*
 import zio.stream.*
 
@@ -36,32 +36,32 @@ final class MetricsBlobStore(
         .ensuring(recordDuration(tags, started))
     }
 
-  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
     instrumentStream("get")(underlying.get(key))
 
   override def getRange(
     key: BinaryKey.Blob,
     start: BlobOffset,
     length: FileSize,
-  ): ZStream[Any, Throwable, Byte] =
+  ): ZStream[Any, StoreError, Byte] =
     instrumentStream("get_range")(underlying.getRange(key, start, length))
 
-  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =
     instrument("stat")(underlying.stat(key))
 
-  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
-    instrument("list")(underlying.list)
+  override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize): IO[StoreError, InventoryPage[BlobListing]] =
+    instrument("inventory")(underlying.inventoryPage(after, limit))
 
-  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+  override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     instrument("inspect")(underlying.inspect(key))
 
-  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+  override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     instrument("delete")(underlying.delete(key))
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
+  override def healthCheck: IO[StoreError, Unit] =
     instrument("health_check")(underlying.healthCheck)
 
-  private def instrument[A](operation: String)(effect: Task[A]): Task[A] =
+  private def instrument[A](operation: String)(effect: IO[StoreError, A]): IO[StoreError, A] =
     val tags = operationTags(operation)
     for
       started <- Clock.nanoTime
@@ -70,7 +70,7 @@ final class MetricsBlobStore(
                    .ensuring(recordDuration(tags, started))
     yield result
 
-  private def instrumentStream(operation: String)(stream: ZStream[Any, Throwable, Byte]): ZStream[Any, Throwable, Byte] =
+  private def instrumentStream(operation: String)(stream: ZStream[Any, StoreError, Byte]): ZStream[Any, StoreError, Byte] =
     val tags = operationTags(operation)
     ZStream.unwrap {
       Clock.nanoTime.map { started =>

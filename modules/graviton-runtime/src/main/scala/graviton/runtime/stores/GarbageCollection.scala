@@ -17,15 +17,15 @@ trait GarbageCollection:
     minimumAge: Duration,
     dryRun: Boolean,
   )(
-    onQuarantined: QuarantinedBlock => Task[Unit]
-  ): Task[GarbageCollector.SweepReport]
+    onQuarantined: QuarantinedBlock => IO[StoreError, Unit]
+  ): IO[StoreError, GarbageCollector.SweepReport]
 
-  def restore(quarantined: ZStream[Any, Throwable, QuarantinedBlock]): Task[Long]
+  def restore(quarantined: ZStream[Any, StoreError, QuarantinedBlock]): IO[StoreError, Long]
 
   def purge(
-    quarantined: ZStream[Any, Throwable, QuarantinedBlock],
+    quarantined: ZStream[Any, StoreError, QuarantinedBlock],
     minimumQuarantineAge: Duration,
-  ): Task[Long]
+  ): IO[StoreError, Long]
 
 object GarbageCollection:
 
@@ -36,25 +36,25 @@ object GarbageCollection:
     minimumAge: Duration,
     dryRun: Boolean,
   )(
-    onQuarantined: QuarantinedBlock => Task[Unit]
-  ): ZIO[GarbageCollection, Throwable, GarbageCollector.SweepReport] =
+    onQuarantined: QuarantinedBlock => IO[StoreError, Unit]
+  ): ZIO[GarbageCollection, StoreError, GarbageCollector.SweepReport] =
     ZIO.serviceWithZIO[GarbageCollection](_.sweep(minimumAge, dryRun)(onQuarantined))
 
   def sweep(
     minimumAge: Duration,
     dryRun: Boolean,
-  ): ZIO[GarbageCollection, Throwable, GarbageCollector.SweepReport] =
+  ): ZIO[GarbageCollection, StoreError, GarbageCollector.SweepReport] =
     sweep(minimumAge, dryRun)(_ => ZIO.unit)
 
   def restore(
-    quarantined: ZStream[Any, Throwable, QuarantinedBlock]
-  ): ZIO[GarbageCollection, Throwable, Long] =
+    quarantined: ZStream[Any, StoreError, QuarantinedBlock]
+  ): ZIO[GarbageCollection, StoreError, Long] =
     ZIO.serviceWithZIO[GarbageCollection](_.restore(quarantined))
 
   def purge(
-    quarantined: ZStream[Any, Throwable, QuarantinedBlock],
+    quarantined: ZStream[Any, StoreError, QuarantinedBlock],
     minimumQuarantineAge: Duration,
-  ): ZIO[GarbageCollection, Throwable, Long] =
+  ): ZIO[GarbageCollection, StoreError, Long] =
     ZIO.serviceWithZIO[GarbageCollection](_.purge(quarantined, minimumQuarantineAge))
 
   /**

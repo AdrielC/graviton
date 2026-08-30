@@ -115,14 +115,14 @@ The live-byte ceiling controlled by Graviton is:
 ```text
 input queue chunks * I/O chunk bytes
 + block queue entries * chunker maximum block bytes
-+ (block write parallelism + 1) * chunker maximum block bytes
++ (2 * block write parallelism + 1) * chunker maximum block bytes
 ```
 
-This excludes one caller-owned input chunk, the chunker's documented working set, and backend-local buffers. With the defaults and a 1 MiB fixed chunker, the Graviton-owned ceiling is 7,602,176 bytes per active ingest.
+This excludes one caller-owned input chunk and the chunker's implementation-specific working set. The doubled write term covers an ordered prepared block and a replayable backend request body for every concurrent write, plus one block being produced. With the defaults and a 1 MiB fixed chunker, the admitted ceiling is 11,796,480 bytes per active ingest.
 
 Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Missing or inconsistent proof metadata fails closed without downloading the object. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
 
-The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. This adds at most one block-size byte array per active block write. With the default 1 MiB chunker and four concurrent writes, that backend-local allowance is 4 MiB. At the supported 16 MiB maximum block size and 64-way maximum parallelism, the theoretical configuration ceiling is 1 GiB per upload, so operators should not combine both maxima without an explicit memory budget.
+The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. The admission formula includes one such block-size allowance per active write. The process-wide `TransferBudget` is mandatory in packaged server wiring, defaults to 512 MiB, and prevents an unsafe maximum-block and maximum-parallelism combination from accepting bytes. A standalone `S3BlobStore` or `S3MutableObjectStore` also reserves its complete 128 MiB adaptive part ceiling before pulling input.
 
 The fixed 2+1 erasure adapter trades CPU and network for lower cross-target storage overhead. It stores 1.5 times the canonical block bytes before object metadata, compared with 3 times for three full replicas. XOR is linear in block size. A maximum-size 16 MiB block produces three 8 MiB shards. The codec itself retains at most 40 MiB of source and shard bytes for one active block. Parallel synchronous S3 request bodies raise the conservative maximum write allowance to 64 MiB. A convergence repair that retains read shards while rebuilding and writing a missing shard has a conservative 88 MiB maximum. Ordinary reads race the three failure domains and cancel the remaining fiber after any two verified shards arrive. Because the third bounded read may finish before cancellation, ordinary reconstruction has a conservative 48 MiB maximum. These are hard per-block ceilings, not expected default usage: the 1 MiB default block yields proportionally smaller allowances. Multiply the relevant bound by configured block-write concurrency before choosing heap limits. Ceph's own replication or erasure policy adds another independent cost layer.
 
@@ -142,7 +142,7 @@ The implemented `/api/v1/uploads` protocol changes that cost shape to obtain dur
 
 The advantage is operational rather than computational: acknowledged offsets survive process restart, repeated part IDs are idempotent, transient SDK retries replay only one Iron-bounded part, commit is leased and content-idempotent, and expiry cleans orphans. The response is not a temporary content ID. Only successful commit returns the final immutable blob key.
 
-The current S3 staging adapter stores each client-defined part as one generic object and internally switches to adaptive multipart upload under its existing Iron-bounded buffer and abort finalizer. This is separate from CAS block persistence. Graviton CAS blocks remain bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are still the appropriate CAS default rather than multipart upload per block.
+The current S3 staging adapter stores each client-defined part as one generic object and internally switches to adaptive multipart upload under its existing Iron-bounded buffer and abort finalizer. Staging and final CAS ingest share the server's process-wide transfer budget, so their conservative reservations cannot multiply past the configured ceiling. Graviton CAS blocks remain bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are still the appropriate CAS default rather than multipart upload per block.
 
 ## Comparing revisions
 

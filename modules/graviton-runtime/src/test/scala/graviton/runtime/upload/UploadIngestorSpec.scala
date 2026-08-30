@@ -108,7 +108,7 @@ object UploadIngestorSpec extends ZIOSpecDefault:
           providerStarted <- providerOpens.get
           providerEnded   <- providerCloses.get
           releasedSource  <- sourceReleased.get
-          stored          <- graviton.blobStore.list
+          stored          <- graviton.blobStore.streamInventory.runCollect
         yield assertTrue(
           exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[UploadIngestor.Error.MediaTypeMismatch]),
           observedPulls == signature.length,
@@ -135,7 +135,7 @@ object UploadIngestorSpec extends ZIOSpecDefault:
                         .exit
           opens    <- acquired.get
           closes   <- released.get
-          stored   <- graviton.blobStore.list
+          stored   <- graviton.blobStore.streamInventory.runCollect
         yield assertTrue(
           exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[UploadIngestor.Error.Validation]),
           opens == 1,
@@ -166,7 +166,7 @@ object UploadIngestorSpec extends ZIOSpecDefault:
           sniffed        <- detectorOpens.get
           opened         <- providerOpens.get
           closed         <- providerCloses.get
-          stored         <- graviton.blobStore.list
+          stored         <- graviton.blobStore.streamInventory.runCollect
         yield assertTrue(
           exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[UploadIngestor.Error.Validation]),
           observedPulls == 2,
@@ -189,7 +189,7 @@ object UploadIngestorSpec extends ZIOSpecDefault:
           _           <- fiber.interrupt
           opens       <- acquired.get
           closes      <- released.get
-          stored      <- graviton.blobStore.list
+          stored      <- graviton.blobStore.streamInventory.runCollect
         yield assertTrue(opens == 1, closes == 1, stored.isEmpty)
       } @@ TestAspect.timeout(5.seconds),
       test("unknown content falls back without pretending the advertised type was detected") {

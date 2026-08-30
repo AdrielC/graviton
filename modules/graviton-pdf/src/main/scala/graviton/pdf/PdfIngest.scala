@@ -3,7 +3,7 @@ package graviton.pdf
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.Mime
 import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, StoreError}
 import graviton.runtime.upload.{UploadIngestor, UploadIntent}
 import graviton.shared.MediaTypeText
 import zio.{IO, ZIO}
@@ -62,8 +62,8 @@ object PdfIngest:
         )
         .map(_.stored)
         .mapError {
-          case UploadIngestor.Error.Storage(cause) if cause.isInstanceOf[IllegalArgumentException] => cause
-          case error                                                                               => error
+          case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput) => cause
+          case error                                                        => error
         }
     }
 

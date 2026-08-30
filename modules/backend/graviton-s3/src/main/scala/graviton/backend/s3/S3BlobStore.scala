@@ -5,8 +5,19 @@ import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.locator.BlobLocator
 import graviton.core.types.{ChunkCount, FileSize, MaxBlockBytes}
-import graviton.runtime.model.{BlobBlockDescription, BlobDescription, BlobListing, BlobStat, BlobWritePlan}
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.model.{
+  BlobBlockDescription,
+  BlobDescription,
+  BlobListing,
+  BlobStat,
+  BlobWritePlan,
+  InventoryCursor,
+  InventoryNamespace,
+  InventoryPage,
+  InventoryPageSize,
+}
+import graviton.runtime.config.TransferMemoryConfig
+import graviton.runtime.stores.{BlobStore, StoreBackend, StoreError, StoreOperation, TransferBudget}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import software.amazon.awssdk.core.sync.RequestBody
@@ -28,11 +39,13 @@ final case class S3BlobStoreConfig(
 final class S3BlobStore(
   client: S3Client,
   config: S3BlobStoreConfig,
+  transferBudget: TransferBudget,
 ) extends BlobStore:
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
-      for
+      (for
+        _      <- transferBudget.reserveScoped(S3BlobStore.MaxBufferedPartBytes.toLong)
         _      <-
           ZIO
             .fromEither(plan.attributes.validate)
@@ -46,7 +59,7 @@ final class S3BlobStore(
           s.ingest(chunk, client)
         }
         .mapZIO(_.finish(client, plan))
-        .ignoreLeftover
+        .mapError(storeError(StoreOperation.PutBlob))).mapError(storeError(StoreOperation.PutBlob))
     }
 
   private def cleanupTemp(ref: zio.Ref[Option[TempResource]]): zio.UIO[Unit] =
@@ -71,7 +84,7 @@ final class S3BlobStore(
           .ignore
     }
 
-  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
     val req =
       GetObjectRequest
         .builder()
@@ -84,8 +97,9 @@ final class S3BlobStore(
         ZIO.attemptBlocking(client.getObject(req))
       )(is => ZIO.attemptBlocking(is.close()).orDie)
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
+      .mapError(storeError(StoreOperation.GetBlob, Some(key)))
 
-  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =
     val request = HeadObjectRequest.builder().bucket(config.blobs.bucket).key(objectKeyFor(key)).build()
     ZIO
       .attemptBlocking(client.headObject(request))
@@ -96,66 +110,87 @@ final class S3BlobStore(
           .map(size => Some(BlobStat(size, key.bits.digest, response.lastModified())))
       }
       .catchSome { case error: S3Exception if S3BlobStore.isNotFound(error) => ZIO.succeed(None) }
+      .mapError(storeError(StoreOperation.StatBlob, Some(key)))
 
-  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
-    ZStream
-      .paginateChunkZIO("") { continuationToken =>
-        ZIO.attemptBlocking {
-          val builder  = ListObjectsV2Request
-            .builder()
-            .bucket(config.blobs.bucket)
-            .prefix(activeListPrefix)
-          if continuationToken.nonEmpty then
-            val _ = builder.continuationToken(continuationToken)
-          val response = client.listObjectsV2(builder.build())
-          val listings = Chunk.fromIterable(
-            response
-              .contents()
-              .asScala
-              .iterator
-              .map { entry =>
-                val key  = parseObjectKey(entry.key()).fold(
-                  message => throw new IllegalStateException(s"Invalid Graviton blob object '${entry.key()}': $message"),
-                  identity,
-                )
-                if entry.size() != key.bits.size then
-                  throw new IllegalStateException(
-                    s"S3 object '${entry.key()}' has ${entry.size()} bytes but its content key declares ${key.bits.size}"
-                  )
-                val size = FileSize.either(entry.size()).fold(message => throw new IllegalStateException(message), identity)
-                BlobListing(key, BlobStat(size, key.bits.digest, entry.lastModified()), blockCount = 1)
-              }
-              .toList
-          )
-          (listings, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
-        }
-      }
-      .runCollect
+  override def inventoryPage(
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, InventoryPage[BlobListing]] =
+    for
+      anchor   <- ZIO
+                    .fromEither(
+                      after.fold[Either[String, Option[String]]](Right(None))(cursor =>
+                        InventoryCursor.decode(cursor, InventoryNamespace.S3).map(Some(_))
+                      )
+                    )
+                    .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+      response <- ZIO
+                    .attemptBlocking {
+                      val builder = ListObjectsV2Request
+                        .builder()
+                        .bucket(config.blobs.bucket)
+                        .prefix(activeListPrefix)
+                        .maxKeys(limit.value)
+                      anchor.foreach(builder.startAfter)
+                      client.listObjectsV2(builder.build())
+                    }
+                    .mapError(storeError(StoreOperation.Inventory))
+      rows     <- ZIO
+                    .foreach(Chunk.fromIterable(response.contents().asScala).take(limit.value)) { entry =>
+                      ZIO
+                        .fromEither(parseListing(entry))
+                        .mapError(StoreError.CorruptData(StoreOperation.Inventory, _))
+                    }
+      next     <- ZIO.foreach(rows.lastOption.filter(_ => response.isTruncated)) { listing =>
+                    ZIO
+                      .fromEither(InventoryCursor.encode(InventoryNamespace.S3, objectKeyFor(listing.key)))
+                      .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+                  }
+    yield InventoryPage(rows, next)
 
-  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+  override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     stat(key).flatMap {
       case None        => ZIO.succeed(None)
       case Some(value) =>
         ZIO
           .fromEither(BinaryKey.block(key.bits))
-          .mapError(message => new IllegalStateException(message))
+          .mapError(StoreError.CorruptData(StoreOperation.InspectBlob, _))
           .map { blockKey =>
             val listing = BlobListing(key, value, blockCount = 1)
             Some(BlobDescription(listing, Chunk(BlobBlockDescription(0L, blockKey, 0L, value.size.value))))
           }
     }
 
-  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+  override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     val req =
       DeleteObjectRequest
         .builder()
         .bucket(config.blobs.bucket)
         .key(objectKeyFor(key))
         .build()
-    ZIO.attemptBlocking(client.deleteObject(req)).unit
+    ZIO.attemptBlocking(client.deleteObject(req)).unit.mapError(storeError(StoreOperation.DeleteBlob, Some(key)))
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking(client.headBucket(HeadBucketRequest.builder().bucket(config.blobs.bucket).build())).unit
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking(client.headBucket(HeadBucketRequest.builder().bucket(config.blobs.bucket).build()))
+      .unit
+      .mapError(storeError(StoreOperation.HealthCheck))
+
+  private def parseListing(entry: S3Object): Either[String, BlobListing] =
+    for
+      key  <- parseObjectKey(entry.key()).left.map(message => s"Invalid Graviton blob object '${entry.key()}': $message")
+      _    <- Either.cond(
+                entry.size() == key.bits.size,
+                (),
+                s"S3 object '${entry.key()}' has ${entry.size()} bytes but its content key declares ${key.bits.size}",
+              )
+      size <- FileSize.either(entry.size())
+    yield BlobListing(key, BlobStat(size, key.bits.digest, entry.lastModified()), blockCount = 1)
+
+  private def storeError(operation: StoreOperation, key: Option[BinaryKey] = None)(error: Throwable): StoreError =
+    error match
+      case s3: S3Exception if S3BlobStore.isNotFound(s3) && key.nonEmpty => StoreError.NotFound(operation, key.get)
+      case other                                                         => StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(other)
 
   private def objectKeyFor(key: BinaryKey.Blob): String =
     val base   = s"${S3BlobStore.algoPathSegment(key.bits.algo)}/${key.bits.digest.hex.value}-${key.bits.size}"
@@ -353,7 +388,8 @@ object S3BlobStore:
                         .fromEither(S3Config.fromEnvironment(bucket = tmpBucket))
                         .mapError(msg => new IllegalArgumentException(msg))
         client     <- S3ClientLayer.make(base)
-      yield new S3BlobStore(client, S3BlobStoreConfig(blobs = base, tmp = tmp))
+        budget     <- TransferBudget.make(TransferMemoryConfig.Default)
+      yield new S3BlobStore(client, S3BlobStoreConfig(blobs = base, tmp = tmp), budget)
     }
 
 private final case class PutState(

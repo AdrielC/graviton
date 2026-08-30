@@ -1,11 +1,11 @@
 package graviton.backend.s3
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.ImmutableObjectStore
+import graviton.runtime.stores.{ImmutableObjectStore, StoreBackend, StoreError, StoreOperation}
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
 import zio.stream.ZStream
-import zio.{Chunk, Task, ZIO}
+import zio.{Chunk, IO, Task, ZIO}
 
 import scala.jdk.CollectionConverters.*
 
@@ -20,48 +20,55 @@ class S3ImmutableObjectStore protected[s3] (
   protected val config: S3ObjectStoreConfig,
 ) extends ImmutableObjectStore:
 
-  override def head(locator: BlobLocator): ZIO[Any, Throwable, Option[Long]] =
-    target(locator).flatMap { objectTarget =>
-      val request = HeadObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build()
-      ZIO
-        .attemptBlocking(client.headObject(request))
-        .map(response => Some(response.contentLength().longValue()))
-        .catchSome { case error: S3Exception if S3BlobStore.isNotFound(error) => ZIO.succeed(None) }
-    }
-
-  override def list(prefix: String): ZStream[Any, Throwable, BlobLocator] =
-    ZStream.paginateChunkZIO("") { continuationToken =>
-      ZIO.attemptBlocking {
-        val builder  = ListObjectsV2Request
-          .builder()
-          .bucket(config.storage.bucket)
-          .prefix(prefixed(prefix))
-        if continuationToken.nonEmpty then
-          val _ = builder.continuationToken(continuationToken)
-        val response = client.listObjectsV2(builder.build())
-        val locators = Chunk.fromIterable(
-          response
-            .contents()
-            .asScala
-            .iterator
-            .map { value =>
-              BlobLocator
-                .from(config.scheme, config.storage.bucket, relative(value.key()))
-                .fold(message => throw new IllegalStateException(message), identity)
-            }
-            .toList
-        )
-        (locators, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+  override def head(locator: BlobLocator): IO[StoreError, Option[Long]] =
+    target(locator)
+      .flatMap { objectTarget =>
+        val request = HeadObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build()
+        ZIO
+          .attemptBlocking(client.headObject(request))
+          .map(response => Some(response.contentLength().longValue()))
+          .catchSome { case error: S3Exception if S3BlobStore.isNotFound(error) => ZIO.succeed(None) }
       }
-    }
+      .mapError(storeError(StoreOperation.HeadObject))
 
-  override def get(locator: BlobLocator): ZStream[Any, Throwable, Byte] =
-    ZStream.fromZIO(target(locator)).flatMap { objectTarget =>
-      val request = GetObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build()
-      ZStream
-        .acquireReleaseWith(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
-        .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
-    }
+  override def list(prefix: String): ZStream[Any, StoreError, BlobLocator] =
+    ZStream
+      .paginateChunkZIO("") { continuationToken =>
+        ZIO.attemptBlocking {
+          val builder  = ListObjectsV2Request
+            .builder()
+            .bucket(config.storage.bucket)
+            .prefix(prefixed(prefix))
+          if continuationToken.nonEmpty then
+            val _ = builder.continuationToken(continuationToken)
+          val response = client.listObjectsV2(builder.build())
+          val locators = Chunk.fromIterable(
+            response
+              .contents()
+              .asScala
+              .iterator
+              .map { value =>
+                BlobLocator
+                  .from(config.scheme, config.storage.bucket, relative(value.key()))
+                  .fold(message => throw new IllegalStateException(message), identity)
+              }
+              .toList
+          )
+          (locators, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+        }
+      }
+      .mapError(storeError(StoreOperation.ListObjects))
+
+  override def get(locator: BlobLocator): ZStream[Any, StoreError, Byte] =
+    ZStream
+      .fromZIO(target(locator))
+      .flatMap { objectTarget =>
+        val request = GetObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build()
+        ZStream
+          .acquireReleaseWith(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
+          .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
+      }
+      .mapError(storeError(StoreOperation.GetObject))
 
   protected final def target(locator: BlobLocator): Task[S3ObjectTarget] =
     if locator.scheme.value != config.scheme then
@@ -69,6 +76,9 @@ class S3ImmutableObjectStore protected[s3] (
     else if locator.bucket.value != config.storage.bucket then
       ZIO.fail(new IllegalArgumentException(s"Expected bucket '${config.storage.bucket}', received '${locator.bucket.value}'"))
     else ZIO.succeed(S3ObjectTarget(locator.bucket.value, prefixed(locator.path.value)))
+
+  protected final def storeError(operation: StoreOperation)(error: Throwable): StoreError =
+    StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(error)
 
   private def prefixed(path: String): String =
     val root     = config.storage.prefix.trim.stripPrefix("/").stripSuffix("/")

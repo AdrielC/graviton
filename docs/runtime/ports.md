@@ -10,6 +10,10 @@ The primary interface for ingest + retrieval of logical blobs.
 
 - **Write**: `put(plan)` returns a `ZSink` you run a `ZStream[Byte]` into.
 - **Read**: `get(key)` returns a `ZStream[Byte]` you can stream to files, HTTP responses, etc.
+- **Inventory page**: `inventoryPage(after, limit)` delegates to the backend's stable native order and returns an opaque continuation cursor.
+- **Inventory stream**: `streamInventory` follows pages lazily without retaining repository-scale state.
+
+The error channel is `StoreError`, not `Throwable`. Each failure identifies the operation, preserves a diagnostic cause where one exists, and exposes an explicit `retryable` classification.
 
 See `graviton.runtime.stores.BlobStore`.
 
@@ -28,6 +32,8 @@ These ports model *locator-addressed* storage (think “object storage”), inde
 
 - `ImmutableObjectStore` supports `head`, `list`, and `get`.
 - `MutableObjectStore` adds `put`, `delete`, and `copy`.
+
+Their public streams, sinks, and effects also use `StoreError`.
 
 See `graviton.runtime.stores.ImmutableObjectStore` and `graviton.runtime.stores.MutableObjectStore`.
 
@@ -63,6 +69,14 @@ This port coordinates ordinary blob work with destructive repository maintenance
 - `healthCheck` verifies that the coordination backend can be reached.
 
 `CoordinatedBlobStore` decorates any `BlobStore` and applies the shared permit to uploads, downloads, metadata, inventory, inspection, and deletion. `GarbageCollection.live` requires the same coordinator explicitly. Filesystem and PostgreSQL implementations provide cross-process coordination; the in-process implementation is for embedded memory stores and deterministic tests.
+
+## `TransferBudget`
+
+`TransferBudget` is a weighted, process-wide semaphore for bytes retained by active transfer pipelines. A sink reserves its conservative live-buffer ceiling in a scope before accepting input. Waiting is interruptible, and the scoped permit is released on success, failure, or interruption. Inline CAS and S3 resumable staging receive the same service instance in packaged server wiring. Standalone S3 blob and mutable-object layers also reserve their adaptive part ceiling. The server reads `graviton.transfer-memory.maximum-buffered-bytes`; the default is 512 MiB.
+
+## `RepairJournal`
+
+`RepairJournal` stores the next repair offset and unresolved per-block failures. Filesystem deployments use atomic files below `cas/repair`; shared deployments use PostgreSQL rows. Dead letters are streamed, attempts are monotonic and bounded, and a successful convergence removes the unresolved entry.
 
 ## Reference implementations
 

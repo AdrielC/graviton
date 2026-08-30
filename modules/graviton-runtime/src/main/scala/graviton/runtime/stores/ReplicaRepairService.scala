@@ -9,28 +9,34 @@ final class ReplicaRepairService private (
   store: ConvergentBlockStore,
   manifests: BlobManifestRepo,
   config: ReplicationConfig,
-  cursor: Ref[Int],
+  journal: RepairJournal,
   metrics: MetricsRegistry,
 ):
   import ReplicaRepairService.*
 
-  def runCycle: Task[CycleReport] =
+  def runCycle: IO[StoreError, CycleReport] =
     ZIO.logAnnotate("component", "replica-repair") {
       for
         started <- Clock.nanoTime
-        offset  <- cursor.get
-        report  <- referencedBlocks
-                     .drop(offset)
+        offset  <- journal.loadCursor
+        report  <- referencedBlocks.zipWithIndex
+                     .dropWhile { case (_, index) => index < offset }
+                     .map(_._1)
                      .take(config.repairBatchSize.value.toLong)
-                     .mapZIO(key => store.converge(key).either)
+                     .mapZIO { key =>
+                       store.converge(key).either.flatMap {
+                         case Right(current) => journal.resolve(key).as(Right(current))
+                         case Left(error)    => Clock.instant.flatMap(now => journal.recordFailure(key, error, now)).as(Left(error))
+                       }
+                     }
                      .runFold(CycleAcc.empty) {
                        case (acc, Right(current)) => acc.record(current)
                        case (acc, Left(_))        => acc.failedBlock
                      }
         next     =
-          if report.processed < config.repairBatchSize.value.toLong || offset > Int.MaxValue - report.processed then 0
-          else offset + report.processed.toInt
-        _       <- cursor.set(next)
+          if report.processed < config.repairBatchSize.value.toLong || offset > Long.MaxValue - report.processed then 0L
+          else offset + report.processed
+        _       <- journal.checkpoint(next)
         ended   <- Clock.nanoTime
         duration = (ended - started).max(0L).toDouble / 1_000_000_000.0
         result   = CycleReport(
@@ -38,7 +44,7 @@ final class ReplicaRepairService private (
                      repairedReplicas = report.repaired,
                      failedReplicas = report.failedReplicas,
                      failedBlocks = report.failedBlocks,
-                     nextOffset = next.toLong,
+                     nextOffset = next,
                      duration = duration,
                    )
         _       <- metrics.counter(
@@ -98,7 +104,16 @@ object ReplicaRepairService:
     config: ReplicationConfig,
     metrics: MetricsRegistry,
   ): UIO[ReplicaRepairService] =
-    Ref.make(0).map(new ReplicaRepairService(store, manifests, config, _, metrics))
+    RepairJournal.inMemory.map(new ReplicaRepairService(store, manifests, config, _, metrics))
+
+  def make(
+    store: ConvergentBlockStore,
+    manifests: BlobManifestRepo,
+    config: ReplicationConfig,
+    journal: RepairJournal,
+    metrics: MetricsRegistry,
+  ): UIO[ReplicaRepairService] =
+    ZIO.succeed(new ReplicaRepairService(store, manifests, config, journal, metrics))
 
   private final case class CycleAcc(
     processed: Long,

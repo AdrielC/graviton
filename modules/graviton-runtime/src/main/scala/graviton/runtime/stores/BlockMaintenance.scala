@@ -21,7 +21,7 @@ final case class QuarantinedBlock(
 
 /** Destructive block operations kept separate from the normal CAS surface. */
 trait BlockMaintenance:
-  def inventory: ZStream[Any, Throwable, BlockInventoryEntry]
-  def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock]
-  def restore(block: QuarantinedBlock): Task[Unit]
-  def purge(block: QuarantinedBlock): Task[Unit]
+  def inventory: ZStream[Any, StoreError, BlockInventoryEntry]
+  def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock]
+  def restore(block: QuarantinedBlock): IO[StoreError, Unit]
+  def purge(block: QuarantinedBlock): IO[StoreError, Unit]

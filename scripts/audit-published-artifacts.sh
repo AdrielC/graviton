@@ -10,6 +10,7 @@ projects=(
   sharedProtocolJVM
   sharedProtocolJS
   runtime
+  backendLaws
   pdf
   shardcakeIntegration
   proto
@@ -33,6 +34,7 @@ directories=(
   "modules/protocol/graviton-shared/jvm"
   "modules/protocol/graviton-shared/js"
   "modules/graviton-runtime"
+  "modules/graviton-backend-laws"
   "modules/graviton-pdf"
   "modules/integration/graviton-shardcake"
   "modules/protocol/graviton-proto"

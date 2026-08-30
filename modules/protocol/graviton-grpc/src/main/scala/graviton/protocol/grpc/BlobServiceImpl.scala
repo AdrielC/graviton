@@ -4,7 +4,7 @@ import com.google.protobuf.ByteString
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.FileSize
 import graviton.runtime.model.BlobWritePlan
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, StoreError}
 import graviton.runtime.upload.{UploadIngestor, UploadIntent}
 import graviton.shared.MediaTypeText
 import io.grpc.{Status, StatusException}
@@ -63,9 +63,8 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
     )
 
   override def listBlobs(request: ListBlobsRequest): Stream[StatusException, BlobSummary] =
-    ZStream
-      .fromZIO(blobStore.list.mapError(toStatus))
-      .flatMap(ZStream.fromChunk)
+    blobStore.streamInventory
+      .mapError(toStatus)
       .map { listing =>
         BlobSummary(
           key = Some(BlobKey(GrpcProtocol.render(listing.key))),
@@ -123,16 +122,16 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
 
   private def toStatus(error: Throwable): StatusException =
     error match
-      case status: StatusException                                       => status
-      case UploadIngestor.Error.Source(status: StatusException)          => status
-      case invalid: UploadIngestor.Error.InvalidInput                    => invalidStatus(invalid)
-      case mismatch: UploadIngestor.Error.MediaTypeMismatch              => invalidStatus(mismatch)
-      case ambiguous: UploadIngestor.Error.AmbiguousDetection            => invalidStatus(ambiguous)
-      case validation: UploadIngestor.Error.Validation                   => invalidStatus(validation)
-      case UploadIngestor.Error.Storage(cause: IllegalArgumentException) => invalidStatus(cause)
-      case _: NoSuchElementException                                     => Status.NOT_FOUND.withDescription("blob was not found").asException()
-      case _: IllegalArgumentException                                   => invalidStatus(error)
-      case _                                                             => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
+      case status: StatusException                                      => status
+      case UploadIngestor.Error.Source(status: StatusException)         => status
+      case invalid: UploadIngestor.Error.InvalidInput                   => invalidStatus(invalid)
+      case mismatch: UploadIngestor.Error.MediaTypeMismatch             => invalidStatus(mismatch)
+      case ambiguous: UploadIngestor.Error.AmbiguousDetection           => invalidStatus(ambiguous)
+      case validation: UploadIngestor.Error.Validation                  => invalidStatus(validation)
+      case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput) => invalidStatus(cause)
+      case _: NoSuchElementException                                    => Status.NOT_FOUND.withDescription("blob was not found").asException()
+      case _: IllegalArgumentException                                  => invalidStatus(error)
+      case _                                                            => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
 
   private def invalidStatus(error: Throwable): StatusException =
     Status.INVALID_ARGUMENT.withDescription(safeMessage(error)).asException()

@@ -3,8 +3,7 @@ package graviton.runtime.upload
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.locator.BlobLocator
 import graviton.core.types.FileSize
-import graviton.runtime.stores.MutableObjectStore
-import graviton.runtime.stores.FsMutableObjectStore
+import graviton.runtime.stores.{FsMutableObjectStore, MutableObjectStore, StoreError, StoreOperation}
 import zio.*
 import zio.blocks.mediatype.MediaTypes
 import zio.stream.{ZSink, ZStream}
@@ -244,16 +243,18 @@ object ResumableUploadServiceSpec extends ZIOSpecDefault:
     }.orDie
 
   private final class TestObjectStore(ref: Ref[Map[BlobLocator, Chunk[Byte]]]) extends MutableObjectStore:
-    override def put(locator: BlobLocator): ZSink[Any, Throwable, Byte, Nothing, Unit] =
+    override def put(locator: BlobLocator): ZSink[Any, StoreError, Byte, Nothing, Unit] =
       ZSink.collectAll[Byte].mapZIO(bytes => ref.update(_.updated(locator, bytes)))
 
     override def delete(locator: BlobLocator): UIO[Unit] =
       ref.update(_ - locator)
 
-    override def copy(src: BlobLocator, dest: BlobLocator): Task[Unit] =
-      ref.get.flatMap(values => ZIO.fromOption(values.get(src)).orElseFail(new NoSuchElementException(src.render))).flatMap { bytes =>
-        ref.update(_.updated(dest, bytes))
-      }
+    override def copy(src: BlobLocator, dest: BlobLocator): IO[StoreError, Unit] =
+      ref.get
+        .flatMap(values => ZIO.fromOption(values.get(src)).orElseFail(StoreError.ObjectNotFound(StoreOperation.CopyObject, src)))
+        .flatMap { bytes =>
+          ref.update(_.updated(dest, bytes))
+        }
 
     override def head(locator: BlobLocator): UIO[Option[Long]] =
       ref.get.map(_.get(locator).map(_.length.toLong))
@@ -261,9 +262,12 @@ object ResumableUploadServiceSpec extends ZIOSpecDefault:
     override def list(prefix: String): ZStream[Any, Nothing, BlobLocator] =
       ZStream.fromZIO(ref.get).flatMap(values => ZStream.fromIterable(values.keys.filter(_.path.value.startsWith(prefix))))
 
-    override def get(locator: BlobLocator): ZStream[Any, Throwable, Byte] =
+    override def get(locator: BlobLocator): ZStream[Any, StoreError, Byte] =
       ZStream
-        .fromZIO(ref.get.flatMap(values => ZIO.fromOption(values.get(locator)).orElseFail(new NoSuchElementException(locator.render))))
+        .fromZIO(
+          ref.get
+            .flatMap(values => ZIO.fromOption(values.get(locator)).orElseFail(StoreError.ObjectNotFound(StoreOperation.GetObject, locator)))
+        )
         .flattenChunks
 
     def size: UIO[Int] = ref.get.map(_.size)

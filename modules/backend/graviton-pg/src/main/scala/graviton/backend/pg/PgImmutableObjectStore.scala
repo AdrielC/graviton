@@ -1,56 +1,67 @@
 package graviton.backend.pg
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.ImmutableObjectStore
+import graviton.runtime.stores.{ImmutableObjectStore, StoreBackend, StoreError, StoreOperation}
 import zio.stream.ZStream
-import zio.{Chunk, Task, UIO, ZIO}
+import zio.{Chunk, IO, Task, UIO, ZIO}
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
 import javax.sql.DataSource
 
 class PgImmutableObjectStore protected[pg] (protected val dataSource: DataSource) extends ImmutableObjectStore:
 
-  override def head(locator: BlobLocator): ZIO[Any, Throwable, Option[Long]] =
-    ZIO.attemptBlocking {
-      val connection = dataSource.getConnection()
-      try
-        val statement = connection.prepareStatement("SELECT byte_length FROM graviton.object_data WHERE locator = ?")
+  override def head(locator: BlobLocator): IO[StoreError, Option[Long]] =
+    ZIO
+      .attemptBlocking {
+        val connection = dataSource.getConnection()
         try
-          statement.setString(1, locator.render)
-          val result = statement.executeQuery()
-          try if result.next() then Some(result.getLong(1)) else None
-          finally result.close()
-        finally statement.close()
-      finally connection.close()
-    }
+          val statement = connection.prepareStatement("SELECT byte_length FROM graviton.object_data WHERE locator = ?")
+          try
+            statement.setString(1, locator.render)
+            val result = statement.executeQuery()
+            try if result.next() then Some(result.getLong(1)) else None
+            finally result.close()
+          finally statement.close()
+        finally connection.close()
+      }
+      .mapError(storeError(StoreOperation.HeadObject))
 
-  override def list(prefix: String): ZStream[Any, Throwable, BlobLocator] =
-    ZStream.acquireReleaseWith(openLocatorCursor(prefix))(closeCursor).flatMap { cursor =>
-      ZStream.unfoldChunkZIO(cursor) { current =>
-        ZIO.attemptBlocking {
-          val values = Chunk.newBuilder[BlobLocator]
-          var count  = 0
-          while count < PgImmutableObjectStore.FetchSize && current.result.next() do
-            val locator = BlobLocator
-              .from(current.result.getString(1), current.result.getString(2), current.result.getString(3))
-              .fold(message => throw new IllegalStateException(message), identity)
-            values += locator
-            count += 1
-          val chunk  = values.result()
-          if chunk.isEmpty then None else Some((chunk, current))
+  override def list(prefix: String): ZStream[Any, StoreError, BlobLocator] =
+    ZStream
+      .acquireReleaseWith(openLocatorCursor(prefix))(closeCursor)
+      .flatMap { cursor =>
+        ZStream.unfoldChunkZIO(cursor) { current =>
+          ZIO.attemptBlocking {
+            val values = Chunk.newBuilder[BlobLocator]
+            var count  = 0
+            while count < PgImmutableObjectStore.FetchSize && current.result.next() do
+              val locator = BlobLocator
+                .from(current.result.getString(1), current.result.getString(2), current.result.getString(3))
+                .fold(message => throw new IllegalStateException(message), identity)
+              values += locator
+              count += 1
+            val chunk  = values.result()
+            if chunk.isEmpty then None else Some((chunk, current))
+          }
         }
       }
-    }
+      .mapError(storeError(StoreOperation.ListObjects))
 
-  override def get(locator: BlobLocator): ZStream[Any, Throwable, Byte] =
-    ZStream.acquireReleaseWith(openChunkCursor(locator))(closeCursor).flatMap { cursor =>
-      ZStream.unfoldChunkZIO(cursor) { current =>
-        ZIO.attemptBlocking {
-          if current.result.next() then Some((Chunk.fromArray(current.result.getBytes(1)), current))
-          else None
+  override def get(locator: BlobLocator): ZStream[Any, StoreError, Byte] =
+    ZStream
+      .acquireReleaseWith(openChunkCursor(locator))(closeCursor)
+      .flatMap { cursor =>
+        ZStream.unfoldChunkZIO(cursor) { current =>
+          ZIO.attemptBlocking {
+            if current.result.next() then Some((Chunk.fromArray(current.result.getBytes(1)), current))
+            else None
+          }
         }
       }
-    }
+      .mapError(storeError(StoreOperation.GetObject))
+
+  protected final def storeError(operation: StoreOperation)(error: Throwable): StoreError =
+    StoreError.fromThrowable(operation, StoreBackend.PostgreSql, retryUnknown = true)(error)
 
   private def openLocatorCursor(prefix: String): Task[PgObjectCursor] =
     openCursor(

@@ -6,8 +6,9 @@ import graviton.core.keys.BinaryKey
 import graviton.core.model.InMemoryBytes
 import graviton.core.scan.*
 import graviton.runtime.config.BlockPersistenceConfig
+import graviton.runtime.config.TransferMemoryConfig
 import graviton.runtime.metrics.MetricsRegistry
-import graviton.runtime.model.BlobWritePlan
+import graviton.runtime.model.{BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
 import graviton.runtime.stores.*
 import graviton.streams.{BoundedByteStream, Chunker}
 import zio.*
@@ -59,7 +60,7 @@ final class Graviton private (
   def ingestFile(
     path: Path,
     plan: BlobWritePlan = BlobWritePlan(),
-  ): ZIO[Any, Throwable, BlobWriteResult] =
+  ): IO[StoreError, BlobWriteResult] =
     Chunker.locally(chunker) {
       StoreOps.insertFile(blobStore)(path, plan)
     }
@@ -68,16 +69,16 @@ final class Graviton private (
   def ingestBytes(
     data: Chunk[Byte],
     plan: BlobWritePlan = BlobWritePlan(),
-  ): ZIO[Any, Throwable, BlobWriteResult] =
+  ): IO[StoreError, BlobWriteResult] =
     Chunker.locally(chunker) {
       StoreOps.insertBytes(blobStore)(data, plan)
     }
 
   /** Ingest a byte stream. */
-  def ingestStream(
-    stream: ZStream[Any, Throwable, Byte],
+  def ingestStream[E](
+    stream: ZStream[Any, E, Byte],
     plan: BlobWritePlan = BlobWritePlan(),
-  ): ZIO[Any, Throwable, BlobWriteResult] =
+  ): IO[E | StoreError, BlobWriteResult] =
     Chunker.locally(chunker) {
       stream.run(blobStore.put(plan))
     }
@@ -86,32 +87,37 @@ final class Graviton private (
    * Retrieve a small blob in memory, rejecting values larger than 16 MiB.
    * Arbitrary-size consumers must use [[stream]].
    */
-  def retrieve(key: BinaryKey.Blob): ZIO[Any, Throwable, InMemoryBytes] =
+  def retrieve(key: BinaryKey.Blob): IO[StoreError | BoundedByteStream.Error, InMemoryBytes] =
     BoundedByteStream.collectInMemory(blobStore.get(key))
 
   /** Stream bytes for a stored blob (memory-efficient for large blobs). */
-  def stream(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+  def stream(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
     blobStore.get(key)
 
   /** Check if a blob exists and get its metadata. */
-  def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[model.BlobStat]] =
+  def stat(key: BinaryKey.Blob): IO[StoreError, Option[model.BlobStat]] =
     blobStore.stat(key)
 
   /** Delete a blob's manifest (blocks remain for dedup). */
-  def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+  def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     blobStore.delete(key)
 
   /** Verify a blob by reading it back and comparing the digest. */
-  def verify(key: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
+  def verify(key: BinaryKey.Blob): IO[StoreError, Boolean] =
     for
       hasher <- ZIO
                   .fromEither(graviton.core.bytes.Hasher.hasher(key.bits.algo))
-                  .mapError(msg => new IllegalStateException(msg))
+                  .mapError(StoreError.CorruptData(StoreOperation.GetBlob, _))
       bytes  <- blobStore
                   .get(key)
-                  .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
+                  .mapChunksZIO(chunk =>
+                    ZIO
+                      .attempt(hasher.update(chunk.toArray))
+                      .mapError(StoreError.fromThrowable(StoreOperation.GetBlob))
+                      .as(chunk)
+                  )
                   .runCount
-      digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
+      digest <- ZIO.fromEither(hasher.digest).mapError(StoreError.CorruptData(StoreOperation.GetBlob, _))
     yield digest.hex.value == key.bits.digest.hex.value && bytes == key.bits.size
 
 object Graviton:
@@ -131,6 +137,7 @@ object Graviton:
   ): ZIO[Any, Nothing, Graviton] =
     for
       maintenance <- FileMaintenanceCoordinator.make(root).orDie
+      budget      <- TransferBudget.make(TransferMemoryConfig.Default)
       manifestRepo = new FsBlobManifestRepo(root)
       blockStore   = new FsBlockStore(root)
       rawStore     = new CasBlobStore(
@@ -138,6 +145,7 @@ object Graviton:
                        manifestRepo,
                        metrics = metrics,
                        persistenceConfig = BlockPersistenceConfig.default,
+                       transferBudget = budget,
                      )
       blobStore    = new CoordinatedBlobStore(rawStore, maintenance)
       chunker      = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
@@ -154,11 +162,13 @@ object Graviton:
       blockStore   <- InMemoryBlockStore.make
       manifestRepo <- makeInlineManifestRepo
       maintenance  <- MaintenanceCoordinator.inProcess().orDie
+      budget       <- TransferBudget.make(TransferMemoryConfig.Default)
       rawStore      = new CasBlobStore(
                         blockStore,
                         manifestRepo,
                         metrics = metrics,
                         persistenceConfig = BlockPersistenceConfig.default,
+                        transferBudget = budget,
                       )
       blobStore     = new CoordinatedBlobStore(rawStore, maintenance)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
@@ -171,13 +181,35 @@ object Graviton:
           ref.update(_.updated(blob, stores.StoredManifest(manifest, ingestedAt))).unit
         override def get(blob: BinaryKey.Blob)                                                                           =
           ref.get.map(_.get(blob))
-        override def list                                                                                                =
-          ref.get.map { manifests =>
-            Chunk.fromIterable(manifests.toList.sortWith { case ((_, left), (_, right)) => left.ingestedAt.isAfter(right.ingestedAt) })
-          }
+        override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize)                             =
+          for
+            anchor <- ZIO
+                        .fromEither(
+                          after.fold[Either[String, Option[String]]](Right(None))(cursor =>
+                            InventoryCursor.decode(cursor, graviton.runtime.model.InventoryNamespace.InMemory).map(Some(_))
+                          )
+                        )
+                        .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+            values <- ref.get
+            ordered = values.toList.sortBy(_._1.bits.render)
+            page    = ordered.dropWhile { case (key, _) => anchor.exists(_ >= key.bits.render) }.take(limit.value + 1)
+            items   = Chunk.fromIterable(page.take(limit.value).map { case (key, stored) =>
+                        val summary = stores.StoredManifestSummary(
+                          graviton.core.types.FileSize.unsafe(stored.manifest.size),
+                          stored.manifest.entries.length,
+                          stored.ingestedAt,
+                        )
+                        key -> summary
+                      })
+            next   <- ZIO.foreach(page.lift(limit.value - 1).filter(_ => page.length > limit.value)) { case (key, _) =>
+                        ZIO
+                          .fromEither(InventoryCursor.encode(graviton.runtime.model.InventoryNamespace.InMemory, key.bits.render))
+                          .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+                      }
+          yield InventoryPage(items, next)
         override def streamBlockRefs(blob: BinaryKey.Blob)                                                               =
           ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-            case None         => ZStream.fail(new NoSuchElementException(s"Missing manifest"))
+            case None         => ZStream.fail(StoreError.NotFound(StoreOperation.GetManifest, blob))
             case Some(stored) =>
               ZStream.fromIterable(
                 stored.manifest.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>

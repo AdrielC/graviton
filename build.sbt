@@ -117,9 +117,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// The v0.6.0 boundary removed unpublished document-layer and compatibility
-// APIs. Patch releases from this point must preserve the published API.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
+// The v0.7.0 boundary replaces raw storage failures and collected inventory
+// with typed errors, opaque native cursors, and streaming contracts. Return to
+// BinaryCompatible immediately after the v0.7.0 tag.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
@@ -147,6 +148,7 @@ copyGeneratedDocs := {
     "core"            -> (LocalProject("core") / Compile / doc).value,
     "streams"         -> (LocalProject("streams") / Compile / doc).value,
     "runtime"         -> (LocalProject("runtime") / Compile / doc).value,
+    "backend-laws"    -> (LocalProject("backendLaws") / Compile / doc).value,
     "graviton-pdf"    -> (LocalProject("pdf") / Compile / doc).value,
     "graviton-shardcake" -> (LocalProject("shardcakeIntegration") / Compile / doc).value,
 
@@ -352,6 +354,7 @@ lazy val root = (project in file(".")).aggregate(
   core,
   streams,
   runtime,
+  backendLaws,
   pdf,
   cli,
   proto,
@@ -526,6 +529,19 @@ lazy val runtime = (project in file("modules/graviton-runtime"))
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
     )
+  )
+
+lazy val backendLaws = (project in file("modules/graviton-backend-laws"))
+  .dependsOn(runtime)
+  .settings(
+    baseSettings,
+    name := "graviton-backend-laws",
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"          % V.zio,
+      "dev.zio" %% "zio-test-sbt"      % V.zio,
+      "dev.zio" %% "zio-test-magnolia" % V.zio,
+    ),
   )
 
 lazy val pdf = (project in file("modules/graviton-pdf"))

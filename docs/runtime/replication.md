@@ -34,7 +34,7 @@ The codec is deliberately fixed rather than exposing unqualified Reed-Solomon kn
 
 ## Scheduled repair
 
-When `GRAVITON_REPLICATION_TARGETS` is non-empty, the packaged server starts one scoped `ReplicaRepairService`. Each cycle walks manifest summaries and block references as streams, skips to a fair process-local cursor, and processes at most the Iron-refined batch limit. Per-block failures are counted and retried on a later cycle; enumeration failures fail the cycle and are logged before the schedule continues.
+When `GRAVITON_REPLICATION_TARGETS` is non-empty, the packaged server starts one scoped `ReplicaRepairService`. Each cycle walks manifest summaries and block references as streams, resumes from a durable offset, and processes at most the Iron-refined batch limit. Filesystem deployments persist the offset below `cas/repair`; shared deployments use PostgreSQL. Per-block failures update a bounded durable dead-letter record and are retried on a later cycle. A successful convergence resolves that entry. Enumeration or journal failures fail the cycle and are logged before the schedule continues.
 
 Prometheus observations include placement decisions, local and remote reads, per-target writes, erasure reconstruction, repair attempts, cycle duration, cursor, last successful convergence, under-protected blocks, and healthy target count. Target names are configuration-bounded labels. Content IDs, tenants, and upload session IDs never become metric labels.
 
@@ -68,7 +68,8 @@ The PostgreSQL replica index remains an application-facing locator catalog. The 
 
 ## Remaining boundaries
 
-- the repair cursor is process-local; it is fair across uninterrupted cycles but restarts at the first manifest after a process restart, and horizontally scaled servers may perform redundant idempotent repair work
-- repair failure observations are process metrics, not a durable dead-letter queue
+- the cursor is an offset into the current stable manifest order, so concurrent inventory mutation can defer work until wraparound; convergence remains idempotent
+- PostgreSQL coordinates progress across nodes, but a worker that dies after repair and before checkpoint may replay already converged blocks
+- dead letters are durable operational state and still require alerts, inspection, and remediation policy
 - object-store accounts, regions, bucket policies, throttling, and correlated failures require target acceptance
 - each exact mixed-version pair still requires the rolling and rollback qualification record

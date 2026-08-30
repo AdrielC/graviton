@@ -3,7 +3,7 @@ package graviton.runtime.upload
 import graviton.core.RefinedTypeExt
 import graviton.core.types.{FileSize, Identifier, IdentifierConstraint}
 import graviton.runtime.model.{BlobWritePlan, BlobWriteResult}
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, StoreError}
 import graviton.shared.MediaTypeText
 import graviton.streams.Chunker
 import io.github.iltotore.iron.*
@@ -175,7 +175,7 @@ object UploadIngestor:
         extends Error(s"chunker provider '${provider.value}' could not initialize", underlying)
     final case class Validation(underlying: UploadByteStream.Error) extends Error(underlying.getMessage, underlying)
     final case class Source(underlying: Throwable)                  extends Error("upload source failed", underlying)
-    final case class Storage(underlying: Throwable)                 extends Error("blob storage failed", underlying)
+    final case class Storage(underlying: StoreError)                extends Error("blob storage failed", underlying)
 
   def put(
     intent: UploadIntent,

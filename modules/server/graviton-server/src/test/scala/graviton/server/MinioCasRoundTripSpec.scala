@@ -7,7 +7,7 @@ import graviton.core.locator.BlobLocator
 import graviton.core.types.{LocatorBucket, LocatorPath, LocatorScheme, UploadChunkSize}
 import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.model.BlobWritePlan
-import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore}
+import graviton.runtime.stores.{BlobManifestRepo, BlobStore, BlockStore, CasBlobStore, TransferBudget}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.ZStream
@@ -150,7 +150,7 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
             config  <- ZIO
                          .fromEither(S3Config.fromEnvironment(bucket, prefix = "graviton-object-it"))
                          .mapError(new IllegalArgumentException(_))
-            store    = new S3MutableObjectStore(client, S3ObjectStoreConfig(config))
+            store    = new S3MutableObjectStore(client, S3ObjectStoreConfig(config), TransferBudget.unbounded)
             _       <- ZStream.fromChunk(data).rechunk(73 * 1024 + 11).run(store.put(source))
             size    <- store.head(source)
             loaded  <- store.get(source).runCollect
@@ -181,7 +181,7 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
             config <- ZIO
                         .fromEither(S3Config.fromEnvironment(bucket, prefix = "graviton-object-it"))
                         .mapError(new IllegalArgumentException(_))
-            store   = new S3MutableObjectStore(client, S3ObjectStoreConfig(config))
+            store   = new S3MutableObjectStore(client, S3ObjectStoreConfig(config), TransferBudget.unbounded)
             exit   <- (ZStream.fromChunk(Chunk.fill(6 * 1024 * 1024)(1.toByte)) ++ ZStream.fail(new RuntimeException("boom")))
                         .run(store.put(locator))
                         .exit

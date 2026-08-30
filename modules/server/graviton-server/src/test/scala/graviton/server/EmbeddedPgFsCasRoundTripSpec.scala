@@ -179,7 +179,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             written   <- ZStream.fromChunk(data).run(store.put(BlobWritePlan()))
             ds        <- ZIO.service[javax.sql.DataSource]
             repo       = new PgBlobManifestRepo(ds)
-            inventory <- store.list
+            inventory <- store.streamInventory.runCollect
             summaries <- repo.streamSummaries.runCollect
             details   <- store.inspect(written.key).someOrFail(new NoSuchElementException("manifest not found"))
           yield assertTrue(

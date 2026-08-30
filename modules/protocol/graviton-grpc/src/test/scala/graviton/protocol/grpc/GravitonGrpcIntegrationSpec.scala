@@ -93,9 +93,9 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
           graviton   <- Graviton.inMemory()
           service     = new BlobServiceImpl(graviton.blobStore)
           overflow   <- service.putBlob(request(3L, Chunk(1, 2, 3, 4).map(_.toByte))).exit
-          afterOver  <- graviton.blobStore.list
+          afterOver  <- graviton.blobStore.streamInventory.runCollect
           underflow  <- service.putBlob(request(5L, Chunk(1, 2, 3, 4).map(_.toByte))).exit
-          afterUnder <- graviton.blobStore.list
+          afterUnder <- graviton.blobStore.streamInventory.runCollect
         yield assertTrue(
           statusCode(overflow).contains(Status.Code.INVALID_ARGUMENT),
           statusCode(underflow).contains(Status.Code.INVALID_ARGUMENT),
@@ -116,7 +116,7 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
             port        <- server.port
             client      <- GravitonGrpcClient.scoped("127.0.0.1", port)
             underflow   <- client.put(ZStream.empty, ContentType, Some(logicalSize)).exit
-            listed      <- graviton.blobStore.list
+            listed      <- graviton.blobStore.streamInventory.runCollect
             failure      = underflow.causeOption.flatMap(_.failureOption)
           yield assertTrue(
             logicalSize.value == oneTiB,
@@ -237,7 +237,7 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
                           Some(GravitonGrpcClient.BearerToken.applyUnsafe("integration-token")),
                         )
             denied   <- client.put(ZStream.fromChunk(Chunk.fill(64 * 1024)(1.toByte)), ContentType).exit
-            listed   <- graviton.blobStore.list
+            listed   <- graviton.blobStore.streamInventory.runCollect
           yield assertTrue(
             statusCode(denied).contains(Status.Code.RESOURCE_EXHAUSTED),
             listed.isEmpty,

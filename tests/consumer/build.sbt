@@ -50,6 +50,7 @@ lazy val root = project
       "io.github.adrielc" %% "graviton-streams" % gravitonVersion,
       "io.github.adrielc" %% "graviton-shared" % gravitonVersion,
       "io.github.adrielc" %% "graviton-runtime" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-backend-laws" % gravitonVersion,
       "io.github.adrielc" %% "graviton-pdf" % gravitonVersion,
       "io.github.adrielc" %% "graviton-shardcake" % gravitonVersion,
       "io.github.adrielc" %% "graviton-proto" % gravitonVersion,

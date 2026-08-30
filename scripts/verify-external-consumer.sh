@@ -33,6 +33,7 @@ if [[ -z "${CONSUMER_REPOSITORY}" ]]; then
     'sharedProtocolJVM/publish' \
     'sharedProtocolJS/publish' \
     'runtime/publish' \
+    'backendLaws/publish' \
     'pdf/publish' \
     'shardcakeIntegration/publish' \
     'proto/publish' \

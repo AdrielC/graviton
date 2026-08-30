@@ -14,7 +14,7 @@ final class InMemoryBlockStore private (
   override def putBlock(
     block: CanonicalBlock,
     plan: BlockWritePlan = BlockWritePlan(),
-  ): IO[Throwable, StoredBlock] =
+  ): IO[StoreError, StoredBlock] =
     storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
@@ -57,20 +57,21 @@ final class InMemoryBlockStore private (
             )
           }
       }
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.InMemory))
       .ignoreLeftover
 
-  override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
     ZStream
       .fromZIO(
         state.get.flatMap { map =>
           ZIO
             .fromOption(map.get(key))
-            .mapError(_ => new NoSuchElementException(s"Block ${key.bits.digest.value} not found"))
+            .mapError(_ => StoreError.NotFound(StoreOperation.GetBlock, key))
         }
       )
       .flatMap(block => ZStream.fromChunk(block.bytes))
 
-  override def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean] =
+  override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
     state.get.map(_.contains(key))
 
   override def repairBlock(block: CanonicalBlock): UIO[Unit] =

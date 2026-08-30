@@ -62,7 +62,7 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             store        <- makeStore(root)
             firstResult  <- ZStream.fromChunk(first).run(store.put())
             secondResult <- ZStream.fromChunk(second).run(store.put())
-            listed       <- store.list
+            listed       <- store.streamInventory.runCollect
             inspected    <- store.inspect(secondResult.key).someOrFail(new NoSuchElementException("blob missing from inventory"))
           yield assertTrue(
             listed.map(_.key).toSet == Set(firstResult.key, secondResult.key),

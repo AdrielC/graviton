@@ -30,8 +30,10 @@ final class FsBlockStore(
   override def putBlock(
     block: CanonicalBlock,
     plan: BlockWritePlan = BlockWritePlan(),
-  ): IO[Throwable, StoredBlock] =
-    storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
+  ): IO[StoreError, StoredBlock] =
+    storeBlock(block)
+      .map(status => StoredBlock(block.key, block.size, status))
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.Filesystem))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -45,9 +47,10 @@ final class FsBlockStore(
         yield next
       }
       .mapZIO(_.toResult)
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.Filesystem))
       .ignoreLeftover
 
-  override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
     val path = pathFor(key)
     ZStream
       .acquireReleaseWith(
@@ -57,17 +60,23 @@ final class FsBlockStore(
         }
       )(is => ZIO.attemptBlocking(is.close()).orDie)
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
+      .mapError {
+        case _: java.nio.file.NoSuchFileException => StoreError.NotFound(StoreOperation.GetBlock, key)
+        case error                                => StoreError.fromThrowable(StoreOperation.GetBlock, StoreBackend.Filesystem)(error)
+      }
 
-  override def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean] =
+  override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
     val path = pathFor(key)
-    ZIO.attemptBlocking {
-      if !Files.exists(path, LinkOption.NOFOLLOW_LINKS) then false
-      else if Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then true
-      else throw new IllegalStateException(s"Block path is not a regular file: $path")
-    }
-
-  override def repairBlock(block: CanonicalBlock): Task[Unit] =
     ZIO
+      .attemptBlocking {
+        if !Files.exists(path, LinkOption.NOFOLLOW_LINKS) then false
+        else if Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) then true
+        else throw new IllegalStateException(s"Block path is not a regular file: $path")
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.ExistsBlock, StoreBackend.Filesystem))
+
+  override def repairBlock(block: CanonicalBlock): IO[StoreError, Unit] =
+    (ZIO
       .fail(
         new IllegalArgumentException(
           s"Canonical block key declares ${block.key.bits.size} bytes but repair payload contains ${block.size.value}"
@@ -96,23 +105,25 @@ final class FsBlockStore(
         finally
           try { val _ = Files.deleteIfExists(temporary); () }
           catch case _: java.io.IOException => ()
+      }).mapError(StoreError.fromThrowable(StoreOperation.Repair, StoreBackend.Filesystem))
+
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val directory = root.resolve(prefix)
+        Files.createDirectories(directory)
+        val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
+        try
+          val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
+          try channel.force(true)
+          finally channel.close()
+        finally
+          val _ = Files.deleteIfExists(probe)
+        ()
       }
+      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, StoreBackend.Filesystem))
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking {
-      val directory = root.resolve(prefix)
-      Files.createDirectories(directory)
-      val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
-      try
-        val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
-        try channel.force(true)
-        finally channel.close()
-      finally
-        val _ = Files.deleteIfExists(probe)
-      ()
-    }
-
-  override def inventory: ZStream[Any, Throwable, BlockInventoryEntry] =
+  override def inventory: ZStream[Any, StoreError, BlockInventoryEntry] =
     val base = root.resolve(prefix)
     FsBlobManifestRepo
       .walkFiles(base) { path =>
@@ -124,37 +135,44 @@ final class FsBlockStore(
           BlockInventoryEntry(key, Files.size(path), Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
         }
       }
+      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.Filesystem))
 
-  override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
-    Clock.instant.flatMap { now =>
-      ZIO.attemptBlocking {
-        val source      = pathFor(entry.key)
-        val token       = UUID.randomUUID().toString
-        val destination = root.resolve("cas/quarantine").resolve(token).resolve(root.resolve(prefix).relativize(source))
+  override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] =
+    Clock.instant
+      .flatMap { now =>
+        ZIO.attemptBlocking {
+          val source      = pathFor(entry.key)
+          val token       = UUID.randomUUID().toString
+          val destination = root.resolve("cas/quarantine").resolve(token).resolve(root.resolve(prefix).relativize(source))
+          Files.createDirectories(destination.getParent)
+          Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
+          fsyncDirectory(source.getParent)
+          fsyncDirectory(destination.getParent)
+          QuarantinedBlock(entry.key, token, entry.size, now)
+        }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.Quarantine, StoreBackend.Filesystem))
+
+  override def restore(block: QuarantinedBlock): IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val destination = pathFor(block.key)
+        val source      = quarantinedPath(block)
         Files.createDirectories(destination.getParent)
         Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
         fsyncDirectory(source.getParent)
         fsyncDirectory(destination.getParent)
-        QuarantinedBlock(entry.key, token, entry.size, now)
       }
-    }
+      .mapError(StoreError.fromThrowable(StoreOperation.Restore, StoreBackend.Filesystem))
 
-  override def restore(block: QuarantinedBlock): Task[Unit] =
-    ZIO.attemptBlocking {
-      val destination = pathFor(block.key)
-      val source      = quarantinedPath(block)
-      Files.createDirectories(destination.getParent)
-      Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE)
-      fsyncDirectory(source.getParent)
-      fsyncDirectory(destination.getParent)
-    }
-
-  override def purge(block: QuarantinedBlock): Task[Unit] =
-    ZIO.attemptBlocking {
-      val path = quarantinedPath(block)
-      if !Files.deleteIfExists(path) then throw new NoSuchElementException(s"Quarantined block is missing: ${block.token}")
-      fsyncDirectory(path.getParent)
-    }
+  override def purge(block: QuarantinedBlock): IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val path = quarantinedPath(block)
+        if !Files.deleteIfExists(path) then throw new NoSuchElementException(s"Quarantined block is missing: ${block.token}")
+        fsyncDirectory(path.getParent)
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.Purge, StoreBackend.Filesystem))
 
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
     val dest = pathFor(block.key)

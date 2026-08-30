@@ -4,7 +4,7 @@ import graviton.core.keys.BinaryKey
 import graviton.core.bytes.Hasher
 import graviton.core.model.Block.*
 import graviton.core.types.{BlobOffset, FileSize}
-import graviton.runtime.stores.BlockStore
+import graviton.runtime.stores.{BlockStore, StoreError, StoreOperation}
 import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
@@ -44,10 +44,10 @@ object BlobStreamer:
     def maximumPrefetchedBytes: Long = maxInFlight.toLong * graviton.core.model.Block.maxBytes.toLong
 
   def streamBlob(
-    refs: ZStream[Any, Throwable, BlockRef],
+    refs: ZStream[Any, StoreError, BlockRef],
     blockStore: BlockStore,
     config: Config = Config(),
-  ): ZStream[Any, Throwable, Byte] =
+  ): ZStream[Any, StoreError, Byte] =
     val window = math.max(1, config.windowRefs)
     val par    = math.max(1, config.maxInFlight)
 
@@ -67,12 +67,12 @@ object BlobStreamer:
    * any of its requested bytes are emitted.
    */
   def streamRange(
-    refs: ZStream[Any, Throwable, RangedBlockRef],
+    refs: ZStream[Any, StoreError, RangedBlockRef],
     blockStore: BlockStore,
     start: BlobOffset,
     length: FileSize,
     config: Config = Config(),
-  ): ZStream[Any, Throwable, Byte] =
+  ): ZStream[Any, StoreError, Byte] =
     val requestedStart = start.value
     val requestedEnd   = java.lang.Math.addExact(requestedStart, length.value)
     val window         = math.max(1, config.windowRefs)
@@ -92,20 +92,21 @@ object BlobStreamer:
   private def fetchVerified(
     key: BinaryKey.Block,
     blockStore: BlockStore,
-  ): Task[graviton.core.model.Block] =
+  ): IO[StoreError, graviton.core.model.Block] =
     BoundedByteStream
       .collectBlock(blockStore.get(key))
+      .mapError(StoreError.fromThrowable(StoreOperation.GetBlock))
       .tap(block => verify(key, block.bytes))
 
-  private def verify(key: BinaryKey.Block, bytes: Chunk[Byte]): Task[Unit] =
+  private def verify(key: BinaryKey.Block, bytes: Chunk[Byte]): IO[StoreError, Unit] =
     for
       _      <- ZIO
-                  .fail(new IllegalStateException(s"Block length mismatch for ${key.bits.render}"))
+                  .fail(StoreError.CorruptData(StoreOperation.GetBlock, s"Block length mismatch for ${key.bits.render}"))
                   .unless(bytes.length.toLong == key.bits.size)
-      hasher <- ZIO.fromEither(Hasher.hasher(key.bits.algo)).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes))
-      digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
+      hasher <- ZIO.fromEither(Hasher.hasher(key.bits.algo)).mapError(StoreError.CorruptData(StoreOperation.GetBlock, _))
+      _      <- ZIO.attempt(hasher.update(bytes)).mapError(StoreError.fromThrowable(StoreOperation.GetBlock))
+      digest <- ZIO.fromEither(hasher.digest).mapError(StoreError.CorruptData(StoreOperation.GetBlock, _))
       _      <- ZIO
-                  .fail(new IllegalStateException(s"Block digest mismatch for ${key.bits.render}"))
+                  .fail(StoreError.CorruptData(StoreOperation.GetBlock, s"Block digest mismatch for ${key.bits.render}"))
                   .unless(digest == key.bits.digest)
     yield ()
