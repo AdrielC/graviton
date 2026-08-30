@@ -17,7 +17,7 @@ object PdfUploadSupport:
   private val Signature: Chunk[Byte] = Chunk('%'.toByte, 'P'.toByte, 'D'.toByte, 'F'.toByte, '-'.toByte)
 
   val detector: UploadMediaTypeDetector =
-    UploadMediaTypeDetector.make(
+    UploadMediaTypeDetector.makeTyped(
       detectorId = Identifier.applyUnsafe("pdf-signature"),
       requiredBytes = UploadProbeSize.applyUnsafe(Signature.length),
       supportedTypes = Set(PdfKey),
@@ -27,7 +27,7 @@ object PdfUploadSupport:
     }
 
   def provider(config: PdfAwareChunker.Config = PdfAwareChunker.Config.default): ChunkerProvider =
-    ChunkerProvider.make(ChunkerProviderId.applyUnsafe("pdf-object"))(_ => ZIO.succeed(PdfAwareChunker(config)))
+    ChunkerProvider.makeTyped(ChunkerProviderId.applyUnsafe("pdf-object"))(_ => ZIO.succeed(PdfAwareChunker(config)))
 
   def providers(
     fallback: ChunkerProvider = ChunkerProvider.current,

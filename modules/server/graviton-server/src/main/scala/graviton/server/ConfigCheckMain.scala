@@ -2,7 +2,16 @@ package graviton.server
 
 import graviton.backend.pg.PgDataSource
 import graviton.integration.shardcake.{ShardcakeDataSource, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
-import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig, TenantDataPlaneConfig, TenantStorageConfig}
+import graviton.runtime.config.{
+  BlockPersistenceConfig,
+  GravitonConfig,
+  MaintenanceConfig,
+  ManifestIntegrityConfig,
+  TenantDataPlaneConfig,
+  TenantStorageConfig,
+  TransferAdmissionConfig,
+  TransferMemoryConfig,
+}
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
 import zio.*
@@ -13,6 +22,9 @@ object ConfigCheckMain extends ZIOAppDefault:
       config       <- ZIO.config(GravitonConfig.config)
       _            <- ZIO.config(MaintenanceConfig.config)
       _            <- ZIO.config(BlockPersistenceConfig.config)
+      _            <- ZIO.config(TransferMemoryConfig.config)
+      _            <- ZIO.config(TransferAdmissionConfig.config)
+      _            <- ZIO.config(ManifestIntegrityConfig.config)
       shardcake    <- ZIO.config(ShardcakeUploadConfig.config)
       registration <- ZIO.config(ShardcakeRegistrationConfig.config)
       console      <- ZIO.config(ConsoleConfig.config)

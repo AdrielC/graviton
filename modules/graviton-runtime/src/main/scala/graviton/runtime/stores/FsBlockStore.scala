@@ -25,7 +25,13 @@ final class FsBlockStore(
   root: Path,
   prefix: String = "cas/blocks",
 ) extends RepairableBlockStore
-    with BlockMaintenance:
+    with BlockMaintenance
+    with BlockTransferFootprint:
+
+  override val transferBackend: StoreBackend = StoreBackend.Filesystem
+
+  override def blockWriteFootprint(maximumBlockBytes: Int): Either[TransferFootprint.Error, TransferFootprint] =
+    TransferFootprint.single(TransferComponent.applyUnsafe("filesystem-bytebuffer-copy"), maximumBlockBytes.toLong)
 
   override def putBlock(
     block: CanonicalBlock,

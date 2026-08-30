@@ -26,6 +26,12 @@ jobs:
         run: ./scripts/check-byte-streaming-hygiene.sh
       - name: Product boundary
         run: ./scripts/check-product-boundary.sh
+      - name: Qualification script syntax
+        run: |
+          bash -n scripts/benchmark-tenant-mix.sh scripts/run-performance-cohort.sh
+          PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" python3 -m py_compile \
+            scripts/monitor-performance-telemetry.py \
+            scripts/evaluate-performance-gate.py
 
   test:
     runs-on: ubuntu-latest

@@ -13,7 +13,7 @@ libraryDependencies ++= Seq(
 Mount the laws with a scoped acquisition effect that creates an isolated empty store:
 
 ```scala
-import graviton.backend.laws.{BlobStoreLaws, CrashConsistencyLaws, TenantStorageLaws}
+import graviton.backend.laws.{BlobStoreLaws, CrashConsistencyLaws, StreamingBlobStoreLaws, TenantStorageLaws}
 import graviton.runtime.stores.{BlobStore, StoreError}
 import zio.*
 import zio.test.*
@@ -22,7 +22,10 @@ object MyBackendSpec extends ZIOSpecDefault:
   val freshStore: ZIO[Scope, StoreError, BlobStore] =
     MyBackend.scoped(testConfiguration)
 
-  override def spec = BlobStoreLaws.suite("my backend")(freshStore)
+  override def spec = suite("my backend contracts")(
+    BlobStoreLaws.suite("my backend")(freshStore),
+    StreamingBlobStoreLaws.suite("my backend")(freshStore),
+  )
 ```
 
 The current contract proves:
@@ -33,6 +36,8 @@ The current contract proves:
 - opaque pages have no duplicate or omitted entries
 - delete makes metadata and bytes unreachable
 - interruption does not publish a partial logical blob
+
+`StreamingBlobStoreLaws` adds demand and capacity invariants: no pull before sink demand, exactly one pull per bounded source chunk plus termination, declared-size failure after at most N plus one bytes, early-download and interrupted-upload cleanup, streaming digest equality, and a logical 1 TiB boundary calculation without allocating the payload. A backend fixture can provide `StreamingObservation` to make open-resource and retained-transfer-byte ceilings executable against its native client or pool.
 
 ## CrashLab
 

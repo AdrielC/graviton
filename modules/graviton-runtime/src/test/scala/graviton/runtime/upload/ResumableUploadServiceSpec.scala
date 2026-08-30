@@ -107,6 +107,30 @@ object ResumableUploadServiceSpec extends ZIOSpecDefault:
         retry.session.offset.value == 1L,
       )
     },
+    test("preserves a typed source rejection and cleans the staged reservation") {
+      val rejected = UploadSourceError.Rejected("client cancelled the part")
+      for
+        repository <- InMemoryResumableUploadRepository.make
+        staging    <- TestObjectStore.make
+        service     = new ResumableUploadService(repository, staging, target)
+        _          <- service.create(key, UploadIntent(MediaTypes.application.`octet-stream`, None))
+        failed     <- service
+                        .appendSource(
+                          key,
+                          firstPart,
+                          UploadOffset.applyUnsafe(0L),
+                          None,
+                          UploadSource.typed(ZStream.fail(rejected)),
+                        )
+                        .exit
+        objects    <- staging.size
+        session    <- service.status(key)
+      yield assertTrue(
+        failed.causeOption.flatMap(_.failureOption).contains(ResumableUploadService.Error.Source(rejected)),
+        objects == 0,
+        session.offset.value == 0L,
+      )
+    },
     test("interruption releases the source, staging object, and part lease") {
       for
         repository <- InMemoryResumableUploadRepository.make

@@ -23,7 +23,13 @@ final class S3BlockStore(
   client: S3Client,
   config: S3BlockStoreConfig,
 ) extends RepairableBlockStore,
-      BlockMaintenance:
+      BlockMaintenance,
+      BlockTransferFootprint:
+
+  override val transferBackend: StoreBackend = StoreBackend.S3
+
+  override def blockWriteFootprint(maximumBlockBytes: Int): Either[TransferFootprint.Error, TransferFootprint] =
+    TransferFootprint.single(TransferComponent.applyUnsafe("s3-request-body-copy"), maximumBlockBytes.toLong)
 
   override def putBlock(
     block: CanonicalBlock,

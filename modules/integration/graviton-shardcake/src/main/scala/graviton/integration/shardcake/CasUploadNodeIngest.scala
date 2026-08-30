@@ -62,11 +62,24 @@ object CasUploadNodeIngest:
       intent: UploadIntent,
       bytes: ZStream[Any, Throwable, Byte],
     ): IO[UploadNodeIngest.Error, LocalizedUploadResult] =
-      val observed = UploadByteStream.observeFrames(bytes, key, hotState)
+      uploadLocalSource(key, intent, UploadSource.fromThrowable(bytes))
+
+    override def uploadLocalSource(
+      key: UploadSessionKey,
+      intent: UploadIntent,
+      source: UploadSource,
+    ): IO[UploadNodeIngest.Error, LocalizedUploadResult] =
+      val observed = UploadByteStream
+        .observeFramesTyped(source.bytes, key, hotState)
+        .mapError {
+          case error: UploadSourceError      => error
+          case error: UploadByteStream.Error => UploadSourceError.Rejected(error.getMessage, error)
+        }
       val ingest   = resolver
         .resolve(key)
         .flatMap(
-          _.put(intent, observed).map(result => LocalizedUploadResult(result.stored.key, result.stored.stats, localNode))
+          _.putSource(intent, UploadSource.typed(observed))
+            .map(result => LocalizedUploadResult(result.stored.key, result.stored.stats, localNode))
         )
 
       val recordHotStateSize = hotState.size.flatMap(size => metrics.gauge(MetricKeys.UploadHotStateEntries, size.toDouble, Map.empty))
@@ -80,6 +93,7 @@ object CasUploadNodeIngest:
             case invalid: UploadIngestor.Error.InvalidInput                   => UploadNodeIngest.Error.InvalidUpload(invalid.getMessage)
             case mismatch: UploadIngestor.Error.MediaTypeMismatch             => UploadNodeIngest.Error.InvalidUpload(mismatch.getMessage)
             case validation: UploadIngestor.Error.Validation                  => UploadNodeIngest.Error.InvalidUpload(validation.getMessage)
+            case source: UploadIngestor.Error.SourceError                     => UploadNodeIngest.Error.SourceFailure(source.underlying)
             case UploadIngestor.Error.Storage(error: StoreError.InvalidInput) =>
               UploadNodeIngest.Error.InvalidUpload(error.reason)
             case cause                                                        => UploadNodeIngest.Error.StorageFailure(cause)

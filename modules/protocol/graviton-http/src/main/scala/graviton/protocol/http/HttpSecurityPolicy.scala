@@ -1,6 +1,6 @@
 package graviton.protocol.http
 
-import graviton.runtime.upload.UploadHttpHeaders
+import graviton.runtime.upload.{UploadHttpHeaders, UploadSource, UploadSourceError}
 import graviton.security.*
 import zio.*
 import zio.http.*
@@ -73,6 +73,14 @@ final class HttpSecurityPolicy(
    * are consumed rather than buffering the payload.
    */
   def checkedUpload(request: Request): IO[Response, ZStream[Any, Throwable, Byte]] =
+    checkedUploadSource(request).map(
+      _.bytes.mapError {
+        case UploadSourceError.Rejected(_, underlying: Throwable) => underlying
+        case value                                                => value
+      }
+    )
+
+  def checkedUploadSource(request: Request): IO[Response, UploadSource] =
     request.headers.get("Content-Length").flatMap(_.toLongOption) match
       case Some(length) if length > config.maxRequestBytes.value =>
         ZIO.fail(toResponse(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes.value} bytes")))
@@ -80,20 +88,24 @@ final class HttpSecurityPolicy(
         ZIO.fail(toResponse(SecurityError.PayloadTooLarge("negative Content-Length")))
       case _                                                     =>
         Ref.make(0L).map { consumed =>
-          request.body.asStream.mapChunksZIO { chunk =>
+          UploadSource.typed(request.body.asStream.mapError(UploadSourceError.Transport.apply).mapChunksZIO { chunk =>
             for
               total <- consumed.updateAndGet(_ + chunk.length.toLong)
               _     <-
                 if total <= config.maxRequestBytes.value then ZIO.unit
                 else
                   ZIO.fail(
-                    HttpSecurityPolicy.BodyRejected(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes.value} bytes"))
+                    UploadSourceError.Rejected(
+                      s"request exceeds ${config.maxRequestBytes.value} bytes",
+                      HttpSecurityPolicy
+                        .BodyRejected(SecurityError.PayloadTooLarge(s"request exceeds ${config.maxRequestBytes.value} bytes")),
+                    )
                   )
               _     <- rateLimiter
                          .check(RateLimiter.Kind.UploadBytes, chunk.length.toLong)
-                         .mapError(HttpSecurityPolicy.BodyRejected.apply)
+                         .mapError(error => UploadSourceError.Rejected(error.message, HttpSecurityPolicy.BodyRejected(error)))
             yield chunk
-          }
+          })
         }
 
   /**

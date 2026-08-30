@@ -83,6 +83,18 @@ trait BlobManifestRepo:
               }
         }
 
+  /**
+   * Persist a versioned semantic identity together with its ordered entries.
+   * Existing third-party repositories retain source and binary compatibility;
+   * authenticated production repositories override this method.
+   */
+  def putAuthenticatedStream(
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    putStream(identity.blob, identity.totalSize, identity.blockCount, entries, ingestedAt)
+
   /** Retrieve the manifest and its ingestion timestamp for a blob, if it exists. */
   def get(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifest]]
 

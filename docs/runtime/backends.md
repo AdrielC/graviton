@@ -14,7 +14,7 @@ Graviton keeps storage contracts in `graviton-runtime` and vendor code in backen
 `Graviton.fs(root)` composes:
 
 - `FsBlockStore`, which writes blocks below `cas/blocks/<algorithm>/...`
-- `FsBlobManifestRepo`, which writes and reads the bounded streaming `GVM2` contract below `cas/manifests/<algorithm>/...`
+- `FsBlobManifestRepo`, which writes and reads bounded streaming `GVM2` compatibility manifests or authenticated `GVM3` manifests below `cas/manifests/<algorithm>/...`
 - `CasBlobStore`, which streams ingestion, retrieval, metadata, verification, and manifest deletion
 - `FileMaintenanceCoordinator`, which holds shared or exclusive locks at `cas/.maintenance.lock`
 

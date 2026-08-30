@@ -27,15 +27,24 @@ object ZioHttpUploadNodeTransport:
       intent: UploadIntent,
       bytes: ZStream[Any, Throwable, Byte],
     ): IO[UploadNodeTransport.Error, LocalizedUploadResult] =
+      uploadSource(owner, key, intent, UploadSource.fromThrowable(bytes))
+
+    override def uploadSource(
+      owner: UploadNode,
+      key: UploadSessionKey,
+      intent: UploadIntent,
+      source: UploadSource,
+    ): IO[UploadNodeTransport.Error, LocalizedUploadResult] =
       val endpoint =
         s"http://${owner.host.value}:${owner.uploadPort.value}/internal/graviton/uploads/${key.tenantId.value}/${key.uploadSessionId.value}"
 
       (for
         url         <- ZIO.fromEither(URL.decode(endpoint)).mapError(new IllegalArgumentException(_))
         contentType <- ZIO.fromEither(MediaTypeText.renderEither(intent.contentType)).mapError(new IllegalArgumentException(_))
+        bodyStream   = source.bytes.mapError(UploadNodeTransport.Error.SourceFailure(owner, _))
         body         = intent.expectedSize match
-                         case Some(length) => Body.fromStream(bytes, length.value)
-                         case None         => Body.fromStreamChunked(bytes)
+                         case Some(length) => Body.fromStream(bodyStream, length.value)
+                         case None         => Body.fromStreamChunked(bodyStream)
         request      = Request(
                          method = Method.POST,
                          url = url,

@@ -27,16 +27,19 @@ import graviton.runtime.catalog.{Catalog, FsCatalog}
 import graviton.runtime.config.{
   BlockPersistenceConfig,
   GravitonConfig,
+  ManifestIntegrityConfig,
   MaintenanceConfig,
   ReplicaStorageMode,
   TenantDataPlaneConfig,
   TenantStorageConfig,
+  TransferAdmissionConfig,
   TransferMemoryConfig,
 }
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
+  BlockTransferFootprint,
   BlockStore,
   CasBlobStore,
   CoordinatedBlobStore,
@@ -46,6 +49,7 @@ import graviton.runtime.stores.{
   FsBlockStore,
   FsMutableObjectStore,
   MaintenanceCoordinator,
+  ManifestIntegrity,
   MetricsBlobStore,
   RepairableBlockStore,
   ReplicaPlacement,
@@ -53,7 +57,9 @@ import graviton.runtime.stores.{
   ReplicaRepairService,
   ReplicatedBlockStore,
   FsRepairJournal,
+  StoreBackend,
   TransferBudget,
+  TransferScope,
 }
 import graviton.runtime.upload.{FsResumableUploadRepository, ResumableUploadService, UploadStagingTarget}
 import graviton.runtime.tenant.*
@@ -89,7 +95,10 @@ object Main extends ZIOAppDefault:
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
       transferMemory                               <- ZIO.config(TransferMemoryConfig.config)
-      transferBudget                               <- TransferBudget.make(transferMemory)
+      transferAdmission                            <- ZIO.config(TransferAdmissionConfig.config)
+      transferBudget                               <- TransferBudget.make(transferMemory, transferAdmission)
+      manifestIntegrityConfig                      <- ZIO.config(ManifestIntegrityConfig.config)
+      manifestIntegrity                            <- manifestIntegrityConfig.build.mapError(new IllegalArgumentException(_))
       tenantDataPlaneConfig                        <- ZIO.config(TenantDataPlaneConfig.config)
       tenantStorageConfig                          <- ZIO.config(TenantStorageConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
@@ -139,6 +148,7 @@ object Main extends ZIOAppDefault:
                                                                                                       tenantStorageConfig,
                                                                                                       metrics,
                                                                                                       dataSource,
+                                                                                                      manifestIntegrity,
                                                                                                     )
                                                                                                   )
                                                                                                 )
@@ -347,7 +357,7 @@ object Main extends ZIOAppDefault:
                       if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
                       else streaming.port(port)
                     },
-                    blobLayer(cfg, maintenance, blockPersistence, transferBudget, primaryDataSource),
+                    blobLayer(cfg, maintenance, blockPersistence, transferBudget, primaryDataSource, manifestIntegrity),
                     resumableUploadLayer(cfg, transferBudget, primaryDataSource),
                     catalogLayer(cfg, primaryDataSource),
                     auditLayer,
@@ -446,6 +456,7 @@ object Main extends ZIOAppDefault:
     storageConfig: TenantStorageConfig,
     metrics: MetricsRegistry,
     dataSource: DataSource,
+    manifestIntegrity: Option[ManifestIntegrity],
   ): ZIO[Scope, Throwable, TenantDataPlane] =
     for
       blockStores <- tenantBlockStoreFactory(config, metrics)
@@ -465,19 +476,24 @@ object Main extends ZIOAppDefault:
       provider    <- TenantStoreProvider.cached(catalog, tenantConfig.maximumCachedTenants) { policy =>
                        val route     = policy.route
                        val domain    = route.storageDomain
-                       val manifests = new PgTenantBlobManifestRepo(dataSource, route.tenantId, domain)
+                       val manifests = manifestIntegrity.fold[PgTenantBlobManifestRepo](
+                         new PgTenantBlobManifestRepo(dataSource, route.tenantId, domain)
+                       )(integrity => PgTenantBlobManifestRepo.authenticated(dataSource, route.tenantId, domain, integrity))
                        (for blocks <- blockStores.make(domain)
                        yield
-                         val cas         = new CasBlobStore(
+                         val scopedBudget = transferBudget.bind(
+                           TransferScope(Some(route.tenantId), BlockTransferFootprint.backendOf(blocks))
+                         )
+                         val cas          = new CasBlobStore(
                            blocks,
                            manifests,
                            metrics = metrics,
                            persistenceConfig = persistence,
-                           transferBudget = transferBudget,
+                           transferBudget = scopedBudget,
                          )
-                         val coordinated = new CoordinatedBlobStore(cas, coordinator)
-                         val admitted    = new AdmittedTenantBlobStore(coordinated, policy, admission)
-                         val scopeTag    = route.deduplication match
+                         val coordinated  = new CoordinatedBlobStore(cas, coordinator)
+                         val admitted     = new AdmittedTenantBlobStore(coordinated, policy, admission)
+                         val scopeTag     = route.deduplication match
                            case DeduplicationScope.Isolated  => "isolated"
                            case DeduplicationScope.Shared(_) => "shared"
                          new MetricsBlobStore(admitted, metrics, Map("tenant_scope" -> scopeTag)): BlobStore
@@ -504,7 +520,7 @@ object Main extends ZIOAppDefault:
         base   <- ZIO
                     .fromEither(S3Config.fromEnvironment(config.s3.blockBucket, config.s3.blockPrefix))
                     .mapError(new IllegalArgumentException(_))
-        client <- ZIO.acquireRelease(S3ClientLayer.make(base))(current => ZIO.attempt(current.close()).orDie)
+        client <- ZIO.acquireRelease(S3ClientLayer.make(base, metrics))(current => ZIO.attempt(current.close()).orDie)
       yield new TenantBlockStoreFactory:
         override def make(domain: StorageDomainId): Task[BlockStore] =
           val scoped = base.copy(prefix = domainPrefix(base.prefix, domain))
@@ -521,7 +537,7 @@ object Main extends ZIOAppDefault:
                                        )
                                      )
                                      .mapError(new IllegalArgumentException(_))
-                         client <- ZIO.acquireRelease(S3ClientLayer.make(base))(current => ZIO.attempt(current.close()).orDie)
+                         client <- ZIO.acquireRelease(S3ClientLayer.make(base, metrics))(current => ZIO.attempt(current.close()).orDie)
                        yield TenantReplicaTarget(target.name.value, target.failureDomain.value, base, client)
                      }
       yield new TenantBlockStoreFactory:
@@ -581,13 +597,21 @@ object Main extends ZIOAppDefault:
     blockPersistence: BlockPersistenceConfig,
     transferBudget: TransferBudget,
     dataSource: Option[DataSource],
+    manifestIntegrity: Option[ManifestIntegrity] = None,
   ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
         case "s3" | "minio" =>
-          val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
+          val manifestLayer = ZLayer.fromZIO(
+            requiredDataSource(dataSource).map(ds =>
+              manifestIntegrity.fold[BlobManifestRepo](new PgBlobManifestRepo(ds))(integrity =>
+                PgBlobManifestRepo.authenticated(ds, integrity)
+              )
+            )
+          )
+          val metadata      = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
+            manifestLayer,
             ZLayer.fromZIO(requiredDataSource(dataSource)),
-            PgBlobManifestRepo.layer,
             PgMaintenanceCoordinator.layer(maintenance),
             PgRepairJournal.layer,
           )
@@ -595,7 +619,11 @@ object Main extends ZIOAppDefault:
         case "fs"           =>
           val root     = Path.of(cfg.fs.root)
           val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
-            ZLayer.succeed[BlobManifestRepo](new FsBlobManifestRepo(root)),
+            ZLayer.succeed[BlobManifestRepo](
+              manifestIntegrity.fold[BlobManifestRepo](new FsBlobManifestRepo(root))(integrity =>
+                FsBlobManifestRepo.authenticated(root, integrity)
+              )
+            ),
             FileMaintenanceCoordinator.layer(root, maintenance),
             ZLayer.succeed[RepairJournal](new FsRepairJournal(root)),
           )
@@ -607,11 +635,18 @@ object Main extends ZIOAppDefault:
             )
           )
 
-    val casLayer =
-      (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence) ++ ZLayer.succeed(transferBudget)) >>>
+    val scopedBudget = transferBudget.bind(TransferScope.backend(configuredTransferBackend(cfg)))
+    val casLayer     =
+      (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence) ++ ZLayer.succeed(scopedBudget)) >>>
         CasBlobStore.coordinatedLayerWithMetricsAndPersistence
 
     (casLayer ++ ZLayer.service[MetricsRegistry]) >>> MetricsBlobStore.layer
+
+  private def configuredTransferBackend(cfg: GravitonConfig): StoreBackend =
+    cfg.blobBackend.toLowerCase match
+      case "s3" | "minio" => StoreBackend.S3
+      case "fs"           => StoreBackend.Filesystem
+      case _              => StoreBackend.Runtime
 
   private[server] def fsBlockLayer(
     cfg: GravitonConfig
@@ -654,10 +689,11 @@ object Main extends ZIOAppDefault:
     if !cfg.replication.enabled then
       ZLayer.scoped {
         for
+          metrics    <- ZIO.service[MetricsRegistry]
           storageCfg <- ZIO
                           .fromEither(S3Config.fromEnvironment(cfg.s3.blockBucket, cfg.s3.blockPrefix))
                           .mapError(new IllegalArgumentException(_))
-          client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg))(current => ZIO.attempt(current.close()).orDie)
+          client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
         yield new S3BlockStore(client, S3BlockStoreConfig(storageCfg)): BlockStore
       }
     else
@@ -677,7 +713,8 @@ object Main extends ZIOAppDefault:
                                              )
                                            )
                                            .mapError(new IllegalArgumentException(_))
-                           client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg))(current => ZIO.attempt(current.close()).orDie)
+                           client     <-
+                             ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
                          yield (target, storageCfg, client)
                        }
           store     <- cfg.replication.mode match
@@ -746,7 +783,8 @@ object Main extends ZIOAppDefault:
                          storageCfg <- ZIO
                                          .fromEither(S3Config.fromEnvironment(cfg.s3.tmpBucket, "resumable"))
                                          .mapError(message => new IllegalArgumentException(message))
-                         client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg))(current => ZIO.attempt(current.close()).orDie)
+                         client     <-
+                           ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
                          target     <- ZIO
                                          .fromEither(UploadStagingTarget.from("s3", cfg.s3.tmpBucket))
                                          .mapError(message => new IllegalArgumentException(message))
@@ -765,7 +803,7 @@ object Main extends ZIOAppDefault:
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     ZLayer.fromZIO(TransferBudget.make(TransferMemoryConfig.Default)).flatMap { budget =>
-      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget], None)
+      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget], None, None)
     }
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =

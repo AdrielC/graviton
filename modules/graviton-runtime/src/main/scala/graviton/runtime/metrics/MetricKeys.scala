@@ -63,3 +63,5 @@ object MetricKeys:
   val TenantQuotaRejectionsTotal     = "graviton_tenant_quota_rejections_total"
   val PostgresPoolConnections        = "graviton_postgres_pool_connections"
   val PostgresPoolAwaiting           = "graviton_postgres_pool_awaiting_connections"
+  val S3ApiCallsTotal                = "graviton_s3_api_calls_total"
+  val S3RetriesTotal                 = "graviton_s3_retries_total"

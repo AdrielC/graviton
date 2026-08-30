@@ -94,7 +94,6 @@ final class CasBlobStore(
       (for
         startedNanos <- Clock.nanoTime
         chunker      <- graviton.streams.Chunker.current.get
-        _            <- transferBudget.reserveScoped(ingestConfig.maximumPipelineBytes(chunker, persistenceConfig))
         _            <- ZIO
                           .fail(
                             new IllegalArgumentException(
@@ -102,6 +101,18 @@ final class CasBlobStore(
                             )
                           )
                           .unless(chunker.maximumBlockBytes >= 1 && chunker.maximumBlockBytes <= GBlock.maxBytes)
+        footprint    <- ZIO
+                          .fromEither(
+                            ingestConfig.maximumPipelineFootprint(
+                              chunker,
+                              persistenceConfig,
+                              blockStore,
+                              plan.program,
+                              streamerConfig.windowRefs,
+                            )
+                          )
+                          .mapError(error => new IllegalArgumentException(error.getMessage))
+        _            <- transferBudget.reserveScoped(footprint)
         _            <-
           ZIO
             .fromEither(plan.attributes.validate)
@@ -279,7 +290,11 @@ final class CasBlobStore(
             fileSize   <- ZIO.fromEither(FileSize.either(size)).mapError(msg => new IllegalArgumentException(msg))
             ingestedAt <- Clock.instant
 
-            _ <- manifests.putStream(blob, fileSize, persisted.blockCount, spool.entries, ingestedAt)
+            chunkerId <- ZIO
+                           .fromEither(ManifestChunkerId.either(chunker.name))
+                           .mapError(message => StoreError.InvalidInput(StoreOperation.PutManifest, s"invalid chunker identity: $message"))
+            identity   = ManifestIdentity(blob, fileSize, persisted.blockCount, chunkerId)
+            _         <- manifests.putAuthenticatedStream(identity, spool.entries, ingestedAt)
 
             locator <- plan.locatorHint match
                          case Some(value) => ZIO.succeed(value)
@@ -439,6 +454,59 @@ object CasBlobStore:
     ): Long =
       maximumQueuedBytes(chunker) +
         (2L * persistence.parallelism.value.toLong + 1L) * chunker.maximumBlockBytes.toLong
+
+    /**
+     * Every Graviton-owned live allocation, including backend-declared replay,
+     * replica, or erasure buffers. The composed total is reserved exactly once.
+     */
+    def maximumPipelineFootprint(
+      chunker: graviton.streams.Chunker,
+      persistence: BlockPersistenceConfig,
+      blockStore: BlockStore,
+    ): Either[TransferFootprint.Error, TransferFootprint] =
+      maximumPipelineFootprint(
+        chunker,
+        persistence,
+        blockStore,
+        graviton.runtime.model.IngestProgram.Default,
+        scanWindowRefs = 1,
+      )
+
+    def maximumPipelineFootprint(
+      chunker: graviton.streams.Chunker,
+      persistence: BlockPersistenceConfig,
+      blockStore: BlockStore,
+      program: graviton.runtime.model.IngestProgram,
+      scanWindowRefs: Int,
+    ): Either[TransferFootprint.Error, TransferFootprint] =
+      val maximumBlock = chunker.maximumBlockBytes.toLong
+      for
+        inputQueue <- TransferFootprint.single(
+                        TransferComponent.applyUnsafe("ingest-input-queue"),
+                        inputBufferChunks.toLong * ioChunkBytes.value.toLong,
+                      )
+        blockQueue <- TransferFootprint.single(
+                        TransferComponent.applyUnsafe("canonical-block-queue"),
+                        blockBufferBlocks.toLong * maximumBlock,
+                      )
+        chunkerSet <- TransferFootprint.single(TransferComponent.applyUnsafe("chunker-working-set"), maximumBlock)
+        inFlight   <- TransferFootprint.single(
+                        TransferComponent.applyUnsafe("persistence-in-flight-blocks"),
+                        persistence.parallelism.value.toLong * maximumBlock,
+                      )
+        backendOne <- BlockTransferFootprint.writeOf(blockStore, chunker.maximumBlockBytes)
+        backend    <- backendOne.scaled(
+                        persistence.parallelism.value,
+                        TransferComponent.applyUnsafe("parallel-backend-write-buffers"),
+                      )
+        scanQueues <- program match
+                        case graviton.runtime.model.IngestProgram.UseScan(_, _) =>
+                          TransferFootprint
+                            .multiply(ioChunkBytes.value.toLong, 2L * math.max(1, scanWindowRefs).toLong)
+                            .flatMap(TransferFootprint.single(TransferComponent.applyUnsafe("scan-broadcast-queues"), _))
+                        case _                                                  => Right(TransferFootprint.empty)
+        total      <- TransferFootprint.combine(Chunk(inputQueue, blockQueue, chunkerSet, inFlight, backend, scanQueues))
+      yield total
 
   private final case class PersistCursor(index: Long, offset: Long):
     def advance(size: Int): PersistCursor =

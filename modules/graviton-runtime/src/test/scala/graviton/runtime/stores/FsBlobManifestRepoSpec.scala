@@ -5,9 +5,10 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{FramedManifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.types.{BlobOffset, FileSize, UploadChunkSize}
+import graviton.runtime.model.{BlockBatchResult, BlockWritePlan, CanonicalBlock}
 import graviton.streams.Chunker
 import zio.*
-import zio.stream.ZStream
+import zio.stream.{ZSink, ZStream}
 import zio.test.*
 
 import java.nio.charset.StandardCharsets
@@ -196,10 +197,73 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
           )
         }
       },
+      test("authenticates the manifest before fetching the first block") {
+        withTempDir { root =>
+          val data = Chunk.fromArray(Array.tabulate(16_000)(index => (index % 239).toByte))
+
+          for
+            integrity <- makeIntegrity
+            delegate  <- InMemoryBlockStore.make
+            reads     <- Ref.make(0)
+            blocks     = new CountingBlockStore(delegate, reads)
+            repo       = FsBlobManifestRepo.authenticated(root, integrity)
+            store      = new CasBlobStore(blocks, repo)
+            result    <- ZStream.fromChunk(data).run(store.put())
+            blob       = result.key.asInstanceOf[BinaryKey.Blob]
+            clean     <- store.get(blob).runCollect
+            _         <- tamperSignature(repo.pathFor(blob))
+            before    <- reads.get
+            failure   <- store.get(blob).runHead.exit
+            after     <- reads.get
+          yield assertTrue(
+            clean == data,
+            before > 0,
+            failure.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.CorruptData]),
+            after == before,
+          )
+        }
+      },
     )
 
   private def makeStore(root: Path): UIO[BlobStore] =
     ZIO.succeed(new CasBlobStore(new FsBlockStore(root), new FsBlobManifestRepo(root)))
+
+  private def makeIntegrity: Task[ManifestIntegrity] =
+    for
+      keyId   <- ZIO.fromEither(ManifestKeyId.either("test-key")).mapError(new IllegalArgumentException(_))
+      hmacKey <- ZIO
+                   .fromEither(ManifestKeyService.HmacKey.fromBytes(Array.tabulate[Byte](32)(index => (index + 1).toByte)))
+                   .mapError(new IllegalArgumentException(_))
+      service <- ZIO
+                   .fromEither(ManifestKeyService.hmac(keyId, Map(keyId -> hmacKey)))
+                   .mapError(new IllegalArgumentException(_))
+    yield ManifestIntegrity(service)
+
+  private def tamperSignature(path: Path): Task[Unit] =
+    for
+      header <- StreamingManifestFile.readEnvelopeHeader(path)
+      proof  <- ZIO
+                  .fromOption(header.authentication.map(_.proof))
+                  .orElseFail(new IllegalStateException("authenticated manifest proof is missing"))
+      _      <- ZIO.attemptBlocking {
+                  val bytes     = Files.readAllBytes(path)
+                  val signature = proof.signature.toArray
+                  val offset    = indexOf(bytes, signature)
+                  if offset < 0 then throw new IllegalStateException("manifest signature was not found in encoded file")
+                  bytes(offset) = (bytes(offset) ^ 0x01).toByte
+                  Files.write(path, bytes)
+                  ()
+                }
+    yield ()
+
+  private def indexOf(haystack: Array[Byte], needle: Array[Byte]): Int =
+    var offset = 0
+    while offset <= haystack.length - needle.length do
+      var index = 0
+      while index < needle.length && haystack(offset + index) == needle(index) do index += 1
+      if index == needle.length then return offset
+      offset += 1
+    -1
 
   private def withTempDir[A](f: Path => ZIO[Any, Throwable, A]): ZIO[Any, Throwable, A] =
     ZIO.acquireReleaseWith(
@@ -215,3 +279,12 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
           }
       }.orDie
     )(f)
+
+  private final class CountingBlockStore(delegate: BlockStore, reads: Ref[Int]) extends BlockStore:
+    override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): ZSink[Any, StoreError, CanonicalBlock, Nothing, BlockBatchResult] =
+      delegate.putBlocks(plan)
+
+    override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
+      ZStream.fromZIO(reads.update(_ + 1)) *> delegate.get(key)
+
+    override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] = delegate.exists(key)

@@ -68,6 +68,10 @@ try:
 except Exception:
     revision = "unknown"
     dirty = None
+revision = os.environ.get("GRAVITON_BENCHMARK_REVISION", revision)
+dirty_override = os.environ.get("GRAVITON_BENCHMARK_REPOSITORY_DIRTY")
+if dirty_override is not None:
+    dirty = dirty_override.strip().lower() in {"1", "true", "yes"}
 try:
     java = subprocess.check_output(["java", "-version"], stderr=subprocess.STDOUT, text=True).splitlines()[0]
 except Exception:

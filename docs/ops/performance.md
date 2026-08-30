@@ -57,7 +57,9 @@ output directory contains every raw sample, a newline-delimited copy, and a
 summary with latency and throughput distributions. A failed or unverified
 sample fails the suite instead of disappearing from the aggregate.
 
-The scheduled `Production qualification` workflow retains its complete record for 90 days. It generates a checksummed deterministic corpus outside the Git worktree: one 32 MiB base object, a sparse edit that preserves 24 of 32 fixed-size blocks, and one block repeated 32 times. The gate first proves fresh, partial-reuse, and duplicate transitions, then retains eight raw samples plus distributions for every workload. Generated-runner results are regression evidence for that exact commit and topology, not a portable performance claim.
+The scheduled `Production qualification` workflow retains its complete record for 90 days. It generates a checksummed deterministic corpus outside the Git worktree: one 32 MiB base object, a sparse edit that preserves 24 of 32 fixed-size blocks, and one block repeated 32 times. It first proves fresh, partial-reuse, and duplicate transitions, then retains eight raw samples for each CAS workload.
+
+The same workflow also runs clean baseline and candidate two-node cohorts on the same runner. The scheduled gate uses 8 stable tenant keys across 16 bounded-concurrency waves, retaining 128 byte-verified samples per revision, per-tenant medians, p50, p95, p99, aggregate throughput, and Jain fairness. `monitor-performance-telemetry.py` samples both live `/metrics` endpoints throughout each cohort. `evaluate-performance-gate.py` fails on configured latency or throughput regressions, heap high-water, GC pause, PostgreSQL waiters, S3 SDK retry rate, fairness, missing telemetry, or a non-draining repair backlog when replication is active. A passing generated-runner gate applies to that exact commit and topology, not to another provider or customer workload.
 
 ## ZIO HTTP transport choices
 
@@ -116,19 +118,24 @@ The packaged server creates one primary PostgreSQL pool per process and shares i
 
 JDBC audit uses a fixed local lock-shard set plus PostgreSQL's per-organization transaction advisory lock. Historical organization count therefore does not create a process-resident semaphore map. Unrelated organizations can occasionally share one local shard, while the database lock remains the authoritative chain-serialization boundary.
 
-The live-byte ceiling controlled by Graviton is:
+The generic single-target live-byte footprint is:
 
 ```text
 input queue chunks * I/O chunk bytes
 + block queue entries * chunker maximum block bytes
-+ (2 * block write parallelism + 1) * chunker maximum block bytes
++ chunker maximum block bytes
++ block write parallelism * prepared block bytes
++ block write parallelism * backend-declared write buffers
++ for scan plans only: 2 * scan maximum lag * I/O chunk bytes
 ```
 
-This excludes one caller-owned input chunk and the chunker's implementation-specific working set. The doubled write term covers an ordered prepared block and a replayable backend request body for every concurrent write, plus one block being produced. With the defaults and a 1 MiB fixed chunker, the admitted ceiling is 11,796,480 bytes per active ingest.
+Each term is a named `TransferContribution`. Replicated and erasure stores compose their target and coding allocations instead of hiding them behind a generic multiplier. The complete `TransferFootprint` is checked for overflow and reserved once before the sink accepts bytes. With a generic one-copy backend, the defaults and a 1 MiB fixed chunker still total 11,796,480 bytes per active ingest. The packaged hierarchy additionally enforces process bytes, tenant bytes and transfer count, and backend transfer count.
 
 Parallel block writes mainly target object stores. The S3 adapter creates a new block with one conditional `PutObject`; it does not issue a speculative `HeadObject`. If the key already exists, the rejected conditional write is followed by a metadata-only `HeadObject` that proves the stored length, content key, and SHA-256 checksum. Missing or inconsistent proof metadata fails closed without downloading the object. Do not assume that increasing parallelism improves a local filesystem. Measure the selected backend and keep concurrency bounded.
 
 The S3 adapter materializes each already-bounded CAS block once because the AWS synchronous request body requires a replayable body for checksums and retries. The admission formula includes one such block-size allowance per active write. The process-wide `TransferBudget` is mandatory in packaged server wiring, defaults to 512 MiB, and prevents an unsafe maximum-block and maximum-parallelism combination from accepting bytes. A standalone `S3BlobStore` or `S3MutableObjectStore` also reserves its complete 128 MiB adaptive part ceiling before pulling input.
+
+The packaged S3 client remains synchronous deliberately. Bounded block-write fibers already provide controlled concurrency, the request body must be replayable for checksums and SDK retries, and no retained profile currently identifies blocking client threads as the limiting resource. The AWS SDK metric publisher now exposes calls and retries to the retained gate. Do not replace this client with the async implementation from API shape alone. First retain a target-provider profile showing executor or connection wait on the critical path, then compare the same corpus, concurrency, heap, retry, and cancellation behavior before changing transports.
 
 The fixed 2+1 erasure adapter trades CPU and network for lower cross-target storage overhead. It stores 1.5 times the canonical block bytes before object metadata, compared with 3 times for three full replicas. XOR is linear in block size. A maximum-size 16 MiB block produces three 8 MiB shards. The codec itself retains at most 40 MiB of source and shard bytes for one active block. Parallel synchronous S3 request bodies raise the conservative maximum write allowance to 64 MiB. A convergence repair that retains read shards while rebuilding and writing a missing shard has a conservative 88 MiB maximum. Ordinary reads race the three failure domains and cancel the remaining fiber after any two verified shards arrive. Because the third bounded read may finish before cancellation, ordinary reconstruction has a conservative 48 MiB maximum. These are hard per-block ceilings, not expected default usage: the 1 MiB default block yields proportionally smaller allowances. Multiply the relevant bound by configured block-write concurrency before choosing heap limits. Ceph's own replication or erasure policy adds another independent cost layer.
 

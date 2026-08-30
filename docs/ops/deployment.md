@@ -116,11 +116,17 @@ export GRAVITON_S3_BLOCK_BUCKET=graviton-blocks
 export GRAVITON_S3_BLOCK_PREFIX=cas/blocks
 export GRAVITON_S3_REGION=us-east-1
 export GRAVITON_MAINTENANCE_NAMESPACE=production-cas
+export GRAVITON_MANIFEST_INTEGRITY_REQUIRED=true
+export GRAVITON_MANIFEST_INTEGRITY_KEY_ID=manifest-v2
+export GRAVITON_MANIFEST_INTEGRITY_HMAC_KEY_BASE64="$MANIFEST_HMAC_KEY_FROM_SECRET_MANAGER"
+export GRAVITON_MANIFEST_INTEGRITY_PREVIOUS_KEYS_BASE64="$RETIRED_MANIFEST_KEYS_FROM_SECRET_MANAGER"
 
 java -jar graviton-server.jar
 ```
 
 Set the provider's explicit S3 endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
+
+Required manifest authentication rejects missing, reordered, or modified manifest metadata before fetching block payloads. The optional previous-key value is a comma-separated `key-id:base64` ring for rotations. Keep every key in the deployment secret manager. Do not place keys in image layers, Compose files, command arguments, benchmark output, or logs.
 
 For Graviton-managed block replication, create each bucket first and declare its real failure domain:
 

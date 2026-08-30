@@ -16,6 +16,8 @@ import graviton.runtime.upload.{
   UploadPartId,
   UploadSessionId,
   UploadSessionKey,
+  UploadSource,
+  UploadSourceError,
 }
 import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
@@ -218,9 +220,9 @@ final case class HttpApi(
 
   private def resumableError(errorValue: ResumableUploadService.Error): Response =
     errorValue match
-      case ResumableUploadService.Error.NotFound(_)                                           =>
+      case ResumableUploadService.Error.NotFound(_)                                                                      =>
         error(Status.NotFound, "upload_not_found", errorValue.getMessage)
-      case ResumableUploadService.Error.Repository(value)                                     =>
+      case ResumableUploadService.Error.Repository(value)                                                                =>
         value match
           case _: ResumableUploadRepository.Error.Missing                                                             =>
             error(Status.NotFound, "upload_not_found", value.getMessage)
@@ -241,11 +243,11 @@ final case class HttpApi(
       case _: ResumableUploadService.Error.InvalidPart | _: ResumableUploadService.Error.EmptyOrInvalidPart |
           _: ResumableUploadService.Error.Incomplete =>
         error(Status.BadRequest, "invalid_upload", errorValue.getMessage)
-      case ResumableUploadService.Error.Finalization(value: BlobIngest.Error.InvalidInput)    =>
+      case ResumableUploadService.Error.Finalization(value: BlobIngest.Error.InvalidInput)                               =>
         error(Status.BadRequest, "invalid_blob", value.getMessage)
-      case ResumableUploadService.Error.Finalization(_: BlobIngest.Error.Locality)            =>
+      case ResumableUploadService.Error.Finalization(_: BlobIngest.Error.Locality)                                       =>
         error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream")
-      case ResumableUploadService.Error.Staging(_, rejected: HttpSecurityPolicy.BodyRejected) =>
+      case ResumableUploadService.Error.Staging(_, rejected: HttpSecurityPolicy.BodyRejected)                            =>
         rejected.error match
           case SecurityError.PayloadTooLarge(_) =>
             error(Status.RequestEntityTooLarge, "payload_too_large", "Request payload is too large")
@@ -253,7 +255,15 @@ final case class HttpApi(
             error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded")
           case _                                =>
             error(Status.Forbidden, "forbidden", "Request denied")
-      case _                                                                                  => error(Status.InternalServerError, "resumable_upload_failure", "Resumable upload failed")
+      case ResumableUploadService.Error.Source(UploadSourceError.Rejected(_, rejected: HttpSecurityPolicy.BodyRejected)) =>
+        rejected.error match
+          case SecurityError.PayloadTooLarge(_) =>
+            error(Status.RequestEntityTooLarge, "payload_too_large", "Request payload is too large")
+          case SecurityError.RateLimited(_)     =>
+            error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded")
+          case _                                =>
+            error(Status.Forbidden, "forbidden", "Request denied")
+      case _                                                                                                             => error(Status.InternalServerError, "resumable_upload_failure", "Resumable upload failed")
 
   private val createResumableUploadHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { request =>
@@ -293,8 +303,8 @@ final case class HttpApi(
   private val appendResumableUploadHandler: Handler[Any, Nothing, (String, Request), Response] =
     Handler.fromFunctionZIO[(String, Request)] { case (rawId, request) =>
       val body = security match
-        case None         => ZIO.succeed(request.body.asStream)
-        case Some(policy) => policy.checkedUpload(request)
+        case None         => ZIO.succeed(UploadSource.fromThrowable(request.body.asStream))
+        case Some(policy) => policy.checkedUploadSource(request)
 
       secured(request, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection) {
         resumableUploads match
@@ -309,8 +319,8 @@ final case class HttpApi(
                 ZIO.fromEither(resumablePartId(request)).mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
               partSize <-
                 ZIO.fromEither(uploadContentLength(request)).mapError(value => error(Status.BadRequest, "invalid_upload", value.getMessage))
-              stream   <- body
-              appended <- service.append(key, partId, offset, partSize, stream).mapError(resumableError)
+              source   <- body
+              appended <- service.appendSource(key, partId, offset, partSize, source).mapError(resumableError)
             yield resumableResponse(appended.session, Status.NoContent, body = false)).catchAll(ZIO.succeed(_))
       }
     }
@@ -324,10 +334,11 @@ final case class HttpApi(
             (for
               key       <- resumableKey(rawId, request)
               committed <- service
-                             .commit(key)((intent, bytes) =>
-                               blobIngest.uploadResumable(key, intent, bytes).map(_.key).mapError(value => value: Throwable)
-                             )
-                             .mapError(resumableError)
+                             .commitSource(key)((intent, source) => blobIngest.uploadResumableSource(key, intent, source).map(_.key))
+                             .mapError {
+                               case value: ResumableUploadService.Error => resumableError(value)
+                               case value: BlobIngest.Error             => resumableError(ResumableUploadService.Error.Finalization(value))
+                             }
             yield resumableResponse(committed.session)
               .addHeader(Header.Custom("Location", s"/api/v1/blobs/${committed.blob.bits.render}"))).catchAll(ZIO.succeed(_))
       }
@@ -424,8 +435,8 @@ final case class HttpApi(
     Handler.fromFunctionZIO[Request] { req =>
       val contentLength = uploadContentLength(req)
       val body          = security match
-        case None         => ZIO.succeed(req.body.asStream)
-        case Some(policy) => policy.checkedUpload(req)
+        case None         => ZIO.succeed(UploadSource.fromThrowable(req.body.asStream))
+        case Some(policy) => policy.checkedUploadSource(req)
 
       secured(req, "blob.write", Capability.BlobWrite, ResourceRef.blobCollection, contentLength.toOption.flatten.map(_.value)) {
         ZIO
@@ -433,9 +444,9 @@ final case class HttpApi(
           .flatMap { expectedSize =>
             ZIO.fromEither(uploadMediaType(req)).flatMap { mediaType =>
               ZIO.fromEither(uploadSession(req)).flatMap { session =>
-                authorizeUploadSessionTenant(session) *> body.flatMap { bytes =>
+                authorizeUploadSessionTenant(session) *> body.flatMap { source =>
                   blobIngest
-                    .upload(session, UploadIntent(mediaType, expectedSize), bytes)
+                    .uploadSource(session, UploadIntent(mediaType, expectedSize), source)
                     .map(result => UploadOutcome(result.key, result.stats))
                 }
               }

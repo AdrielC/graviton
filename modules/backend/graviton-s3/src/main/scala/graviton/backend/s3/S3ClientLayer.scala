@@ -1,16 +1,25 @@
 package graviton.backend.s3
 
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, DefaultCredentialsProvider, StaticCredentialsProvider}
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
 import software.amazon.awssdk.core.checksums.{RequestChecksumCalculation, ResponseChecksumValidation}
+import software.amazon.awssdk.core.metrics.CoreMetric
 import software.amazon.awssdk.core.retry.RetryMode
 import software.amazon.awssdk.http.apache.ApacheHttpClient
+import software.amazon.awssdk.metrics.{MetricCollection, MetricPublisher}
 import software.amazon.awssdk.services.s3.{S3Configuration, S3Client}
-import zio.{Task, ZIO, ZLayer}
+import zio.{Runtime, Task, Unsafe, ZIO, ZLayer}
+
+import scala.jdk.CollectionConverters.*
+import scala.util.control.NonFatal
 
 object S3ClientLayer:
 
   def make(config: S3Config): Task[S3Client] =
+    make(config, MetricsRegistry.noop)
+
+  def make(config: S3Config, metrics: MetricsRegistry): Task[S3Client] =
     ZIO.attempt {
       val builder =
         S3Client
@@ -28,6 +37,7 @@ object S3ClientLayer:
               .apiCallAttemptTimeout(java.time.Duration.ofSeconds(15))
               .apiCallTimeout(java.time.Duration.ofSeconds(45))
               .retryStrategy(RetryMode.STANDARD)
+              .addMetricPublisher(new S3MetricPublisher(metrics))
               .build()
           )
           .requestChecksumCalculation(RequestChecksumCalculation.WHEN_SUPPORTED)
@@ -57,3 +67,25 @@ object S3ClientLayer:
 
   def layer(config: S3Config): ZLayer[Any, Throwable, S3Client] =
     ZLayer.fromZIO(make(config))
+
+  private[s3] final class S3MetricPublisher(metrics: MetricsRegistry) extends MetricPublisher:
+    override def publish(collection: MetricCollection): Unit =
+      val operation  = collection.metricValues(CoreMetric.OPERATION_NAME).asScala.lastOption.getOrElse("unknown")
+      val successful = collection.metricValues(CoreMetric.API_CALL_SUCCESSFUL).asScala.lastOption
+      val retries    = collection.metricValues(CoreMetric.RETRY_COUNT).asScala.map(_.toLong).sum
+      val tags       = Map(
+        "operation" -> operation,
+        "outcome"   -> successful.fold("unknown")(if _ then "success" else "failure"),
+      )
+      try
+        Unsafe.unsafe { implicit unsafe =>
+          Runtime.default.unsafe
+            .run(
+              metrics.counter(MetricKeys.S3ApiCallsTotal, tags) *>
+                metrics.counterBy(MetricKeys.S3RetriesTotal, retries, tags)
+            )
+            .getOrThrowFiberFailure()
+        }
+      catch case NonFatal(_) => ()
+
+    override def close(): Unit = ()

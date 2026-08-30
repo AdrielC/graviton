@@ -4,7 +4,15 @@ import graviton.core.attributes.IngestStats
 import graviton.core.keys.BinaryKey
 import graviton.pdf.PdfUploadSupport
 import graviton.runtime.stores.{BlobStore, StoreError}
-import graviton.runtime.upload.{LocalityAwareUpload, UploadIngestor, UploadIntent, UploadNode, UploadSessionKey}
+import graviton.runtime.upload.{
+  LocalityAwareUpload,
+  UploadIngestor,
+  UploadIntent,
+  UploadNode,
+  UploadSessionKey,
+  UploadSource,
+  UploadSourceError,
+}
 import zio.*
 import zio.stream.ZStream
 
@@ -15,6 +23,13 @@ trait BlobIngest:
     intent: UploadIntent,
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[BlobIngest.Error, BlobIngest.Result]
+
+  def uploadSource(
+    session: Option[UploadSessionKey],
+    intent: UploadIntent,
+    source: UploadSource,
+  ): IO[BlobIngest.Error, BlobIngest.Result] =
+    upload(session, intent, source.bytes.mapError(value => value: Throwable))
 
   /**
    * Finalize a durable resumable session. Shardcake owns the stream when it is
@@ -27,6 +42,13 @@ trait BlobIngest:
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[BlobIngest.Error, BlobIngest.Result] =
     upload(Some(session), intent, bytes)
+
+  def uploadResumableSource(
+    session: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): IO[BlobIngest.Error, BlobIngest.Result] =
+    uploadSource(Some(session), intent, source)
 
 object BlobIngest:
   final case class Result(
@@ -79,17 +101,24 @@ object BlobIngest:
       intent: UploadIntent,
       bytes: ZStream[Any, Throwable, Byte],
     ): IO[Error, Result] =
+      uploadSource(session, intent, UploadSource.fromThrowable(bytes))
+
+    override def uploadSource(
+      session: Option[UploadSessionKey],
+      intent: UploadIntent,
+      source: UploadSource,
+    ): IO[Error, Result] =
       (session, localizedUpload) match
         case (Some(key), Some(localized)) =>
           localized
-            .upload(key, intent, bytes)
+            .uploadSource(key, intent, source)
             .map(result => Result(result.key, result.stats, Some(result.owner)))
             .mapError(Error.Locality(_))
         case (Some(_), None)              =>
           ZIO.fail(Error.LocalityUnavailable)
         case _                            =>
           uploadIngestor
-            .put(intent, bytes)
+            .putSource(intent, source)
             .map(result => Result(result.stored.key, result.stored.stats, None))
             .mapError(classifyIngestError)
 
@@ -98,25 +127,36 @@ object BlobIngest:
       intent: UploadIntent,
       bytes: ZStream[Any, Throwable, Byte],
     ): IO[Error, Result] =
+      uploadResumableSource(session, intent, UploadSource.fromThrowable(bytes))
+
+    override def uploadResumableSource(
+      session: UploadSessionKey,
+      intent: UploadIntent,
+      source: UploadSource,
+    ): IO[Error, Result] =
       localizedUpload match
         case Some(localized) =>
           localized
-            .upload(session, intent, bytes)
+            .uploadSource(session, intent, source)
             .map(result => Result(result.key, result.stats, Some(result.owner)))
             .mapError(Error.Locality(_))
         case None            =>
           uploadIngestor
-            .put(intent, bytes)
+            .putSource(intent, source)
             .map(result => Result(result.stored.key, result.stored.stats, None))
             .mapError(classifyIngestError)
 
     private def classifyIngestError(error: UploadIngestor.Error): Error =
       error match
-        case UploadIngestor.Error.InvalidInput(message)                          => Error.InvalidInput(message)
-        case mismatch: UploadIngestor.Error.MediaTypeMismatch                    => Error.InvalidInput(mismatch.getMessage)
-        case ambiguous: UploadIngestor.Error.AmbiguousDetection                  => Error.InvalidInput(ambiguous.getMessage)
-        case validation: UploadIngestor.Error.Validation                         => Error.InvalidInput(validation.getMessage)
-        case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected) => Error.Rejected(error)
-        case UploadIngestor.Error.Storage(error: StoreError.InvalidInput)        => Error.InvalidInput(error.reason)
-        case UploadIngestor.Error.Storage(error)                                 => Error.Storage(error)
-        case other                                                               => Error.Processing(other)
+        case UploadIngestor.Error.InvalidInput(message)                                                              => Error.InvalidInput(message)
+        case mismatch: UploadIngestor.Error.MediaTypeMismatch                                                        => Error.InvalidInput(mismatch.getMessage)
+        case ambiguous: UploadIngestor.Error.AmbiguousDetection                                                      => Error.InvalidInput(ambiguous.getMessage)
+        case validation: UploadIngestor.Error.Validation                                                             => Error.InvalidInput(validation.getMessage)
+        case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected)                                     => Error.Rejected(error)
+        case UploadIngestor.Error.SourceError(UploadSourceError.Transport(error: HttpSecurityPolicy.BodyRejected))   =>
+          Error.Rejected(error)
+        case UploadIngestor.Error.SourceError(UploadSourceError.Rejected(_, error: HttpSecurityPolicy.BodyRejected)) =>
+          Error.Rejected(error)
+        case UploadIngestor.Error.Storage(error: StoreError.InvalidInput)                                            => Error.InvalidInput(error.reason)
+        case UploadIngestor.Error.Storage(error)                                                                     => Error.Storage(error)
+        case other                                                                                                   => Error.Processing(other)

@@ -143,7 +143,9 @@ BlobStore
             ├── in-memory reference implementation
             ├── FsBlobManifestRepo
             └── PgBlobManifestRepo
-        ├── TransferBudget          process-wide weighted byte budget
+        ├── TransferFootprint       named live-byte ownership algebra
+        ├── TransferBudget          process, tenant, and backend admission
+        ├── ManifestIntegrity       streaming versioned manifest proofs
         └── RepairJournal           durable cursor and dead-letter state
 
 Optional multi-node ingress

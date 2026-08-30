@@ -21,7 +21,16 @@ import graviton.runtime.config.{MaintenanceConfig, TenantStorageConfig}
 import graviton.runtime.catalog.{CatalogError, CatalogName}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
-import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore, StoreError}
+import graviton.runtime.stores.{
+  BlobManifestRepo,
+  BlobStore,
+  CasBlobStore,
+  FsBlockStore,
+  ManifestIntegrity,
+  ManifestKeyId,
+  ManifestKeyService,
+  StoreError,
+}
 import graviton.runtime.tenant.{DeduplicationScope, TenantCellId, TenantLifecycle, TenantPolicyCatalog, TenantRoutingError}
 import graviton.runtime.upload.*
 import graviton.security.*
@@ -106,6 +115,27 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
                         }
             readBack <- store.get(written.key).runCollect
           yield assertTrue(readBack == data)
+        },
+        test("Postgres manifest proof rejects tampering before reconstruction") {
+          val data = Chunk.fromArray(Array.tabulate(12_000)(index => (index % 241).toByte))
+
+          ZIO.scoped {
+            for
+              ds        <- ZIO.service[javax.sql.DataSource]
+              integrity <- makeManifestIntegrity
+              root      <- ZIO.attemptBlocking(Files.createTempDirectory("graviton-pg-proof-blocks"))
+              _         <- ZIO.addFinalizer(ZIO.attemptBlocking(deleteRecursive(root)).orDie)
+              repo       = PgBlobManifestRepo.authenticated(ds, integrity)
+              store      = new CasBlobStore(new FsBlockStore(root), repo)
+              written   <- ZStream.fromChunk(data).run(store.put())
+              clean     <- store.get(written.key).runCollect
+              _         <- tamperManifestSpan(ds, written.key)
+              failed    <- store.get(written.key).runHead.exit
+            yield assertTrue(
+              clean == data,
+              failed.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.CorruptData]),
+            )
+          }
         },
         test("late ranges select only intersecting Postgres manifest rows") {
           val data   = Chunk.fromArray(Array.tabulate(4096)(index => (index % 251).toByte))
@@ -776,6 +806,42 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
         finally result.close()
       finally statement.close()
     finally connection.close()
+
+  private def makeManifestIntegrity: Task[ManifestIntegrity] =
+    for
+      keyId   <- ZIO.fromEither(ManifestKeyId.either("embedded-pg-test")).mapError(new IllegalArgumentException(_))
+      hmacKey <- ZIO
+                   .fromEither(ManifestKeyService.HmacKey.fromBytes(Array.tabulate[Byte](32)(index => (index + 7).toByte)))
+                   .mapError(new IllegalArgumentException(_))
+      service <- ZIO
+                   .fromEither(ManifestKeyService.hmac(keyId, Map(keyId -> hmacKey)))
+                   .mapError(new IllegalArgumentException(_))
+    yield ManifestIntegrity(service)
+
+  private def tamperManifestSpan(dataSource: javax.sql.DataSource, blob: BinaryKey.Blob): Task[Unit] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          """UPDATE graviton.blob_block
+            |SET block_length = block_length - 1
+            |WHERE alg = 'sha256'::core.hash_alg AND hash_bytes = ? AND byte_length = ?
+            |  AND ordinal = (
+            |    SELECT max(ordinal) FROM graviton.blob_block
+            |    WHERE alg = 'sha256'::core.hash_alg AND hash_bytes = ? AND byte_length = ?
+            |  )
+            |""".stripMargin
+        )
+        try
+          statement.setBytes(1, blob.bits.digest.bytes)
+          statement.setLong(2, blob.bits.size)
+          statement.setBytes(3, blob.bits.digest.bytes)
+          statement.setLong(4, blob.bits.size)
+          val updated = statement.executeUpdate()
+          if updated != 1 then throw new IllegalStateException(s"expected one manifest proof row, updated $updated")
+        finally statement.close()
+      finally connection.close()
+    }
 
   private def insertTenantPolicy(
     dataSource: javax.sql.DataSource,

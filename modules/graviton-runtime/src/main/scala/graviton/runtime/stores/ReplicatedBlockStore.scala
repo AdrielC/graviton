@@ -25,8 +25,30 @@ final class ReplicatedBlockStore private (
   placement: ReplicaPlacement,
   metrics: MetricsRegistry,
   preferredFailureDomain: Option[String],
-) extends ConvergentBlockStore:
+) extends ConvergentBlockStore
+    with BlockTransferFootprint:
   import ReplicatedBlockStore.*
+
+  override val transferBackend: StoreBackend = StoreBackend.Runtime
+
+  override def blockWriteFootprint(maximumBlockBytes: Int): Either[TransferFootprint.Error, TransferFootprint] =
+    val targetTotals = replicas.map(replica => BlockTransferFootprint.writeOf(replica.store, maximumBlockBytes).map(_.totalBytes))
+    targetTotals
+      .foldLeft[Either[TransferFootprint.Error, Chunk[Long]]](Right(Chunk.empty)) { (acc, next) =>
+        for
+          values <- acc
+          value  <- next
+        yield values :+ value
+      }
+      .flatMap { totals =>
+        totals
+          .sorted(using Ordering.Long.reverse)
+          .take(desiredReplicas)
+          .foldLeft[Either[TransferFootprint.Error, Long]](Right(0L)) { (sum, value) =>
+            sum.flatMap(TransferFootprint.add(_, value))
+          }
+          .flatMap(TransferFootprint.single(TransferComponent.applyUnsafe("replica-write-fanout"), _))
+      }
 
   override def putBlock(
     block: CanonicalBlock,
