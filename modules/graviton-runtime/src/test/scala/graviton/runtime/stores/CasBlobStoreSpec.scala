@@ -138,6 +138,40 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           snapshot.counters.get(MetricKey(MetricKeys.DuplicateBlockBytesTotal, tags)).getOrElse(0L) == 0L,
         )
       },
+      test("accounts for both bounded scan broadcast queues in the transfer footprint") {
+        val chunker = Chunker.fixed(UploadChunkSize(1024 * 1024))
+        val program = IngestProgram.UseScan(
+          label = "byte-count",
+          build = () => graviton.core.scan.FS.counter[Byte],
+        )
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          baseline   <- ZIO.fromEither(
+                          CasBlobStore
+                            .IngestConfig()
+                            .maximumPipelineFootprint(
+                              chunker,
+                              BlockPersistenceConfig.default,
+                              blockStore,
+                            )
+                        )
+          withScan   <- ZIO.fromEither(
+                          CasBlobStore
+                            .IngestConfig()
+                            .maximumPipelineFootprint(
+                              chunker,
+                              BlockPersistenceConfig.default,
+                              blockStore,
+                              program,
+                              scanWindowRefs = 8,
+                            )
+                        )
+        yield assertTrue(
+          withScan.totalBytes - baseline.totalBytes == 2L * 8L * 64L * 1024L,
+          withScan.contributions.exists(_.component.value == "scan-broadcast-queues"),
+        )
+      },
       test("records byte-weighted CAS reuse independently of block counts") {
         val data    = Chunk.fromArray("seven-byte blocks with a short tail".getBytes(StandardCharsets.UTF_8))
         val chunker = Chunker.fixed(UploadChunkSize(7))

@@ -12,6 +12,13 @@ trait LocalityAwareUpload:
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[LocalityAwareUpload.Error, LocalizedUploadResult]
 
+  def uploadSource(
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): IO[LocalityAwareUpload.Error, LocalizedUploadResult] =
+    upload(key, intent, source.bytes.mapError(error => error: Throwable))
+
 object LocalityAwareUpload:
   sealed trait Error extends Throwable
 
@@ -37,6 +44,13 @@ object LocalityAwareUpload:
   ): ZIO[LocalityAwareUpload, Error, LocalizedUploadResult] =
     ZIO.serviceWithZIO[LocalityAwareUpload](_.upload(key, intent, bytes))
 
+  def uploadSource(
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): ZIO[LocalityAwareUpload, Error, LocalizedUploadResult] =
+    ZIO.serviceWithZIO[LocalityAwareUpload](_.uploadSource(key, intent, source))
+
   val live: ZLayer[UploadPlacement & UploadNodeIngest & UploadNodeTransport, Nothing, LocalityAwareUpload] =
     layer(MetricsRegistry.noop)
 
@@ -61,6 +75,13 @@ object LocalityAwareUpload:
           intent: UploadIntent,
           bytes: ZStream[Any, Throwable, Byte],
         ): IO[Error, LocalizedUploadResult] =
+          uploadSource(key, intent, UploadSource.fromThrowable(bytes))
+
+        override def uploadSource(
+          key: UploadSessionKey,
+          intent: UploadIntent,
+          source: UploadSource,
+        ): IO[Error, LocalizedUploadResult] =
           for
             owner  <- placement
                         .locate(key)
@@ -80,8 +101,8 @@ object LocalityAwareUpload:
                           LogAnnotation("route", route),
                         )
                       ) {
-                        (if owner == local then ingest.uploadLocal(key, intent, bytes).mapError(Error.LocalIngest.apply)
-                         else transport.upload(owner, key, intent, bytes).mapError(Error.RemoteTransport.apply))
+                        (if owner == local then ingest.uploadLocalSource(key, intent, source).mapError(Error.LocalIngest.apply)
+                         else transport.uploadSource(owner, key, intent, source).mapError(Error.RemoteTransport.apply))
                           .tapError(error =>
                             metrics.counter(MetricKeys.UploadLocalityFailuresTotal, tags) *>
                               ZIO.logWarningCause("Upload ingest failed", Cause.fail(error))

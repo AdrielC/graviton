@@ -30,10 +30,10 @@ final case class UploadNodeHttpApi(
                               case Some(value) => MediaTypeText.parse(value).left.map(RequestError.InvalidInput.apply)
                           )
           expectedSize <- ZIO.fromEither(parseContentLength(request).left.map(RequestError.InvalidInput.apply))
-          result       <- ingest.uploadLocal(
+          result       <- ingest.uploadLocalSource(
                             UploadSessionKey(tenant, session),
                             UploadIntent(mediaType, expectedSize),
-                            request.body.asStream,
+                            UploadSource.fromThrowable(request.body.asStream),
                           )
           encoded      <- ZIO.fromEither(UploadResultCodec.encode(result))
         yield Response(

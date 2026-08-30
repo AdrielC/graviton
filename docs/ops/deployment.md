@@ -116,11 +116,17 @@ export GRAVITON_S3_BLOCK_BUCKET=graviton-blocks
 export GRAVITON_S3_BLOCK_PREFIX=cas/blocks
 export GRAVITON_S3_REGION=us-east-1
 export GRAVITON_MAINTENANCE_NAMESPACE=production-cas
+export GRAVITON_MANIFEST_INTEGRITY_REQUIRED=true
+export GRAVITON_MANIFEST_INTEGRITY_KEY_ID=manifest-v2
+export GRAVITON_MANIFEST_INTEGRITY_HMAC_KEY_BASE64="$MANIFEST_HMAC_KEY_FROM_SECRET_MANAGER"
+export GRAVITON_MANIFEST_INTEGRITY_PREVIOUS_KEYS_BASE64="$RETIRED_MANIFEST_KEYS_FROM_SECRET_MANAGER"
 
 java -jar graviton-server.jar
 ```
 
 Set the provider's explicit S3 endpoint and access credentials as described in [Configuration Reference](../guide/configuration-reference.md). Every process sharing the PostgreSQL manifest database and block repository must use the same maintenance namespace.
+
+Required manifest authentication rejects missing, reordered, or modified manifest metadata before fetching block payloads. The optional previous-key value is a comma-separated `key-id:base64` ring for rotations. Keep every key in the deployment secret manager. Do not place keys in image layers, Compose files, command arguments, benchmark output, or logs.
 
 For Graviton-managed block replication, create each bucket first and declare its real failure domain:
 
@@ -242,7 +248,9 @@ For filesystem mode, stop the prior writer before starting the new one. For S3 p
 ./scripts/qualify-rolling-upgrade.sh graviton:baseline graviton:candidate
 ```
 
-The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs and content IDs. Do not infer that another version pair is compatible.
+The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs, content IDs, and the manifest-integrity mode. Do not infer that another version pair is compatible.
+
+Required manifest authentication is a storage-format admission boundary. It deliberately rejects unsigned manifests written by a release that predates authentication. Do not weaken required mode to make that transition appear compatible. For the clean pre-1.0 line, enable required mode on an empty store. The repository qualification runs an explicitly unsigned, isolated mixed-version compatibility cohort, destroys all of its state, and then starts an authenticated candidate-only cohort for the sustained fault drill.
 
 After the rolling gate, run a longer fault workload:
 

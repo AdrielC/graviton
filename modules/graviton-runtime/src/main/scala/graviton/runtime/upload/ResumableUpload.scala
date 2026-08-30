@@ -268,6 +268,15 @@ final class ResumableUploadService(
     expectedPartSize: Option[FileSize],
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[Error, AppendResult] =
+    appendSource(key, partId, expectedOffset, expectedPartSize, UploadSource.fromThrowable(bytes))
+
+  def appendSource(
+    key: UploadSessionKey,
+    partId: UploadPartId,
+    expectedOffset: UploadOffset,
+    expectedPartSize: Option[FileSize],
+    source: UploadSource,
+  ): IO[Error, AppendResult] =
     ZIO.uninterruptibleMask { restore =>
       for
         now          <- Clock.instant
@@ -293,8 +302,8 @@ final class ResumableUploadService(
                               .as(AppendResult(session, part, replayed = true))
                           case UploadPartReservationResult.Reserved(reservation)         =>
                             val streamed =
-                              UploadByteStream.enforceExpectedSize(
-                                UploadByteStream.enforceMaximumSize(bytes, config.maxPartBytes),
+                              UploadByteStream.enforceExpectedSizeTyped(
+                                UploadByteStream.enforceMaximumSizeTyped(source.bytes, config.maxPartBytes),
                                 expectedPartSize,
                               )
                             restore(writePart(reservation, streamed))
@@ -335,6 +344,17 @@ final class ResumableUploadService(
   )(
     finalize: (UploadIntent, ZStream[Any, Throwable, Byte]) => IO[Throwable, BinaryKey.Blob]
   ): IO[Error, CommitResult] =
+    commitSource(key)((intent, source) => finalize(intent, source.bytes.mapError(value => value: Throwable)))
+      .mapError {
+        case value: Error     => value
+        case value: Throwable => Error.Finalization(value)
+      }
+
+  def commitSource[E](
+    key: UploadSessionKey
+  )(
+    finalize: (UploadIntent, UploadSource) => IO[E, BinaryKey.Blob]
+  ): IO[Error | E, CommitResult] =
     ZIO.uninterruptibleMask { restore =>
       for
         now          <- Clock.instant
@@ -350,8 +370,12 @@ final class ResumableUploadService(
                             val complete =
                               for
                                 _      <- validateCompleteSize(session)
-                                blob   <- finalize(session.intent, bytes(key).mapError(value => value: Throwable))
-                                            .mapError(Error.Finalization.apply)
+                                blob   <- finalize(
+                                            session.intent,
+                                            UploadSource.typed(
+                                              bytes(key).mapError(error => UploadSourceError.Rejected(error.getMessage, error))
+                                            ),
+                                          )
                                 stored <- repository
                                             .completeCommit(key, currentLease, blob, now)
                                             .mapError(Error.Repository.apply)
@@ -399,7 +423,7 @@ final class ResumableUploadService(
 
   private def writePart(
     reservation: UploadPartReservation,
-    bytes: ZStream[Any, Throwable, Byte],
+    bytes: ZStream[Any, UploadSourceError | UploadByteStream.Error, Byte],
   ): IO[Error, AppendResult] =
     for
       observed <- Ref.make(0L)
@@ -414,6 +438,7 @@ final class ResumableUploadService(
                     .run(staging.put(reservation.locator))
                     .mapError {
                       case value: UploadByteStream.Error => Error.InvalidPart(value)
+                      case value: UploadSourceError      => Error.Source(value)
                       case value                         => Error.Staging("write", value)
                     }
       size     <- observed.get
@@ -477,6 +502,7 @@ object ResumableUploadService:
     final case class Repository(underlying: ResumableUploadRepository.Error) extends Error(underlying.getMessage, underlying)
     final case class Staging(operation: String, underlying: Throwable)
         extends Error(s"resumable upload staging $operation failed", underlying)
+    final case class Source(underlying: UploadSourceError)                   extends Error(underlying.getMessage, underlying)
     final case class InvalidPart(underlying: UploadByteStream.Error)         extends Error(underlying.getMessage, underlying)
     final case class EmptyOrInvalidPart(detail: String)                      extends Error(s"resumable upload part is invalid: $detail")
     final case class Incomplete(expected: FileSize, actual: UploadOffset)

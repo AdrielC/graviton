@@ -22,8 +22,16 @@ final class ErasureBlockStore private (
   targets: Chunk[ErasureBlockStore.Target],
   metrics: MetricsRegistry,
   preferredFailureDomain: Option[String],
-) extends ConvergentBlockStore:
+) extends ConvergentBlockStore
+    with BlockTransferFootprint:
   import ErasureBlockStore.*
+
+  override val transferBackend: StoreBackend = StoreBackend.Runtime
+
+  override def blockWriteFootprint(maximumBlockBytes: Int): Either[TransferFootprint.Error, TransferFootprint] =
+    TransferFootprint
+      .multiply(maximumBlockBytes.toLong, 3L)
+      .flatMap(TransferFootprint.single(TransferComponent.applyUnsafe("erasure-encode-and-target-copies"), _))
 
   override def putBlock(block: CanonicalBlock, plan: BlockWritePlan = BlockWritePlan()): IO[StoreError, StoredBlock] =
     (for

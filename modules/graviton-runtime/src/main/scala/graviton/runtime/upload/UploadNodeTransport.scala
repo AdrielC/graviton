@@ -12,6 +12,14 @@ trait UploadNodeTransport:
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[UploadNodeTransport.Error, LocalizedUploadResult]
 
+  def uploadSource(
+    owner: UploadNode,
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): IO[UploadNodeTransport.Error, LocalizedUploadResult] =
+    upload(owner, key, intent, source.bytes.mapError(error => error: Throwable))
+
 object UploadNodeTransport:
   sealed trait Error extends Throwable
 
@@ -26,6 +34,10 @@ object UploadNodeTransport:
     final case class InvalidResponse(owner: UploadNode, reason: String) extends Error:
       override def getMessage: String = s"Upload node ${owner.id.value} returned an invalid response: $reason"
 
+    final case class SourceFailure(owner: UploadNode, cause: UploadSourceError) extends Error:
+      override def getMessage: String  = s"Upload source failed while streaming to node ${owner.id.value}"
+      override def getCause: Throwable = cause
+
   val service: ZIO[UploadNodeTransport, Nothing, UploadNodeTransport] = ZIO.service[UploadNodeTransport]
 
   def upload(
@@ -36,6 +48,14 @@ object UploadNodeTransport:
   ): ZIO[UploadNodeTransport, Error, LocalizedUploadResult] =
     ZIO.serviceWithZIO[UploadNodeTransport](_.upload(owner, key, intent, bytes))
 
+  def uploadSource(
+    owner: UploadNode,
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): ZIO[UploadNodeTransport, Error, LocalizedUploadResult] =
+    ZIO.serviceWithZIO[UploadNodeTransport](_.uploadSource(owner, key, intent, source))
+
 /** Performs the owner-local CAS ingest. Remote transports terminate here. */
 trait UploadNodeIngest:
   def uploadLocal(
@@ -43,6 +63,13 @@ trait UploadNodeIngest:
     intent: UploadIntent,
     bytes: ZStream[Any, Throwable, Byte],
   ): IO[UploadNodeIngest.Error, LocalizedUploadResult]
+
+  def uploadLocalSource(
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): IO[UploadNodeIngest.Error, LocalizedUploadResult] =
+    uploadLocal(key, intent, source.bytes.mapError(error => error: Throwable))
 
 object UploadNodeIngest:
   sealed trait Error extends Throwable
@@ -55,6 +82,10 @@ object UploadNodeIngest:
       override def getMessage: String  = Option(cause.getMessage).getOrElse("Upload storage failed")
       override def getCause: Throwable = cause
 
+    final case class SourceFailure(cause: UploadSourceError) extends Error:
+      override def getMessage: String  = "Upload source failed"
+      override def getCause: Throwable = cause
+
   val service: ZIO[UploadNodeIngest, Nothing, UploadNodeIngest] = ZIO.service[UploadNodeIngest]
 
   def uploadLocal(
@@ -63,3 +94,10 @@ object UploadNodeIngest:
     bytes: ZStream[Any, Throwable, Byte],
   ): ZIO[UploadNodeIngest, Error, LocalizedUploadResult] =
     ZIO.serviceWithZIO[UploadNodeIngest](_.uploadLocal(key, intent, bytes))
+
+  def uploadLocalSource(
+    key: UploadSessionKey,
+    intent: UploadIntent,
+    source: UploadSource,
+  ): ZIO[UploadNodeIngest, Error, LocalizedUploadResult] =
+    ZIO.serviceWithZIO[UploadNodeIngest](_.uploadLocalSource(key, intent, source))

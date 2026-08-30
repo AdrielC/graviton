@@ -8,6 +8,28 @@ import zio.Chunk
 import zio.json.ast.Json
 import zio.schema.Schema
 import zio.schema.validation.Validation
+enum AclEffect(val value: String) derives Schema    {
+  case allow extends AclEffect("allow")
+  case deny  extends AclEffect("deny")
+}
+object AclEffect                                    {
+  private val byValue: Map[String, AclEffect] = AclEffect.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[AclEffect]                    =
+    DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown acl_effect value '" + str + "'")), _.value)
+}
+enum AuditOutcome(val value: String) derives Schema {
+  case allow     extends AuditOutcome("allow")
+  case deny      extends AuditOutcome("deny")
+  case error     extends AuditOutcome("error")
+  case auth_fail extends AuditOutcome("auth_fail")
+}
+object AuditOutcome                                 {
+  private val byValue: Map[String, AuditOutcome] = AuditOutcome.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[AuditOutcome]                    = DbCodec[String].biMap(
+    str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown audit_outcome value '" + str + "'")),
+    _.value,
+  )
+}
 enum InputKind(val value: String) derives Schema    {
   case blob extends InputKind("blob")
   case view extends InputKind("view")
@@ -16,6 +38,19 @@ object InputKind                                    {
   private val byValue: Map[String, InputKind] = InputKind.values.iterator.map(v => v.value -> v).toMap
   given DbCodec[InputKind]                    =
     DbCodec[String].biMap(str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown input_kind value '" + str + "'")), _.value)
+}
+enum ResourceKind(val value: String) derives Schema {
+  case blob          extends ResourceKind("blob")
+  case catalog       extends ResourceKind("catalog")
+  case observability extends ResourceKind("observability")
+  case audit         extends ResourceKind("audit")
+}
+object ResourceKind                                 {
+  private val byValue: Map[String, ResourceKind] = ResourceKind.values.iterator.map(v => v.value -> v).toMap
+  given DbCodec[ResourceKind]                    = DbCodec[String].biMap(
+    str => byValue.getOrElse(str, throw IllegalArgumentException("Unknown resource_kind value '" + str + "'")),
+    _.value,
+  )
 }
 enum VerifyResult(val value: String) derives Schema {
   case ok            extends VerifyResult("ok")
@@ -131,6 +166,90 @@ object BlockVerifyEvent                             {
   ) derives DbCodec,
         Schema
   val repo                          = Repo[BlockVerifyEvent.Creator, BlockVerifyEvent, BlockVerifyEvent.Id]
+}
+@Table(PostgresDbType) final case class TenantBlobBlock(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @Id @SqlName("storage_domain_id") storageDomainId: String,
+  @Id @SqlName("alg") alg: graviton.pg.generated.core.HashAlg,
+  @Id @SqlName("hash_bytes") hashBytes: Chunk[Byte],
+  @Id @SqlName("byte_length") byteLength: NonNegLong,
+  @Id @SqlName("ordinal") ordinal: Int,
+  @SqlName("block_alg") blockAlg: graviton.pg.generated.core.HashAlg,
+  @SqlName("block_hash_bytes") blockHashBytes: Chunk[Byte],
+  @SqlName("block_byte_length") blockByteLength: NonNegLong,
+  @SqlName("block_offset") blockOffset: NonNegLong,
+  @SqlName("block_length") blockLength: NonNegLong,
+  @SqlName("span") span: Option[DbRange[Long]],
+) derives DbCodec,
+      Schema
+object TenantBlobBlock                              {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "tenant_blob_block"
+    inline val columns: List[(String, String)] = List(
+      "tenantId"        -> "tenant_id",
+      "storageDomainId" -> "storage_domain_id",
+      "alg"             -> "alg",
+      "hashBytes"       -> "hash_bytes",
+      "byteLength"      -> "byte_length",
+      "ordinal"         -> "ordinal",
+      "blockAlg"        -> "block_alg",
+      "blockHashBytes"  -> "block_hash_bytes",
+      "blockByteLength" -> "block_byte_length",
+      "blockOffset"     -> "block_offset",
+      "blockLength"     -> "block_length",
+      "span"            -> "span",
+    )
+  }
+  opaque type Id = (
+    tenantId: java.util.UUID,
+    storageDomainId: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+    ordinal: Int,
+  )
+  object Id   {
+    def apply(
+      tenantId: java.util.UUID,
+      storageDomainId: String,
+      alg: graviton.pg.generated.core.HashAlg,
+      hashBytes: Chunk[Byte],
+      byteLength: NonNegLong,
+      ordinal: Int,
+    ): Id =
+      (tenantId = tenantId, storageDomainId = storageDomainId, alg = alg, hashBytes = hashBytes, byteLength = byteLength, ordinal = ordinal)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong, Int)]]
+    .biMap(
+      value =>
+        (tenantId = value._1, storageDomainId = value._2, alg = value._3, hashBytes = value._4, byteLength = value._5, ordinal = value._6),
+      id => (id.tenantId, id.storageDomainId, id.alg, id.hashBytes, id.byteLength, id.ordinal),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong, Int)]]
+    .transform(
+      value =>
+        (tenantId = value._1, storageDomainId = value._2, alg = value._3, hashBytes = value._4, byteLength = value._5, ordinal = value._6),
+      id => (id.tenantId, id.storageDomainId, id.alg, id.hashBytes, id.byteLength, id.ordinal),
+    )
+  final case class Creator(
+    tenantId: java.util.UUID,
+    storageDomainId: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+    ordinal: Int,
+    blockAlg: graviton.pg.generated.core.HashAlg,
+    blockHashBytes: Chunk[Byte],
+    blockByteLength: NonNegLong,
+    blockOffset: NonNegLong,
+    blockLength: NonNegLong,
+    span: Option[DbRange[Long]] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[TenantBlobBlock.Creator, TenantBlobBlock, TenantBlobBlock.Id]
 }
 @Table(PostgresDbType) final case class BlockLocation(
   @Id @SqlName("block_location_id") blockLocationId: java.util.UUID,
@@ -288,6 +407,182 @@ object ViewInput                                    {
     .transform(value => (viewId = value._1, ordinal = value._2), id => (id.viewId, id.ordinal))
   final case class Creator(viewId: java.util.UUID, ordinal: Int, inputKind: InputKind, inputRef: Json) derives DbCodec, Schema
   val repo                            = Repo[ViewInput.Creator, ViewInput, ViewInput.Id]
+}
+@Table(PostgresDbType) final case class UploadPart(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @Id @SqlName("upload_session_id") uploadSessionId: java.util.UUID,
+  @Id @SqlName("part_id") partId: java.util.UUID,
+  @SqlName("part_number") partNumber: Int,
+  @SqlName("byte_offset") byteOffset: NonNegLong,
+  @SqlName("byte_length") byteLength: Option[NonNegLong],
+  @SqlName("locator") locator: String,
+  @SqlName("lease_id") leaseId: Option[java.util.UUID],
+  @SqlName("lease_expires_at") leaseExpiresAt: Option[java.time.OffsetDateTime],
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+  @SqlName("completed_at") completedAt: Option[java.time.OffsetDateTime],
+) derives DbCodec,
+      Schema
+object UploadPart                                   {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "upload_part"
+    inline val columns: List[(String, String)] = List(
+      "tenantId"        -> "tenant_id",
+      "uploadSessionId" -> "upload_session_id",
+      "partId"          -> "part_id",
+      "partNumber"      -> "part_number",
+      "byteOffset"      -> "byte_offset",
+      "byteLength"      -> "byte_length",
+      "locator"         -> "locator",
+      "leaseId"         -> "lease_id",
+      "leaseExpiresAt"  -> "lease_expires_at",
+      "createdAt"       -> "created_at",
+      "completedAt"     -> "completed_at",
+    )
+  }
+  opaque type Id = (tenantId: java.util.UUID, uploadSessionId: java.util.UUID, partId: java.util.UUID)
+  object Id   {
+    def apply(tenantId: java.util.UUID, uploadSessionId: java.util.UUID, partId: java.util.UUID): Id =
+      (tenantId = tenantId, uploadSessionId = uploadSessionId, partId = partId)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, java.util.UUID, java.util.UUID)]]
+    .biMap(
+      value => (tenantId = value._1, uploadSessionId = value._2, partId = value._3),
+      id => (id.tenantId, id.uploadSessionId, id.partId),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, java.util.UUID, java.util.UUID)]]
+    .transform(
+      value => (tenantId = value._1, uploadSessionId = value._2, partId = value._3),
+      id => (id.tenantId, id.uploadSessionId, id.partId),
+    )
+  final case class Creator(
+    tenantId: java.util.UUID,
+    uploadSessionId: java.util.UUID,
+    partId: java.util.UUID,
+    partNumber: Int,
+    byteOffset: NonNegLong,
+    byteLength: Option[NonNegLong] = None,
+    locator: String,
+    leaseId: Option[java.util.UUID] = None,
+    leaseExpiresAt: Option[java.time.OffsetDateTime] = None,
+    createdAt: Option[java.time.OffsetDateTime] = None,
+    completedAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[UploadPart.Creator, UploadPart, UploadPart.Id]
+}
+@Table(PostgresDbType) final case class TenantStorageUsage(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @SqlName("retained_bytes") retainedBytes: NonNegLong,
+  @SqlName("blob_count") blobCount: Long,
+  @SqlName("updated_at") updatedAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object TenantStorageUsage                           {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "tenant_storage_usage"
+    inline val columns: List[(String, String)] =
+      List("tenantId" -> "tenant_id", "retainedBytes" -> "retained_bytes", "blobCount" -> "blob_count", "updatedAt" -> "updated_at")
+  }
+  opaque type Id = java.util.UUID
+  object Id   {
+    def apply(tenantId: java.util.UUID): Id = tenantId
+    def unwrap(id: Id): java.util.UUID      = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(
+    tenantId: java.util.UUID,
+    retainedBytes: Option[NonNegLong] = None,
+    blobCount: Option[Long] = None,
+    updatedAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[TenantStorageUsage.Creator, TenantStorageUsage, TenantStorageUsage.Id]
+}
+@Table(PostgresDbType) final case class TenantBlob(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @Id @SqlName("storage_domain_id") storageDomainId: String,
+  @Id @SqlName("alg") alg: graviton.pg.generated.core.HashAlg,
+  @Id @SqlName("hash_bytes") hashBytes: Chunk[Byte],
+  @Id @SqlName("byte_length") byteLength: NonNegLong,
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+  @SqlName("block_count") blockCount: Int,
+  @SqlName("manifest_proof_version") manifestProofVersion: Option[Short],
+  @SqlName("manifest_chunker") manifestChunker: Option[String],
+  @SqlName("manifest_key_id") manifestKeyId: Option[String],
+  @SqlName("manifest_digest") manifestDigest: Option[Chunk[Byte]],
+  @SqlName("manifest_signature") manifestSignature: Option[Chunk[Byte]],
+) derives DbCodec,
+      Schema
+object TenantBlob                                   {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "tenant_blob"
+    inline val columns: List[(String, String)] = List(
+      "tenantId"             -> "tenant_id",
+      "storageDomainId"      -> "storage_domain_id",
+      "alg"                  -> "alg",
+      "hashBytes"            -> "hash_bytes",
+      "byteLength"           -> "byte_length",
+      "createdAt"            -> "created_at",
+      "blockCount"           -> "block_count",
+      "manifestProofVersion" -> "manifest_proof_version",
+      "manifestChunker"      -> "manifest_chunker",
+      "manifestKeyId"        -> "manifest_key_id",
+      "manifestDigest"       -> "manifest_digest",
+      "manifestSignature"    -> "manifest_signature",
+    )
+  }
+  opaque type Id = (
+    tenantId: java.util.UUID,
+    storageDomainId: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+  )
+  object Id   {
+    def apply(
+      tenantId: java.util.UUID,
+      storageDomainId: String,
+      alg: graviton.pg.generated.core.HashAlg,
+      hashBytes: Chunk[Byte],
+      byteLength: NonNegLong,
+    ): Id = (tenantId = tenantId, storageDomainId = storageDomainId, alg = alg, hashBytes = hashBytes, byteLength = byteLength)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .biMap(
+      value => (tenantId = value._1, storageDomainId = value._2, alg = value._3, hashBytes = value._4, byteLength = value._5),
+      id => (id.tenantId, id.storageDomainId, id.alg, id.hashBytes, id.byteLength),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .transform(
+      value => (tenantId = value._1, storageDomainId = value._2, alg = value._3, hashBytes = value._4, byteLength = value._5),
+      id => (id.tenantId, id.storageDomainId, id.alg, id.hashBytes, id.byteLength),
+    )
+  final case class Creator(
+    tenantId: java.util.UUID,
+    storageDomainId: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+    createdAt: Option[java.time.OffsetDateTime] = None,
+    blockCount: Int,
+    manifestProofVersion: Option[Short] = None,
+    manifestChunker: Option[String] = None,
+    manifestKeyId: Option[String] = None,
+    manifestDigest: Option[Chunk[Byte]] = None,
+    manifestSignature: Option[Chunk[Byte]] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[TenantBlob.Creator, TenantBlob, TenantBlob.Id]
 }
 @Table(PostgresDbType) final case class Sector(
   @Id @SqlName("sector_id") sectorId: java.util.UUID,
@@ -567,6 +862,70 @@ object View                                         {
         Schema
   val repo                          = Repo[View.Creator, View, View.Id]
 }
+@Table(PostgresDbType) final case class UploadSession(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @Id @SqlName("upload_session_id") uploadSessionId: java.util.UUID,
+  @SqlName("content_type") contentType: String,
+  @SqlName("expected_size") expectedSize: Option[NonNegLong],
+  @SqlName("byte_offset") byteOffset: NonNegLong,
+  @SqlName("part_count") partCount: Int,
+  @SqlName("phase") phase: String,
+  @SqlName("committed_blob") committedBlob: Option[String],
+  @SqlName("commit_lease_id") commitLeaseId: Option[java.util.UUID],
+  @SqlName("commit_lease_expires_at") commitLeaseExpiresAt: Option[java.time.OffsetDateTime],
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+  @SqlName("expires_at") expiresAt: java.time.OffsetDateTime,
+  @SqlName("updated_at") updatedAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object UploadSession                                {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "upload_session"
+    inline val columns: List[(String, String)] = List(
+      "tenantId"             -> "tenant_id",
+      "uploadSessionId"      -> "upload_session_id",
+      "contentType"          -> "content_type",
+      "expectedSize"         -> "expected_size",
+      "byteOffset"           -> "byte_offset",
+      "partCount"            -> "part_count",
+      "phase"                -> "phase",
+      "committedBlob"        -> "committed_blob",
+      "commitLeaseId"        -> "commit_lease_id",
+      "commitLeaseExpiresAt" -> "commit_lease_expires_at",
+      "createdAt"            -> "created_at",
+      "expiresAt"            -> "expires_at",
+      "updatedAt"            -> "updated_at",
+    )
+  }
+  opaque type Id = (tenantId: java.util.UUID, uploadSessionId: java.util.UUID)
+  object Id   {
+    def apply(tenantId: java.util.UUID, uploadSessionId: java.util.UUID): Id = (tenantId = tenantId, uploadSessionId = uploadSessionId)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, java.util.UUID)]]
+    .biMap(value => (tenantId = value._1, uploadSessionId = value._2), id => (id.tenantId, id.uploadSessionId))
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, java.util.UUID)]]
+    .transform(value => (tenantId = value._1, uploadSessionId = value._2), id => (id.tenantId, id.uploadSessionId))
+  final case class Creator(
+    tenantId: java.util.UUID,
+    uploadSessionId: java.util.UUID,
+    contentType: String,
+    expectedSize: Option[NonNegLong] = None,
+    byteOffset: Option[NonNegLong] = None,
+    partCount: Option[Int] = None,
+    phase: Option[String] = None,
+    committedBlob: Option[String] = None,
+    commitLeaseId: Option[java.util.UUID] = None,
+    commitLeaseExpiresAt: Option[java.time.OffsetDateTime] = None,
+    createdAt: java.time.OffsetDateTime,
+    expiresAt: java.time.OffsetDateTime,
+    updatedAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[UploadSession.Creator, UploadSession, UploadSession.Id]
+}
 @Table(PostgresDbType) final case class Transform(
   @Id @SqlName("transform_id") transformId: java.util.UUID,
   @SqlName("name") name: String,
@@ -605,6 +964,107 @@ object Transform                                    {
   ) derives DbCodec,
         Schema
   val repo                          = Repo[Transform.Creator, Transform, Transform.Id]
+}
+@Table(PostgresDbType) final case class TenantStoragePolicy(
+  @Id @SqlName("tenant_id") tenantId: java.util.UUID,
+  @SqlName("cell_id") cellId: String,
+  @SqlName("lifecycle") lifecycle: String,
+  @SqlName("deduplication_domain") deduplicationDomain: Option[String],
+  @SqlName("max_concurrent_operations") maxConcurrentOperations: Int,
+  @SqlName("max_object_bytes") maxObjectBytes: NonNegLong,
+  @SqlName("max_retained_bytes") maxRetainedBytes: NonNegLong,
+  @SqlName("revision") revision: Long,
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+  @SqlName("updated_at") updatedAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object TenantStoragePolicy                          {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "tenant_storage_policy"
+    inline val columns: List[(String, String)] = List(
+      "tenantId"                -> "tenant_id",
+      "cellId"                  -> "cell_id",
+      "lifecycle"               -> "lifecycle",
+      "deduplicationDomain"     -> "deduplication_domain",
+      "maxConcurrentOperations" -> "max_concurrent_operations",
+      "maxObjectBytes"          -> "max_object_bytes",
+      "maxRetainedBytes"        -> "max_retained_bytes",
+      "revision"                -> "revision",
+      "createdAt"               -> "created_at",
+      "updatedAt"               -> "updated_at",
+    )
+  }
+  opaque type Id = java.util.UUID
+  object Id   {
+    def apply(tenantId: java.util.UUID): Id = tenantId
+    def unwrap(id: Id): java.util.UUID      = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] =
+    scala.compiletime.summonInline[DbCodec[java.util.UUID]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] =
+    scala.compiletime.summonInline[Schema[java.util.UUID]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(
+    tenantId: java.util.UUID,
+    cellId: Option[String] = None,
+    lifecycle: Option[String] = None,
+    deduplicationDomain: Option[String] = None,
+    maxConcurrentOperations: Option[Int] = None,
+    maxObjectBytes: Option[NonNegLong] = None,
+    maxRetainedBytes: Option[NonNegLong] = None,
+    revision: Option[Long] = None,
+    createdAt: Option[java.time.OffsetDateTime] = None,
+    updatedAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[TenantStoragePolicy.Creator, TenantStoragePolicy, TenantStoragePolicy.Id]
+}
+@Table(PostgresDbType) final case class TenantBlock(
+  @Id @SqlName("storage_domain_id") storageDomainId: String,
+  @Id @SqlName("alg") alg: graviton.pg.generated.core.HashAlg,
+  @Id @SqlName("hash_bytes") hashBytes: Chunk[Byte],
+  @Id @SqlName("byte_length") byteLength: NonNegLong,
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object TenantBlock                                  {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "tenant_block"
+    inline val columns: List[(String, String)] = List(
+      "storageDomainId" -> "storage_domain_id",
+      "alg"             -> "alg",
+      "hashBytes"       -> "hash_bytes",
+      "byteLength"      -> "byte_length",
+      "createdAt"       -> "created_at",
+    )
+  }
+  opaque type Id = (storageDomainId: String, alg: graviton.pg.generated.core.HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong)
+  object Id   {
+    def apply(storageDomainId: String, alg: graviton.pg.generated.core.HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong): Id =
+      (storageDomainId = storageDomainId, alg = alg, hashBytes = hashBytes, byteLength = byteLength)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .biMap(
+      value => (storageDomainId = value._1, alg = value._2, hashBytes = value._3, byteLength = value._4),
+      id => (id.storageDomainId, id.alg, id.hashBytes, id.byteLength),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .transform(
+      value => (storageDomainId = value._1, alg = value._2, hashBytes = value._3, byteLength = value._4),
+      id => (id.storageDomainId, id.alg, id.hashBytes, id.byteLength),
+    )
+  final case class Creator(
+    storageDomainId: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+    createdAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[TenantBlock.Creator, TenantBlock, TenantBlock.Id]
 }
 @Table(PostgresDbType) final case class ShardcakePod(
   @Id @SqlName("pod_host") podHost: String,
@@ -706,6 +1166,84 @@ object ReplicaIndex                                 {
   ) derives DbCodec,
         Schema
   val repo                          = Repo[ReplicaIndex.Creator, ReplicaIndex, ReplicaIndex.Id]
+}
+@Table(PostgresDbType) final case class RepairState(
+  @Id @SqlName("namespace") namespace: String,
+  @SqlName("next_offset") nextOffset: NonNegLong,
+  @SqlName("updated_at") updatedAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object RepairState                                  {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "repair_state"
+    inline val columns: List[(String, String)] =
+      List("namespace" -> "namespace", "nextOffset" -> "next_offset", "updatedAt" -> "updated_at")
+  }
+  opaque type Id = String
+  object Id   {
+    def apply(namespace: String): Id = namespace
+    def unwrap(id: Id): String       = id
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime.summonInline[DbCodec[String]].biMap(value => Id(value), id => Id.unwrap(id))
+  given given_Schema_Id: Schema[Id] = scala.compiletime.summonInline[Schema[String]].transform(value => Id(value), id => Id.unwrap(id))
+  final case class Creator(namespace: String, nextOffset: Option[NonNegLong] = None, updatedAt: Option[java.time.OffsetDateTime] = None)
+      derives DbCodec,
+        Schema
+  val repo                          = Repo[RepairState.Creator, RepairState, RepairState.Id]
+}
+@Table(PostgresDbType) final case class RepairDeadLetter(
+  @Id @SqlName("namespace") namespace: String,
+  @Id @SqlName("alg") alg: graviton.pg.generated.core.HashAlg,
+  @Id @SqlName("hash_bytes") hashBytes: Chunk[Byte],
+  @Id @SqlName("byte_length") byteLength: NonNegLong,
+  @SqlName("attempts") attempts: Long,
+  @SqlName("last_error") lastError: String,
+  @SqlName("last_failed_at") lastFailedAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object RepairDeadLetter                             {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "repair_dead_letter"
+    inline val columns: List[(String, String)] = List(
+      "namespace"    -> "namespace",
+      "alg"          -> "alg",
+      "hashBytes"    -> "hash_bytes",
+      "byteLength"   -> "byte_length",
+      "attempts"     -> "attempts",
+      "lastError"    -> "last_error",
+      "lastFailedAt" -> "last_failed_at",
+    )
+  }
+  opaque type Id = (namespace: String, alg: graviton.pg.generated.core.HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong)
+  object Id   {
+    def apply(namespace: String, alg: graviton.pg.generated.core.HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong): Id =
+      (namespace = namespace, alg = alg, hashBytes = hashBytes, byteLength = byteLength)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .biMap(
+      value => (namespace = value._1, alg = value._2, hashBytes = value._3, byteLength = value._4),
+      id => (id.namespace, id.alg, id.hashBytes, id.byteLength),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(String, graviton.pg.generated.core.HashAlg, Chunk[Byte], NonNegLong)]]
+    .transform(
+      value => (namespace = value._1, alg = value._2, hashBytes = value._3, byteLength = value._4),
+      id => (id.namespace, id.alg, id.hashBytes, id.byteLength),
+    )
+  final case class Creator(
+    namespace: String,
+    alg: graviton.pg.generated.core.HashAlg,
+    hashBytes: Chunk[Byte],
+    byteLength: NonNegLong,
+    attempts: Option[Long] = None,
+    lastError: String,
+    lastFailedAt: java.time.OffsetDateTime,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[RepairDeadLetter.Creator, RepairDeadLetter, RepairDeadLetter.Id]
 }
 @Table(PostgresDbType) final case class ObjectData(
   @Id @SqlName("locator") locator: String,
@@ -858,6 +1396,11 @@ object BlobStore                                    {
   @SqlName("block_count") blockCount: Int,
   @SqlName("chunker") chunker: Json,
   @SqlName("attrs") attrs: Json,
+  @SqlName("manifest_proof_version") manifestProofVersion: Option[Short],
+  @SqlName("manifest_chunker") manifestChunker: Option[String],
+  @SqlName("manifest_key_id") manifestKeyId: Option[String],
+  @SqlName("manifest_digest") manifestDigest: Option[Chunk[Byte]],
+  @SqlName("manifest_signature") manifestSignature: Option[Chunk[Byte]],
 ) derives DbCodec,
       Schema
 object Blob                                         {
@@ -865,13 +1408,18 @@ object Blob                                         {
     inline val schema: String                  = "graviton"
     inline val table: String                   = "blob"
     inline val columns: List[(String, String)] = List(
-      "alg"        -> "alg",
-      "hashBytes"  -> "hash_bytes",
-      "byteLength" -> "byte_length",
-      "createdAt"  -> "created_at",
-      "blockCount" -> "block_count",
-      "chunker"    -> "chunker",
-      "attrs"      -> "attrs",
+      "alg"                  -> "alg",
+      "hashBytes"            -> "hash_bytes",
+      "byteLength"           -> "byte_length",
+      "createdAt"            -> "created_at",
+      "blockCount"           -> "block_count",
+      "chunker"              -> "chunker",
+      "attrs"                -> "attrs",
+      "manifestProofVersion" -> "manifest_proof_version",
+      "manifestChunker"      -> "manifest_chunker",
+      "manifestKeyId"        -> "manifest_key_id",
+      "manifestDigest"       -> "manifest_digest",
+      "manifestSignature"    -> "manifest_signature",
     )
   }
   opaque type Id = (alg: graviton.pg.generated.core.HashAlg, hashBytes: Chunk[Byte], byteLength: NonNegLong)
@@ -893,7 +1441,139 @@ object Blob                                         {
     blockCount: Int,
     chunker: Option[Json] = None,
     attrs: Option[Json] = None,
+    manifestProofVersion: Option[Short] = None,
+    manifestChunker: Option[String] = None,
+    manifestKeyId: Option[String] = None,
+    manifestDigest: Option[Chunk[Byte]] = None,
+    manifestSignature: Option[Chunk[Byte]] = None,
   ) derives DbCodec,
         Schema
   val repo                          = Repo[Blob.Creator, Blob, Blob.Id]
+}
+@Table(PostgresDbType) final case class AuditLog(
+  @Id @SqlName("org_id") orgId: java.util.UUID,
+  @Id @SqlName("seq") seq: Long,
+  @SqlName("ts") ts: java.time.OffsetDateTime,
+  @SqlName("principal_id") principalId: java.util.UUID,
+  @SqlName("action") action: String,
+  @SqlName("resource_kind") resourceKind: ResourceKind,
+  @SqlName("resource_id") resourceId: Option[java.util.UUID],
+  @SqlName("request_id") requestId: java.util.UUID,
+  @SqlName("source_ip") sourceIp: Option[String],
+  @SqlName("user_agent") userAgent: Option[String],
+  @SqlName("outcome") outcome: AuditOutcome,
+  @SqlName("reason") reason: Option[String],
+  @SqlName("bytes") bytes: Option[NonNegLong],
+  @SqlName("prev_hash") prevHash: Chunk[Byte],
+  @SqlName("row_hash") rowHash: Chunk[Byte],
+) derives DbCodec,
+      Schema
+object AuditLog                                     {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "audit_log"
+    inline val columns: List[(String, String)] = List(
+      "orgId"        -> "org_id",
+      "seq"          -> "seq",
+      "ts"           -> "ts",
+      "principalId"  -> "principal_id",
+      "action"       -> "action",
+      "resourceKind" -> "resource_kind",
+      "resourceId"   -> "resource_id",
+      "requestId"    -> "request_id",
+      "sourceIp"     -> "source_ip",
+      "userAgent"    -> "user_agent",
+      "outcome"      -> "outcome",
+      "reason"       -> "reason",
+      "bytes"        -> "bytes",
+      "prevHash"     -> "prev_hash",
+      "rowHash"      -> "row_hash",
+    )
+  }
+  opaque type Id = (orgId: java.util.UUID, seq: Long)
+  object Id   { def apply(orgId: java.util.UUID, seq: Long): Id = (orgId = orgId, seq = seq) }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, Long)]]
+    .biMap(value => (orgId = value._1, seq = value._2), id => (id.orgId, id.seq))
+  given given_Schema_Id: Schema[Id]   = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, Long)]]
+    .transform(value => (orgId = value._1, seq = value._2), id => (id.orgId, id.seq))
+  final case class Creator(
+    orgId: java.util.UUID,
+    seq: Long,
+    ts: Option[java.time.OffsetDateTime] = None,
+    principalId: java.util.UUID,
+    action: String,
+    resourceKind: ResourceKind,
+    resourceId: Option[java.util.UUID] = None,
+    requestId: java.util.UUID,
+    sourceIp: Option[String] = None,
+    userAgent: Option[String] = None,
+    outcome: AuditOutcome,
+    reason: Option[String] = None,
+    bytes: Option[NonNegLong] = None,
+    prevHash: Chunk[Byte],
+    rowHash: Chunk[Byte],
+  ) derives DbCodec,
+        Schema
+  val repo                            = Repo[AuditLog.Creator, AuditLog, AuditLog.Id]
+}
+@Table(PostgresDbType) final case class AclEntry(
+  @Id @SqlName("org_id") orgId: java.util.UUID,
+  @Id @SqlName("principal_id") principalId: java.util.UUID,
+  @Id @SqlName("resource_kind") resourceKind: ResourceKind,
+  @Id @SqlName("resource_id") resourceId: java.util.UUID,
+  @SqlName("capabilities") capabilities: Long,
+  @Id @SqlName("effect") effect: AclEffect,
+  @SqlName("created_at") createdAt: java.time.OffsetDateTime,
+) derives DbCodec,
+      Schema
+object AclEntry                                     {
+  object Meta {
+    inline val schema: String                  = "graviton"
+    inline val table: String                   = "acl_entry"
+    inline val columns: List[(String, String)] = List(
+      "orgId"        -> "org_id",
+      "principalId"  -> "principal_id",
+      "resourceKind" -> "resource_kind",
+      "resourceId"   -> "resource_id",
+      "capabilities" -> "capabilities",
+      "effect"       -> "effect",
+      "createdAt"    -> "created_at",
+    )
+  }
+  opaque type Id =
+    (orgId: java.util.UUID, principalId: java.util.UUID, resourceKind: ResourceKind, resourceId: java.util.UUID, effect: AclEffect)
+  object Id   {
+    def apply(
+      orgId: java.util.UUID,
+      principalId: java.util.UUID,
+      resourceKind: ResourceKind,
+      resourceId: java.util.UUID,
+      effect: AclEffect,
+    ): Id = (orgId = orgId, principalId = principalId, resourceKind = resourceKind, resourceId = resourceId, effect = effect)
+  }
+  given given_DbCodec_Id: DbCodec[Id] = scala.compiletime
+    .summonInline[DbCodec[(java.util.UUID, java.util.UUID, ResourceKind, java.util.UUID, AclEffect)]]
+    .biMap(
+      value => (orgId = value._1, principalId = value._2, resourceKind = value._3, resourceId = value._4, effect = value._5),
+      id => (id.orgId, id.principalId, id.resourceKind, id.resourceId, id.effect),
+    )
+  given given_Schema_Id: Schema[Id] = scala.compiletime
+    .summonInline[Schema[(java.util.UUID, java.util.UUID, ResourceKind, java.util.UUID, AclEffect)]]
+    .transform(
+      value => (orgId = value._1, principalId = value._2, resourceKind = value._3, resourceId = value._4, effect = value._5),
+      id => (id.orgId, id.principalId, id.resourceKind, id.resourceId, id.effect),
+    )
+  final case class Creator(
+    orgId: java.util.UUID,
+    principalId: java.util.UUID,
+    resourceKind: ResourceKind,
+    resourceId: java.util.UUID,
+    capabilities: Long,
+    effect: AclEffect,
+    createdAt: Option[java.time.OffsetDateTime] = None,
+  ) derives DbCodec,
+        Schema
+  val repo                          = Repo[AclEntry.Creator, AclEntry, AclEntry.Id]
 }

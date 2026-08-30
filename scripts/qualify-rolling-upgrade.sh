@@ -12,8 +12,14 @@ baseline_image="$1"
 candidate_image="$2"
 baseline_version="${3:-baseline}"
 candidate_version="${4:-candidate}"
+manifest_integrity_mode="${GRAVITON_MANIFEST_INTEGRITY_REQUIRED:-false}"
 node_one="http://127.0.0.1:58081"
 node_two="http://127.0.0.1:58082"
+
+[[ "$manifest_integrity_mode" == "true" || "$manifest_integrity_mode" == "false" ]] || {
+  echo "GRAVITON_MANIFEST_INTEGRITY_REQUIRED must be true or false" >&2
+  exit 2
+}
 
 command -v docker >/dev/null || { echo "docker is required" >&2; exit 2; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
@@ -127,7 +133,8 @@ jq -n \
   --arg baselineImageId "$(docker image inspect --format '{{.Id}}' "$baseline_image")" \
   --arg candidateImage "$candidate_image" \
   --arg candidateImageId "$(docker image inspect --format '{{.Id}}' "$candidate_image")" \
+  --arg manifestIntegrityRequired "$manifest_integrity_mode" \
   --arg baselineBlob "$baseline_blob" \
   --arg candidateBlob "$candidate_blob" \
   --arg rollbackBlob "$rollback_blob" \
-  '{schema: $schema, baselineImage: $baselineImage, baselineImageId: $baselineImageId, candidateImage: $candidateImage, candidateImageId: $candidateImageId, baselineBlob: $baselineBlob, candidateBlob: $candidateBlob, rollbackBlob: $rollbackBlob, mixedVersionReadWriteVerified: true, rollbackReadWriteVerified: true, finalCandidateCohortReady: true}'
+  '{schema: $schema, baselineImage: $baselineImage, baselineImageId: $baselineImageId, candidateImage: $candidateImage, candidateImageId: $candidateImageId, manifestIntegrityRequired: ($manifestIntegrityRequired == "true"), baselineBlob: $baselineBlob, candidateBlob: $candidateBlob, rollbackBlob: $rollbackBlob, mixedVersionReadWriteVerified: true, rollbackReadWriteVerified: true, finalCandidateCohortReady: true}'

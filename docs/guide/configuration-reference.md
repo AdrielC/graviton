@@ -116,8 +116,25 @@ The namespace separates repositories that share one PostgreSQL database. Filesys
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
 | `GRAVITON_TRANSFER_MEMORY_MAXIMUM_BUFFERED_BYTES` | `536870912` | no | Process-wide weighted byte ceiling shared by active CAS and S3 staging pipelines. Iron-refined from 64 MiB through 1 TiB. |
+| `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_TENANT_BUFFERED_BYTES` | `134217728` | no | Live transfer bytes admitted for one authenticated tenant in this process. |
+| `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_CONCURRENT_TENANT_TRANSFERS` | `16` | no | Concurrent transfers admitted for one tenant. Iron-refined from 1 through 65,535. |
+| `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_CONCURRENT_BACKEND_TRANSFERS` | `64` | no | Concurrent transfers admitted to one physical backend kind in this process. |
+| `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_RESIDENT_TENANTS` | `10000` | no | Bound for the process-resident transfer-admission tenant registry. Inactive entries are evicted by age. |
+| `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_RESIDENT_BACKENDS` | `64` | no | Bound for the process-resident backend admission registry. |
+| `GRAVITON_TRANSFER_ADMISSION_ACQUISITION_TIMEOUT` | `30s` | no | Maximum interruptible wait for the complete process, tenant, and backend reservation. |
 
-Each upload reserves its conservative pipeline maximum before accepting bytes. Concurrent transfers wait interruptibly when their combined reservations would exceed the ceiling, and scoped permits are released on success, failure, or interruption. Size this value below the memory available to the JVM after accounting for the heap, direct buffers, database drivers, metrics, and other co-located work.
+Each upload composes a named `TransferFootprint` from input and block queues, chunker working memory, ordered persistence, backend request copies, and replica or erasure fan-out. It reserves that total exactly once, in the fixed order process bytes, tenant bytes and concurrency, then backend concurrency. Concurrent transfers wait interruptibly, and every scoped permit is released on success, failure, or interruption. Size these values below JVM and backend capacity after accounting for direct buffers, database drivers, metrics, and other co-located work.
+
+### Manifest authentication
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_MANIFEST_INTEGRITY_REQUIRED` | `false` | no | Require a versioned keyed proof on every filesystem or PostgreSQL manifest and reject an absent or invalid proof before fetching block bytes. |
+| `GRAVITON_MANIFEST_INTEGRITY_KEY_ID` | `primary` | when enabled | Refined identifier persisted with new manifest proofs. |
+| `GRAVITON_MANIFEST_INTEGRITY_HMAC_KEY_BASE64` | none | when enabled | Base64 encoding of the active 32 through 64 byte HMAC key. Supply through a secret manager. |
+| `GRAVITON_MANIFEST_INTEGRITY_PREVIOUS_KEYS_BASE64` | none | no | Comma-separated `key-id:base64` verification keys retained during rotation. These keys never sign new manifests. |
+
+Authentication binds the blob content ID, total length, chunker identity, block count, and every ordered block key and byte span. Filesystem repositories persist `GVM3`; PostgreSQL stores the proof in the same transaction as the manifest rows. The compatibility default accepts older unauthenticated manifests. Production qualification enables required mode. To rotate, deploy the new active key while retaining the old key in `PREVIOUS_KEYS_BASE64`, then remove the old verifier only after every reachable old manifest has been replaced or retired. Key material is redacted by configuration values and must never be placed in command arguments or committed files.
 
 ### Packaged multi-tenant data plane
 

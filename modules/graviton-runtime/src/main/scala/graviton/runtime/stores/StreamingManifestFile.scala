@@ -20,13 +20,19 @@ import java.nio.file.{Files, Path, StandardOpenOption}
  */
 private[stores] object StreamingManifestFile:
 
-  private val Magic: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '2'.toByte)
-  private val MaxKeyBytes        = 512
-  private val ReadBatchEntries   = 256
+  private val MagicV2: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '2'.toByte)
+  private val MagicV3: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '3'.toByte)
+  private val MaxKeyBytes          = 512
+  private val MaxIdentityBytes     = 120
+  private val ReadBatchEntries     = 256
 
   final case class Header(totalSize: FileSize, blockCount: Int)
+  final case class EnvelopeHeader(header: Header, authentication: Option[StoredManifestAuthentication])
 
   def readHeader(path: Path): Task[Header] =
+    readEnvelopeHeader(path).map(_.header)
+
+  def readEnvelopeHeader(path: Path): Task[EnvelopeHeader] =
     ZIO.attemptBlocking {
       val input = openInput(path)
       try readHeaderFrom(input)
@@ -109,6 +115,13 @@ private[stores] object StreamingManifestFile:
 
   object Writer:
     def open(path: Path, header: Header): Writer =
+      open(path, header, None)
+
+    def open(
+      path: Path,
+      header: Header,
+      authentication: Option[StoredManifestAuthentication],
+    ): Writer =
       validateHeader(header)
       val output = new DataOutputStream(
         new BufferedOutputStream(
@@ -116,7 +129,11 @@ private[stores] object StreamingManifestFile:
         )
       )
       try
-        output.write(Magic)
+        authentication match
+          case None                 => output.write(MagicV2)
+          case Some(authentication) =>
+            output.write(MagicV3)
+            writeAuthentication(output, authentication)
         output.writeLong(header.totalSize.value)
         output.writeInt(header.blockCount)
         new Writer(output, header)
@@ -195,7 +212,7 @@ private[stores] object StreamingManifestFile:
   private object Reader:
     def open(path: Path): Reader =
       val input = openInput(path)
-      try new Reader(input, readHeaderFrom(input))
+      try new Reader(input, readHeaderFrom(input).header)
       catch
         case error: Throwable =>
           input.close()
@@ -204,21 +221,70 @@ private[stores] object StreamingManifestFile:
   private def openInput(path: Path): DataInputStream =
     new DataInputStream(new BufferedInputStream(Files.newInputStream(path, StandardOpenOption.READ)))
 
-  private def readHeaderFrom(input: DataInputStream): Header =
-    val magic      = input.readNBytes(Magic.length)
-    if !java.util.Arrays.equals(magic, Magic) then throw new IllegalArgumentException("Not a Graviton streaming manifest")
-    val totalSize  = FileSize
+  private def readHeaderFrom(input: DataInputStream): EnvelopeHeader =
+    val magic          = input.readNBytes(MagicV2.length)
+    val authentication =
+      if java.util.Arrays.equals(magic, MagicV2) then None
+      else if java.util.Arrays.equals(magic, MagicV3) then Some(readAuthentication(input))
+      else throw new IllegalArgumentException("Not a Graviton streaming manifest")
+    val totalSize      = FileSize
       .either(input.readLong())
       .fold(message => throw new IllegalArgumentException(message), identity)
-    val blockCount = input.readInt()
-    val header     = Header(totalSize, blockCount)
+    val blockCount     = input.readInt()
+    val header         = Header(totalSize, blockCount)
     validateHeader(header)
-    header
+    EnvelopeHeader(header, authentication)
 
   private def validateHeader(header: Header): Unit =
     if header.blockCount <= 0 || header.blockCount > BlobManifestRepo.MaxEntries then
       throw new IllegalArgumentException(
         s"Manifest block count ${header.blockCount} is outside 1..${BlobManifestRepo.MaxEntries}"
       )
+
+  private def writeAuthentication(output: DataOutputStream, authentication: StoredManifestAuthentication): Unit =
+    writeText(output, authentication.chunker.value)
+    output.writeInt(authentication.proof.version)
+    writeText(output, authentication.proof.keyId.value)
+    output.writeInt(authentication.proof.canonicalDigest.length)
+    output.write(authentication.proof.canonicalDigest.toArray)
+    output.writeInt(authentication.proof.signature.length)
+    output.write(authentication.proof.signature.toArray)
+
+  private def readAuthentication(input: DataInputStream): StoredManifestAuthentication =
+    val chunker   = ManifestChunkerId
+      .either(readText(input, "chunker"))
+      .fold(message => throw new IllegalArgumentException(message), identity)
+    val version   = input.readInt()
+    val keyId     = ManifestKeyId
+      .either(readText(input, "key id"))
+      .fold(message => throw new IllegalArgumentException(message), identity)
+    val digest    = readFixedBytes(input, "canonical digest", ManifestProof.DigestBytes)
+    val signature = readFixedBytes(input, "signature", ManifestProof.SignatureBytes)
+    val proof     = ManifestProof
+      .make(version, keyId, digest, signature)
+      .fold(message => throw new IllegalArgumentException(message), identity)
+    StoredManifestAuthentication(chunker, proof)
+
+  private def writeText(output: DataOutputStream, value: String): Unit =
+    val bytes = value.getBytes(StandardCharsets.UTF_8)
+    if bytes.isEmpty || bytes.length > MaxIdentityBytes then
+      throw new IllegalArgumentException(s"manifest identity field length ${bytes.length} is outside 1..$MaxIdentityBytes")
+    output.writeInt(bytes.length)
+    output.write(bytes)
+
+  private def readText(input: DataInputStream, label: String): String =
+    val length = input.readInt()
+    if length <= 0 || length > MaxIdentityBytes then
+      throw new IllegalArgumentException(s"manifest $label length $length is outside 1..$MaxIdentityBytes")
+    val bytes  = input.readNBytes(length)
+    if bytes.length != length then throw new EOFException(s"Unexpected end of manifest $label")
+    new String(bytes, StandardCharsets.UTF_8)
+
+  private def readFixedBytes(input: DataInputStream, label: String, expected: Int): Chunk[Byte] =
+    val length = input.readInt()
+    if length != expected then throw new IllegalArgumentException(s"manifest $label must be $expected bytes, got $length")
+    val bytes  = input.readNBytes(length)
+    if bytes.length != length then throw new EOFException(s"Unexpected end of manifest $label")
+    Chunk.fromArray(bytes)
 
 end StreamingManifestFile

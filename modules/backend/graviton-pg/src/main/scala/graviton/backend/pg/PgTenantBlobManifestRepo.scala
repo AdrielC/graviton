@@ -18,11 +18,15 @@ import java.time.Instant
 import javax.sql.DataSource
 
 /** PostgreSQL manifest repository scoped by both tenant and physical storage domain. */
-final class PgTenantBlobManifestRepo(
+final class PgTenantBlobManifestRepo private (
   dataSource: DataSource,
   tenantId: TenantId,
   storageDomainId: StorageDomainId,
+  integrity: Option[ManifestIntegrity],
 ) extends BlobManifestRepo:
+
+  def this(dataSource: DataSource, tenantId: TenantId, storageDomainId: StorageDomainId) =
+    this(dataSource, tenantId, storageDomainId, None)
 
   override def healthCheck: IO[StoreError, Unit] =
     blocking(StoreOperation.HealthCheck) { connection =>
@@ -50,21 +54,46 @@ final class PgTenantBlobManifestRepo(
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
+    putStreamInternal(
+      ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified")),
+      entries,
+      ingestedAt,
+    )
+
+  override def putAuthenticatedStream(
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    putStreamInternal(identity, entries, ingestedAt)
+
+  private def putStreamInternal(
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    val blob       = identity.blob
+    val totalSize  = identity.totalSize
+    val blockCount = identity.blockCount
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
       .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
       transaction(StoreOperation.PutManifest) { connection =>
         for
-          _     <- reserveUsage(connection, blob, totalSize)
-          _     <- upsertBlob(connection, blob, blockCount, ingestedAt)
-          _     <- deleteEntries(connection, blob)
-          state <- writeEntries(connection, blob, entries)
-          _     <- ZIO
-                     .fail(new IllegalArgumentException(s"manifest entry count mismatch: expected $blockCount, observed ${state.count}"))
-                     .unless(state.count == blockCount)
-          _     <- ZIO
-                     .fail(new IllegalArgumentException(s"manifest size mismatch: expected ${totalSize.value}, observed ${state.offset}"))
-                     .unless(state.offset == totalSize.value)
+          accumulator  <- ZIO.foreach(integrity)(_.accumulator(identity))
+          _            <- reserveUsage(connection, blob, totalSize)
+          _            <- upsertBlob(connection, blob, blockCount, ingestedAt)
+          _            <- deleteEntries(connection, blob)
+          authenticated = accumulator.fold(entries)(value => entries.tap(value.update))
+          state        <- writeEntries(connection, blob, authenticated)
+          _            <- ZIO
+                            .fail(new IllegalArgumentException(s"manifest entry count mismatch: expected $blockCount, observed ${state.count}"))
+                            .unless(state.count == blockCount)
+          _            <- ZIO
+                            .fail(new IllegalArgumentException(s"manifest size mismatch: expected ${totalSize.value}, observed ${state.offset}"))
+                            .unless(state.offset == totalSize.value)
+          proof        <- ZIO.foreach(accumulator)(_.prove)
+          _            <- writeManifestProof(connection, blob, identity.chunker, proof)
         yield ()
       }
 
@@ -204,6 +233,11 @@ final class PgTenantBlobManifestRepo(
     }
 
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef] =
+    integrity match
+      case None          => rawBlockRefs(blob)
+      case Some(service) => ZStream.unwrap(verifyManifest(blob, service).as(rawBlockRefs(blob)))
+
+  private def rawBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef] =
     val sql =
       """SELECT ordinal, block_alg, block_hash_bytes, block_byte_length
         |FROM graviton.tenant_blob_block
@@ -226,8 +260,98 @@ final class PgTenantBlobManifestRepo(
         |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?
         |  AND span && int8range(?, ?, '[)')
         |ORDER BY ordinal ASC""".stripMargin
-    cursorStream(StoreOperation.GetRange, sql, blob, Some(start.value -> endExclusive))
+    val raw          = cursorStream(StoreOperation.GetRange, sql, blob, Some(start.value -> endExclusive))
       .mapZIO(result => readRangedBlockRef(result).mapError(StoreError.fromThrowable(StoreOperation.GetRange, StoreBackend.PostgreSql)))
+    integrity match
+      case None          => raw
+      case Some(service) => ZStream.unwrap(verifyManifest(blob, service).as(raw))
+
+  private def verifyManifest(blob: BinaryKey.Blob, service: ManifestIntegrity): IO[StoreError, Unit] =
+    for
+      stored           <- readStoredAuthentication(blob)
+      authentication   <- ZIO
+                            .fromOption(stored)
+                            .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
+      (identity, proof) = authentication
+      accumulator      <- service.verificationAccumulator(identity)
+      _                <- rawManifestEntries(blob).runForeach(accumulator.update)
+      _                <- accumulator.verify(proof)
+    yield ()
+
+  private def rawManifestEntries(blob: BinaryKey.Blob): ZStream[Any, StoreError, ManifestEntry] =
+    val sql =
+      """SELECT ordinal, block_alg, block_hash_bytes, block_byte_length, block_offset, block_length
+        |FROM graviton.tenant_blob_block
+        |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
+        |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?
+        |ORDER BY ordinal ASC""".stripMargin
+    cursorStream(StoreOperation.GetManifest, sql, blob, None)
+      .mapZIO(result => readManifestEntry(result).mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql)))
+
+  private def readStoredAuthentication(blob: BinaryKey.Blob): IO[StoreError, Option[(ManifestIdentity, ManifestProof)]] =
+    algorithm(blob, StoreOperation.GetManifest).flatMap { algorithm =>
+      blocking(StoreOperation.GetManifest) { connection =>
+        val statement = connection.prepareStatement(
+          """SELECT byte_length, block_count, manifest_proof_version, manifest_chunker,
+            |       manifest_key_id, manifest_digest, manifest_signature
+            |FROM graviton.tenant_blob
+            |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
+            |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+        )
+        try
+          bindScope(statement, 1)
+          statement.setString(3, algorithm)
+          statement.setBytes(4, blob.bits.digest.bytes)
+          statement.setLong(5, blob.bits.size)
+          val rows = statement.executeQuery()
+          try
+            if !rows.next() || rows.getObject(3) == null then None
+            else
+              val size    = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
+              val chunker =
+                ManifestChunkerId.either(rows.getString(4)).fold(message => throw new IllegalArgumentException(message), identity)
+              val keyId   = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
+              val proof   = ManifestProof
+                .make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7)))
+                .fold(message => throw new IllegalArgumentException(message), identity)
+              Some(ManifestIdentity(blob, size, rows.getInt(2), chunker) -> proof)
+          finally rows.close()
+        finally statement.close()
+      }
+    }
+
+  private def writeManifestProof(
+    connection: Connection,
+    blob: BinaryKey.Blob,
+    chunker: ManifestChunkerId,
+    proof: Option[ManifestProof],
+  ): Task[Unit] =
+    ZIO.fromEither(toDbAlgorithm(blob.bits.algo)).mapError(new IllegalArgumentException(_)).flatMap { algorithm =>
+      ZIO.attemptBlocking {
+        val statement = connection.prepareStatement(
+          """UPDATE graviton.tenant_blob SET
+            |  manifest_proof_version = ?, manifest_chunker = ?, manifest_key_id = ?,
+            |  manifest_digest = ?, manifest_signature = ?
+            |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
+            |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+        )
+        try
+          proof match
+            case None        => (1 to 5).foreach(statement.setNull(_, java.sql.Types.NULL))
+            case Some(value) =>
+              statement.setInt(1, value.version)
+              statement.setString(2, chunker.value)
+              statement.setString(3, value.keyId.value)
+              statement.setBytes(4, value.canonicalDigest.toArray)
+              statement.setBytes(5, value.signature.toArray)
+          bindScope(statement, 6)
+          statement.setString(8, algorithm)
+          statement.setBytes(9, blob.bits.digest.bytes)
+          statement.setLong(10, blob.bits.size)
+          if statement.executeUpdate() != 1 then throw new IllegalStateException("tenant manifest proof row disappeared")
+        finally statement.close()
+      }
+    }
 
   private def queryInventory(
     anchor: Option[BinaryKey.Blob],
@@ -554,6 +678,18 @@ final class PgTenantBlobManifestRepo(
       offset <- ZIO.fromEither(BlobOffset.either(result.getLong(5))).mapError(new IllegalArgumentException(_))
     yield BlobStreamer.RangedBlockRef(ref.idx, ref.key, offset)
 
+  private def readManifestEntry(result: ResultSet): Task[ManifestEntry] =
+    for
+      ref       <- readBlockRef(result)
+      rawOffset <- ZIO.attempt(result.getLong(5))
+      rawLength <- ZIO.attempt(result.getLong(6))
+      start     <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(new IllegalArgumentException(_))
+      end       <- ZIO
+                     .fromEither(BlobOffset.either(java.lang.Math.addExact(rawOffset, rawLength) - 1L))
+                     .mapError(new IllegalArgumentException(_))
+      span      <- ZIO.fromEither(Span.make(start, end)).mapError(new IllegalArgumentException(_))
+    yield ManifestEntry(ref.key, span, Map.empty)
+
   private def readSummary(result: ResultSet): (BinaryKey.Blob, StoredManifestSummary) =
     val algorithm = parseDbAlgorithm(result.getString(1)).fold(reason => throw new IllegalArgumentException(reason), identity)
     val digest    = Digest.fromBytes(result.getBytes(2)).fold(reason => throw new IllegalArgumentException(reason), identity)
@@ -636,3 +772,12 @@ final class PgTenantBlobManifestRepo(
   private final case class StreamState(count: Int, offset: Long)
   private object StreamState:
     val empty: StreamState = StreamState(0, 0L)
+
+object PgTenantBlobManifestRepo:
+  def authenticated(
+    dataSource: DataSource,
+    tenantId: TenantId,
+    storageDomainId: StorageDomainId,
+    integrity: ManifestIntegrity,
+  ): PgTenantBlobManifestRepo =
+    new PgTenantBlobManifestRepo(dataSource, tenantId, storageDomainId, Some(integrity))

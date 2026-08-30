@@ -28,6 +28,12 @@ object UploadByteStream:
     bytes: ZStream[Any, Throwable, Byte],
     expected: Option[FileSize],
   ): ZStream[Any, Throwable, Byte] =
+    enforceExpectedSizeTyped(bytes, expected).mapError(error => error: Throwable)
+
+  def enforceExpectedSizeTyped[E](
+    bytes: ZStream[Any, E, Byte],
+    expected: Option[FileSize],
+  ): ZStream[Any, E | Error, Byte] =
     expected.fold(bytes) { limit =>
       ZStream.unwrap {
         Ref.make(0L).map { observed =>
@@ -57,6 +63,12 @@ object UploadByteStream:
     bytes: ZStream[Any, Throwable, Byte],
     maximum: FileSize,
   ): ZStream[Any, Throwable, Byte] =
+    enforceMaximumSizeTyped(bytes, maximum).mapError(error => error: Throwable)
+
+  def enforceMaximumSizeTyped[E](
+    bytes: ZStream[Any, E, Byte],
+    maximum: FileSize,
+  ): ZStream[Any, E | Error, Byte] =
     ZStream.unwrap {
       Ref.make(0L).map { observed =>
         bytes.mapChunksZIO { chunk =>
@@ -77,6 +89,13 @@ object UploadByteStream:
     key: UploadSessionKey,
     hotState: UploadHotState,
   ): ZStream[Any, Throwable, Byte] =
+    observeFramesTyped(bytes, key, hotState).mapError(error => error: Throwable)
+
+  def observeFramesTyped[E](
+    bytes: ZStream[Any, E, Byte],
+    key: UploadSessionKey,
+    hotState: UploadHotState,
+  ): ZStream[Any, E | Error, Byte] =
     bytes.rechunk(UploadTransportFrame.MaxBytes).mapChunksZIO { chunk =>
       if chunk.isEmpty then ZIO.succeed(chunk)
       else

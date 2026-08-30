@@ -72,7 +72,11 @@ This port coordinates ordinary blob work with destructive repository maintenance
 
 ## `TransferBudget`
 
-`TransferBudget` is a weighted, process-wide semaphore for bytes retained by active transfer pipelines. A sink reserves its conservative live-buffer ceiling in a scope before accepting input. Waiting is interruptible, and the scoped permit is released on success, failure, or interruption. Inline CAS and S3 resumable staging receive the same service instance in packaged server wiring. Standalone S3 blob and mutable-object layers also reserve their adaptive part ceiling. The server reads `graviton.transfer-memory.maximum-buffered-bytes`; the default is 512 MiB.
+`TransferFootprint` is the algebra of named live-byte owners for one operation. Queues, chunkers, ordered persistence, request bodies, replicas, and erasure coding contribute independently, then `TransferBudget` reserves the composed total exactly once. Packaged wiring acquires process bytes, tenant bytes and tenant concurrency, then backend concurrency in a fixed order. Waiting is interruptible, registry cardinality is bounded, and scope releases every permit on success, failure, or interruption. Inline CAS and resumable staging share the process budget.
+
+## `ManifestIntegrity` / `ManifestKeyService`
+
+`ManifestIntegrity` incrementally authenticates manifest semantics without collecting entries. Its proof binds blob identity, total size, chunker, count, and ordered block keys and spans. `ManifestKeyService` is the ZIO boundary for local HMAC, KMS, or HSM implementations. Built-in filesystem and PostgreSQL repositories can require proof verification before returning any block reference, so block storage is not touched when metadata authentication fails.
 
 ## `TenantStoreProvider` / `TenantContext`
 

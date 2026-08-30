@@ -57,11 +57,20 @@ trait UploadMediaTypeDetector:
   def id: Identifier
   def probeSize: UploadProbeSize
   def supported: Set[UploadMediaTypeKey]
-  def mismatchMessage(advertised: MediaType): String =
+  def mismatchMessage(advertised: MediaType): String                                                =
     s"advertised ${advertised.fullType} does not match the upload prefix"
   def detect(probe: UploadProbe): ZIO[Scope, Throwable, Option[MediaType]]
+  def detectTyped(probe: UploadProbe): ZIO[Scope, UploadMediaTypeDetector.Error, Option[MediaType]] =
+    detect(probe).mapError(UploadMediaTypeDetector.Error.Legacy(id, _))
 
 object UploadMediaTypeDetector:
+  sealed abstract class Error(message: String, cause: Throwable | Null = null) extends Exception(message, cause)
+  object Error:
+    final case class DetectionFailed(detector: Identifier, reason: String, underlying: Throwable | Null = null)
+        extends Error(s"media detector '${detector.value}' failed: $reason", underlying)
+    final case class Legacy(detector: Identifier, underlying: Throwable)
+        extends Error(s"legacy media detector '${detector.value}' failed", underlying)
+
   def make(
     detectorId: Identifier,
     requiredBytes: UploadProbeSize,
@@ -77,6 +86,22 @@ object UploadMediaTypeDetector:
       override def mismatchMessage(advertised: MediaType): String                       = mismatch(advertised)
       override def detect(probe: UploadProbe): ZIO[Scope, Throwable, Option[MediaType]] = run(probe)
 
+  def makeTyped(
+    detectorId: Identifier,
+    requiredBytes: UploadProbeSize,
+    supportedTypes: Set[UploadMediaTypeKey],
+    mismatch: MediaType => String = advertised => s"advertised ${advertised.fullType} does not match the upload prefix",
+  )(
+    run: UploadProbe => ZIO[Scope, Error, Option[MediaType]]
+  ): UploadMediaTypeDetector =
+    new UploadMediaTypeDetector:
+      override val id: Identifier                                                        = detectorId
+      override val probeSize: UploadProbeSize                                            = requiredBytes
+      override val supported: Set[UploadMediaTypeKey]                                    = supportedTypes
+      override def mismatchMessage(advertised: MediaType): String                        = mismatch(advertised)
+      override def detect(probe: UploadProbe): ZIO[Scope, Throwable, Option[MediaType]]  = run(probe)
+      override def detectTyped(probe: UploadProbe): ZIO[Scope, Error, Option[MediaType]] = run(probe)
+
 /**
  * Acquires one fresh chunker for one upload.
  *
@@ -87,8 +112,17 @@ object UploadMediaTypeDetector:
 trait ChunkerProvider:
   def id: ChunkerProviderId
   def acquire(context: ChunkerProvider.Context): ZIO[Scope, Throwable, Chunker]
+  def acquireTyped(context: ChunkerProvider.Context): ZIO[Scope, ChunkerProvider.Error, Chunker] =
+    acquire(context).mapError(ChunkerProvider.Error.Legacy(id, _))
 
 object ChunkerProvider:
+  sealed abstract class Error(message: String, cause: Throwable | Null = null) extends Exception(message, cause)
+  object Error:
+    final case class InitializationFailed(provider: ChunkerProviderId, reason: String, underlying: Throwable | Null = null)
+        extends Error(s"chunker provider '${provider.value}' failed: $reason", underlying)
+    final case class Legacy(provider: ChunkerProviderId, underlying: Throwable)
+        extends Error(s"legacy chunker provider '${provider.value}' failed", underlying)
+
   enum Key derives CanEqual:
     case Default
     case MediaType(value: UploadMediaTypeKey)
@@ -105,6 +139,12 @@ object ChunkerProvider:
     new ChunkerProvider:
       override val id: ChunkerProviderId                                     = providerId
       override def acquire(context: Context): ZIO[Scope, Throwable, Chunker] = open(context)
+
+  def makeTyped(providerId: ChunkerProviderId)(open: Context => ZIO[Scope, Error, Chunker]): ChunkerProvider =
+    new ChunkerProvider:
+      override val id: ChunkerProviderId                                      = providerId
+      override def acquire(context: Context): ZIO[Scope, Throwable, Chunker]  = open(context)
+      override def acquireTyped(context: Context): ZIO[Scope, Error, Chunker] = open(context)
 
   def fixed(providerId: ChunkerProviderId, chunker: => Chunker): ChunkerProvider =
     make(providerId)(_ => ZIO.succeed(chunker))
@@ -124,8 +164,8 @@ object ChunkerProvider:
                       .fromOption(exact.orElse(fallback))
                       .orElseFail(UploadIngestor.Error.MissingProvider(renderKey(key)))
         chunker  <- provider
-                      .acquire(context)
-                      .mapError(cause => UploadIngestor.Error.ProviderInitialization(provider.id, cause))
+                      .acquireTyped(context)
+                      .mapError(cause => UploadIngestor.Error.ProviderError(provider.id, cause))
       yield provider.id -> chunker
 
     private def lookup(key: Key): UIO[Option[ChunkerProvider]] =
@@ -147,6 +187,13 @@ trait UploadIngestor:
     plan: BlobWritePlan = BlobWritePlan(),
   ): IO[UploadIngestor.Error, UploadIngestor.Result]
 
+  def putSource(
+    intent: UploadIntent,
+    source: UploadSource,
+    plan: BlobWritePlan = BlobWritePlan(),
+  ): IO[UploadIngestor.Error, UploadIngestor.Result] =
+    put(intent, source.bytes.mapError(identity[Throwable]), plan)
+
 object UploadIngestor:
   final case class Result(
     stored: BlobWriteResult,
@@ -162,6 +209,8 @@ object UploadIngestor:
     final case class InvalidInput(detail: String)                   extends Error(detail)
     final case class DetectorFailure(detector: Identifier, underlying: Throwable)
         extends Error(s"media detector '${detector.value}' failed", underlying)
+    final case class DetectorError(detector: Identifier, underlying: UploadMediaTypeDetector.Error)
+        extends Error(s"media detector '${detector.value}' failed", underlying)
     final case class AmbiguousDetection(mediaTypes: Chunk[MediaType])
         extends Error(s"upload prefix matched multiple media types: ${mediaTypes.map(_.fullType).mkString(", ")}")
     final case class MediaTypeMismatch(advertised: MediaType, detected: Option[MediaType], detail: Option[String] = None)
@@ -173,8 +222,11 @@ object UploadIngestor:
     final case class MissingProvider(key: String)                   extends Error(s"no chunker provider is registered for '$key' or the default key")
     final case class ProviderInitialization(provider: ChunkerProviderId, underlying: Throwable)
         extends Error(s"chunker provider '${provider.value}' could not initialize", underlying)
+    final case class ProviderError(provider: ChunkerProviderId, underlying: ChunkerProvider.Error)
+        extends Error(s"chunker provider '${provider.value}' could not initialize", underlying)
     final case class Validation(underlying: UploadByteStream.Error) extends Error(underlying.getMessage, underlying)
     final case class Source(underlying: Throwable)                  extends Error("upload source failed", underlying)
+    final case class SourceError(underlying: UploadSourceError)     extends Error("upload source failed", underlying)
     final case class Storage(underlying: StoreError)                extends Error("blob storage failed", underlying)
 
   def put(
@@ -183,6 +235,13 @@ object UploadIngestor:
     plan: BlobWritePlan = BlobWritePlan(),
   ): ZIO[UploadIngestor, Error, Result] =
     ZIO.serviceWithZIO[UploadIngestor](_.put(intent, bytes, plan))
+
+  def putSource(
+    intent: UploadIntent,
+    source: UploadSource,
+    plan: BlobWritePlan = BlobWritePlan(),
+  ): ZIO[UploadIngestor, Error, Result] =
+    ZIO.serviceWithZIO[UploadIngestor](_.putSource(intent, source, plan))
 
   def make(
     store: BlobStore,
@@ -217,12 +276,22 @@ object UploadIngestor:
       bytes: ZStream[Any, Throwable, Byte],
       plan: BlobWritePlan,
     ): IO[Error, Result] =
+      putSource(intent, UploadSource.fromThrowable(bytes), plan)
+
+    override def putSource(
+      intent: UploadIntent,
+      source: UploadSource,
+      plan: BlobWritePlan,
+    ): IO[Error, Result] =
       ZIO.scoped {
         for
           advertised           <- canonical(intent.contentType)
           validated             = UploadByteStream
-                                    .enforceExpectedSize(bytes, intent.expectedSize)
-                                    .mapError(classifySourceError)
+                                    .enforceExpectedSizeTyped(source.bytes, intent.expectedSize)
+                                    .mapError {
+                                      case error: UploadByteStream.Error => Error.Validation(error)
+                                      case error: UploadSourceError      => Error.SourceError(error)
+                                    }
           probed               <- probe(validated)
           detected             <- detect(probed.prefix)
           effective            <- resolveMediaType(advertised, detected)
@@ -283,17 +352,12 @@ object UploadIngestor:
                 },
         )
 
-    private def classifySourceError(cause: Throwable): Error =
-      cause match
-        case error: UploadByteStream.Error => Error.Validation(error)
-        case other                         => Error.Source(other)
-
     private def detect(probe: UploadProbe): ZIO[Scope, Error, Option[MediaType]] =
       ZIO
         .foreachPar(detectors)(detector =>
           ZIO
-            .scoped(detector.detect(probe))
-            .mapError(Error.DetectorFailure(detector.id, _))
+            .scoped(detector.detectTyped(probe))
+            .mapError(Error.DetectorError(detector.id, _))
         )
         .flatMap { matches =>
           val distinct = matches.flatten.distinct

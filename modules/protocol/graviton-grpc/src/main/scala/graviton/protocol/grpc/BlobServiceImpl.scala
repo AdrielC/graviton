@@ -5,7 +5,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.FileSize
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.{BlobStore, StoreError}
-import graviton.runtime.upload.{UploadIngestor, UploadIntent}
+import graviton.runtime.upload.{UploadIngestor, UploadIntent, UploadSource, UploadSourceError}
 import graviton.shared.MediaTypeText
 import io.grpc.{Status, StatusException}
 import io.graviton.blobstore.v1.blob_service.*
@@ -27,7 +27,11 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
             prepared <- prepareUpload(metadata)
             bytes     = remaining.mapZIO(frameBytes).flattenChunks
             result   <- uploadIngestor
-                          .put(UploadIntent(prepared.mediaType, prepared.expectedSize), bytes, prepared.plan)
+                          .putSource(
+                            UploadIntent(prepared.mediaType, prepared.expectedSize),
+                            UploadSource.fromThrowable(bytes),
+                            prepared.plan,
+                          )
                           .mapError(toStatus)
           yield PutBlobResponse(
             key = Some(BlobKey(GrpcProtocol.render(result.stored.key))),
@@ -122,32 +126,33 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
 
   private def toStatus(error: Throwable): StatusException =
     error match
-      case status: StatusException                                                => status
-      case UploadIngestor.Error.Source(status: StatusException)                   => status
-      case invalid: UploadIngestor.Error.InvalidInput                             => invalidStatus(invalid)
-      case mismatch: UploadIngestor.Error.MediaTypeMismatch                       => invalidStatus(mismatch)
-      case ambiguous: UploadIngestor.Error.AmbiguousDetection                     => invalidStatus(ambiguous)
-      case validation: UploadIngestor.Error.Validation                            => invalidStatus(validation)
-      case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput)           => invalidStatus(cause)
-      case UploadIngestor.Error.Storage(_: StoreError.TenantStorageQuotaExceeded) =>
+      case status: StatusException                                                                => status
+      case UploadIngestor.Error.Source(status: StatusException)                                   => status
+      case UploadIngestor.Error.SourceError(UploadSourceError.Transport(status: StatusException)) => status
+      case invalid: UploadIngestor.Error.InvalidInput                                             => invalidStatus(invalid)
+      case mismatch: UploadIngestor.Error.MediaTypeMismatch                                       => invalidStatus(mismatch)
+      case ambiguous: UploadIngestor.Error.AmbiguousDetection                                     => invalidStatus(ambiguous)
+      case validation: UploadIngestor.Error.Validation                                            => invalidStatus(validation)
+      case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput)                           => invalidStatus(cause)
+      case UploadIngestor.Error.Storage(_: StoreError.TenantStorageQuotaExceeded)                 =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant storage quota exceeded").asException()
-      case UploadIngestor.Error.Storage(_: StoreError.CapacityExceeded)           =>
+      case UploadIngestor.Error.Storage(_: StoreError.CapacityExceeded)                           =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant object size limit exceeded").asException()
-      case UploadIngestor.Error.Storage(_: StoreError.TenantConcurrencyExceeded)  =>
+      case UploadIngestor.Error.Storage(_: StoreError.TenantConcurrencyExceeded)                  =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant concurrent operation limit exceeded").asException()
-      case UploadIngestor.Error.Storage(_: StoreError.TenantAdmissionUnavailable) =>
+      case UploadIngestor.Error.Storage(_: StoreError.TenantAdmissionUnavailable)                 =>
         Status.UNAVAILABLE.withDescription("tenant admission is temporarily unavailable").asException()
-      case _: StoreError.TenantStorageQuotaExceeded                               =>
+      case _: StoreError.TenantStorageQuotaExceeded                                               =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant storage quota exceeded").asException()
-      case _: StoreError.CapacityExceeded                                         =>
+      case _: StoreError.CapacityExceeded                                                         =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant object size limit exceeded").asException()
-      case _: StoreError.TenantConcurrencyExceeded                                =>
+      case _: StoreError.TenantConcurrencyExceeded                                                =>
         Status.RESOURCE_EXHAUSTED.withDescription("tenant concurrent operation limit exceeded").asException()
-      case _: StoreError.TenantAdmissionUnavailable                               =>
+      case _: StoreError.TenantAdmissionUnavailable                                               =>
         Status.UNAVAILABLE.withDescription("tenant admission is temporarily unavailable").asException()
-      case _: NoSuchElementException                                              => Status.NOT_FOUND.withDescription("blob was not found").asException()
-      case _: IllegalArgumentException                                            => invalidStatus(error)
-      case _                                                                      => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
+      case _: NoSuchElementException                                                              => Status.NOT_FOUND.withDescription("blob was not found").asException()
+      case _: IllegalArgumentException                                                            => invalidStatus(error)
+      case _                                                                                      => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
 
   private def invalidStatus(error: Throwable): StatusException =
     Status.INVALID_ARGUMENT.withDescription(safeMessage(error)).asException()

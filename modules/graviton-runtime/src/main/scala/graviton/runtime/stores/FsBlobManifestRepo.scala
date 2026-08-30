@@ -19,9 +19,11 @@ import scala.jdk.CollectionConverters.*
 /**
  * Durable, filesystem-backed manifest repository.
  *
- * Manifests use the incremental `GVM2` format and are written via a temporary
- * file plus atomic rename. The file's modification time records the ingestion
- * timestamp returned by [[BlobStore.stat]].
+ * Manifests use incremental `GVM2` records when authentication is disabled and
+ * authenticated `GVM3` envelopes when a [[ManifestIntegrity]] service is
+ * installed. Both are written via a temporary file plus atomic rename. The
+ * file's modification time records the ingestion timestamp returned by
+ * [[BlobStore.stat]].
  *
  * Layout:
  *   `<root>/<prefix>/<algo>/<digest>-<size>.manifest`
@@ -30,6 +32,11 @@ final class FsBlobManifestRepo(
   root: Path,
   prefix: String = "cas/manifests",
 ) extends BlobManifestRepo:
+  @volatile private var integrity: Option[ManifestIntegrity] = None
+
+  private[stores] def enableIntegrity(service: ManifestIntegrity): this.type =
+    integrity = Some(service)
+    this
 
   override def put(
     blob: BinaryKey.Blob,
@@ -50,33 +57,40 @@ final class FsBlobManifestRepo(
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
-    val path = pathFor(blob)
+    val identity = ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified"))
+    putInternal(identity, entries, ingestedAt)
+
+  override def putAuthenticatedStream(
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    putInternal(identity, entries, ingestedAt)
+
+  private def putInternal(
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    val blob       = identity.blob
+    val totalSize  = identity.totalSize
+    val blockCount = identity.blockCount
+    val path       = pathFor(blob)
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
       .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
       ZIO
         .scoped {
           for
-            tmp    <- ZIO.attemptBlocking {
-                        Files.createDirectories(path.getParent)
-                        Files.createTempFile(path.getParent, ".manifest-", ".tmp")
-                      }
-            _      <- ZIO.addFinalizer(ZIO.attemptBlocking(Files.deleteIfExists(tmp)).ignore)
-            writer <- ZIO.acquireRelease(
-                        ZIO.attemptBlocking(
-                          StreamingManifestFile.Writer.open(
-                            tmp,
-                            StreamingManifestFile.Header(totalSize, blockCount),
-                          )
-                        )
-                      )(current => ZIO.attemptBlocking(current.close()).orDie)
-            _      <- entries
-                        .rechunk(FsBlobManifestRepo.WriteBatchEntries)
-                        .chunks
-                        .runForeach(batch => ZIO.attemptBlocking(writer.writeBatch(batch)))
-            _      <- ZIO.attemptBlocking(writer.finish())
-            _      <- ZIO.attemptBlocking(writer.close())
-            _      <- commitStreamingManifest(tmp, path, ingestedAt)
+            tmp <- ZIO.attemptBlocking {
+                     Files.createDirectories(path.getParent)
+                     Files.createTempFile(path.getParent, ".manifest-", ".tmp")
+                   }
+            _   <- ZIO.addFinalizer(ZIO.attemptBlocking(Files.deleteIfExists(tmp)).ignore)
+            _   <- integrity match
+                     case None          => writeManifest(tmp, StreamingManifestFile.Header(totalSize, blockCount), entries)
+                     case Some(service) => writeAuthenticatedManifest(tmp, identity, entries, service)
+            _   <- commitStreamingManifest(tmp, path, ingestedAt)
           yield ()
         }
         .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
@@ -87,7 +101,7 @@ final class FsBlobManifestRepo(
       .attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS))
       .flatMap {
         case false => ZIO.none
-        case true  => readStreamingManifest(path).map(Some(_))
+        case true  => verifyManifest(blob, path) *> readStreamingManifest(path).map(Some(_))
       }
       .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
 
@@ -134,17 +148,7 @@ final class FsBlobManifestRepo(
       .unwrap {
         ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
           case false => ZIO.fail(StoreError.NotFound(StoreOperation.GetManifest, blob))
-          case true  =>
-            ZIO.succeed {
-              StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
-                entry.key match
-                  case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
-                  case other                  =>
-                    throw new IllegalArgumentException(
-                      s"CAS manifest entry $index must reference a block key, got $other"
-                    )
-              }
-            }
+          case true  => verifyManifest(blob, path).as(rawBlockRefs(path))
         }
       }
       .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
@@ -192,6 +196,89 @@ final class FsBlobManifestRepo(
                       .mapError(message => new IllegalArgumentException(message))
       ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
     yield StoredManifest(manifest, ingestedAt)
+
+  private def rawBlockRefs(path: Path): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
+    StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
+      entry.key match
+        case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
+        case other                  =>
+          throw new IllegalArgumentException(s"CAS manifest entry $index must reference a block key, got $other")
+    }
+
+  private def verifyManifest(blob: BinaryKey.Blob, path: Path): IO[StoreError, Unit] =
+    integrity match
+      case None          => ZIO.unit
+      case Some(service) =>
+        for
+          envelope       <- StreamingManifestFile
+                              .readEnvelopeHeader(path)
+                              .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
+          header          = envelope.header
+          authentication <- ZIO
+                              .fromOption(envelope.authentication)
+                              .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
+          accumulator    <- service.verificationAccumulator(
+                              ManifestIdentity(blob, header.totalSize, header.blockCount, authentication.chunker)
+                            )
+          _              <- StreamingManifestFile
+                              .streamEntries(path)
+                              .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
+                              .runForeach(accumulator.update)
+          _              <- accumulator.verify(authentication.proof)
+        yield ()
+
+  private def writeManifest(
+    path: Path,
+    header: StreamingManifestFile.Header,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    authentication: Option[StoredManifestAuthentication] = None,
+  ): IO[StoreError, Unit] =
+    ZIO
+      .scoped {
+        for
+          writer <- ZIO.acquireRelease(ZIO.attemptBlocking(StreamingManifestFile.Writer.open(path, header, authentication)))(current =>
+                      ZIO.attemptBlocking(current.close()).orDie
+                    )
+          _      <- entries
+                      .rechunk(FsBlobManifestRepo.WriteBatchEntries)
+                      .chunks
+                      .runForeach(batch => ZIO.attemptBlocking(writer.writeBatch(batch)))
+          _      <- ZIO.attemptBlocking(writer.finish())
+          _      <- ZIO.attemptBlocking(writer.close())
+        yield ()
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
+
+  private def writeAuthenticatedManifest(
+    destination: Path,
+    identity: ManifestIdentity,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    service: ManifestIntegrity,
+  ): IO[StoreError, Unit] =
+    ZIO.scoped {
+      for
+        stage       <- ZIO
+                         .attemptBlocking(Files.createTempFile(destination.getParent, ".manifest-stage-", ".tmp"))
+                         .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
+        _           <- ZIO.addFinalizer(ZIO.attemptBlocking(Files.deleteIfExists(stage)).ignore)
+        accumulator <- service.accumulator(identity)
+        _           <- writeManifest(
+                         stage,
+                         StreamingManifestFile.Header(identity.totalSize, identity.blockCount),
+                         entries.tap(accumulator.update),
+                       )
+        proof       <- accumulator.prove
+        auth         = StoredManifestAuthentication(identity.chunker, proof)
+        _           <- writeManifest(
+                         destination,
+                         StreamingManifestFile.Header(identity.totalSize, identity.blockCount),
+                         StreamingManifestFile
+                           .streamEntries(stage)
+                           .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem)),
+                         Some(auth),
+                       )
+      yield ()
+    }
 
   private def readSummary(path: Path): Task[StoredManifestSummary] =
     for
@@ -257,10 +344,17 @@ final class FsBlobManifestRepo(
     }
 
 object FsBlobManifestRepo:
-  /** Historical public safety bound; the active GVM2 reader is streaming. */
+  /** Historical public safety bound; the active GVM2/GVM3 readers are streaming. */
   val MaxManifestBytes: Int       = 64 * 1024 * 1024
   val MaxMaterializedEntries: Int = BlobManifestRepo.MaxMaterializedEntries
   private val WriteBatchEntries   = 512
+
+  def authenticated(
+    root: Path,
+    integrity: ManifestIntegrity,
+    prefix: String = "cas/manifests",
+  ): FsBlobManifestRepo =
+    new FsBlobManifestRepo(root, prefix).enableIntegrity(integrity)
 
   private final class FileWalker(
     paths: java.util.stream.Stream[Path],

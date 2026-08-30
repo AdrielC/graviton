@@ -5,6 +5,7 @@ import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.runtime.upload.TenantId
 import io.github.iltotore.iron.constraint.collection.{MaxLength, MinLength}
+import zio.Duration
 
 import java.io.IOException
 import java.nio.file.{AccessDeniedException, FileAlreadyExistsException}
@@ -132,6 +133,36 @@ object StoreError:
         s"tenant retained-byte quota exceeded: limit=$limitBytes retained=$retainedBytes additional=$attemptedAdditionalBytes",
       ):
     override val retryable: Boolean = false
+
+  final case class TenantTransferCapacityExceeded(
+    override val operation: StoreOperation,
+    tenantId: TenantId,
+    limitBytes: Long,
+    requestedBytes: Long,
+  ) extends StoreError(
+        operation,
+        s"tenant ${tenantId.value} transfer capacity exceeded: limit=$limitBytes requested=$requestedBytes",
+      ):
+    override val retryable: Boolean = true
+
+  final case class TransferAdmissionTimedOut(
+    override val operation: StoreOperation,
+    backend: StoreBackend,
+    tenantId: Option[TenantId],
+    requestedBytes: Long,
+    timeout: Duration,
+  ) extends StoreError(
+        operation,
+        s"transfer admission timed out after $timeout for backend ${backend.value}, tenant=${tenantId.fold("none")(_.value)}, bytes=$requestedBytes",
+      ):
+    override val retryable: Boolean = true
+
+  final case class TransferAdmissionSaturated(
+    override val operation: StoreOperation,
+    registry: String,
+    maximumEntries: Int,
+  ) extends StoreError(operation, s"transfer admission $registry registry is saturated at $maximumEntries entries"):
+    override val retryable: Boolean = true
 
   final case class CorruptData(
     override val operation: StoreOperation,

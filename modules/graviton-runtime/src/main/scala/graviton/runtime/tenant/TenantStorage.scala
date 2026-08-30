@@ -265,13 +265,17 @@ object TenantStoreTopology:
       _        <- sharedBlockStoreReference(blockStores).toLeft(())
       _        <- sharedManifestReference(manifests).toLeft(())
       bindings  = routes.map { route =>
-                    val raw = new CasBlobStore(
-                      blockStores(route.storageDomain),
+                    val blocks       = blockStores(route.storageDomain)
+                    val scopedBudget = transferBudget.bind(
+                      TransferScope(Some(route.tenantId), BlockTransferFootprint.backendOf(blocks))
+                    )
+                    val raw          = new CasBlobStore(
+                      blocks,
                       manifests(route.tenantId),
                       metrics = metrics,
                       ingestConfig = ingestConfig,
                       persistenceConfig = persistenceConfig,
-                      transferBudget = transferBudget,
+                      transferBudget = scopedBudget,
                     )
                     TenantStoreBinding(route, new CoordinatedBlobStore(raw, coordinators(route.storageDomain)))
                   }

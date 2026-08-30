@@ -16,7 +16,7 @@ permissions:
 jobs:
   two-node-fault-and-performance:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,16 +39,65 @@ jobs:
             > "$evidence/multi-tenant.json"
           printf '{"schema":"graviton-crashlab-v1","commit":"%s","status":"passed"}\n' \
             "$(git rev-parse HEAD)" > "$evidence/crashlab.json"
-      - name: Start exact two-node topology
-        run: ./scripts/demo-shardcake-local.sh up
+      - name: Build exact baseline and candidate images
+        env:
+          REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/graviton-qualification"
+          baseline_ref="$REQUESTED_BASELINE_REF"
+          if [[ -z "$baseline_ref" ]]; then
+            baseline_ref="$(git describe --tags --abbrev=0 HEAD^)"
+          fi
+          baseline_dir="$RUNNER_TEMP/graviton-baseline"
+          git worktree add --detach "$baseline_dir" "$baseline_ref"
+          (
+            cd "$baseline_dir"
+            TESTCONTAINERS=0 ./sbt -Dsbt.server.autostart=false -Dsbt.supershell=false 'server/assembly'
+            docker build -t graviton-qualification:baseline .
+          )
+          TESTCONTAINERS=0 ./sbt -Dsbt.server.autostart=false -Dsbt.supershell=false 'server/assembly'
+          docker build -t graviton-qualification:candidate .
+          printf '{"schema":"graviton-rolling-images-v1","baselineRef":"%s","candidateRef":"%s"}\n' \
+            "$(git -C "$baseline_dir" rev-parse HEAD)" "$(git rev-parse HEAD)" > "$evidence/rolling-images.json"
+          git worktree remove "$baseline_dir"
+      - name: Generate and mask manifest qualification key
+        run: |
+          set -euo pipefail
+          key="$(openssl rand -base64 32 | tr -d '\n')"
+          echo "::add-mask::$key"
+          {
+            echo 'GRAVITON_MANIFEST_INTEGRITY_REQUIRED=true'
+            echo 'GRAVITON_MANIFEST_INTEGRITY_KEY_ID=qualification-v1'
+            echo "GRAVITON_MANIFEST_INTEGRITY_HMAC_KEY_BASE64=$key"
+          } >> "$GITHUB_ENV"
+      - name: Start exact candidate two-node topology
+        run: |
+          set -euo pipefail
+          compose='deploy/local-shardcake/docker-compose.yml'
+          GRAVITON_MANAGER_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_1_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_2_IMAGE=graviton-qualification:candidate \
+            docker compose -f "$compose" up -d --no-build
+          for _ in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:58081/api/health/ready >/dev/null \
+              && curl --fail --silent http://127.0.0.1:58082/api/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f "$compose" ps -a
+          exit 1
       - name: Prove node and backend failure behavior
         run: |
           mkdir -p "$RUNNER_TEMP/graviton-qualification"
           ./scripts/qualify-local-shardcake.sh > "$RUNNER_TEMP/graviton-qualification/failure-proof.json"
-      - name: Retain workload distributions and CAS reuse transitions
+      - name: Retain workload distributions, telemetry, and regression gate
         env:
           GRAVITON_BENCHMARK_BACKEND_DESCRIPTION: GitHub-hosted runner, MinIO, PostgreSQL, two Shardcake nodes
           GRAVITON_BENCHMARK_WARMUPS: '1'
+          GRAVITON_GATE_TENANTS: '8'
+          GRAVITON_GATE_SAMPLES_PER_TENANT: '16'
           GRAVITON_BENCHMARK_TENANT_ID: 00000000-0000-4000-8000-000000000605
           GRAVITON_BENCHMARK_SESSION_ID: 00000000-0000-4000-8000-000000000606
           GRAVITON_BENCHMARK_MEDIA_TYPE: application/octet-stream
@@ -73,27 +122,32 @@ jobs:
               4 \
               "$evidence/benchmarks/$payload"
           done
-      - name: Build exact rolling-upgrade images
+
+          baseline_ref="$(jq -r '.baselineRef' "$evidence/rolling-images.json")"
+          candidate_ref="$(jq -r '.candidateRef' "$evidence/rolling-images.json")"
+          ./scripts/run-performance-cohort.sh \
+            graviton-qualification:baseline \
+            "$baseline_ref" \
+            "$corpus/base-32m.bin" \
+            "$evidence/performance-baseline"
+          ./scripts/run-performance-cohort.sh \
+            graviton-qualification:candidate \
+            "$candidate_ref" \
+            "$corpus/base-32m.bin" \
+            "$evidence/performance-candidate"
+          ./scripts/evaluate-performance-gate.py \
+            "$evidence/performance-baseline/workload/summary.json" \
+            "$evidence/performance-candidate/workload/summary.json" \
+            "$evidence/performance-baseline/telemetry.json" \
+            "$evidence/performance-candidate/telemetry.json" \
+            "$evidence/performance-gate.json"
+      - name: Start clean dependencies for rolling qualification
+        run: docker compose -f deploy/local-shardcake/docker-compose.yml up -d postgres minio minio-init
+      - name: Qualify mixed-version storage compatibility
         env:
-          REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
-        run: |
-          evidence="$RUNNER_TEMP/graviton-qualification"
-          baseline_ref="$REQUESTED_BASELINE_REF"
-          if [[ -z "$baseline_ref" ]]; then
-            baseline_ref="$(git describe --tags --abbrev=0 HEAD^)"
-          fi
-          baseline_dir="$RUNNER_TEMP/graviton-baseline"
-          git worktree add --detach "$baseline_dir" "$baseline_ref"
-          (
-            cd "$baseline_dir"
-            TESTCONTAINERS=0 ./sbt -Dsbt.server.autostart=false -Dsbt.supershell=false 'server/assembly'
-            docker build -t graviton-qualification:baseline .
-          )
-          docker tag graviton-local:current graviton-qualification:candidate
-          printf '{"schema":"graviton-rolling-images-v1","baselineRef":"%s","candidateRef":"%s"}\n' \
-            "$(git -C "$baseline_dir" rev-parse HEAD)" "$(git rev-parse HEAD)" > "$evidence/rolling-images.json"
-          git worktree remove "$baseline_dir"
-      - name: Qualify mixed-version rollout and rollback
+          # v0.7.0 predates authenticated manifests. Strict mode must reject its
+          # unsigned rows, so this isolated compatibility proof runs without it.
+          GRAVITON_MANIFEST_INTEGRITY_REQUIRED: 'false'
         run: |
           ./scripts/qualify-rolling-upgrade.sh \
             graviton-qualification:baseline \
@@ -101,6 +155,30 @@ jobs:
             baseline \
             candidate \
             > "$RUNNER_TEMP/graviton-qualification/rolling-upgrade.json"
+      - name: Reset to a strict authenticated candidate cohort
+        run: |
+          set -euo pipefail
+          compose='deploy/local-shardcake/docker-compose.yml'
+          docker compose -f "$compose" down --volumes --remove-orphans
+          GRAVITON_MANAGER_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_1_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_2_IMAGE=graviton-qualification:candidate \
+            docker compose -f "$compose" up -d --no-build
+          for _ in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:58081/api/health/ready >/dev/null \
+              && curl --fail --silent http://127.0.0.1:58082/api/health/ready >/dev/null; then
+              jq -n \
+                --arg schema graviton-manifest-authentication-boundary-v1 \
+                --arg baseline "$(jq -r '.baselineRef' "$RUNNER_TEMP/graviton-qualification/rolling-images.json")" \
+                --arg candidate "$(git rev-parse HEAD)" \
+                '{schema: $schema, baseline: $baseline, candidate: $candidate, mixedVersionMode: "unsigned-compatibility", transitionalStateDestroyed: true, strictCandidateRequired: true}' \
+                > "$RUNNER_TEMP/graviton-qualification/manifest-authentication-boundary.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f "$compose" ps -a
+          exit 1
       - name: Run sustained resumable workload through repeated faults
         run: |
           ./scripts/qualify-long-failure.sh 600 4194304 \
@@ -121,7 +199,7 @@ jobs:
           retention-days: 90
       - name: Stop topology
         if: always()
-        run: ./scripts/demo-shardcake-local.sh stop
+        run: docker compose -f deploy/local-shardcake/docker-compose.yml down -v --remove-orphans
 
   three-domain-erasure-loss:
     runs-on: ubuntu-latest
