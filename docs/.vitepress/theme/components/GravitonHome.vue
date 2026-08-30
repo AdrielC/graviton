@@ -31,7 +31,9 @@
       </div>
 
       <aside
+        ref="casMotion"
         class="graviton-cas-motion"
+        :class="{ 'is-running': motionRunning }"
         aria-label="Four streamed blocks resolve to three unique content-addressed blocks because one duplicate is reused."
       >
         <header>
@@ -42,10 +44,10 @@
           <section class="graviton-cas-motion__phase graviton-cas-motion__phase--stream">
             <strong>Stream</strong>
             <div class="graviton-cas-motion__blocks">
-              <i style="--block-index: 0">8a</i>
-              <i style="--block-index: 1">d3</i>
-              <i class="is-duplicate" style="--block-index: 2">8a</i>
-              <i style="--block-index: 3">f1</i>
+              <i style="--block-delay: 0s">8a</i>
+              <i style="--block-delay: 1.3s">d3</i>
+              <i class="is-duplicate" style="--block-delay: 2.6s">8a</i>
+              <i style="--block-delay: 3.9s">f1</i>
             </div>
           </section>
           <span class="graviton-cas-motion__rail graviton-cas-motion__rail--one"></span>
@@ -66,6 +68,22 @@
             </div>
             <small>1 already present</small>
           </section>
+          <i
+            class="graviton-cas-motion__packet"
+            style="--packet-delay: 0s; --packet-from-y: -33px; --packet-to-y: -19px"
+          ></i>
+          <i
+            class="graviton-cas-motion__packet"
+            style="--packet-delay: 1.3s; --packet-from-y: -11px; --packet-to-y: 0px"
+          ></i>
+          <i
+            class="graviton-cas-motion__packet is-duplicate"
+            style="--packet-delay: 2.6s; --packet-from-y: 11px; --packet-to-y: -19px"
+          ></i>
+          <i
+            class="graviton-cas-motion__packet"
+            style="--packet-delay: 3.9s; --packet-from-y: 33px; --packet-to-y: 19px"
+          ></i>
         </div>
         <footer>
           <span><b>4</b> blocks seen</span>
@@ -188,5 +206,41 @@
 </template>
 
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { withBase } from 'vitepress'
+
+const casMotion = ref<HTMLElement | null>(null)
+const motionRunning = ref(false)
+let motionInViewport = false
+let motionObserver: IntersectionObserver | undefined
+
+const syncMotion = () => {
+  motionRunning.value = motionInViewport && document.visibilityState === 'visible'
+}
+
+onMounted(() => {
+  const target = casMotion.value
+  if (!target) return
+
+  if ('IntersectionObserver' in window) {
+    motionObserver = new IntersectionObserver(
+      ([entry]) => {
+        motionInViewport = entry?.isIntersecting ?? false
+        syncMotion()
+      },
+      { threshold: 0.22 },
+    )
+    motionObserver.observe(target)
+  } else {
+    motionInViewport = true
+    syncMotion()
+  }
+
+  document.addEventListener('visibilitychange', syncMotion)
+})
+
+onBeforeUnmount(() => {
+  motionObserver?.disconnect()
+  document.removeEventListener('visibilitychange', syncMotion)
+})
 </script>

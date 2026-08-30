@@ -918,6 +918,7 @@ body > [id^='dmermaid-'] {
 }
 
 .graviton-cas-motion {
+  --graviton-cas-cycle: 8.4s;
   position: relative;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--vp-c-brand-1) 48%, var(--graviton-border));
@@ -957,6 +958,8 @@ body > [id^='dmermaid-'] {
 }
 
 .graviton-cas-motion__route {
+  container-type: inline-size;
+  position: relative;
   display: grid;
   grid-template-columns: minmax(92px, 1fr) minmax(24px, 0.3fr) minmax(90px, 0.9fr) minmax(24px, 0.3fr) minmax(108px, 1fr);
   gap: 0.65rem;
@@ -966,6 +969,8 @@ body > [id^='dmermaid-'] {
 }
 
 .graviton-cas-motion__phase {
+  position: relative;
+  z-index: 1;
   min-width: 0;
 }
 
@@ -989,6 +994,7 @@ body > [id^='dmermaid-'] {
 
 .graviton-cas-motion__blocks i,
 .graviton-cas-motion__shelf i {
+  --graviton-block-color: var(--graviton-cyan);
   display: grid;
   min-width: 0;
   aspect-ratio: 1.45;
@@ -1001,11 +1007,12 @@ body > [id^='dmermaid-'] {
   font-size: 0.7rem;
   font-style: normal;
   font-weight: 750;
-  animation: graviton-block-arrive 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(120ms + var(--block-index) * 110ms);
+  animation: graviton-source-block var(--graviton-cas-cycle) linear var(--block-delay) infinite;
+  animation-play-state: paused;
 }
 
 .graviton-cas-motion__blocks .is-duplicate {
+  --graviton-block-color: var(--graviton-violet);
   border-color: var(--graviton-violet);
   color: var(--graviton-violet);
   background: color-mix(in srgb, var(--graviton-violet) 9%, var(--graviton-panel));
@@ -1013,38 +1020,35 @@ body > [id^='dmermaid-'] {
 
 .graviton-cas-motion__rail {
   position: relative;
+  z-index: 1;
   display: block;
   height: 1px;
-  overflow: hidden;
-  background: var(--graviton-border);
+  background: color-mix(in srgb, var(--graviton-cyan) 34%, var(--graviton-border));
 }
 
 .graviton-cas-motion__rail::after {
   position: absolute;
-  inset: 0;
-  background: var(--graviton-cyan);
-  transform: scaleX(0);
-  transform-origin: left;
-  animation: graviton-rail-travel 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  top: -2px;
+  right: 0;
+  bottom: -2px;
+  left: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--graviton-cyan) 62%, transparent), transparent);
+  opacity: 0.42;
   content: '';
 }
 
-.graviton-cas-motion__rail--one::after {
-  animation-delay: 680ms;
-}
-
-.graviton-cas-motion__rail--two::after {
-  animation-delay: 1.45s;
-}
-
 .graviton-cas-motion__digest {
+  position: relative;
+  z-index: 3;
   display: grid;
   justify-items: center;
   gap: 0.7rem;
-  animation: graviton-digest-resolve 480ms cubic-bezier(0.16, 1, 0.3, 1) 940ms both;
+  animation: graviton-digest-pulse var(--graviton-cas-cycle) linear infinite;
+  animation-play-state: paused;
 }
 
 .graviton-cas-motion__digest span {
+  position: relative;
   width: 52px;
   height: 52px;
   border: 1px solid var(--graviton-cyan);
@@ -1053,6 +1057,8 @@ body > [id^='dmermaid-'] {
     radial-gradient(circle, var(--graviton-cyan) 0 4px, transparent 5px),
     conic-gradient(from 35deg, var(--graviton-cyan), var(--graviton-violet), var(--graviton-pink), var(--graviton-cyan));
   box-shadow: inset 0 0 0 9px var(--graviton-panel);
+  animation: graviton-digest-orbit 5.6s linear infinite;
+  animation-play-state: paused;
 }
 
 .graviton-cas-motion__digest code {
@@ -1062,7 +1068,6 @@ body > [id^='dmermaid-'] {
 
 .graviton-cas-motion__shelf {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  animation: graviton-store-resolve 520ms cubic-bezier(0.16, 1, 0.3, 1) 1.72s both;
 }
 
 .graviton-cas-motion__shelf i {
@@ -1071,11 +1076,20 @@ body > [id^='dmermaid-'] {
   border-color: color-mix(in srgb, var(--vp-c-brand-1) 62%, var(--graviton-border));
   color: var(--vp-c-brand-1);
   background: color-mix(in srgb, var(--vp-c-brand-soft) 76%, var(--graviton-panel));
-  animation: none;
+  animation: graviton-store-hit var(--graviton-cas-cycle) linear infinite;
+  animation-play-state: paused;
 }
 
 .graviton-cas-motion__shelf i:first-child {
-  animation: graviton-reuse-hit 620ms cubic-bezier(0.16, 1, 0.3, 1) 2.12s both;
+  animation-name: graviton-reuse-hit;
+}
+
+.graviton-cas-motion__shelf i:nth-child(2) {
+  animation-delay: 1.3s;
+}
+
+.graviton-cas-motion__shelf i:nth-child(3) {
+  animation-delay: 3.9s;
 }
 
 .graviton-cas-motion__phase--reuse small {
@@ -1085,7 +1099,44 @@ body > [id^='dmermaid-'] {
   font-family: var(--vp-font-family-mono);
   font-size: 0.6rem;
   line-height: 1.35;
-  animation: graviton-reuse-label 360ms ease-out 2.2s both;
+  animation: graviton-reuse-label var(--graviton-cas-cycle) linear infinite;
+  animation-play-state: paused;
+}
+
+.graviton-cas-motion__packet {
+  position: absolute;
+  top: 50%;
+  left: 14%;
+  z-index: 4;
+  width: 9px;
+  height: 9px;
+  border: 1px solid color-mix(in srgb, var(--graviton-cyan) 82%, white);
+  border-radius: 3px;
+  background: var(--graviton-cyan);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--graviton-cyan) 12%, transparent),
+    0 5px 16px color-mix(in srgb, var(--graviton-cyan) 42%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  animation: graviton-packet-route var(--graviton-cas-cycle) cubic-bezier(0.4, 0, 0.2, 1) var(--packet-delay) infinite;
+  animation-play-state: paused;
+}
+
+.graviton-cas-motion__packet.is-duplicate {
+  border-color: color-mix(in srgb, var(--graviton-violet) 82%, white);
+  background: var(--graviton-violet);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--graviton-violet) 13%, transparent),
+    0 5px 18px color-mix(in srgb, var(--graviton-violet) 46%, transparent);
+}
+
+.graviton-cas-motion.is-running :is(
+    .graviton-cas-motion__blocks i,
+    .graviton-cas-motion__digest,
+    .graviton-cas-motion__digest span,
+    .graviton-cas-motion__shelf i,
+    .graviton-cas-motion__phase--reuse small,
+    .graviton-cas-motion__packet
+  ) {
+  animation-play-state: running;
 }
 
 .graviton-cas-motion footer {
@@ -1121,52 +1172,111 @@ body > [id^='dmermaid-'] {
   color: var(--graviton-violet);
 }
 
-@keyframes graviton-block-arrive {
-  from {
-    opacity: 0.35;
-    transform: translateX(-10px);
+@keyframes graviton-source-block {
+  0%,
+  3%,
+  20%,
+  100% {
+    border-color: color-mix(in srgb, var(--graviton-block-color) 50%, var(--graviton-border));
+    box-shadow: none;
+    filter: brightness(1);
+    transform: translateX(0) scale(1);
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+  7% {
+    border-color: var(--graviton-block-color);
+    box-shadow: 0 7px 20px color-mix(in srgb, var(--graviton-block-color) 20%, transparent);
+    filter: brightness(1.12);
+    transform: translateX(3px) scale(1.04);
   }
 }
 
-@keyframes graviton-rail-travel {
-  to {
-    transform: scaleX(1);
+@keyframes graviton-packet-route {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translate3d(0, var(--packet-from-y), 0) scale(0.72);
+  }
+  6% {
+    opacity: 1;
+    transform: translate3d(2cqw, var(--packet-from-y), 0) scale(1);
+  }
+  13%,
+  16% {
+    opacity: 1;
+    transform: translate3d(35cqw, 0, 0) scale(1.18);
+  }
+  27% {
+    opacity: 1;
+    transform: translate3d(69cqw, var(--packet-to-y), 0) scale(0.92);
+  }
+  32%,
+  100% {
+    opacity: 0;
+    transform: translate3d(69cqw, var(--packet-to-y), 0) scale(0.72);
   }
 }
 
-@keyframes graviton-digest-resolve {
-  from {
-    filter: blur(5px);
-    opacity: 0.35;
-    transform: scale(0.92);
-  }
+@keyframes graviton-digest-orbit {
   to {
-    filter: blur(0);
-    opacity: 1;
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes graviton-digest-pulse {
+  0%,
+  10%,
+  18%,
+  25%,
+  33%,
+  41%,
+  49%,
+  56%,
+  64%,
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
     transform: scale(1);
   }
+  14%,
+  29%,
+  45%,
+  60% {
+    filter: drop-shadow(0 8px 12px color-mix(in srgb, var(--graviton-cyan) 30%, transparent));
+    transform: scale(1.07);
+  }
 }
 
-@keyframes graviton-store-resolve {
-  from {
-    clip-path: inset(0 100% 0 0);
+@keyframes graviton-store-hit {
+  0%,
+  22%,
+  35%,
+  100% {
+    border-color: color-mix(in srgb, var(--vp-c-brand-1) 62%, var(--graviton-border));
+    box-shadow: none;
+    transform: scale(1);
   }
-  to {
-    clip-path: inset(0);
+  27% {
+    border-color: var(--vp-c-brand-1);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--vp-c-brand-1) 20%, transparent);
+    transform: scale(1.06);
   }
 }
 
 @keyframes graviton-reuse-hit {
   0%,
+  22%,
+  35%,
+  53%,
+  67%,
   100% {
     box-shadow: none;
     transform: scale(1);
   }
-  45% {
+  27% {
+    border-color: var(--vp-c-brand-1);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--vp-c-brand-1) 20%, transparent);
+    transform: scale(1.06);
+  }
+  60% {
     border-color: var(--graviton-violet);
     box-shadow: 0 8px 22px color-mix(in srgb, var(--graviton-violet) 22%, transparent);
     transform: scale(1.08);
@@ -1174,11 +1284,19 @@ body > [id^='dmermaid-'] {
 }
 
 @keyframes graviton-reuse-label {
-  from {
-    opacity: 0;
+  0%,
+  52%,
+  69%,
+  100% {
+    color: var(--graviton-muted);
+    opacity: 0.68;
+    transform: translateY(0);
   }
-  to {
+  59%,
+  63% {
+    color: var(--graviton-violet);
     opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
@@ -1626,11 +1744,12 @@ body > [id^='dmermaid-'] {
   .graviton-action,
   .graviton-start-paths b,
   .graviton-cas-motion__blocks i,
-  .graviton-cas-motion__rail::after,
   .graviton-cas-motion__digest,
+  .graviton-cas-motion__digest span,
   .graviton-cas-motion__shelf,
-  .graviton-cas-motion__shelf i:first-child,
-  .graviton-cas-motion__phase--reuse small {
+  .graviton-cas-motion__shelf i,
+  .graviton-cas-motion__phase--reuse small,
+  .graviton-cas-motion__packet {
     animation: none;
     filter: none;
     opacity: 1;
@@ -1638,8 +1757,8 @@ body > [id^='dmermaid-'] {
     transition: none;
   }
 
-  .graviton-cas-motion__rail::after {
-    transform: scaleX(1);
+  .graviton-cas-motion__packet {
+    display: none;
   }
 
   .graviton-cas-motion__shelf {
