@@ -52,8 +52,13 @@ final class AuthInterceptor(verifier: JwtVerifier, auditSink: AuditSink, runtime
                 case Left(_)  =>
                   fail(call, Status.INTERNAL, "audit recording failed")
                 case Right(_) =>
-                  val callCtx = Context.current.withValue(CallContextKey, ctx)
-                  Contexts.interceptCall(callCtx, call, headers, next)
+                  val callCtx        = Context.current.withValue(CallContextKey, ctx)
+                  val attributedCall = new ForwardingServerCall.SimpleForwardingServerCall[ReqT, RespT](call):
+                    private val attributes = super.getAttributes.toBuilder.set(CallerAttributeKey, ctx).build()
+
+                    override def getAttributes: Attributes = attributes
+
+                  Contexts.interceptCall(callCtx, attributedCall, headers, next)
 
   private def fail[ReqT, RespT](
     call: ServerCall[ReqT, RespT],
@@ -98,6 +103,10 @@ object AuthInterceptor:
   /** gRPC context key used to carry the resolved [[CallerContext]] through the interceptor chain. */
   val CallContextKey: Context.Key[CallerContext] =
     Context.key[CallerContext]("graviton-caller-context")
+
+  /** Immutable server-call attribute consumed by ZIO gRPC's RequestContext. */
+  val CallerAttributeKey: Attributes.Key[CallerContext] =
+    Attributes.Key.create[CallerContext]("graviton-caller-context")
 
   private val BearerPrefix = "Bearer "
 

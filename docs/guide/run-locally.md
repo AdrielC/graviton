@@ -92,7 +92,7 @@ done
 
 PGPASSWORD=postgres psql \
   -h localhost -U postgres -d graviton \
-  -f modules/pg/ddl.sql
+  -f modules/backend/graviton-pg/src/main/resources/ddl.sql
 ```
 
 Start MinIO:

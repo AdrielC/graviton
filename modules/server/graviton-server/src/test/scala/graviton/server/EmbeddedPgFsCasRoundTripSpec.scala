@@ -3,22 +3,26 @@ package graviton.server
 import graviton.backend.pg.{
   PgBlobManifestRepo,
   PgCatalog,
+  PgDataSource,
   PgKeyValueStore,
   PgMaintenanceCoordinator,
   PgMutableObjectStore,
   PgReplicaIndex,
   PgResumableUploadRepository,
+  PgTenantBlobManifestRepo,
+  PgTenantPolicyCatalog,
 }
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.manifest.ManifestEntry
 import graviton.core.ranges.Span
 import graviton.core.types.{BlobOffset, FileSize, LocatorBucket, LocatorPath, LocatorScheme, RepositoryNamespace}
-import graviton.runtime.config.MaintenanceConfig
+import graviton.runtime.config.{MaintenanceConfig, TenantStorageConfig}
 import graviton.runtime.catalog.{CatalogError, CatalogName}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.kv.{KvKey, KvValue}
-import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore}
+import graviton.runtime.stores.{BlobManifestRepo, BlobStore, CasBlobStore, FsBlockStore, StoreError}
+import graviton.runtime.tenant.{DeduplicationScope, TenantCellId, TenantLifecycle, TenantPolicyCatalog, TenantRoutingError}
 import graviton.runtime.upload.*
 import graviton.security.*
 import graviton.core.types.UploadChunkSize
@@ -55,7 +59,14 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       ) flatMap { pg =>
         for
           ddl <- resolveDdlPath
-          ds  <- ZIO.attemptBlocking(pg.getPostgresDatabase)
+          ds  <- ZIO.acquireRelease(
+                   PgDataSource.make(
+                     pg.getJdbcUrl("postgres", "postgres"),
+                     "postgres",
+                     "",
+                     PgDataSource.PoolConfig.Default.copy(maximumPoolSize = 16, minimumIdle = 4),
+                   )
+                 )(PgDataSource.closeScoped)
           _   <- ZIO.acquireReleaseWith(ZIO.attemptBlocking(ds.getConnection))(c => ZIO.attemptBlocking(c.close()).ignore) { conn =>
                    ZIO.attemptBlocking(executeSqlFile(conn, ddl))
                  }
@@ -391,6 +402,39 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             _                  <- maintenance.join
           yield assertTrue(concurrentShared, !enteredBeforeEnd)
         },
+        test("one coordinator coalesces hundreds of tenant operations onto one leased connection") {
+          val config = MaintenanceConfig(
+            namespace = RepositoryNamespace.applyUnsafe("embedded-pg-tenant-cell"),
+            acquisitionTimeout = 2.seconds,
+            pollInterval = 50.millis,
+          )
+
+          for
+            ds          <- ZIO.service[javax.sql.DataSource]
+            coordinator <- PgMaintenanceCoordinator.make(ds, config)
+            entered     <- Ref.make(0)
+            allEntered  <- Promise.make[Nothing, Unit]
+            release     <- Promise.make[Nothing, Unit]
+            fibers      <- ZIO.foreach(1 to 256) { _ =>
+                             ZIO
+                               .scoped(
+                                 coordinator.operationPermit *>
+                                   entered.updateAndGet(_ + 1).flatMap(count => allEntered.succeed(()).when(count == 256)) *>
+                                   release.await
+                               )
+                               .fork
+                           }
+            _           <- allEntered.await
+            pooled      <- ZIO
+                             .fromOption(PgDataSource.poolStats(ds))
+                             .orElseFail(new IllegalStateException("expected a pooled PostgreSQL data source"))
+            _           <- release.succeed(())
+            _           <- ZIO.foreachDiscard(fibers)(_.join)
+          yield assertTrue(
+            pooled.activeConnections == 1,
+            pooled.awaitingConnection == 0,
+          )
+        },
         test("interrupting PostgreSQL lock acquisition closes the waiting lease") {
           val config = MaintenanceConfig(
             namespace = RepositoryNamespace.applyUnsafe("embedded-pg-interrupt"),
@@ -445,6 +489,207 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             retained == bytes,
           )
         },
+        test("PostgreSQL tenant policies isolate manifests and share blocks only by explicit domain") {
+          val isolatedA = TenantId.applyUnsafe("10000000-0000-4000-8000-000000000001")
+          val isolatedB = TenantId.applyUnsafe("10000000-0000-4000-8000-000000000002")
+          val sharedA   = TenantId.applyUnsafe("20000000-0000-4000-8000-000000000001")
+          val sharedB   = TenantId.applyUnsafe("20000000-0000-4000-8000-000000000002")
+          val remote    = TenantId.applyUnsafe("30000000-0000-4000-8000-000000000003")
+          val bytes     = Chunk.fromArray(Array.tabulate(8192)(index => (index % 251).toByte))
+
+          ZIO.scoped {
+            for
+              ds              <- ZIO.service[javax.sql.DataSource]
+              _               <- insertTenantPolicy(ds, isolatedA, None)
+              _               <- insertTenantPolicy(ds, isolatedB, None)
+              _               <- insertTenantPolicy(ds, sharedA, Some("research-consortium"))
+              _               <- insertTenantPolicy(ds, sharedB, Some("research-consortium"))
+              _               <- insertTenantPolicy(ds, remote, None, "private-cell")
+              isolatedRootA   <- temporaryDirectory("graviton-tenant-a")
+              isolatedRootB   <- temporaryDirectory("graviton-tenant-b")
+              sharedRoot      <- temporaryDirectory("graviton-tenant-shared")
+              allowedCatalog   = new PgTenantPolicyCatalog(ds, TenantStorageConfig(allowSharedDeduplication = true))
+              deniedCatalog    = new PgTenantPolicyCatalog(ds, TenantStorageConfig(allowSharedDeduplication = false))
+              remoteCatalog    = new PgTenantPolicyCatalog(
+                                   ds,
+                                   TenantStorageConfig(allowSharedDeduplication = false),
+                                   TenantCellId.applyUnsafe("private-cell"),
+                                 )
+              isolatedPolicyA <- allowedCatalog.resolve(isolatedA)
+              isolatedPolicyB <- allowedCatalog.resolve(isolatedB)
+              sharedPolicyA   <- allowedCatalog.resolve(sharedA)
+              sharedPolicyB   <- allowedCatalog.resolve(sharedB)
+              deniedShared    <- deniedCatalog.resolve(sharedA).exit
+              hiddenCell      <- allowedCatalog.resolve(remote).exit
+              remotePolicy    <- remoteCatalog.resolve(remote)
+              storeA           = new CasBlobStore(
+                                   new FsBlockStore(isolatedRootA),
+                                   new PgTenantBlobManifestRepo(ds, isolatedA, isolatedPolicyA.route.storageDomain),
+                                 )
+              storeB           = new CasBlobStore(
+                                   new FsBlockStore(isolatedRootB),
+                                   new PgTenantBlobManifestRepo(ds, isolatedB, isolatedPolicyB.route.storageDomain),
+                                 )
+              storeSharedA     = new CasBlobStore(
+                                   new FsBlockStore(sharedRoot),
+                                   new PgTenantBlobManifestRepo(ds, sharedA, sharedPolicyA.route.storageDomain),
+                                 )
+              storeSharedB     = new CasBlobStore(
+                                   new FsBlockStore(sharedRoot),
+                                   new PgTenantBlobManifestRepo(ds, sharedB, sharedPolicyB.route.storageDomain),
+                                 )
+              isolatedWriteA  <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                                   ZStream.fromChunk(bytes).run(storeA.put())
+                                 }
+              invisibleToB    <- storeB.stat(isolatedWriteA.key)
+              isolatedWriteB  <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                                   ZStream.fromChunk(bytes).run(storeB.put())
+                                 }
+              sharedWriteA    <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                                   ZStream.fromChunk(bytes).run(storeSharedA.put())
+                                 }
+              invisibleShared <- storeSharedB.stat(sharedWriteA.key)
+              sharedWriteB    <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024))) {
+                                   ZStream.fromChunk(bytes).run(storeSharedB.put())
+                                 }
+              _               <- storeSharedA.delete(sharedWriteA.key)
+              retainedForB    <- storeSharedB.get(sharedWriteB.key).runCollect
+              _               <- updateTenantLifecycle(ds, isolatedA, "suspended")
+              revisedPolicy   <- allowedCatalog.resolve(isolatedA)
+            yield assertTrue(
+              isolatedPolicyA.route.deduplication == DeduplicationScope.Isolated,
+              isolatedPolicyB.route.deduplication == DeduplicationScope.Isolated,
+              sharedPolicyA.route.storageDomain == sharedPolicyB.route.storageDomain,
+              deniedShared.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[TenantRoutingError.InvalidPolicy]),
+              hiddenCell.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[TenantRoutingError.UnknownTenant]),
+              remotePolicy.route.tenantId == remote,
+              invisibleToB.isEmpty,
+              isolatedWriteA.stats.freshBlocks == isolatedWriteA.stats.blockCount,
+              isolatedWriteB.stats.freshBlocks == isolatedWriteB.stats.blockCount,
+              invisibleShared.isEmpty,
+              sharedWriteB.stats.duplicateBlocks == sharedWriteB.stats.blockCount,
+              retainedForB == bytes,
+              revisedPolicy.lifecycle == TenantLifecycle.Suspended,
+              revisedPolicy.revision.value == 1L,
+            )
+          }
+        },
+        test("retained-byte quota is idempotent, released on delete, and atomic across writers") {
+          val tenant = TenantId.applyUnsafe("40000000-0000-4000-8000-000000000004")
+          val first  = Chunk.fromArray("aaaaaaaa".getBytes(StandardCharsets.UTF_8))
+          val second = Chunk.fromArray("bbbbbbbb".getBytes(StandardCharsets.UTF_8))
+          val third  = Chunk.fromArray("cccccccc".getBytes(StandardCharsets.UTF_8))
+
+          ZIO.scoped {
+            for
+              ds        <- ZIO.service[javax.sql.DataSource]
+              _         <- insertTenantPolicy(ds, tenant, None, maxRetainedBytes = 12L)
+              root      <- temporaryDirectory("graviton-tenant-quota")
+              catalog    = new PgTenantPolicyCatalog(ds, TenantStorageConfig(allowSharedDeduplication = false))
+              policy    <- catalog.resolve(tenant)
+              storeA     = new CasBlobStore(
+                             new FsBlockStore(root),
+                             new PgTenantBlobManifestRepo(ds, tenant, policy.route.storageDomain),
+                           )
+              storeB     = new CasBlobStore(
+                             new FsBlockStore(root),
+                             new PgTenantBlobManifestRepo(ds, tenant, policy.route.storageDomain),
+                           )
+              written   <- ZStream.fromChunk(first).run(storeA.put())
+              duplicate <- ZStream.fromChunk(first).run(storeB.put())
+              rejected  <- ZStream.fromChunk(second).run(storeB.put()).exit
+              before    <- readTenantUsage(ds, tenant)
+              _         <- storeA.delete(written.key)
+              removed   <- storeA.stat(written.key)
+              released  <- readTenantUsage(ds, tenant)
+              raced     <- ZIO.collectAllPar(
+                             Chunk(
+                               ZStream.fromChunk(second).run(storeA.put()).exit,
+                               ZStream.fromChunk(third).run(storeB.put()).exit,
+                             )
+                           )
+              after     <- readTenantUsage(ds, tenant)
+            yield assertTrue(
+              duplicate.key == written.key,
+              rejected.foldExit(
+                _.failureOption.exists(_.isInstanceOf[StoreError.TenantStorageQuotaExceeded]),
+                _ => false,
+              ),
+              before == (8L, 1L),
+              removed.isEmpty,
+              released == (0L, 0L),
+              raced.count(_.isSuccess) == 1,
+              raced.count(_.isFailure) == 1,
+              raced
+                .filter(_.isFailure)
+                .forall(
+                  _.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.TenantStorageQuotaExceeded])
+                ),
+              after == (8L, 1L),
+            )
+          }
+        },
+        test("bounded PostgreSQL pool resolves hundreds of tenant policies concurrently") {
+          val tenants = Chunk.fromIterable((1 to 256).map { index =>
+            TenantId.applyUnsafe(f"50000000-0000-4000-8000-$index%012x")
+          })
+          for
+            ds       <- ZIO.service[javax.sql.DataSource]
+            _        <- ZIO.foreachParDiscard(tenants)(tenant => insertTenantPolicy(ds, tenant, None))
+            raw       = new PgTenantPolicyCatalog(ds, TenantStorageConfig(allowSharedDeduplication = false))
+            catalog  <- TenantPolicyCatalog.cached(raw, maximumEntries = 512, timeToLive = 1.minute)
+            policies <- ZIO.foreachPar(tenants)(catalog.resolve)
+            pooled   <- ZIO
+                          .fromOption(PgDataSource.poolStats(ds))
+                          .orElseFail(new IllegalStateException("expected a pooled PostgreSQL data source"))
+          yield assertTrue(
+            policies.map(_.route.tenantId).toSet == tenants.toSet,
+            policies.forall(_.route.deduplication == DeduplicationScope.Isolated),
+            pooled.totalConnections <= pooled.maximumPoolSize,
+            pooled.awaitingConnection == 0,
+          )
+        },
+        test("forced row-level security hides another tenant from a restricted runtime role") {
+          val tenantA = TenantId.applyUnsafe("60000000-0000-4000-8000-000000000001")
+          val tenantB = TenantId.applyUnsafe("60000000-0000-4000-8000-000000000002")
+          for
+            ds       <- ZIO.service[javax.sql.DataSource]
+            _        <- insertTenantPolicy(ds, tenantA, None)
+            _        <- insertTenantPolicy(ds, tenantB, None)
+            observed <- ZIO.attemptBlocking {
+                          val connection = ds.getConnection
+                          connection.setAutoCommit(false)
+                          try
+                            val setup = connection.createStatement()
+                            try
+                              setup.execute("CREATE ROLE graviton_rls_probe NOLOGIN NOSUPERUSER NOBYPASSRLS")
+                              setup.execute("GRANT USAGE ON SCHEMA core, graviton TO graviton_rls_probe")
+                              setup.execute(
+                                "GRANT SELECT, INSERT, UPDATE, DELETE ON graviton.tenant_storage_usage TO graviton_rls_probe"
+                              )
+                              setup.execute("SET LOCAL ROLE graviton_rls_probe")
+                              setup.execute(s"SELECT set_config('app.org_id', '${tenantA.value}', true)")
+                              setup.execute(s"INSERT INTO graviton.tenant_storage_usage (tenant_id) VALUES ('${tenantA.value}')")
+                              setup.execute(s"SELECT set_config('app.org_id', '${tenantB.value}', true)")
+                              val rows     = setup.executeQuery(
+                                s"SELECT count(*) FROM graviton.tenant_storage_usage WHERE tenant_id = '${tenantA.value}'"
+                              )
+                              val hidden   =
+                                try rows.next() && rows.getLong(1) == 0L
+                                finally rows.close()
+                              val rejected =
+                                try
+                                  setup.execute(s"INSERT INTO graviton.tenant_storage_usage (tenant_id) VALUES ('${tenantA.value}')")
+                                  false
+                                catch case _: java.sql.SQLException => true
+                              hidden -> rejected
+                            finally setup.close()
+                          finally
+                            connection.rollback()
+                            connection.close()
+                        }
+          yield assertTrue(observed == (true -> true))
+        },
         test("JDBC audit sink persists one linear chain under concurrent writes") {
           val orgId       = UUID.fromString("00000000-0000-0000-0000-000000000101")
           val principalId = UUID.fromString("00000000-0000-0000-0000-000000000102")
@@ -484,7 +729,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
   private val ddlRelPath: Path =
-    Path.of("modules/pg/ddl.sql")
+    Path.of("modules/backend/graviton-pg/src/main/resources/ddl.sql")
 
   private def resolveDdlPath: IO[Throwable, Path] =
     val roots: List[Path] =
@@ -531,6 +776,74 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
         finally result.close()
       finally statement.close()
     finally connection.close()
+
+  private def insertTenantPolicy(
+    dataSource: javax.sql.DataSource,
+    tenantId: TenantId,
+    deduplicationDomain: Option[String],
+    cellId: String = "default",
+    maxRetainedBytes: Long = 1125899906842624L,
+  ): Task[Unit] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          """INSERT INTO graviton.tenant_storage_policy (
+            |  tenant_id, cell_id, lifecycle, deduplication_domain, max_concurrent_operations, max_object_bytes, max_retained_bytes
+            |) VALUES (?::uuid, ?, 'active', ?, 8, 1048576, ?)""".stripMargin
+        )
+        try
+          statement.setString(1, tenantId.value)
+          statement.setString(2, cellId)
+          deduplicationDomain match
+            case Some(value) => statement.setString(3, value)
+            case None        => statement.setNull(3, java.sql.Types.VARCHAR)
+          statement.setLong(4, maxRetainedBytes)
+          statement.executeUpdate()
+          ()
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def readTenantUsage(dataSource: javax.sql.DataSource, tenantId: TenantId): Task[(Long, Long)] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          "SELECT retained_bytes, blob_count FROM graviton.tenant_storage_usage WHERE tenant_id = ?::uuid"
+        )
+        try
+          statement.setString(1, tenantId.value)
+          val rows = statement.executeQuery()
+          try
+            if !rows.next() then throw new IllegalStateException(s"tenant usage ${tenantId.value} was not found")
+            rows.getLong(1) -> rows.getLong(2)
+          finally rows.close()
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def updateTenantLifecycle(
+    dataSource: javax.sql.DataSource,
+    tenantId: TenantId,
+    lifecycle: String,
+  ): Task[Unit] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          "UPDATE graviton.tenant_storage_policy SET lifecycle = ? WHERE tenant_id = ?::uuid"
+        )
+        try
+          statement.setString(1, lifecycle)
+          statement.setString(2, tenantId.value)
+          if statement.executeUpdate() != 1 then throw new IllegalStateException(s"tenant ${tenantId.value} was not updated")
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def temporaryDirectory(prefix: String): ZIO[Scope, Throwable, Path] =
+    ZIO.acquireRelease(ZIO.attemptBlocking(Files.createTempDirectory(prefix)))(path => ZIO.attemptBlocking(deleteRecursive(path)).orDie)
 
   /** Minimal SQL splitter (handles $$ blocks) */
   private def splitStatements(sql: String): Seq[String] =

@@ -32,11 +32,13 @@ jobs:
           evidence="$RUNNER_TEMP/graviton-qualification"
           mkdir -p "$evidence"
           ./sbt \
-            'backendLaws/testOnly graviton.backend.laws.CrashConsistencyLawsSpec graviton.backend.laws.TenantStorageLawsSpec' \
-            'runtime/testOnly graviton.runtime.tenant.TenantStorageSpec graviton.runtime.stores.GarbageCollectorSpec' \
-            2>&1 | tee "$evidence/crashlab-and-tenant-laws.log"
+            'backendLaws/testOnly graviton.backend.laws.CrashConsistencyLawsSpec' \
+            'runtime/testOnly graviton.runtime.stores.GarbageCollectorSpec' \
+            2>&1 | tee "$evidence/crashlab.log"
+          ./scripts/qualify-multitenant.sh "$evidence/multi-tenant" \
+            > "$evidence/multi-tenant.json"
           printf '{"schema":"graviton-crashlab-v1","commit":"%s","status":"passed"}\n' \
-            "$(git rev-parse HEAD)" > "$evidence/crashlab-and-tenant-laws.json"
+            "$(git rev-parse HEAD)" > "$evidence/crashlab.json"
       - name: Start exact two-node topology
         run: ./scripts/demo-shardcake-local.sh up
       - name: Prove node and backend failure behavior

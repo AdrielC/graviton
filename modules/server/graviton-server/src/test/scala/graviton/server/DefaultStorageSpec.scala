@@ -9,9 +9,11 @@ import graviton.runtime.config.{
   ReplicaTargetLocation,
   ReplicaTargetName,
   ReplicationConfig,
+  TenantDataPlaneConfig,
 }
 import graviton.runtime.metrics.InMemoryMetricsRegistry
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.tenant.TenantCellId
 import graviton.integration.shardcake.ShardcakeUploadConfig
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
@@ -118,6 +120,61 @@ object DefaultStorageSpec extends ZIOSpecDefault:
             .flatMap(_.failureOption)
             .contains(Main.ConfigurationError.ConsoleRequiresOpenLocalMode),
           accepted.isSuccess,
+        )
+      },
+      test("accepts only full-quorum replicated storage for the multi-tenant data plane") {
+        val targets        = Chunk(
+          ReplicaTargetConfig(
+            ReplicaTargetName.applyUnsafe("east"),
+            ReplicaFailureDomain.applyUnsafe("zone-east"),
+            ReplicaTargetLocation.applyUnsafe("tenant-blocks-east"),
+          ),
+          ReplicaTargetConfig(
+            ReplicaTargetName.applyUnsafe("west"),
+            ReplicaFailureDomain.applyUnsafe("zone-west"),
+            ReplicaTargetLocation.applyUnsafe("tenant-blocks-west"),
+          ),
+        )
+        val strictSecurity = SecurityConfig.Default.copy(
+          enabled = true,
+          oidcIssuer = Some("https://identity.example.com"),
+          oidcAudience = Some("graviton"),
+          oidcJwksUri = Some("https://identity.example.com/.well-known/jwks.json"),
+          requireTls = true,
+          auditBackend = "jdbc",
+        )
+        val fullQuorum     = GravitonConfig(
+          blobBackend = "s3",
+          replication = ReplicationConfig(targets = targets, desiredReplicas = Some(2), writeQuorum = Some(2)),
+        )
+        val partialQuorum  = fullQuorum.copy(
+          replication = fullQuorum.replication.copy(writeQuorum = Some(1))
+        )
+        val erasure        = fullQuorum.copy(
+          replication = fullQuorum.replication.copy(mode = graviton.runtime.config.ReplicaStorageMode.Erasure21)
+        )
+
+        for
+          accepted <- Main
+                        .validateTenantDataPlane(fullQuorum, TenantDataPlaneConfig(enabled = true), strictSecurity)
+                        .exit
+          partial  <- Main
+                        .validateTenantDataPlane(partialQuorum, TenantDataPlaneConfig(enabled = true), strictSecurity)
+                        .exit
+          coded    <- Main
+                        .validateTenantDataPlane(erasure, TenantDataPlaneConfig(enabled = true), strictSecurity)
+                        .exit
+        yield assertTrue(accepted.isSuccess, partial.isFailure, coded.isFailure)
+      },
+      test("derives one stable maintenance boundary per deployment cell") {
+        val base = graviton.core.types.RepositoryNamespace.applyUnsafe("production")
+        val east = TenantCellId.applyUnsafe("us-east-1")
+        val west = TenantCellId.applyUnsafe("us-west-2")
+
+        assertTrue(
+          Main.tenantCellMaintenanceNamespace(base, east).value == "production:tenant-cell:us-east-1",
+          Main.tenantCellMaintenanceNamespace(base, east) == Main.tenantCellMaintenanceNamespace(base, east),
+          Main.tenantCellMaintenanceNamespace(base, east) != Main.tenantCellMaintenanceNamespace(base, west),
         )
       },
     ) @@ TestAspect.withLiveClock

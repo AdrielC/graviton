@@ -34,8 +34,8 @@ jobs:
       GRAVITON_IT: '1'
       GRAVITON_MINIO_IT: '1'
       PG_JDBC_URL: 'jdbc:postgresql://127.0.0.1:5432/postgres'
-      PG_USERNAME: 'postgres'
-      PG_PASSWORD: 'postgres'
+      PG_USERNAME: 'graviton_app'
+      PG_PASSWORD: 'graviton-runtime-ci-password'
       GRAVITON_S3_ENDPOINT: 'http://127.0.0.1:9000'
       GRAVITON_S3_ACCESS_KEY: 'minio'
       GRAVITON_S3_SECRET_KEY: 'minioadmin'
@@ -71,11 +71,40 @@ jobs:
           sudo apt-get install -y postgresql-client curl
           for i in {1..60}; do
             if command -v psql >/dev/null 2>&1; then
-              PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -c "select 1" >/dev/null 2>&1 && break
+              PGPASSWORD="postgres" psql -h 127.0.0.1 -U postgres -d postgres -c "select 1" >/dev/null 2>&1 && break
             fi
             sleep 1
           done
-          PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -f modules/pg/ddl.sql
+          PGPASSWORD="postgres" psql -h 127.0.0.1 -U postgres -d postgres -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+          POSTGRES_USER=postgres \
+          POSTGRES_DB=postgres \
+          PGHOST=127.0.0.1 \
+          PGPASSWORD=postgres \
+          GRAVITON_POSTGRES_PASSWORD="${PG_PASSWORD}" \
+            ./deploy/production/init-postgres-app-role.sh
+
+          privileges="$(PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -Atqc \
+            "SELECT concat_ws(':',
+               has_table_privilege(current_user, 'graviton.tenant_storage_policy', 'SELECT')::text,
+               has_table_privilege(current_user, 'graviton.tenant_storage_policy', 'UPDATE')::text,
+               has_table_privilege(current_user, 'graviton.acl_entry', 'SELECT')::text,
+               has_table_privilege(current_user, 'graviton.acl_entry', 'INSERT')::text,
+               has_table_privilege(current_user, 'graviton.audit_log', 'INSERT')::text,
+               has_table_privilege(current_user, 'graviton.audit_log', 'DELETE')::text)")"
+          [[ "$privileges" == "true:false:true:false:true:false" ]]
+          role_flags="$(PGPASSWORD="postgres" psql -h 127.0.0.1 -U postgres -d postgres -Atqc \
+            "SELECT rolsuper::text || ':' || rolcreatedb::text || ':' || rolcreaterole::text || ':' || rolbypassrls::text FROM pg_roles WHERE rolname = 'graviton_app'")"
+          [[ "$role_flags" == "false:false:false:false" ]]
+
+          tenant_a='90000000-0000-4000-8000-000000000001'
+          tenant_b='90000000-0000-4000-8000-000000000002'
+          PGPASSWORD="postgres" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "INSERT INTO graviton.tenant_storage_policy (tenant_id) VALUES ('$tenant_a'), ('$tenant_b')"
+          PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -v ON_ERROR_STOP=1 -c \
+            "BEGIN; SELECT set_config('app.org_id', '$tenant_a', true); INSERT INTO graviton.tenant_storage_usage (tenant_id) VALUES ('$tenant_a'); COMMIT"
+          visible="$(PGPASSWORD="${PG_PASSWORD}" psql -h 127.0.0.1 -U "${PG_USERNAME}" -d postgres -Atqc \
+            "BEGIN; SELECT set_config('app.org_id', '$tenant_b', true); SELECT count(*) FROM graviton.tenant_storage_usage WHERE tenant_id = '$tenant_a'; ROLLBACK" | tail -n 1)"
+          [[ "$visible" == "0" ]]
       - name: Start MinIO + create bucket
         run: |
           set -euo pipefail

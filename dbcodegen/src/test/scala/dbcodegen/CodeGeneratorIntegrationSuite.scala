@@ -18,7 +18,7 @@ final class CodeGeneratorIntegrationSuite extends FunSuite {
     val postgres = EmbeddedPostgres.builder().setPort(0).start()
     try {
       val connection = postgres.getPostgresDatabase.getConnection
-      try SqlExecutor.executeSqlFile(connection, new File("modules/pg/ddl.sql"))
+      try SqlExecutor.executeSqlFile(connection, new File("modules/backend/graviton-pg/src/main/resources/ddl.sql"))
       finally connection.close()
 
       val tmpDir = Files.createTempDirectory("dbcodegen-test")

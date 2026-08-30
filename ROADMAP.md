@@ -46,7 +46,9 @@ These items depend on the deployment and cannot be completed once for every user
 
 - Add optional gRPC range reads and server-side verification if production consumers need parity with those HTTP extensions
 - Define an explicit idempotency-key contract for non-content-derived operations
-- Mount authenticated tenant routing, quotas, and server-owned deduplication policy in the packaged HTTP and gRPC service
+- Retain target-scale multi-tenant HTTP and gRPC envelopes across tenant cardinality, payload distributions, and noisy-neighbor workloads
+- Add scheduled domain-wide replica scrubbing and shared-domain membership snapshots to the packaged multi-tenant service
+- Integrate a distributed contractual rate limiter while retaining the process-local limiter for load shedding
 
 ### Storage and reliability
 

@@ -77,8 +77,9 @@ init() {
   : "${GRAVITON_OIDC_ISSUER:?Set GRAVITON_OIDC_ISSUER}"
   : "${GRAVITON_OIDC_AUDIENCE:?Set GRAVITON_OIDC_AUDIENCE}"
   : "${GRAVITON_OIDC_JWKS_URI:?Set GRAVITON_OIDC_JWKS_URI}"
-  local image postgres_password s3_secret shardcake_token
+  local image postgres_admin_password postgres_password s3_secret shardcake_token
   image="$(resolve_image)"
+  postgres_admin_password="$(random_hex 32)"
   postgres_password="$(random_hex 32)"
   s3_secret="$(random_hex 32)"
   shardcake_token="$(random_hex 32)"
@@ -87,6 +88,7 @@ init() {
     printf 'GRAVITON_IMAGE=%s\n' "$image"
     printf 'GRAVITON_RELEASE_VERSION=0.6.1\n'
     printf 'GRAVITON_MAINTENANCE_NAMESPACE=graviton-production\n'
+    printf 'GRAVITON_POSTGRES_ADMIN_PASSWORD=%s\n' "$postgres_admin_password"
     printf 'GRAVITON_POSTGRES_PASSWORD=%s\n' "$postgres_password"
     printf 'GRAVITON_S3_ACCESS_KEY=graviton\n'
     printf 'GRAVITON_S3_SECRET_KEY=%s\n' "$s3_secret"
@@ -151,7 +153,7 @@ backup() {
 
   compose stop graviton-node-1 graviton-node-2 shardcake-manager >/dev/null
   quiesced=1
-  compose exec -T postgres pg_dump -U graviton -d graviton -Fc > "$snapshot_dir/postgres.dump"
+  compose exec -T postgres pg_dump -U postgres -d graviton -Fc > "$snapshot_dir/postgres.dump"
   compose --profile operator run --rm --no-deps minio-client \
     'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null; mc mirror --overwrite local/graviton-blocks /backup/'"$stamp"'/blocks'
   (
@@ -190,7 +192,7 @@ restore() {
   compose_for "$target_project" up -d --wait postgres minio
   compose_for "$target_project" run --rm minio-init
   compose_for "$target_project" exec -T postgres \
-    pg_restore --clean --if-exists --no-owner --no-privileges -U graviton -d graviton < "$snapshot_dir/postgres.dump"
+    pg_restore --clean --if-exists --no-owner --no-privileges -U postgres -d graviton < "$snapshot_dir/postgres.dump"
   local stamp
   stamp="$(basename "$snapshot_dir")"
   compose_for "$target_project" --profile operator run --rm --no-deps minio-client \

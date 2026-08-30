@@ -1,69 +1,111 @@
 # Multi-Tenant Storage
 
-Graviton now provides an embeddable multi-tenant data-plane boundary. It is not enabled by the packaged server. Applications that mount it must authenticate the caller, bind the authenticated organization to `TenantId`, and enter `TenantContext.locally` before constructing or running a storage effect.
+The packaged HTTP and gRPC server can bind an authenticated organization to a durable, server-owned tenant policy. Enable it with:
+
+```bash
+export GRAVITON_MULTI_TENANT_ENABLED=true
+export GRAVITON_MULTI_TENANT_CELL_ID=default
+```
+
+Startup fails unless security, TLS enforcement, and durable JDBC audit are enabled. Development shared-secret authentication is rejected. The server accepts the organization UUID only from the verified token, resolves that UUID in PostgreSQL, and establishes `TenantContext` before a storage effect is constructed. A missing, suspended, wrong-cell, or unknown tenant fails closed without pulling upload bytes.
 
 ## Isolation modes
 
-Every `TenantRoute` selects one of two physical layouts:
+| Mode | Blocks | Manifests | Credentials and blast radius | Intended use |
+| --- | --- | --- | --- | --- |
+| Pooled, isolated | Private hashed storage prefix per tenant | Private rows per tenant | Shared service credentials and database | Default for unrelated customers inside one deployment cell |
+| Shared trust group | Shared hashed prefix only inside one named domain | Still private per tenant | Shared service credentials and block-membership signal inside the group | Organizations that explicitly accept cross-tenant deduplication |
+| Silo deployment cell | Separate Graviton deployment, PostgreSQL, buckets, credentials, and encryption policy | Separate database | Independent infrastructure boundary | Residency, regulated data, customer-managed keys, or stricter contractual isolation |
 
-| Mode | Blocks | Manifests | Intended use |
-| --- | --- | --- | --- |
-| `DeduplicationScope.Isolated` | Private storage domain per tenant | Private repository per tenant | Default for unrelated customers, regulated data, separate residency, or separate encryption keys |
-| `DeduplicationScope.Shared(domainId)` | Shared only with tenants in the same named domain | Still private per tenant | Explicit trust groups that accept cross-tenant block-membership disclosure in exchange for space savings |
+`DeduplicationScope.Isolated` is the policy default. A shared domain requires both a non-null `deduplication_domain` in the tenant policy and a server-wide `GRAVITON_TENANT_STORAGE_ALLOW_SHARED_DEDUPLICATION=true` opt-in. Either missing condition rejects the route. Callers cannot provide or override the domain.
 
-Isolation is the default twice. `TenantRoute` defaults to `Isolated`, and `TenantStorageConfig` defaults `allowSharedDeduplication` to `false`. A topology containing a shared route fails construction until the embedding process explicitly enables:
+Deduplication is not access sharing. Two tenants in one shared domain can reuse identical physical blocks, but each has a separate manifest namespace. One tenant cannot list, read, or delete another tenant's blob merely because both reference the same blocks. Tenant manifests and retained-usage rows also use forced PostgreSQL row-level security under a `NOBYPASSRLS` runtime role, so an omitted SQL predicate fails closed independently of the typed repository boundary.
 
-```hocon
-graviton.tenant-storage.allow-shared-deduplication = true
+Fresh-versus-duplicate results are sensitive in a shared domain because they expose a content-membership signal. Treat every shared domain as a named trust boundary, not a cost toggle.
+
+## Durable tenant policy
+
+`graviton.tenant_storage_policy` owns:
+
+- deployment `cell_id`;
+- active or suspended lifecycle;
+- optional shared deduplication domain;
+- concurrent-operation ceiling;
+- streamed single-object byte ceiling;
+- cluster-wide retained logical byte ceiling;
+- monotonic revision.
+
+The database trigger increments the revision on every policy update. Each node caches policy for a bounded TTL and replaces its immutable store binding when the revision or storage domain changes. Tightening a concurrency policy while requests are active fails new admission until the old permit set drains.
+
+Provision or update a policy without interpolating SQL by hand:
+
+```bash
+export PG_ADMIN_USERNAME=postgres
+export PG_ADMIN_PASSWORD='control-plane-secret'
+./scripts/provision-tenant.sh \
+  4d0af98d-e784-4af9-a1fe-6a8922f76472 \
+  isolated \
+  default \
+  5368709120 \
+  1099511627776 \
+  32
 ```
 
-That setting does not place tenants into a group. Each shared route must still name its refined `DeduplicationDomainId`.
+The packaged production topology gives `graviton_app` only data-plane access and read-only policy access. Provision with a separate control-plane credential. Do not expose that credential to Graviton nodes.
 
-## Request boundary
+For a trust group, replace `isolated` with `shared:research-consortium` and explicitly enable shared deduplication on every server in that cell.
 
-`TenantContext` is a scoped ZIO service backed by `FiberRef[Option[TenantId]]`:
+## Quotas and noisy-neighbor controls
 
-- child fibers inherit the active tenant;
-- a child cannot overwrite its parent's tenant when it completes;
-- sibling fibers remain isolated;
-- interruption restores the previous context;
-- missing and unknown tenants fail with typed `StoreError` values before an upload source is pulled.
+The stock server enforces four bounded controls:
 
-`ContextualTenantBlobStore` resolves `TenantStoreProvider` once at the start of each logical upload, download, range, inventory, inspect, delete, stat, or health operation. Resolution is outside the per-byte and per-block hot path. `TenantStoreProvider.fromFunction` supports a database-backed or bounded-cache control plane, so large installations do not have to preload every tenant into `TenantStoreProvider.static`.
+1. process-wide `TransferBudget` limits aggregate live byte buffers;
+2. per-tenant admission limits concurrent logical operations;
+3. per-principal request, upload-byte, and download-byte token buckets bound one process;
+4. PostgreSQL serializes retained-byte accounting with manifest publication and deletion.
 
-Resolution count, outcome, scope, and duration use bounded metric labels. Tenant IDs never become metric labels.
+The retained-byte row is locked in the same transaction that publishes a manifest. Concurrent writers on different nodes cannot collectively exceed the tenant limit. Re-uploading the exact same tenant blob is idempotent and does not consume the quota twice. Deleting a tenant manifest releases its logical bytes. HTTP reports `507 tenant_storage_quota_exceeded`; gRPC reports `RESOURCE_EXHAUSTED`.
 
-Shardcake is orthogonal. Its `(tenant, upload session)` key provides upload-owner locality. It does not authenticate a tenant, choose a storage domain, or provide data isolation. The owner must re-establish validated tenant context before entering the tenant-aware `BlobStore`.
+Request token buckets are deliberately local load-shedding, so their effective aggregate rate grows with the number of nodes. Enforce contractual request and egress rates at the authenticated edge or a distributed limiter. The retained storage quota is cluster-atomic and does not have that multiplication behavior.
 
-## Shared-domain garbage collection
+Tenant policy, store, admission, and principal-rate registries are bounded and split across deterministic shards. Resolution occurs once per upload, download, range, inventory, inspect, delete, stat, or health operation, never once per byte or block. Tenant IDs are excluded from metric labels.
 
-A shared block domain must be maintained as one unit. Running garbage collection against one tenant's manifests can mistake another tenant's live blocks for orphans.
+## ZIO context and Shardcake locality
 
-Use `GarbageCollector.forStorageDomain` with a `NonEmptyChunk` containing every manifest repository that can reference the block domain, or provide `ManifestReferenceSource` to `GarbageCollection.storageDomainLive`. `ManifestReferenceSource.repositories` walks repositories, manifest pages, and block references sequentially. It does not collect repository-scale keys or keep one cursor open per tenant. The maintenance coordinator supplied to the collector must be the same backend-wide lease used by every writer in that domain.
+`TenantContext` is a scoped service backed by a parent-preserving `FiberRef[Option[TenantId]]`. Child fibers inherit the tenant, sibling fibers remain isolated, child completion cannot overwrite the parent, and interruption restores the prior region.
 
-Tenant onboarding, removal, garbage collection, and snapshots therefore need a control-plane protocol:
+Shardcake is orthogonal. Its `(tenant, upload session)` key keeps an upload on one owner for locality, but Shardcake does not authenticate callers or select storage policy. The owner resolves the tenant again before consuming the one-shot stream. Shardcake control envelopes use ZIO Blocks MessagePack, not Kryo.
 
-1. acquire the domain-wide maintenance lease;
-2. freeze the domain membership/catalog version;
-3. enumerate every manifest repository in that snapshot;
-4. mark, re-mark, and quarantine through the streaming collector;
-5. retain receipts before purge;
-6. release the lease.
+## Cell-wide coordination and shared-domain maintenance
 
-The repository proves the in-process mark behavior and coordinator contract. A PostgreSQL, S3, Ceph, or Kubernetes deployment must qualify its catalog snapshot, lease, and backup behavior in the target environment.
+The packaged multi-tenant server derives one PostgreSQL advisory-lock namespace per deployment cell. All in-process tenant operations share one coordinator, so hundreds of concurrent operations coalesce onto one leased database connection instead of consuming one connection per tenant. Exclusive maintenance intentionally drains the complete cell. Use smaller cells when that maintenance blast radius is unacceptable.
 
-## Scaling and safety checklist
+A shared block domain must be maintained as one unit. Garbage collection against only one tenant's manifests can mistake another tenant's live blocks for orphans.
 
-- Use a process-wide `TransferBudget` shared across all tenant stores. Per-tenant budgets alone can multiply past heap limits.
-- Keep tenant, session, blob, and node identifiers out of metric labels. Use bounded operation and outcome labels, then put identities only in access-controlled traces or audit records.
-- Apply request, byte, concurrency, retained-storage, and egress quotas before entering storage. The tenant router is an isolation boundary, not a billing system.
-- Use distinct buckets, prefixes, database schemas, credentials, encryption keys, and maintenance namespaces when the isolation policy requires them. The in-process topology detects reused object instances, but it cannot prove that two separately constructed adapters do not point at the same external namespace.
-- Never let a caller choose `TenantId` or `DeduplicationDomainId` directly. Resolve both from authenticated server-side policy.
-- Normalize missing, unknown, and unauthorized tenant failures at the public protocol boundary so callers cannot enumerate tenant IDs. Preserve the typed internal cause only in access-controlled audit records.
-- Treat fresh-versus-duplicate statistics as sensitive in a shared domain. They can reveal whether selected content already exists in that trust group.
-- Scope encryption and key rotation to the storage domain. Per-tenant ciphertext prevents cross-tenant physical reuse; a shared domain key increases the trust and incident blast radius and must never be implied by merely naming a deduplication domain.
-- Qualify noisy-neighbor behavior with representative concurrency and backend limits. The structural test proves one tenant lookup per logical 8 MiB stream operation, not a customer-capacity number.
+Before purging a shared domain:
+
+1. acquire the cell-wide maintenance lease;
+2. freeze the domain membership and catalog revision;
+3. stream every tenant manifest repository in that snapshot;
+4. mark, re-mark, and quarantine;
+5. retain receipts and complete the restore window;
+6. purge and release the lease.
+
+`GarbageCollector.forStorageDomain` and `ManifestReferenceSource` implement the bounded streaming mark side. Deployment-wide membership snapshots and operator approval remain control-plane responsibilities.
+
+## Rollout sequence
+
+1. Apply `modules/backend/graviton-pg/src/main/resources/ddl.sql`.
+2. Create one deployment cell with distinct database and object-store credentials.
+3. Provision isolated policies for a small canary group.
+4. Enable the packaged multi-tenant data plane on one canary node.
+5. Prove HTTP and gRPC cross-tenant denial, retained quota races, restart, rollback, and target failover.
+6. Load-test the exact IdP, ingress, PostgreSQL pool, object store, payload distribution, and node count.
+7. Expand the cell gradually. Create separate cells for customers whose isolation contract requires independent credentials or infrastructure.
+8. Enable a shared domain only after the participating organizations and operator accept its disclosure and encryption boundary.
 
 ## Current deployment boundary
 
-The runtime types, fail-closed router, explicit sharing policy, domain-wide GC source, and published tenant laws are implemented. The stock HTTP and gRPC server still mounts one storage composition and is not advertised as a turnkey multi-tenant object service. Production rollout still needs application-specific identity binding, tenant catalog durability, quotas, residency/encryption policy, domain membership snapshots, billing, and target-scale load evidence.
+Implemented and exercised in the repository: authenticated HTTP and gRPC tenant binding, durable PostgreSQL policy, cell filtering, private manifests, isolated or explicit shared block domains, cluster-atomic retained quotas, bounded sharded caches and admission, Shardcake tenant routing, full-quorum replicated writes, and typed protocol failures.
+
+Not established by repository tests alone: a universal customer count, contractual global request limits, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads validate replicas and repair the selected copy, but operators still need a scheduled domain-wide scrub before claiming unattended convergence.

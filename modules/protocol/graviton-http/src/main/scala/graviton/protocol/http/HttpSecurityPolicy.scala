@@ -109,6 +109,18 @@ final class HttpSecurityPolicy(
         .as(chunk)
     }
 
+  /** Preserve the authenticated identity for response bodies pulled after the handler returns. */
+  def checkedDownload(
+    caller: CallerContext,
+    stream: ZStream[Any, Throwable, Byte],
+  ): ZStream[Any, Throwable, Byte] =
+    stream.mapChunksZIO { chunk =>
+      CallerContext
+        .scopedWith(caller)(rateLimiter.check(RateLimiter.Kind.DownloadBytes, chunk.length.toLong))
+        .mapError(HttpSecurityPolicy.BodyRejected.apply)
+        .as(chunk)
+    }
+
   def addCorsHeaders(request: Request, response: Response): Response =
     request.headers.get("Origin") match
       case Some(origin) if config.corsAllowedOrigins.contains(origin) =>

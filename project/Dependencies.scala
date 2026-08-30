@@ -44,6 +44,7 @@ object Dependencies {
     val blake3     = "3.1.2"
     val rocksdbJni = "8.11.3"
     val pg         = "42.7.13"
+    val hikari     = "7.0.2"
     val embeddedPg = "2.2.2"
     val laminar    = "17.1.0"
     val waypoint   = "8.0.0"

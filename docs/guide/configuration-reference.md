@@ -78,18 +78,25 @@ The built-in console is intentionally unauthenticated and therefore disabled by 
 
 ### PostgreSQL (required for S3/MinIO or JDBC audit mode)
 
-S3/MinIO mode uses PostgreSQL for manifest metadata via `PgDataSource.layerFromEnv`. Filesystem mode does not construct a data source. A JDBC audit sink also requires these variables.
+S3/MinIO mode uses one process-wide HikariCP pool for manifest metadata, tenant policy, quotas, resumable state, audit, and JDBC authorization. Filesystem mode constructs no primary pool unless multi-tenancy or a JDBC security backend requires it. Shardcake placement has a separate, independently bounded pool.
 
 | Name | Default | Required | Meaning |
 | --- | --- | --- | --- |
 | `PG_JDBC_URL` | (none) | yes | JDBC URL for Postgres. |
 | `PG_USERNAME` | (none) | yes | Postgres username. |
 | `PG_PASSWORD` | (none) | yes | Postgres password. |
+| `PG_POOL_MAX_SIZE` | `32` | no | Maximum primary connections per Graviton process. Size the sum across every node below the database and proxy limits. |
+| `PG_POOL_MIN_IDLE` | `4` | no | Warm idle primary connections, from zero through maximum pool size. |
+| `PG_POOL_CONNECTION_TIMEOUT_MS` | `10000` | no | Bounded wait for a connection. |
+| `PG_POOL_VALIDATION_TIMEOUT_MS` | `5000` | no | Connection validation timeout, below the connection timeout. |
+| `PG_POOL_IDLE_TIMEOUT_MS` | `600000` | no | Idle connection retirement. |
+| `PG_POOL_MAX_LIFETIME_MS` | `1800000` | no | Maximum connection lifetime. Keep below infrastructure termination time. |
+| `PG_POOL_KEEPALIVE_TIME_MS` | `120000` | no | PostgreSQL keepalive check cadence. TCP keepalive is also enabled on the driver. |
 
 **You must also apply the schema**:
 
 ```bash
-psql -U postgres -d graviton -f modules/pg/ddl.sql
+psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
 ```
 
 ### Repository maintenance coordination
@@ -111,6 +118,21 @@ The namespace separates repositories that share one PostgreSQL database. Filesys
 | `GRAVITON_TRANSFER_MEMORY_MAXIMUM_BUFFERED_BYTES` | `536870912` | no | Process-wide weighted byte ceiling shared by active CAS and S3 staging pipelines. Iron-refined from 64 MiB through 1 TiB. |
 
 Each upload reserves its conservative pipeline maximum before accepting bytes. Concurrent transfers wait interruptibly when their combined reservations would exceed the ceiling, and scoped permits are released on success, failure, or interruption. Size this value below the memory available to the JVM after accounting for the heap, direct buffers, database drivers, metrics, and other co-located work.
+
+### Packaged multi-tenant data plane
+
+The verified JWT organization UUID is the tenant key. Policies are durable PostgreSQL rows and callers cannot select a cell, storage domain, or quota. Multi-tenant startup requires S3-compatible storage, security, TLS enforcement, production OIDC, and JDBC audit.
+
+| Name | Default | Meaning |
+| --- | --- | --- |
+| `GRAVITON_MULTI_TENANT_ENABLED` | `false` | Route packaged HTTP, gRPC, and Shardcake ingest through authenticated tenant policy. |
+| `GRAVITON_MULTI_TENANT_CELL_ID` | `default` | Operator-owned deployment cell. Policies from another cell are invisible. |
+| `GRAVITON_MULTI_TENANT_MAXIMUM_CACHED_TENANTS` | `10000` | Bound for sharded policy, store, and admission registries. |
+| `GRAVITON_MULTI_TENANT_POLICY_CACHE_TTL` | `30s` | Maximum ordinary policy cache age. Tight revocation should also drain traffic or restart the affected cell. |
+| `GRAVITON_MULTI_TENANT_ADMISSION_TIMEOUT` | `10s` | Maximum wait for a tenant operation permit. |
+| `GRAVITON_TENANT_STORAGE_ALLOW_SHARED_DEDUPLICATION` | `false` | Server-wide opt-in required in addition to each shared-domain policy. |
+
+Use `scripts/provision-tenant.sh` with `PG_ADMIN_USERNAME` and `PG_ADMIN_PASSWORD` to create or update the cell, lifecycle, sharing scope, object ceiling, retained-byte quota, and concurrency ceiling. Keep that control-plane credential out of the server environment. An exact blob re-upload is quota-idempotent. Publishing or deleting a distinct tenant manifest updates `graviton.tenant_storage_usage` in the same row-locked transaction.
 
 ### Block backend selection
 
@@ -285,6 +307,8 @@ Placement storage:
 | `GRAVITON_SHARDCAKE_POSTGRES_JDBC_URL` | none | yes | JDBC URL for the Shardcake assignment database. |
 | `GRAVITON_SHARDCAKE_POSTGRES_USERNAME` | none | yes | Database user with access to the two Shardcake tables. |
 | `GRAVITON_SHARDCAKE_POSTGRES_PASSWORD` | none | yes | Database password. |
+| `GRAVITON_SHARDCAKE_POSTGRES_MAXIMUM_POOL_SIZE` | `16` | no | Maximum placement connections per manager or node process. |
+| `GRAVITON_SHARDCAKE_POSTGRES_MINIMUM_IDLE` | `2` | no | Warm idle placement connections. |
 | `GRAVITON_SHARDCAKE_STORAGE_POLL_INTERVAL` | `1s` | no | Cross-process assignment observation interval, from 100 ms through 1 minute. |
 
 Manager configuration:
@@ -300,7 +324,7 @@ Manager configuration:
 | `GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RATE` | `0.02` | Fraction of shards moved per rebalance, greater than zero and at most one. |
 | `GRAVITON_SHARDCAKE_MANAGER_POD_HEALTH_CHECK_INTERVAL` | `1m` | Registered-node health cadence. |
 
-Apply `modules/pg/ddl.sql` before starting the manager. It creates `graviton.shardcake_assignment` and `graviton.shardcake_pod`. The manager holds a PostgreSQL session lease for its complete process lifetime, so a second manager fails at startup instead of competing.
+Apply `modules/backend/graviton-pg/src/main/resources/ddl.sql` before starting the manager. It creates `graviton.shardcake_assignment` and `graviton.shardcake_pod`. The manager holds a PostgreSQL session lease for its complete process lifetime, so a second manager fails at startup instead of competing.
 
 ## Security
 
@@ -315,11 +339,13 @@ Security is disabled by default. When enabled, issuer and audience are required.
 | `GRAVITON_SECURITY_JWKS_CACHE_TTL` | `10m` | Remote key cache lifetime. |
 | `GRAVITON_SECURITY_CLOCK_SKEW_SECONDS` | `30` | Allowed JWT clock skew. |
 | `GRAVITON_SECURITY_REQUIRE_TLS` | `false` | Reject protected requests outside the configured HTTPS trust boundary. |
-| `GRAVITON_SECURITY_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-Proto`; enable only behind a sanitizing proxy. |
+| `GRAVITON_SECURITY_TRUST_PROXY_HEADERS` | `false` | Trust `X-Forwarded-Proto` and the first literal IP in `X-Forwarded-For`; enable only behind a proxy that overwrites both headers. |
 | `GRAVITON_SECURITY_CORS_ALLOWED_ORIGINS` | empty | Comma-separated exact browser origins. |
 | `GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC` | `100` | Per-principal request budget. |
 | `GRAVITON_SECURITY_RATE_LIMIT_UPLOAD_BYTES_PER_SEC` | `10485760` | Per-principal streamed upload-byte budget. |
 | `GRAVITON_SECURITY_RATE_LIMIT_DOWNLOAD_BYTES_PER_SEC` | `52428800` | Per-principal streamed download-byte budget. |
+| `GRAVITON_SECURITY_RATE_LIMIT_MAXIMUM_PRINCIPALS` | `100000` | Bound for process-local principal buckets, split across deterministic shards. |
+| `GRAVITON_SECURITY_RATE_LIMIT_IDLE_TTL` | `10m` | Minimum idle age before a principal bucket may be evicted. |
 | `GRAVITON_SECURITY_MAX_REQUEST_BYTES` | `5368709120` | Maximum upload size, enforced while streaming; valid range is 1 byte through 1 TiB. |
 | `GRAVITON_SECURITY_AUDIT_BACKEND` | `memory` | `memory` or `jdbc`. |
 | `GRAVITON_SECURITY_AUTHORIZATION_BACKEND` | `token` | JWT capability checks or `jdbc` ACL augmentation. |
@@ -366,7 +392,7 @@ Symptoms: S3/MinIO server startup or uploads fail, or PostgreSQL reports missing
 Fix:
 
 ```bash
-psql -U postgres -d graviton -f modules/pg/ddl.sql
+psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
 ```
 
 ### MinIO endpoint selected but credentials missing

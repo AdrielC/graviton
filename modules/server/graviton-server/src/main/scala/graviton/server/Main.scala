@@ -7,6 +7,8 @@ import graviton.backend.pg.{
   PgMaintenanceCoordinator,
   PgRepairJournal,
   PgResumableUploadRepository,
+  PgTenantBlobManifestRepo,
+  PgTenantPolicyCatalog,
 }
 import graviton.backend.s3.{
   S3BlockStore,
@@ -19,16 +21,25 @@ import graviton.backend.s3.{
 }
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.pdf.PdfUploadSupport
-import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
+import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi, TenantHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
-import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig, ReplicaStorageMode, TransferMemoryConfig}
+import graviton.runtime.config.{
+  BlockPersistenceConfig,
+  GravitonConfig,
+  MaintenanceConfig,
+  ReplicaStorageMode,
+  TenantDataPlaneConfig,
+  TenantStorageConfig,
+  TransferMemoryConfig,
+}
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
   BlockStore,
   CasBlobStore,
+  CoordinatedBlobStore,
   ErasureBlockStore,
   FileMaintenanceCoordinator,
   FsBlobManifestRepo,
@@ -45,7 +56,8 @@ import graviton.runtime.stores.{
   TransferBudget,
 }
 import graviton.runtime.upload.{FsResumableUploadRepository, ResumableUploadService, UploadStagingTarget}
-import graviton.core.types.UploadChunkSize
+import graviton.runtime.tenant.*
+import graviton.core.types.{RepositoryNamespace, UploadChunkSize}
 import graviton.streams.Chunker
 import graviton.security.*
 import graviton.security.jwt.{HmacJwtVerifier, OidcJwtVerifier}
@@ -62,26 +74,38 @@ import zio.json.EncoderOps
 import zio.json.ast.Json
 
 import java.nio.file.Path
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.concurrent.TimeUnit
+import javax.sql.DataSource
+import software.amazon.awssdk.services.s3.S3Client
 
 object Main extends ZIOAppDefault:
 
-  override def run: ZIO[Any, Any, Any] =
+  override def run: ZIO[Any, Any, Any] = ZIO.scoped {
     for
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
       transferMemory                               <- ZIO.config(TransferMemoryConfig.config)
       transferBudget                               <- TransferBudget.make(transferMemory)
+      tenantDataPlaneConfig                        <- ZIO.config(TenantDataPlaneConfig.config)
+      tenantStorageConfig                          <- ZIO.config(TenantStorageConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
+      rateLimiterRegistry                          <- ZIO.config(RateLimiter.RegistryConfig.config)
       registration                                 <- ZIO.config(ShardcakeRegistrationConfig.config)
       _                                            <- ConfigurationValidation.validate(cfg, shardcake, registration, console, sec)
       _                                            <- validateSecurityOrFail(sec)
       _                                            <- validateShardcakeTopology(cfg, shardcake)
       _                                            <- validateConsoleSecurity(sec, console)
+      _                                            <- validateTenantDataPlane(cfg, tenantDataPlaneConfig, sec)
+      primaryDataSource                            <- ZIO.when(requiresPrimaryPostgres(cfg, tenantDataPlaneConfig, sec))(
+                                                        PgDataSource.scopedFromEnv
+                                                      )
       _                                            <- logSecurityPosture(sec)
       port                                          = cfg.httpPort
       started                                      <- Clock.currentTime(TimeUnit.MILLISECONDS)
@@ -92,13 +116,45 @@ object Main extends ZIOAppDefault:
                                                           _                                  <- DefaultJvmMetrics.liveV2.build.unit
                                                           blobStore                          <- ZIO.service[BlobStore]
                                                           catalog                            <- ZIO.service[Catalog]
-                                                          shardcakeNode                      <- ZIO.service[Option[ShardcakeNode]]
                                                           metrics                            <- ZIO.service[MetricsRegistry]
                                                           resumable                          <- ZIO.service[ResumableUploadService]
-                                                          runtimeHealth                      <- ZIO.service[RuntimeHealth]
                                                           auditSink                          <- ZIO.service[AuditSink]
                                                           capabilityCheck                    <- ZIO.service[CapabilityCheck]
                                                           rateLimiter                        <- ZIO.service[RateLimiter]
+                                                          _                                  <- ZIO.foreachDiscard(primaryDataSource)(dataSource =>
+                                                                                                  PgDataSource.superviseMetrics(
+                                                                                                    dataSource,
+                                                                                                    metrics,
+                                                                                                    "primary",
+                                                                                                  )
+                                                                                                )
+                                                          tenantDataPlane                    <- ZIO.when(tenantDataPlaneConfig.enabled)(
+                                                                                                  requiredDataSource(primaryDataSource).flatMap(dataSource =>
+                                                                                                    buildTenantDataPlane(
+                                                                                                      cfg,
+                                                                                                      maintenance,
+                                                                                                      blockPersistence,
+                                                                                                      transferBudget,
+                                                                                                      tenantDataPlaneConfig,
+                                                                                                      tenantStorageConfig,
+                                                                                                      metrics,
+                                                                                                      dataSource,
+                                                                                                    )
+                                                                                                  )
+                                                                                                )
+                                                          shardcakeNode                      <- buildShardcakeNode(
+                                                                                                  shardcake,
+                                                                                                  tenantDataPlane,
+                                                                                                  blobStore,
+                                                                                                  metrics,
+                                                                                                )
+                                                          runtimeHealth                       = RuntimeHealth.make(
+                                                                                                  blobStore,
+                                                                                                  resumable,
+                                                                                                  shardcakeNode,
+                                                                                                  metrics,
+                                                                                                  healthConfig,
+                                                                                                )
                                                           _                                  <- resumable.cleanupExpired
                                                                                                   .tapBoth(
                                                                                                     error => ZIO.logErrorCause("Resumable upload cleanup failed", Cause.fail(error)),
@@ -116,25 +172,50 @@ object Main extends ZIOAppDefault:
                                                                                                     new RateLimitInterceptor(rateLimiter, runtime),
                                                                                                   )
                                                                                                 }
-                                                          grpc                               <- GravitonGrpcServer.scoped(
-                                                                                                  blobStore,
-                                                                                                  uploadIngestor,
-                                                                                                  GrpcServerConfig(cfg.grpcPort),
-                                                                                                  interceptors,
-                                                                                                )
+                                                          grpc                               <- tenantDataPlane match
+                                                                                                  case None         =>
+                                                                                                    GravitonGrpcServer.scoped(
+                                                                                                      blobStore,
+                                                                                                      uploadIngestor,
+                                                                                                      GrpcServerConfig(cfg.grpcPort),
+                                                                                                      interceptors,
+                                                                                                    )
+                                                                                                  case Some(tenant) =>
+                                                                                                    GravitonGrpcServer.scopedTenants(
+                                                                                                      blobStore,
+                                                                                                      tenant.provider,
+                                                                                                      tenant.context,
+                                                                                                      store => PdfUploadSupport.ingestor(store),
+                                                                                                      GrpcServerConfig(cfg.grpcPort),
+                                                                                                      interceptors,
+                                                                                                    )
                                                           boundPort                          <- grpc.port
                                                           _                                  <- ZIO.logInfo(s"gRPC API listening on :$boundPort")
                                                           policy                              = Option.when(sec.enabled)(
                                                                                                   HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
                                                                                                 )
                                                           localizedUpload                     = shardcakeNode.map(_.locality)
-                                                          api                                 = HttpApi(
+                                                          metricsApi                          = Some(MetricsHttpApi(metrics, policy))
+                                                          singleApi                           = HttpApi(
                                                                                                   blobStore = blobStore,
-                                                                                                  metrics = Some(MetricsHttpApi(metrics, policy)),
+                                                                                                  metrics = metricsApi,
                                                                                                   security = policy,
                                                                                                   localizedUpload = localizedUpload,
                                                                                                   resumableUploads = Some(resumable),
                                                                                                 )
+                                                          tenantApi                           = tenantDataPlane.map(tenant =>
+                                                                                                  new TenantHttpApi(
+                                                                                                    tenant.provider,
+                                                                                                    tenant.context,
+                                                                                                    blobStore,
+                                                                                                    metricsApi,
+                                                                                                    policy,
+                                                                                                    localizedUpload,
+                                                                                                    Some(resumable),
+                                                                                                  )
+                                                                                                )
+                                                          apiRoutes                           = tenantApi.fold(singleApi.routes)(_.routes)
+                                                          apiPreflightRoutes                  = tenantApi.fold(singleApi.preflightRoutes)(_.preflightRoutes)
                                                           publicRoutes: Routes[Any, Nothing]  =
                                                             Routes(
                                                               Method.GET / "api" / "health"           -> Handler.fromZIO {
@@ -210,9 +291,14 @@ object Main extends ZIOAppDefault:
                                                               case Some(verifier) =>
                                                                 val decorateFailure =
                                                                   (request: Request, response: Response) => policy.fold(response)(_.addCorsHeaders(request, response))
-                                                                (api.routes ++ statsRoutes) @@ AuthMiddleware.required(verifier, auditSink, decorateFailure)
+                                                                (apiRoutes ++ statsRoutes) @@ AuthMiddleware.required(
+                                                                  verifier,
+                                                                  auditSink,
+                                                                  decorateFailure,
+                                                                  sec.trustProxyHeaders,
+                                                                )
                                                               case None           =>
-                                                                api.routes ++ statsRoutes
+                                                                apiRoutes ++ statsRoutes
 
                                                           devRoutes: Routes[Any, Nothing]     =
                                                             sec.devSharedSecret match
@@ -232,7 +318,7 @@ object Main extends ZIOAppDefault:
                                                                 _root_.graviton.server.BuildInfo.version,
                                                               ).routes
                                                             else Routes.empty
-                                                          preflightRoutes                     = if sec.enabled then api.preflightRoutes else Routes.empty
+                                                          preflightRoutes                     = if sec.enabled then apiPreflightRoutes else Routes.empty
                                                           nonConsoleRoutes                    = publicRoutes ++ preflightRoutes ++ appRoutes ++ devRoutes
                                                           browserApiRoutes                    =
                                                             if sec.enabled then nonConsoleRoutes else Middleware.cors(nonConsoleRoutes)
@@ -243,7 +329,7 @@ object Main extends ZIOAppDefault:
 
       auditLayer: ZLayer[Any, Throwable, AuditSink] = sec.auditBackend match
                                                         case "jdbc"   =>
-                                                          PgDataSource.layerFromEnv >>> AuditSink.jdbc
+                                                          ZLayer.fromZIO(requiredDataSource(primaryDataSource)) >>> AuditSink.jdbc
                                                         case "memory" =>
                                                           ZLayer.fromZIO[Any, Nothing, AuditSink](AuditSink.inMemory)
                                                         case other    =>
@@ -261,15 +347,12 @@ object Main extends ZIOAppDefault:
                       if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
                       else streaming.port(port)
                     },
-                    blobLayer(cfg, maintenance, blockPersistence, transferBudget),
-                    resumableUploadLayer(cfg, transferBudget),
-                    catalogLayer(cfg),
-                    shardcakeNodeLayer(shardcake),
-                    ZLayer.succeed(healthConfig),
-                    RuntimeHealth.live,
+                    blobLayer(cfg, maintenance, blockPersistence, transferBudget, primaryDataSource),
+                    resumableUploadLayer(cfg, transferBudget, primaryDataSource),
+                    catalogLayer(cfg, primaryDataSource),
                     auditLayer,
-                    capabilityLayer(sec),
-                    ZLayer.succeed(sec) >>> RateLimiter.live,
+                    capabilityLayer(sec, primaryDataSource),
+                    ZLayer.succeed(sec) >>> RateLimiter.configured(rateLimiterRegistry),
                     ZLayer.succeed(MetricsConfig(5.seconds)),
                     prometheus.publisherLayer,
                     prometheus.prometheusLayer,
@@ -277,6 +360,7 @@ object Main extends ZIOAppDefault:
                   )
                 }
     yield ()
+  }
 
   sealed trait ConfigurationError extends Exception
 
@@ -288,6 +372,9 @@ object Main extends ZIOAppDefault:
         with ConfigurationError
     case object ConsoleRequiresOpenLocalMode
         extends Exception("GRAVITON_CONSOLE_ENABLED requires GRAVITON_SECURITY_ENABLED=false; do not expose the local console publicly")
+        with ConfigurationError
+    final case class InvalidTenantDataPlane(reason: String)
+        extends Exception(s"invalid multi-tenant data plane configuration: $reason")
         with ConfigurationError
 
   private[server] def validateShardcakeTopology(
@@ -305,25 +392,201 @@ object Main extends ZIOAppDefault:
   ): IO[ConfigurationError, Unit] =
     ZIO.fail(ConfigurationError.ConsoleRequiresOpenLocalMode).when(console.enabled && security.enabled).unit
 
-  private[server] def shardcakeNodeLayer(
-    config: ShardcakeUploadConfig
-  ): ZLayer[BlobStore & MetricsRegistry, Throwable, Option[ShardcakeNode]] =
-    if config.enabled then
-      ((ZLayer.service[BlobStore] ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(config)) >>> ShardcakeNode.live)
-        .map(environment => ZEnvironment[Option[ShardcakeNode]](Some(environment.get[ShardcakeNode])))
-    else ZLayer.succeed(None)
+  private[server] def validateTenantDataPlane(
+    config: GravitonConfig,
+    tenant: TenantDataPlaneConfig,
+    security: SecurityConfig,
+  ): IO[ConfigurationError, Unit] =
+    if !tenant.enabled then ZIO.unit
+    else
+      val checks = for
+        _ <- tenant.validate
+        _ <- Either.cond(security.enabled, (), "security must be enabled")
+        _ <- Either.cond(security.requireTls, (), "TLS enforcement must be enabled")
+        _ <- Either.cond(security.devSharedSecret.isEmpty, (), "development shared-secret authentication is forbidden")
+        _ <- Either.cond(security.auditBackend == "jdbc", (), "durable JDBC audit is required")
+        _ <- Either.cond(Set("s3", "minio").contains(config.blobBackend.toLowerCase), (), "S3, MinIO, or Ceph RGW storage is required")
+        _ <- config.replication.validate
+        _ <- Either.cond(
+               !config.replication.enabled || config.replication.mode == ReplicaStorageMode.Replicated,
+               (),
+               "multi-tenant erasure coding requires a domain-aware repair inventory and is not enabled",
+             )
+        _ <- Either.cond(
+               !config.replication.enabled ||
+                 (config.replication.effectiveDesiredReplicas == config.replication.targets.length &&
+                   config.replication.effectiveWriteQuorum == config.replication.targets.length),
+               (),
+               "multi-tenant replication requires every configured target in the placement and write quorum",
+             )
+      yield ()
+      ZIO.fromEither(checks).mapError(ConfigurationError.InvalidTenantDataPlane.apply)
+
+  private final case class TenantDataPlane(
+    provider: TenantStoreProvider,
+    context: TenantContext,
+  )
+
+  private trait TenantBlockStoreFactory:
+    def make(domain: StorageDomainId): Task[BlockStore]
+
+  private final case class TenantReplicaTarget(
+    name: String,
+    failureDomain: String,
+    baseConfig: S3Config,
+    client: S3Client,
+  )
+
+  private def buildTenantDataPlane(
+    config: GravitonConfig,
+    maintenance: MaintenanceConfig,
+    persistence: BlockPersistenceConfig,
+    transferBudget: TransferBudget,
+    tenantConfig: TenantDataPlaneConfig,
+    storageConfig: TenantStorageConfig,
+    metrics: MetricsRegistry,
+    dataSource: DataSource,
+  ): ZIO[Scope, Throwable, TenantDataPlane] =
+    for
+      blockStores <- tenantBlockStoreFactory(config, metrics)
+      rawCatalog   = new PgTenantPolicyCatalog(dataSource, storageConfig, tenantConfig.cellId)
+      catalog     <- TenantPolicyCatalog.cached(rawCatalog, tenantConfig.maximumCachedTenants, tenantConfig.policyCacheTtl)
+      admission   <- TenantAdmission.make(tenantConfig.maximumCachedTenants, tenantConfig.admissionTimeout, metrics)
+      // One cell-wide coordinator coalesces every in-process operation onto a
+      // single shared PostgreSQL advisory-lock session. This preserves the
+      // backend-wide maintenance barrier without holding one pool connection
+      // per active tenant. A maintenance lease intentionally drains the cell.
+      coordinator <- PgMaintenanceCoordinator.make(
+                       dataSource,
+                       maintenance.copy(namespace = tenantCellMaintenanceNamespace(maintenance.namespace, tenantConfig.cellId)),
+                     )
+      contextEnv  <- TenantContext.live.build
+      context      = contextEnv.get[TenantContext]
+      provider    <- TenantStoreProvider.cached(catalog, tenantConfig.maximumCachedTenants) { policy =>
+                       val route     = policy.route
+                       val domain    = route.storageDomain
+                       val manifests = new PgTenantBlobManifestRepo(dataSource, route.tenantId, domain)
+                       (for blocks <- blockStores.make(domain)
+                       yield
+                         val cas         = new CasBlobStore(
+                           blocks,
+                           manifests,
+                           metrics = metrics,
+                           persistenceConfig = persistence,
+                           transferBudget = transferBudget,
+                         )
+                         val coordinated = new CoordinatedBlobStore(cas, coordinator)
+                         val admitted    = new AdmittedTenantBlobStore(coordinated, policy, admission)
+                         val scopeTag    = route.deduplication match
+                           case DeduplicationScope.Isolated  => "isolated"
+                           case DeduplicationScope.Shared(_) => "shared"
+                         new MetricsBlobStore(admitted, metrics, Map("tenant_scope" -> scopeTag)): BlobStore
+                       ).mapError(TenantRoutingError.PolicyUnavailable.apply)
+                     }
+      _           <- ZIO.logInfo(
+                       s"Multi-tenant data plane enabled for cell ${tenantConfig.cellId.value} " +
+                         s"with a bounded ${tenantConfig.maximumCachedTenants}-tenant cache"
+                     )
+    yield TenantDataPlane(provider, context)
+
+  /**
+   * Build clients once per process, then derive an opaque prefix for each
+   * storage domain. Replicated tenant writes use a full target quorum, so a
+   * successful manifest never references a block accepted with a missing
+   * replica. Validating reads repair damaged copies they encounter.
+   */
+  private def tenantBlockStoreFactory(
+    config: GravitonConfig,
+    metrics: MetricsRegistry,
+  ): ZIO[Scope, Throwable, TenantBlockStoreFactory] =
+    if !config.replication.enabled then
+      for
+        base   <- ZIO
+                    .fromEither(S3Config.fromEnvironment(config.s3.blockBucket, config.s3.blockPrefix))
+                    .mapError(new IllegalArgumentException(_))
+        client <- ZIO.acquireRelease(S3ClientLayer.make(base))(current => ZIO.attempt(current.close()).orDie)
+      yield new TenantBlockStoreFactory:
+        override def make(domain: StorageDomainId): Task[BlockStore] =
+          val scoped = base.copy(prefix = domainPrefix(base.prefix, domain))
+          ZIO.succeed(new S3BlockStore(client, S3BlockStoreConfig(scoped)): BlockStore)
+    else
+      for targets <- ZIO.foreach(config.replication.targets) { target =>
+                       for
+                         base   <- ZIO
+                                     .fromEither(
+                                       S3Config.fromNamedTargetEnvironment(
+                                         target.name.value,
+                                         target.location.value,
+                                         config.s3.blockPrefix,
+                                       )
+                                     )
+                                     .mapError(new IllegalArgumentException(_))
+                         client <- ZIO.acquireRelease(S3ClientLayer.make(base))(current => ZIO.attempt(current.close()).orDie)
+                       yield TenantReplicaTarget(target.name.value, target.failureDomain.value, base, client)
+                     }
+      yield new TenantBlockStoreFactory:
+        override def make(domain: StorageDomainId): Task[BlockStore] =
+          val replicas = targets.map { target =>
+            val scoped                      = target.baseConfig.copy(prefix = domainPrefix(target.baseConfig.prefix, domain))
+            val store: RepairableBlockStore = new S3BlockStore(target.client, S3BlockStoreConfig(scoped))
+            ReplicatedBlockStore.Replica(target.name, target.failureDomain, store)
+          }
+          ZIO
+            .fromEither(
+              ReplicatedBlockStore.make(
+                replicas,
+                config.replication.effectiveDesiredReplicas,
+                config.replication.effectiveWriteQuorum,
+                ReplicaPlacement.rendezvous,
+                metrics,
+                config.replication.localFailureDomain.map(_.value),
+              )
+            )
+            .mapError(new IllegalArgumentException(_))
+            .map(store => store: BlockStore)
+
+  private def buildShardcakeNode(
+    config: ShardcakeUploadConfig,
+    tenantDataPlane: Option[TenantDataPlane],
+    blobStore: BlobStore,
+    metrics: MetricsRegistry,
+  ): ZIO[Scope, Throwable, Option[ShardcakeNode]] =
+    if !config.enabled then ZIO.none
+    else
+      val layer = tenantDataPlane match
+        case None         =>
+          (ZLayer.succeed(blobStore) ++ ZLayer.succeed(config) ++ ZLayer.succeed(metrics)) >>> ShardcakeNode.live
+        case Some(tenant) =>
+          (ZLayer.succeed(tenant.provider) ++ ZLayer.succeed(config) ++ ZLayer.succeed(metrics)) >>> ShardcakeNode.liveTenants
+      layer.build.map(environment => Some(environment.get[ShardcakeNode]))
+
+  private def domainPrefix(base: String, domain: StorageDomainId): String =
+    val prefix = base.stripSuffix("/")
+    val suffix = s"domains/${domainToken(domain)}"
+    if prefix.isEmpty then suffix else s"$prefix/$suffix"
+
+  private[server] def tenantCellMaintenanceNamespace(
+    base: RepositoryNamespace,
+    cell: TenantCellId,
+  ): RepositoryNamespace =
+    RepositoryNamespace.applyUnsafe(s"${base.value}:tenant-cell:${cell.value}")
+
+  private def domainToken(domain: StorageDomainId): String =
+    val digest = MessageDigest.getInstance("SHA-256").digest(domain.value.getBytes(StandardCharsets.UTF_8))
+    HexFormat.of().formatHex(digest)
 
   private[server] def blobLayer(
     cfg: GravitonConfig,
     maintenance: MaintenanceConfig,
     blockPersistence: BlockPersistenceConfig,
     transferBudget: TransferBudget,
+    dataSource: Option[DataSource],
   ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
         case "s3" | "minio" =>
           val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
-            PgDataSource.layerFromEnv,
+            ZLayer.fromZIO(requiredDataSource(dataSource)),
             PgBlobManifestRepo.layer,
             PgMaintenanceCoordinator.layer(maintenance),
             PgRepairJournal.layer,
@@ -449,9 +712,9 @@ object Main extends ZIOAppDefault:
         yield store: BlockStore
       }
 
-  private[server] def catalogLayer(cfg: GravitonConfig): ZLayer[Any, Throwable, Catalog] =
+  private[server] def catalogLayer(cfg: GravitonConfig, dataSource: Option[DataSource]): ZLayer[Any, Throwable, Catalog] =
     cfg.blobBackend.toLowerCase match
-      case "s3" | "minio" => PgDataSource.layerFromEnv >>> PgCatalog.layer
+      case "s3" | "minio" => ZLayer.fromZIO(requiredDataSource(dataSource)) >>> PgCatalog.layer
       case "fs"           => FsCatalog.layer(Path.of(cfg.fs.root))
       case other          =>
         ZLayer.fail(
@@ -463,6 +726,7 @@ object Main extends ZIOAppDefault:
   private[server] def resumableUploadLayer(
     cfg: GravitonConfig,
     transferBudget: TransferBudget,
+    dataSource: Option[DataSource],
   ): ZLayer[MetricsRegistry, Throwable, ResumableUploadService] =
     ZLayer.scoped {
       for
@@ -478,9 +742,7 @@ object Main extends ZIOAppDefault:
                        ZIO.succeed(new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics))
                      case "s3" | "minio" =>
                        for
-                         dataSource <- ZIO
-                                         .fromEither(PgDataSource.fromEnv())
-                                         .mapError(message => new IllegalArgumentException(message))
+                         dataSource <- requiredDataSource(dataSource)
                          storageCfg <- ZIO
                                          .fromEither(S3Config.fromEnvironment(cfg.s3.tmpBucket, "resumable"))
                                          .mapError(message => new IllegalArgumentException(message))
@@ -503,7 +765,7 @@ object Main extends ZIOAppDefault:
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     ZLayer.fromZIO(TransferBudget.make(TransferMemoryConfig.Default)).flatMap { budget =>
-      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget])
+      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget], None)
     }
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
@@ -512,11 +774,24 @@ object Main extends ZIOAppDefault:
       .mapError(msg => new IllegalStateException(s"invalid GRAVITON_SECURITY_* config: $msg"))
       .unit
 
-  private def capabilityLayer(sec: SecurityConfig): ZLayer[Any, Throwable, CapabilityCheck] =
+  private def capabilityLayer(sec: SecurityConfig, dataSource: Option[DataSource]): ZLayer[Any, Throwable, CapabilityCheck] =
     sec.authorizationBackend match
       case "token" => ZLayer.succeed(CapabilityCheck.tokenOnly)
-      case "jdbc"  => PgDataSource.layerFromEnv >>> CapabilityCheck.jdbc
+      case "jdbc"  => ZLayer.fromZIO(requiredDataSource(dataSource)) >>> CapabilityCheck.jdbc
       case other   => ZLayer.fail(new IllegalArgumentException(s"Unsupported authorization backend: $other"))
+
+  private def requiresPrimaryPostgres(
+    config: GravitonConfig,
+    tenantConfig: TenantDataPlaneConfig,
+    security: SecurityConfig,
+  ): Boolean =
+    Set("s3", "minio").contains(config.blobBackend.toLowerCase) ||
+      tenantConfig.enabled ||
+      security.auditBackend == "jdbc" ||
+      security.authorizationBackend == "jdbc"
+
+  private def requiredDataSource(dataSource: Option[DataSource]): Task[DataSource] =
+    ZIO.fromOption(dataSource).orElseFail(new IllegalStateException("PostgreSQL is required by the selected server configuration"))
 
   private def logSecurityPosture(sec: SecurityConfig): UIO[Unit] =
     if sec.enabled then

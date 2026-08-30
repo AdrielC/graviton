@@ -81,6 +81,23 @@ object AuditSinkSpec extends ZIOSpecDefault:
         assert(bRows(0).seq)(equalTo(1L)) &&
         assert(aRows(1).prevHash.toSeq)(equalTo(aRows(0).rowHash.toSeq))
     },
+    test("bounds database-facing action and reason fields before hashing") {
+      for
+        sink <- AuditSink.inMemory
+        ctx   = mkContext(UUID.randomUUID())
+        _    <- CallerContext.scopedWith(ctx)(
+                  sink.record(
+                    AuditEvent(
+                      action = "a" * 1000,
+                      resource = ResourceRef(ResourceKind.Blob, None),
+                      outcome = AuditEvent.Outcome.Deny,
+                      reason = Some("r" * 3000),
+                    )
+                  )
+                )
+        row  <- sink.drain.map(_.head)
+      yield assertTrue(row.action.length == 255, row.reason.exists(_.length == 2048))
+    },
   )
 
 end AuditSinkSpec

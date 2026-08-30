@@ -110,7 +110,7 @@ object SecurityConfig:
       Config.string("dev-shared-secret").optional ++
       Config.string("audit-backend").withDefault("memory") ++
       Config.string("authorization-backend").withDefault("token"))
-      .map {
+      .mapOrFail {
         case (
               enabled,
               issuer,
@@ -131,29 +131,34 @@ object SecurityConfig:
               auditBackend,
               authorizationBackend,
             ) =>
-          SecurityConfig(
-            enabled = enabled,
-            oidcIssuer = issuer,
-            oidcAudience = audience,
-            oidcJwksUri = jwksUri,
-            jwksCacheTtl = jwks,
-            requireTls = tls,
-            trustProxyHeaders = trustProxy,
-            corsAllowedOrigins =
-              if origins.trim.isEmpty then Nil
-              else origins.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList,
-            rateLimitPerPrincipalPerSec = rpsPrincipal,
-            rateLimitUploadBytesPerSec = bpsUpload,
-            rateLimitDownloadBytesPerSec = bpsDownload,
-            // Config validation rejects an out-of-range value before the server starts.
-            maxRequestBytes = FileSize.unsafe(maxBytes),
-            auditFlushInterval = auditFlush,
-            kmsKeyArn = kms,
-            clockSkewSeconds = skew,
-            devSharedSecret = devSecret.filter(_.nonEmpty),
-            auditBackend = auditBackend.trim.toLowerCase,
-            authorizationBackend = authorizationBackend.trim.toLowerCase,
-          )
+          FileSize
+            .either(maxBytes)
+            .left
+            .map(message => Config.Error.InvalidData(Chunk.empty, s"invalid max-request-bytes: $message"))
+            .map { refinedMaxBytes =>
+              SecurityConfig(
+                enabled = enabled,
+                oidcIssuer = issuer,
+                oidcAudience = audience,
+                oidcJwksUri = jwksUri,
+                jwksCacheTtl = jwks,
+                requireTls = tls,
+                trustProxyHeaders = trustProxy,
+                corsAllowedOrigins =
+                  if origins.trim.isEmpty then Nil
+                  else origins.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList,
+                rateLimitPerPrincipalPerSec = rpsPrincipal,
+                rateLimitUploadBytesPerSec = bpsUpload,
+                rateLimitDownloadBytesPerSec = bpsDownload,
+                maxRequestBytes = refinedMaxBytes,
+                auditFlushInterval = auditFlush,
+                kmsKeyArn = kms,
+                clockSkewSeconds = skew,
+                devSharedSecret = devSecret.filter(_.nonEmpty),
+                auditBackend = auditBackend.trim.toLowerCase,
+                authorizationBackend = authorizationBackend.trim.toLowerCase,
+              )
+            }
       }
       .nested("security")
       .nested("graviton")

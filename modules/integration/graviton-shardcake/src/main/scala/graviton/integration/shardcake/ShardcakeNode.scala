@@ -2,8 +2,8 @@ package graviton.integration.shardcake
 
 import com.devsisters.shardcake.interfaces.{Pods, Serialization, Storage}
 import com.devsisters.shardcake.{Config, GrpcConfig, GrpcPods, GrpcShardingService, PodAddress, ShardManagerClient, Sharding}
-import graviton.pdf.PdfUploadSupport
 import graviton.runtime.stores.BlobStore
+import graviton.runtime.tenant.TenantStoreProvider
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.upload.*
 import zio.*
@@ -59,7 +59,7 @@ object ShardcakeNode:
       ShardcakeGrpcConfig.live,
       ZioBlocksShardcakeSerialization.layer,
       ShardcakeDataSource.Config.layer,
-      ShardcakeDataSource.live,
+      ShardcakeDataSource.liveInstrumented,
       PgShardcakeStorage.Config.layer,
       PgShardcakeStorage.live,
       AuthenticatedShardManagerClient.live,
@@ -69,7 +69,7 @@ object ShardcakeNode:
       Client.default,
       UploadSessionContext.live,
       configuredHotState,
-      PdfUploadSupport.layer(),
+      CasUploadNodeIngest.UploadIngestorResolver.fixed,
       CasUploadNodeIngest.live,
       ZioHttpUploadNodeTransport.live,
       ShardcakeUploadPlacement.live,
@@ -110,3 +110,66 @@ object ShardcakeNode:
     )
 
   val live: ZLayer[BlobStore & ShardcakeUploadConfig & MetricsRegistry, Throwable, ShardcakeNode] = services
+
+  private val tenantServices: ZLayer[
+    TenantStoreProvider & ShardcakeUploadConfig & MetricsRegistry,
+    Throwable,
+    ShardcakeNode,
+  ] =
+    ZLayer.makeSome[TenantStoreProvider & ShardcakeUploadConfig & MetricsRegistry, ShardcakeNode](
+      ShardcakeUploadConfig.upstream,
+      ShardcakeRegistrationConfig.layer,
+      ShardcakeGrpcConfig.live,
+      ZioBlocksShardcakeSerialization.layer,
+      ShardcakeDataSource.Config.layer,
+      ShardcakeDataSource.liveInstrumented,
+      PgShardcakeStorage.Config.layer,
+      PgShardcakeStorage.live,
+      AuthenticatedShardManagerClient.live,
+      GrpcPods.live,
+      Sharding.live,
+      controlServer,
+      Client.default,
+      UploadSessionContext.live,
+      configuredHotState,
+      CasUploadNodeIngest.UploadIngestorResolver.tenants,
+      CasUploadNodeIngest.live,
+      ZioHttpUploadNodeTransport.live,
+      ShardcakeUploadPlacement.live,
+      ShardcakeHealth.live,
+      LocalityAwareUpload.instrumented,
+      ZLayer.scoped {
+        for
+          config             <- ZIO.service[ShardcakeUploadConfig]
+          registrationConfig <- ZIO.service[ShardcakeRegistrationConfig]
+          token              <- ZIO.fromOption(config.internalToken).orElseFail(ShardcakeGrpcConfig.Error.MissingInternalToken)
+          _                  <- ZIO.service[ControlServer]
+          sharding           <- ZIO.service[Sharding]
+          storage            <- ZIO.service[Storage]
+          placement          <- ZIO.service[UploadPlacement]
+          ingest             <- ZIO.service[UploadNodeIngest]
+          locality           <- ZIO.service[LocalityAwareUpload]
+          hotState           <- ZIO.service[UploadHotState]
+          health             <- ZIO.service[ShardcakeHealth]
+          _                  <- UploadControlEntity.register(config.node, config.entityMaxIdleTime)
+          address             = PodAddress(config.node.host.value, config.node.controlPort.value)
+          _                  <- ShardcakeRegistration.scoped(
+                                  sharding.register,
+                                  storage.getPods.map(_.get(address).exists(_.version == config.serverVersion)),
+                                  sharding.unregister,
+                                  registrationConfig.retryInterval,
+                                  registrationConfig.timeout,
+                                )
+          routes              = UploadNodeHttpApi(token, ingest).routes
+          _                  <- Server
+                                  .serve(routes)
+                                  .provide(Server.defaultWith(_.port(config.node.uploadPort.value).enableRequestStreaming))
+                                  .forkScoped
+          _                  <- ZIO.logInfo(
+                                  s"Shardcake upload node ${config.node.id.value} listening for streamed uploads on :${config.node.uploadPort.value}"
+                                )
+        yield ShardcakeNode(locality, placement, hotState, health)
+      },
+    )
+
+  val liveTenants: ZLayer[TenantStoreProvider & ShardcakeUploadConfig & MetricsRegistry, Throwable, ShardcakeNode] = tenantServices

@@ -59,3 +59,7 @@ object MetricKeys:
   val ErasureHealthyTargets          = "graviton_erasure_healthy_targets"
   val TenantStoreResolutionsTotal    = "graviton_tenant_store_resolutions_total"
   val TenantStoreResolutionDuration  = "graviton_tenant_store_resolution_duration_seconds"
+  val TenantAdmissionTotal           = "graviton_tenant_admission_total"
+  val TenantQuotaRejectionsTotal     = "graviton_tenant_quota_rejections_total"
+  val PostgresPoolConnections        = "graviton_postgres_pool_connections"
+  val PostgresPoolAwaiting           = "graviton_postgres_pool_awaiting_connections"

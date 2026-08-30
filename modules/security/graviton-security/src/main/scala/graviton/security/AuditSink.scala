@@ -18,8 +18,9 @@ import javax.sql.DataSource
  *   prev_hash for seq = 1 is 32 zero bytes
  * }}}
  *
- * JDBC insertion is serialized per-org in the process and with a PostgreSQL
- * transaction advisory lock, so the chain stays linear across server nodes.
+ * JDBC insertion is serialized through bounded local shards and with a
+ * PostgreSQL per-org transaction advisory lock, so the chain stays linear
+ * across server nodes without retaining one process lock per historical org.
  */
 trait AuditSink:
   def record(event: AuditEvent): IO[SecurityError, Unit]
@@ -57,13 +58,14 @@ object AuditSink:
   def inMemory: UIO[AuditSink & AuditSink.Inspect] =
     Ref.make(Vector.empty[AuditRecord]).map(ref => new InMemorySink(ref))
 
-  /** JDBC-backed sink with per-org serialisation. */
+  /** JDBC-backed sink with bounded local serialization and per-org database locking. */
   def jdbc: URLayer[DataSource, AuditSink] =
     ZLayer.fromZIO {
       for
-        ds     <- ZIO.service[DataSource]
-        guards <- Ref.Synchronized.make(Map.empty[UUID, Semaphore])
-      yield (new JdbcSink(ds, guards)): AuditSink
+        ds           <- ZIO.service[DataSource]
+        legacyGuards <- Ref.Synchronized.make(Map.empty[UUID, Semaphore])
+        guards       <- ZIO.foreach(0 until JdbcGuardShards)(_ => Semaphore.make(1L))
+      yield JdbcSink.bounded(ds, legacyGuards, guards)
     }
 
   /** Test hook exposed by the in-memory sink. */
@@ -87,6 +89,16 @@ object AuditSink:
   )
 
   private val ZeroHash: Array[Byte] = new Array[Byte](32)
+  private val JdbcGuardShards       = 256
+  private val MaxActionChars        = 255
+  private val MaxReasonChars        = 2048
+  private val MaxUserAgentChars     = 1024
+
+  private def bounded(event: AuditEvent): AuditEvent =
+    event.copy(
+      action = Option(event.action).map(_.trim).filter(_.nonEmpty).getOrElse("unknown").take(MaxActionChars),
+      reason = event.reason.map(_.take(MaxReasonChars)),
+    )
 
   /**
    * Canonical serialisation for hashing. Must match the Postgres
@@ -130,7 +142,7 @@ object AuditSink:
     def drain: UIO[Vector[AuditRecord]] = ref.getAndSet(Vector.empty)
 
     def record(event: AuditEvent): IO[SecurityError, Unit] =
-      CallerContext.required.flatMap(ctx => append(ctx, event))
+      CallerContext.required.flatMap(ctx => append(ctx, bounded(event)))
 
     def allow(action: String, resource: ResourceRef, bytes: Option[Long]): IO[SecurityError, Unit] =
       record(AuditEvent(action, resource, AuditEvent.Outcome.Allow, bytes = bytes))
@@ -192,10 +204,19 @@ object AuditSink:
 
   // ---- JDBC ---------------------------------------------------------------
 
-  private final class JdbcSink(ds: DataSource, guardsRef: Ref.Synchronized[Map[UUID, Semaphore]]) extends AuditSink:
+  private final class JdbcSink(
+    ds: DataSource,
+    legacyGuards: Ref.Synchronized[Map[UUID, Semaphore]],
+  ) extends AuditSink:
+
+    private var guards: IndexedSeq[Semaphore] = IndexedSeq.empty
+
+    private def withBoundedGuards(value: IndexedSeq[Semaphore]): JdbcSink =
+      guards = value
+      this
 
     def record(event: AuditEvent): IO[SecurityError, Unit] =
-      CallerContext.required.flatMap(ctx => appendWithLock(ctx, event))
+      CallerContext.required.flatMap(ctx => appendWithLock(ctx, bounded(event)))
 
     def allow(action: String, resource: ResourceRef, bytes: Option[Long]): IO[SecurityError, Unit] =
       record(AuditEvent(action, resource, AuditEvent.Outcome.Allow, bytes = bytes))
@@ -210,8 +231,8 @@ object AuditSink:
       ZIO.logWarning(s"audit.auth_fail action=$action request_id=$requestId reason=$reason ip=${sourceIp.getOrElse("-")}")
 
     private def appendWithLock(ctx: CallerContext, event: AuditEvent): IO[SecurityError, Unit] =
-      guardFor(ctx.orgId).flatMap { sem =>
-        sem.withPermit {
+      guardFor(ctx.orgId).flatMap { guard =>
+        guard.withPermit {
           ZIO.clockWith(_.instant).flatMap { now =>
             TenantScopedBlocking
               .attemptBlockingWith(ctx)(insertOne(ctx, event, now))
@@ -222,11 +243,13 @@ object AuditSink:
       }
 
     private def guardFor(orgId: UUID): UIO[Semaphore] =
-      guardsRef.modifyZIO { current =>
-        current.get(orgId) match
-          case Some(sem) => ZIO.succeed((sem, current))
-          case None      => Semaphore.make(1L).map(sem => (sem, current.updated(orgId, sem)))
-      }
+      if guards.nonEmpty then ZIO.succeed(guards(java.lang.Math.floorMod(orgId.hashCode, guards.length)))
+      else
+        legacyGuards.modifyZIO { current =>
+          current.get(orgId) match
+            case Some(guard) => ZIO.succeed(guard -> current)
+            case None        => Semaphore.make(1L).map(guard => guard -> current.updated(orgId, guard))
+        }
 
     private def insertOne(ctx: CallerContext, event: AuditEvent, now: Instant): Unit =
       val conn = ds.getConnection
@@ -296,7 +319,7 @@ object AuditSink:
             case Some(ip) => ins.setString(9, ip)
             case None     => ins.setNull(9, java.sql.Types.OTHER)
           ctx.userAgent match
-            case Some(ua) => ins.setString(10, ua)
+            case Some(ua) => ins.setString(10, ua.take(MaxUserAgentChars))
             case None     => ins.setNull(10, java.sql.Types.VARCHAR)
           ins.setString(11, event.outcome.dbValue)
           event.reason match
@@ -332,3 +355,11 @@ object AuditSink:
           val _ = result.next()
         finally result.close()
       finally statement.close()
+
+  private object JdbcSink:
+    def bounded(
+      ds: DataSource,
+      legacyGuards: Ref.Synchronized[Map[UUID, Semaphore]],
+      guards: IndexedSeq[Semaphore],
+    ): AuditSink =
+      new JdbcSink(ds, legacyGuards).withBoundedGuards(guards)

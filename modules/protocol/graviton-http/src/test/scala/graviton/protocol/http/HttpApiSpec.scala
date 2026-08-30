@@ -1,7 +1,7 @@
 package graviton.protocol.http
 
 import graviton.runtime.Graviton
-import graviton.runtime.stores.FsMutableObjectStore
+import graviton.runtime.stores.{FsMutableObjectStore, StoreError, StoreOperation}
 import graviton.runtime.upload.*
 import graviton.shared.ApiModels.*
 import zio.*
@@ -62,6 +62,38 @@ object HttpApiSpec extends ZIOSpecDefault:
         yield assertTrue(
           response.status == Status.ServiceUnavailable,
           body.contains("locality_unavailable"),
+        )
+      },
+      test("maps a cluster-atomic tenant quota rejection to HTTP 507") {
+        val tenant  = TenantId.applyUnsafe("9f2f172c-8e6b-4aef-8be8-4c750420d971")
+        val session = UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c")
+        val headers = Headers(
+          Header.Custom(UploadHttpHeaders.TenantId, tenant.value),
+          Header.Custom(UploadHttpHeaders.UploadSession, session.value),
+        )
+        val quota   = StoreError.TenantStorageQuotaExceeded(
+          StoreOperation.PutBlob,
+          limitBytes = 1024L,
+          retainedBytes = 1024L,
+          attemptedAdditionalBytes = 1L,
+        )
+
+        for
+          graviton <- Graviton.inMemory(chunkSize = 64)
+          localized = new LocalityAwareUpload:
+                        override def upload(
+                          key: UploadSessionKey,
+                          intent: UploadIntent,
+                          bytes: zio.stream.ZStream[Any, Throwable, Byte],
+                        ): IO[LocalityAwareUpload.Error, LocalizedUploadResult] =
+                          ZIO.fail(LocalityAwareUpload.Error.LocalIngest(UploadNodeIngest.Error.StorageFailure(quota)))
+          api       = HttpApi(graviton.blobStore, localizedUpload = Some(localized))
+          response <- call(api, Method.POST, "/api/v1/blobs", Body.fromString("over quota"), headers)
+          body     <- response.body.asString
+        yield assertTrue(
+          response.status == Status.InsufficientStorage,
+          body.contains("tenant_storage_quota_exceeded"),
+          !body.contains("1024"),
         )
       },
       test("POST, GET, and HEAD expose a round-trippable immutable blob") {

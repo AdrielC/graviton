@@ -4,9 +4,9 @@
 #
 # Usage:
 #   scripts/bootstrap-podman-postgres.sh [--pg 18] [--port 5432] [--name graviton-pg] \
-#       [--ddl modules/pg/ddl.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
+#       [--ddl modules/backend/graviton-pg/src/main/resources/ddl.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
 #
-# Defaults: PG_VERSION=18, PORT=5432, NAME=graviton-pg, DDL=modules/pg/ddl.sql, EXPORT_DOCKER_HOST=on
+# Defaults: PG_VERSION=18, PORT=5432, NAME=graviton-pg, DDL=modules/backend/graviton-pg/src/main/resources/ddl.sql, EXPORT_DOCKER_HOST=on
 #
 # What it does:
 #   - Installs Podman (and pasta/slirp4netns) if missing (Ubuntu/Debian/Fedora/Arch/Alpine).
@@ -89,7 +89,7 @@ PG_VERSION="${PG_VERSION:-18}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
 PG_NAME="${PG_NAME:-graviton-pg}"
-DDL_PATH_DEFAULT="modules/pg/ddl.sql"
+DDL_PATH_DEFAULT="modules/backend/graviton-pg/src/main/resources/ddl.sql"
 DDL_PATH="$DDL_PATH_DEFAULT"
 DO_EXPORT_DOCKER_HOST=1
 DO_DDL=1
@@ -305,8 +305,7 @@ if [[ "$DO_DDL" -eq 1 ]]; then
   fi
 fi
 
-log "✅ Postgres ${PG_VERSION} is running at ${PG_HOST}:${PG_PORT} (user=$PG_USERNAME password=${PG_PASSWORD})"
+log "✅ Postgres ${PG_VERSION} is running at ${PG_HOST}:${PG_PORT} (user=$PG_USERNAME)"
 if [[ "$DO_EXPORT_DOCKER_HOST" -eq 1 ]]; then
   log "Testcontainers can target Podman via DOCKER_HOST ($DOCKER_HOST)."
 fi
-
