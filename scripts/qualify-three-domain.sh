@@ -100,7 +100,6 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 repaired_objects="$(object_count)"
-repair_ended="$(python3 -c 'import time; print(time.time_ns())')"
 [[ "$repaired_objects" -ge "$fresh_blocks" ]]
 volume_after="$(docker volume inspect "$lost_volume" --format '{{.CreatedAt}}')"
 printf 'target-b volume creation: %s -> %s\n' "$volume_before" "$volume_after" >&2
@@ -108,10 +107,20 @@ printf 'target-b volume creation: %s -> %s\n' "$volume_before" "$volume_after" >
 stage "verify repaired byte stream and convergence metrics"
 curl --fail --silent --show-error "$base_url/api/v1/blobs/$blob_id" | cmp --silent - "$payload"
 
-metrics_after_repair="$(curl --fail --silent --show-error "$base_url/metrics")"
+metrics_after_repair=""
+for _ in $(seq 1 90); do
+  if candidate_metrics="$(curl --fail --silent --show-error "$base_url/metrics")" &&
+    grep -q 'graviton_erasure_repairs_total.*outcome="repaired"' <<<"$candidate_metrics" &&
+    grep -Eq 'graviton_replica_under_protected_blocks(\{[^}]*\})? 0(\.0)?' <<<"$candidate_metrics"; then
+    metrics_after_repair="$candidate_metrics"
+    break
+  fi
+  sleep 2
+done
 grep -E 'graviton_erasure_repairs_total|graviton_replica_under_protected_blocks' <<<"$metrics_after_repair" >&2 || true
 grep -q 'graviton_erasure_repairs_total.*outcome="repaired"' <<<"$metrics_after_repair"
 grep -Eq 'graviton_replica_under_protected_blocks(\{[^}]*\})? 0(\.0)?' <<<"$metrics_after_repair"
+repair_ended="$(python3 -c 'import time; print(time.time_ns())')"
 
 stage "verify live Prometheus rules and Grafana dashboard"
 wait_ready "$prometheus_url/-/ready"
