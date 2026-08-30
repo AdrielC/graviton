@@ -28,6 +28,7 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - Process-wide weighted transfer-memory admission plus interruption-safe release tests
 - Filesystem and PostgreSQL repair journals with durable cursors, attempt counts, resolution, and streamed dead letters
 - Published `graviton-backend-laws` ZIO Test contract, self-applied to in-memory and filesystem CAS implementations
+- Published deterministic CrashLab and tenant-storage laws, default-isolated FiberRef routing, explicit shared-dedup policy, and domain-wide streaming GC marks
 
 ## Operator acceptance
 
@@ -45,11 +46,13 @@ These items depend on the deployment and cannot be completed once for every user
 
 - Add optional gRPC range reads and server-side verification if production consumers need parity with those HTTP extensions
 - Define an explicit idempotency-key contract for non-content-derived operations
+- Mount authenticated tenant routing, quotas, and server-owned deduplication policy in the packaged HTTP and gRPC service
 
 ### Storage and reliability
 
 - Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
 - Add operator-facing inventory and restore commands for S3 quarantine records
+- Add durable tenant-catalog snapshots so shared-domain maintenance can prove the complete manifest set across processes
 - Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
 - Add a RocksDB `BlockStore` only when a real embedded blob-backend use case requires it; the published RocksDB module currently promises durable typed key-value storage
 

@@ -8,7 +8,7 @@ import graviton.core.scan.*
 import graviton.runtime.config.BlockPersistenceConfig
 import graviton.runtime.config.TransferMemoryConfig
 import graviton.runtime.metrics.MetricsRegistry
-import graviton.runtime.model.{BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
+import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.*
 import graviton.streams.{BoundedByteStream, Chunker}
 import zio.*
@@ -160,7 +160,7 @@ object Graviton:
   ): ZIO[Any, Nothing, Graviton] =
     for
       blockStore   <- InMemoryBlockStore.make
-      manifestRepo <- makeInlineManifestRepo
+      manifestRepo <- InMemoryBlobManifestRepo.make
       maintenance  <- MaintenanceCoordinator.inProcess().orDie
       budget       <- TransferBudget.make(TransferMemoryConfig.Default)
       rawStore      = new CasBlobStore(
@@ -173,55 +173,6 @@ object Graviton:
       blobStore     = new CoordinatedBlobStore(rawStore, maintenance)
       chunker       = Chunker.fixed(graviton.core.types.UploadChunkSize.applyUnsafe(chunkSize))
     yield new Graviton(blobStore, blockStore, manifestRepo, chunker, maintenance)
-
-  private def makeInlineManifestRepo: UIO[BlobManifestRepo] =
-    zio.Ref.make(Map.empty[BinaryKey.Blob, stores.StoredManifest]).map { ref =>
-      new BlobManifestRepo:
-        override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest, ingestedAt: java.time.Instant) =
-          ref.update(_.updated(blob, stores.StoredManifest(manifest, ingestedAt))).unit
-        override def get(blob: BinaryKey.Blob)                                                                           =
-          ref.get.map(_.get(blob))
-        override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize)                             =
-          for
-            anchor <- ZIO
-                        .fromEither(
-                          after.fold[Either[String, Option[String]]](Right(None))(cursor =>
-                            InventoryCursor.decode(cursor, graviton.runtime.model.InventoryNamespace.InMemory).map(Some(_))
-                          )
-                        )
-                        .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
-            values <- ref.get
-            ordered = values.toList.sortBy(_._1.bits.render)
-            page    = ordered.dropWhile { case (key, _) => anchor.exists(_ >= key.bits.render) }.take(limit.value + 1)
-            items   = Chunk.fromIterable(page.take(limit.value).map { case (key, stored) =>
-                        val summary = stores.StoredManifestSummary(
-                          graviton.core.types.FileSize.unsafe(stored.manifest.size),
-                          stored.manifest.entries.length,
-                          stored.ingestedAt,
-                        )
-                        key -> summary
-                      })
-            next   <- ZIO.foreach(page.lift(limit.value - 1).filter(_ => page.length > limit.value)) { case (key, _) =>
-                        ZIO
-                          .fromEither(InventoryCursor.encode(graviton.runtime.model.InventoryNamespace.InMemory, key.bits.render))
-                          .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
-                      }
-          yield InventoryPage(items, next)
-        override def streamBlockRefs(blob: BinaryKey.Blob)                                                               =
-          ZStream.fromZIO(ref.get.map(_.get(blob))).flatMap {
-            case None         => ZStream.fail(StoreError.NotFound(StoreOperation.GetManifest, blob))
-            case Some(stored) =>
-              ZStream.fromIterable(
-                stored.manifest.entries.zipWithIndex.collect { case (graviton.core.manifest.ManifestEntry(b: BinaryKey.Block, _, _), idx) =>
-                  streaming.BlobStreamer.BlockRef(idx.toLong, b)
-                }
-              )
-          }
-        override def delete(blob: BinaryKey.Blob)                                                                        =
-          ref.modify(m => (m.contains(blob), m - blob))
-        override def healthCheck                                                                                         =
-          ZIO.unit
-    }
 
   /** Transducer pipelines for composition. */
   object pipelines:

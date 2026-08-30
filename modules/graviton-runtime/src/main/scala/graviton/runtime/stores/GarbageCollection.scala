@@ -70,6 +70,22 @@ object GarbageCollection:
   ] =
     ZLayer.fromZIO(ZIO.service[GarbageCollectionConfig].flatMap(make))
 
+  /** Domain-wide production layer for block namespaces shared by tenants. */
+  val storageDomainLive: ZLayer[
+    ManifestReferenceSource & BlockMaintenance & GarbageCollectionConfig & MaintenanceCoordinator,
+    IllegalArgumentException,
+    GarbageCollection,
+  ] =
+    ZLayer.fromZIO {
+      for
+        references  <- ZIO.service[ManifestReferenceSource]
+        blocks      <- ZIO.service[BlockMaintenance]
+        config      <- ZIO.service[GarbageCollectionConfig]
+        coordinator <- ZIO.service[MaintenanceCoordinator]
+        valid       <- ZIO.fromEither(config.validate).mapError(new IllegalArgumentException(_))
+      yield GarbageCollector.forReferenceSource(references, blocks, valid, coordinator): GarbageCollection
+    }
+
   /** Deterministic fiber-safe wiring for embedded tools and simple local use. */
   val default: URLayer[BlobManifestRepo & BlockMaintenance, GarbageCollection] =
     ZLayer.fromZIO {

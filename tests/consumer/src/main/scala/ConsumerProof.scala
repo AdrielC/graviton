@@ -1,6 +1,17 @@
 import ai.hylo.graviton.client.GravitonClient
 import graviton.backend.pg.{PgMaintenanceCoordinator, PgMutableObjectStore}
-import graviton.backend.laws.BlobStoreLaws
+import graviton.backend.laws.{
+  BlobStoreLaws,
+  CrashConsistencyLaws,
+  FaultAction,
+  FaultOccurrence,
+  FaultPhase,
+  FaultPlan,
+  FaultPoint,
+  FaultRule,
+  InjectedStoreFailure,
+  TenantStorageLaws,
+}
 import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
 import graviton.core.attributes.BinaryAttributes
@@ -8,7 +19,10 @@ import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeUploadCo
 import graviton.pdf.PdfIngest
 import graviton.protocol.grpc.GravitonGrpcClient
 import graviton.runtime.Graviton
+import graviton.runtime.config.TenantStorageConfig
 import graviton.runtime.kv.{KvKey, KvValue}
+import graviton.runtime.stores.{StoreBackend, StoreOperation}
+import graviton.runtime.tenant.{ContextualTenantBlobStore, DeduplicationScope, TenantContext, TenantStoreProvider}
 import graviton.runtime.upload.{TenantId, UploadSessionId, UploadSessionKey}
 import graviton.shared.ApiModels.HealthResponse
 import graviton.streams.BoundedByteStream
@@ -71,12 +85,31 @@ object ConsumerProof extends ZIOAppDefault:
                              .validate
                          )
                          .mapError(new IllegalStateException(_))
+      faultPlan     <- ZIO
+                         .fromEither(
+                           FaultPlan.single(
+                             FaultRule(
+                               FaultPoint(StoreOperation.PutManifest, FaultPhase.After),
+                               FaultOccurrence.First,
+                               FaultAction.Fail(InjectedStoreFailure.Unavailable(StoreBackend.Runtime)),
+                             )
+                           )
+                         )
+                         .mapError(error => new IllegalStateException(error.getMessage))
       protoKey  = BlobKey(written.key.bits.render)
       health    = HealthResponse("ok", "external-consumer", 0L)
       _        <- ZIO.fail(new IllegalStateException("backend modules did not resolve")).unless(
                     classOf[PgMutableObjectStore].getName.nonEmpty &&
                       classOf[PgMaintenanceCoordinator].getName.nonEmpty &&
                       BlobStoreLaws.getClass.getName.nonEmpty &&
+                      CrashConsistencyLaws.getClass.getName.nonEmpty &&
+                      TenantStorageLaws.getClass.getName.nonEmpty &&
+                      faultPlan.rules.length == 1 &&
+                      !TenantStorageConfig.Default.allowSharedDeduplication &&
+                      DeduplicationScope.Isolated.toString.nonEmpty &&
+                      classOf[ContextualTenantBlobStore].getName.nonEmpty &&
+                      TenantContext.live.getClass.getName.nonEmpty &&
+                      TenantStoreProvider.getClass.getName.nonEmpty &&
                       classOf[RocksKeyValueStore].getName.nonEmpty &&
                       S3BlobStore.PartSize.Default.value >= 5 * 1024 * 1024
                   )

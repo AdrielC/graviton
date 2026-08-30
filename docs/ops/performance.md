@@ -110,6 +110,8 @@ Never infer throughput from block size or a single process counter. Never compar
 
 The server defaults to four concurrent block writes per upload. Set `GRAVITON_BLOCK_WRITE_PARALLELISM` between `1` and `64` to match the backend and its connection pool. Results remain emitted in source order, so the manifest is deterministic even when writes complete out of order.
 
+The tenant-aware runtime resolves its `TenantStoreProvider` once per logical stream operation. A structural regression test uploads and downloads an 8 MiB stream and observes exactly two resolutions total. A dynamic provider can therefore use a database-backed catalog or bounded cache without adding a lookup per chunk or block. That test establishes hot-path shape, not throughput or tenant-count capacity. Run the retained benchmark suite with the real catalog, authorization, quotas, backend pools, tenant distribution, and concurrency before setting rollout limits.
+
 The live-byte ceiling controlled by Graviton is:
 
 ```text

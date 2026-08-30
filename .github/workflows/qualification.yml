@@ -26,6 +26,17 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: sbt
+      - name: Retain CrashLab and tenant-isolation contract evidence
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/graviton-qualification"
+          mkdir -p "$evidence"
+          ./sbt \
+            'backendLaws/testOnly graviton.backend.laws.CrashConsistencyLawsSpec graviton.backend.laws.TenantStorageLawsSpec' \
+            'runtime/testOnly graviton.runtime.tenant.TenantStorageSpec graviton.runtime.stores.GarbageCollectorSpec' \
+            2>&1 | tee "$evidence/crashlab-and-tenant-laws.log"
+          printf '{"schema":"graviton-crashlab-v1","commit":"%s","status":"passed"}\n' \
+            "$(git rev-parse HEAD)" > "$evidence/crashlab-and-tenant-laws.json"
       - name: Start exact two-node topology
         run: ./scripts/demo-shardcake-local.sh up
       - name: Prove node and backend failure behavior

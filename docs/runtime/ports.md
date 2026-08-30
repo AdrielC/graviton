@@ -43,8 +43,8 @@ Tracks which locators contain a given logical blob key.
 
 Current shape:
 
-- `replicas(key): ZIO[Any, Throwable, Set[BlobLocator]]`
-- `update(key, locators): ZIO[Any, Throwable, Unit]`
+- `replicas(key): IO[StoreError, Set[BlobLocator]]`
+- `update(key, locators): IO[StoreError, Unit]`
 
 See `graviton.runtime.indexes.ReplicaIndex`.
 
@@ -73,6 +73,14 @@ This port coordinates ordinary blob work with destructive repository maintenance
 ## `TransferBudget`
 
 `TransferBudget` is a weighted, process-wide semaphore for bytes retained by active transfer pipelines. A sink reserves its conservative live-buffer ceiling in a scope before accepting input. Waiting is interruptible, and the scoped permit is released on success, failure, or interruption. Inline CAS and S3 resumable staging receive the same service instance in packaged server wiring. Standalone S3 blob and mutable-object layers also reserve their adaptive part ceiling. The server reads `graviton.transfer-memory.maximum-buffered-bytes`; the default is 512 MiB.
+
+## `TenantStoreProvider` / `TenantContext`
+
+`TenantStoreProvider` resolves an authenticated `TenantId` to one long-lived logical store and explicit deduplication route. `TenantContext` carries that identity regionally through a parent-preserving `FiberRef`. `ContextualTenantBlobStore` resolves once per logical operation and fails before pulling bytes when context is missing or unknown. Isolated storage is the default; shared physical blocks require an explicit trust domain and an independent ZIO Config opt-in. See [Multi-tenant storage](./multi-tenancy.md).
+
+## `ManifestReferenceSource`
+
+`ManifestReferenceSource` streams every live block reference for one physical block domain. `GarbageCollector.forStorageDomain` consumes a non-empty set of tenant manifest repositories sequentially so shared-domain GC cannot quarantine a block that is live for another tenant.
 
 ## `RepairJournal`
 

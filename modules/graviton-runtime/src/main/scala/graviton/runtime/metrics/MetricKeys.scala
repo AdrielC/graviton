@@ -57,3 +57,5 @@ object MetricKeys:
   val ErasureReconstructionsTotal    = "graviton_erasure_reconstructions_total"
   val ErasureRepairsTotal            = "graviton_erasure_repairs_total"
   val ErasureHealthyTargets          = "graviton_erasure_healthy_targets"
+  val TenantStoreResolutionsTotal    = "graviton_tenant_store_resolutions_total"
+  val TenantStoreResolutionDuration  = "graviton_tenant_store_resolution_duration_seconds"
