@@ -31,7 +31,7 @@ sha256_file() {
 
 object_count() {
   compose --profile operator run --rm --no-deps minio-client \
-    'mc alias set b http://minio-b:9000 graviton graviton-three-domain-secret >/dev/null && mc find b/graviton-blocks-b --type f | wc -l' \
+    'mc alias set b http://minio-b:9000 graviton graviton-three-domain-secret >/dev/null && mc --json ls --recursive b/graviton-blocks-b | wc -l' \
     | tr -d '[:space:]'
 }
 
@@ -88,8 +88,14 @@ compose rm -f minio-b minio-init >/dev/null
 docker volume rm "$lost_volume" >/dev/null
 sleep 1
 compose up -d minio-b minio-init >/dev/null
+last_observed_objects="-1"
 for _ in $(seq 1 90); do
-  if [[ "$(object_count 2>/dev/null || printf 0)" -ge "$fresh_blocks" ]]; then break; fi
+  observed_objects="$(object_count 2>/dev/null || printf 0)"
+  if [[ "$observed_objects" != "$last_observed_objects" ]]; then
+    printf 'target-b objects: %s/%s\n' "$observed_objects" "$fresh_blocks" >&2
+    last_observed_objects="$observed_objects"
+  fi
+  if [[ "$observed_objects" -ge "$fresh_blocks" ]]; then break; fi
   sleep 2
 done
 repaired_objects="$(object_count)"
