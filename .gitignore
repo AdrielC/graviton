@@ -16,7 +16,6 @@ docs/node_modules/
 
 # Generated Scala.js output (built by CI)
 docs/public/js/
-docs/public/quasar/js/
 docs/.vitepress/generated/
 
 # Generated Scaladoc (built by CI)
