@@ -12,6 +12,8 @@ PAYLOAD="$2"
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 run_curl() {
   local headers=()
+  local connect_timeout="${GRAVITON_BENCHMARK_CONNECT_TIMEOUT_SECONDS:-10}"
+  local request_timeout="${GRAVITON_BENCHMARK_MAX_TIME_SECONDS:-300}"
   if [[ -n "${GRAVITON_BEARER_TOKEN:-}" ]]; then
     headers+=(-H "Authorization: Bearer ${GRAVITON_BEARER_TOKEN}")
   fi
@@ -29,9 +31,9 @@ run_curl() {
     headers+=(-H "Content-Type: ${GRAVITON_BENCHMARK_MEDIA_TYPE}")
   fi
   if ((${#headers[@]} > 0)); then
-    command curl "${headers[@]}" "$@"
+    command curl --connect-timeout "${connect_timeout}" --max-time "${request_timeout}" "${headers[@]}" "$@"
   else
-    command curl "$@"
+    command curl --connect-timeout "${connect_timeout}" --max-time "${request_timeout}" "$@"
   fi
 }
 

@@ -31,7 +31,9 @@ jobs:
           bash -n scripts/benchmark-tenant-mix.sh scripts/run-performance-cohort.sh
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" python3 -m py_compile \
             scripts/monitor-performance-telemetry.py \
-            scripts/evaluate-performance-gate.py
+            scripts/evaluate-performance-gate.py \
+            scripts/test-performance-gate.py
+          python3 scripts/test-performance-gate.py
 
   test:
     runs-on: ubuntu-latest

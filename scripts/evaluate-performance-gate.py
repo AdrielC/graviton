@@ -59,10 +59,37 @@ check("tenant fairness", new_fairness >= fairness_floor, old_fairness, new_fairn
 for label, telemetry in (("baseline", baseline_telemetry), ("candidate", candidate_telemetry)):
     check(f"{label} telemetry samples", telemetry["samples"] >= 3, 3, telemetry["samples"], 3, "samples")
     check(f"{label} telemetry scrape failures", telemetry["scrapeFailures"] == 0, 0, telemetry["scrapeFailures"], 0, "failures")
-    for required in ("heapHighWaterBytes", "postgresAwaitingHighWater"):
-        check(f"{label} exposes {required}", telemetry.get(required) is not None, True, telemetry.get(required), "present")
+    check(
+        f"{label} exposes heapHighWaterBytes",
+        telemetry.get("heapHighWaterBytes") is not None,
+        True,
+        telemetry.get("heapHighWaterBytes"),
+        "present",
+    )
     if label == "candidate":
+        check(
+            f"{label} exposes postgresAwaitingHighWater",
+            telemetry.get("postgresAwaitingHighWater") is not None,
+            True,
+            telemetry.get("postgresAwaitingHighWater"),
+            "present",
+        )
         check(f"{label} exposes S3 metrics", telemetry["applicability"].get("s3") is True, True, telemetry["applicability"].get("s3"), True)
+    elif telemetry.get("postgresAwaitingHighWater") is None:
+        checks.append({
+            "name": "baseline exposes postgresAwaitingHighWater",
+            "passed": True,
+            "applicable": False,
+            "reason": "baseline revision predates this candidate-required metric",
+        })
+    else:
+        check(
+            f"{label} exposes postgresAwaitingHighWater",
+            True,
+            True,
+            telemetry["postgresAwaitingHighWater"],
+            "present",
+        )
 
 old_heap = float(baseline_telemetry["heapHighWaterBytes"] or 0.0)
 new_heap = float(candidate_telemetry["heapHighWaterBytes"] or 0.0)
