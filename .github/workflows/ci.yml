@@ -28,7 +28,11 @@ jobs:
         run: ./scripts/check-product-boundary.sh
       - name: Qualification script syntax
         run: |
-          bash -n scripts/benchmark-tenant-mix.sh scripts/run-performance-cohort.sh
+          bash -n \
+            scripts/benchmark-http.sh \
+            scripts/benchmark-tenant-mix.sh \
+            scripts/qualify-rolling-upgrade.sh \
+            scripts/run-performance-cohort.sh
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" python3 -m py_compile \
             scripts/monitor-performance-telemetry.py \
             scripts/evaluate-performance-gate.py \

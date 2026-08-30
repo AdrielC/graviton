@@ -143,7 +143,11 @@ jobs:
             "$evidence/performance-gate.json"
       - name: Start clean dependencies for rolling qualification
         run: docker compose -f deploy/local-shardcake/docker-compose.yml up -d postgres minio minio-init
-      - name: Qualify mixed-version rollout and rollback
+      - name: Qualify mixed-version storage compatibility
+        env:
+          # v0.7.0 predates authenticated manifests. Strict mode must reject its
+          # unsigned rows, so this isolated compatibility proof runs without it.
+          GRAVITON_MANIFEST_INTEGRITY_REQUIRED: 'false'
         run: |
           ./scripts/qualify-rolling-upgrade.sh \
             graviton-qualification:baseline \
@@ -151,6 +155,30 @@ jobs:
             baseline \
             candidate \
             > "$RUNNER_TEMP/graviton-qualification/rolling-upgrade.json"
+      - name: Reset to a strict authenticated candidate cohort
+        run: |
+          set -euo pipefail
+          compose='deploy/local-shardcake/docker-compose.yml'
+          docker compose -f "$compose" down --volumes --remove-orphans
+          GRAVITON_MANAGER_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_1_IMAGE=graviton-qualification:candidate \
+          GRAVITON_NODE_2_IMAGE=graviton-qualification:candidate \
+            docker compose -f "$compose" up -d --no-build
+          for _ in $(seq 1 120); do
+            if curl --fail --silent http://127.0.0.1:58081/api/health/ready >/dev/null \
+              && curl --fail --silent http://127.0.0.1:58082/api/health/ready >/dev/null; then
+              jq -n \
+                --arg schema graviton-manifest-authentication-boundary-v1 \
+                --arg baseline "$(jq -r '.baselineRef' "$RUNNER_TEMP/graviton-qualification/rolling-images.json")" \
+                --arg candidate "$(git rev-parse HEAD)" \
+                '{schema: $schema, baseline: $baseline, candidate: $candidate, mixedVersionMode: "unsigned-compatibility", transitionalStateDestroyed: true, strictCandidateRequired: true}' \
+                > "$RUNNER_TEMP/graviton-qualification/manifest-authentication-boundary.json"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker compose -f "$compose" ps -a
+          exit 1
       - name: Run sustained resumable workload through repeated faults
         run: |
           ./scripts/qualify-long-failure.sh 600 4194304 \

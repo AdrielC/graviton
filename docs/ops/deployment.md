@@ -248,7 +248,9 @@ For filesystem mode, stop the prior writer before starting the new one. For S3 p
 ./scripts/qualify-rolling-upgrade.sh graviton:baseline graviton:candidate
 ```
 
-The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs and content IDs. Do not infer that another version pair is compatible.
+The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs, content IDs, and the manifest-integrity mode. Do not infer that another version pair is compatible.
+
+Required manifest authentication is a storage-format admission boundary. It deliberately rejects unsigned manifests written by a release that predates authentication. Do not weaken required mode to make that transition appear compatible. For the clean pre-1.0 line, enable required mode on an empty store. The repository qualification runs an explicitly unsigned, isolated mixed-version compatibility cohort, destroys all of its state, and then starts an authenticated candidate-only cohort for the sustained fault drill.
 
 After the rolling gate, run a longer fault workload:
 
