@@ -76,6 +76,31 @@ object ErasureBlockStoreSpec extends ZIOSpecDefault:
         cReads <- c.readCount
       yield assertTrue(exit.isFailure, aReads == 0, bReads == 0, cReads == 0)
     },
+    test("does not wait for a hung preferred domain when two remote shards are healthy") {
+      for
+        a     <- MemoryFragmentStore.make("a", "zone-a")
+        b     <- MemoryFragmentStore.make("b", "zone-b")
+        c     <- MemoryFragmentStore.make("c", "zone-c")
+        block <- canonical("remote quorum must outrun a hung local endpoint")
+        hungA  = new ErasureFragmentStore:
+                   override val name: String                                                                      = a.name
+                   override val failureDomain: String                                                             = a.failureDomain
+                   override def put(key: BinaryKey.Block, fragment: ErasureFragment): Task[BlockStoredStatus]     =
+                     a.put(key, fragment)
+                   override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[ErasureFragment] =
+                     ZIO.never
+                   override def repair(key: BinaryKey.Block, fragment: ErasureFragment): Task[Unit]               =
+                     a.repair(key, fragment)
+                   override def healthCheck: Task[Unit]                                                           = a.healthCheck
+        store  = ErasureBlockStore.make(Chunk(hungA, b, c), preferredFailureDomain = Some("zone-a")).toOption.get
+        _     <- store.putBlock(block)
+        bytes <- Live.live(
+                   BoundedByteStream
+                     .collectBlock(store.get(block.key))
+                     .timeoutFail(new IOException("remote erasure quorum timed out"))(2.seconds)
+                 )
+      yield assertTrue(bytes.bytes == block.bytes)
+    },
   )
 
   private final class MemoryFragmentStore private (

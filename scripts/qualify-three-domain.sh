@@ -47,6 +47,9 @@ trap cleanup EXIT INT TERM
 
 payload="$work_dir/payload.bin"
 download="$work_dir/download.bin"
+stage() { printf 'qualification stage: %s\n' "$1" >&2; }
+
+stage "upload fresh and duplicate payloads"
 dd if=/dev/urandom of="$payload" bs=1048576 count=32 2>/dev/null
 payload_sha="$(sha256_file "$payload")"
 
@@ -62,10 +65,11 @@ curl --fail --silent --show-error "$base_url/api/v1/blobs/$blob_id" > "$download
 
 # Kill the preferred local target. Readiness and byte-exact reconstruction must
 # continue from the two remote domains.
+stage "stop preferred local target and reconstruct remotely"
 compose stop minio-a >/dev/null
 wait_ready "$base_url/api/health/ready"
 remote_read_started="$(python3 -c 'import time; print(time.time_ns())')"
-curl --fail --silent --show-error "$base_url/api/v1/blobs/$blob_id" | cmp --silent - "$payload"
+curl --fail --silent --show-error --max-time 15 "$base_url/api/v1/blobs/$blob_id" | cmp --silent - "$payload"
 remote_read_ended="$(python3 -c 'import time; print(time.time_ns())')"
 metrics_during_loss="$(curl --fail --silent --show-error "$base_url/metrics")"
 grep -q 'graviton_erasure_shard_reads_total.*locality="remote"' <<<"$metrics_during_loss"
@@ -76,6 +80,7 @@ wait_ready "$base_url/api/health/ready"
 
 # Remove the entire second target volume, recreate an empty endpoint, and wait
 # for the manifest-driven scrub to regenerate its missing shards.
+stage "destroy and recreate target-b volume"
 volume_before="$(docker volume inspect "$lost_volume" --format '{{.CreatedAt}}')"
 repair_started="$(python3 -c 'import time; print(time.time_ns())')"
 compose stop minio-b >/dev/null
@@ -98,6 +103,7 @@ metrics_after_repair="$(curl --fail --silent --show-error "$base_url/metrics")"
 grep -q 'graviton_erasure_repairs_total.*outcome="repaired"' <<<"$metrics_after_repair"
 grep -Eq 'graviton_replica_under_protected_blocks(\{[^}]*\})? 0(\.0)?' <<<"$metrics_after_repair"
 
+stage "verify live Prometheus rules and Grafana dashboard"
 wait_ready "$prometheus_url/-/ready"
 rules="$(curl --fail --silent --show-error "$prometheus_url/api/v1/rules")"
 jq -e '.status == "success" and ([.data.groups[].rules[].name] | index("GravitonRepairNotConverged") != null)' <<<"$rules" >/dev/null

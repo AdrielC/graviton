@@ -12,9 +12,11 @@ import zio.stream.*
  * Fixed 2+1 XOR erasure coding across exactly three independent targets.
  *
  * A canonical block is at most 16 MiB. Encoding retains the source plus three
- * shards of at most 8 MiB each. Decoding retains at most two source shards,
- * one reconstructed shard, and the verified 16 MiB result. Whole blobs never
- * enter this store and remain streaming through the CAS pipeline.
+ * shards of at most 8 MiB each. A quorum read races the three bounded shards
+ * and cancels the remaining read after two verified results. At most one third
+ * shard can already be queued, so ordinary reconstruction has a conservative
+ * 48 MiB per-block ceiling. Whole blobs never enter this store and remain
+ * streaming through the CAS pipeline.
  */
 final class ErasureBlockStore private (
   targets: Chunk[ErasureBlockStore.Target],
@@ -99,28 +101,43 @@ final class ErasureBlockStore private (
   private def readAvailable(key: BinaryKey.Block, expectedLength: Int, stopAfter: Int): Task[ReadSet] =
     val ordered = preferLocal(targets)
 
-    def loop(
-      remaining: List[Target],
+    def collect(
+      queue: Queue[Either[(Target, Throwable), (Target, ErasureFragment)]],
+      remaining: Int,
       found: Map[Int, ErasureFragment],
       failures: Map[String, String],
     ): Task[ReadSet] =
-      if found.size >= stopAfter || remaining.isEmpty then
+      if found.size >= stopAfter || remaining == 0 then
         if found.size >= DataShards then ZIO.succeed(ReadSet(found, failures))
         else ZIO.fail(NotEnoughShards(key, found.size, failures))
       else
-        val head = remaining.head
-        head.store.get(key, head.index, expectedLength).either.flatMap {
-          case Right(fragment) =>
+        queue.take.flatMap {
+          case Right((target, fragment)) =>
             val locality =
-              preferredFailureDomain.fold("unconfigured")(domain => if head.store.failureDomain == domain then "local" else "remote")
-            metrics.counter(MetricKeys.ErasureShardReadsTotal, Map("target" -> head.store.name, "locality" -> locality)) *>
-              loop(remaining.tail, found.updated(head.index, fragment), failures)
-          case Left(error)     =>
+              preferredFailureDomain.fold("unconfigured")(domain => if target.store.failureDomain == domain then "local" else "remote")
+            metrics.counter(MetricKeys.ErasureShardReadsTotal, Map("target" -> target.store.name, "locality" -> locality)) *>
+              collect(queue, remaining - 1, found.updated(target.index, fragment), failures)
+          case Left((target, error))     =>
             val detail = Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
-            loop(remaining.tail, found, failures.updated(head.store.name, detail))
+            collect(queue, remaining - 1, found, failures.updated(target.store.name, detail))
         }
 
-    loop(ordered.toList, Map.empty, Map.empty)
+    ZIO.scoped {
+      for
+        queue <- Queue.unbounded[Either[(Target, Throwable), (Target, ErasureFragment)]]
+        _     <- ZIO.foreachDiscard(ordered) { target =>
+                   target.store
+                     .get(key, target.index, expectedLength)
+                     .either
+                     .flatMap {
+                       case Right(fragment) => queue.offer(Right(target -> fragment))
+                       case Left(error)     => queue.offer(Left(target -> error))
+                     }
+                     .forkScoped
+                 }
+        read  <- collect(queue, ordered.length, Map.empty, Map.empty)
+      yield read
+    }
 
   private def preferLocal(values: Chunk[Target]): Chunk[Target] =
     preferredFailureDomain match
