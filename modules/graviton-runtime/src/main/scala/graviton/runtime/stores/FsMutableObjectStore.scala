@@ -17,22 +17,25 @@ final class FsMutableObjectStore(
 ) extends MutableObjectStore:
   private val base = root.resolve("cas/upload-staging").toAbsolutePath.normalize()
 
-  override def put(locator: BlobLocator): ZSink[Any, Throwable, Byte, Nothing, Unit] =
+  override def put(locator: BlobLocator): ZSink[Any, StoreError, Byte, Nothing, Unit] =
     ZSink.unwrapScoped {
-      for
+      (for
         destination <- pathFor(locator)
         writer      <- ZIO.acquireRelease(FsMutableObjectStore.Writer.open(destination))(_.closeAndDelete.orDie)
       yield ZSink
         .foldLeftChunksZIO[Any, Throwable, Byte, FsMutableObjectStore.Writer](writer)((current, chunk) => current.write(chunk).as(current))
         .mapZIO(_.commit)
         .ignoreLeftover
+        .mapError(storeError(StoreOperation.PutObject))).mapError(storeError(StoreOperation.PutObject))
     }
 
-  override def delete(locator: BlobLocator): Task[Unit] =
-    pathFor(locator).flatMap(path => ZIO.attemptBlocking(Files.deleteIfExists(path)).unit)
+  override def delete(locator: BlobLocator): IO[StoreError, Unit] =
+    pathFor(locator)
+      .flatMap(path => ZIO.attemptBlocking(Files.deleteIfExists(path)).unit)
+      .mapError(storeError(StoreOperation.DeleteObject))
 
-  override def copy(src: BlobLocator, dest: BlobLocator): Task[Unit] =
-    for
+  override def copy(src: BlobLocator, dest: BlobLocator): IO[StoreError, Unit] =
+    (for
       source      <- pathFor(src)
       destination <- pathFor(dest)
       _           <- ZIO.attemptBlocking {
@@ -46,19 +49,21 @@ final class FsMutableObjectStore(
                        finally
                          val _ = Files.deleteIfExists(tmp)
                      }
-    yield ()
+    yield ()).mapError(storeError(StoreOperation.CopyObject))
 
-  override def head(locator: BlobLocator): Task[Option[Long]] =
-    pathFor(locator).flatMap { path =>
-      ZIO.attemptBlocking {
-        if Files.exists(path, LinkOption.NOFOLLOW_LINKS) then Some(Files.size(path)) else None
+  override def head(locator: BlobLocator): IO[StoreError, Option[Long]] =
+    pathFor(locator)
+      .flatMap { path =>
+        ZIO.attemptBlocking {
+          if Files.exists(path, LinkOption.NOFOLLOW_LINKS) then Some(Files.size(path)) else None
+        }
       }
-    }
+      .mapError(storeError(StoreOperation.HeadObject))
 
-  override def list(prefix: String): ZStream[Any, Throwable, BlobLocator] =
+  override def list(prefix: String): ZStream[Any, StoreError, BlobLocator] =
     val normalized = prefix.trim.stripPrefix("/")
     val start      = base.resolve(normalized).normalize()
-    if !start.startsWith(base) then ZStream.fail(new IllegalArgumentException("staging prefix escapes its root"))
+    if !start.startsWith(base) then ZStream.fail(StoreError.InvalidInput(StoreOperation.ListObjects, "staging prefix escapes its root"))
     else
       FsBlobManifestRepo
         .walkFiles(start)(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
@@ -67,15 +72,19 @@ final class FsMutableObjectStore(
             .fromEither(BlobLocator.from(scheme, bucket, base.relativize(path).toString.replace(java.io.File.separatorChar, '/')))
             .mapError(new IllegalStateException(_))
         }
+        .mapError(storeError(StoreOperation.ListObjects))
 
-  override def get(locator: BlobLocator): ZStream[Any, Throwable, Byte] =
-    ZStream.fromZIO(pathFor(locator)).flatMap { path =>
-      ZStream
-        .acquireReleaseWith(
-          ZIO.attemptBlocking(Channels.newInputStream(Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)))
-        )(stream => ZIO.attemptBlocking(stream.close()).orDie)
-        .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
-    }
+  override def get(locator: BlobLocator): ZStream[Any, StoreError, Byte] =
+    ZStream
+      .fromZIO(pathFor(locator))
+      .flatMap { path =>
+        ZStream
+          .acquireReleaseWith(
+            ZIO.attemptBlocking(Channels.newInputStream(Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)))
+          )(stream => ZIO.attemptBlocking(stream.close()).orDie)
+          .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
+      }
+      .mapError(storeError(StoreOperation.GetObject))
 
   private def pathFor(locator: BlobLocator): Task[Path] =
     if locator.scheme.value != scheme then
@@ -86,6 +95,9 @@ final class FsMutableObjectStore(
       val resolved = base.resolve(locator.path.value).normalize()
       if resolved.startsWith(base) then ZIO.succeed(resolved)
       else ZIO.fail(new IllegalArgumentException("staging locator escapes its root"))
+
+  private def storeError(operation: StoreOperation)(error: Throwable): StoreError =
+    StoreError.fromThrowable(operation, StoreBackend.Filesystem)(error)
 
   private def forceFile(path: Path): Unit =
     val channel = FileChannel.open(path, StandardOpenOption.WRITE)

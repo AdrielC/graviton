@@ -2,7 +2,8 @@ package graviton.protocol.http
 
 import graviton.core.bytes.Hasher
 import graviton.runtime.metrics.MetricKeys
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.model.{InventoryCursor, InventoryPageSize}
+import graviton.runtime.stores.{BlobStore, StoreError}
 import graviton.runtime.upload.{
   LocalityAwareUpload,
   ResumableUploadPhase,
@@ -505,28 +506,30 @@ final case class HttpApi(
   private val listBlobsHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
       secured(req, "blob.list", Capability.BlobRead, ResourceRef.blobCollection) {
-        val limitResult = req.url.queryParam("limit") match
-          case None      => Right(100)
-          case Some(raw) => raw.toIntOption.filter(value => value >= 1 && value <= 1000).toRight("limit must be between 1 and 1000")
+        val parameters = for
+          limit  <- req.url.queryParam("limit") match
+                      case None      => Right(InventoryPageSize.Default)
+                      case Some(raw) =>
+                        raw.toIntOption
+                          .toRight("limit must be a decimal integer")
+                          .flatMap(InventoryPageSize.either)
+          cursor <- req.url.queryParam("cursor") match
+                      case None        => Right(None)
+                      case Some(value) => InventoryCursor.either(value).map(Some(_))
+        yield limit -> cursor
 
-        limitResult match
-          case Left(message) => ZIO.succeed(error(Status.BadRequest, "invalid_pagination", message))
-          case Right(limit)  =>
-            blobStore.list
-              .map { items =>
-                val summaries = items.map(toSummary)
-                req.url.queryParam("cursor") match
-                  case Some(value) if !summaries.exists(_.id.value == value) =>
-                    error(Status.BadRequest, "invalid_pagination", "cursor does not identify a persisted blob")
-                  case cursor                                                =>
-                    val remaining = cursor match
-                      case None        => summaries
-                      case Some(value) => summaries.dropWhile(_.id.value != value).drop(1)
-                    val page      = remaining.take(limit)
-                    val next      = Option.when(remaining.length > limit)(page.last.id.value)
-                    Response.json(ApiJson.encode(BlobListResponse(page.toList, next)))
+        parameters match
+          case Left(message)          => ZIO.succeed(error(Status.BadRequest, "invalid_pagination", message))
+          case Right((limit, cursor)) =>
+            blobStore
+              .inventoryPage(cursor, limit)
+              .map(page => Response.json(ApiJson.encode(BlobListResponse(page.items.map(toSummary).toList, page.next.map(_.value)))))
+              .catchAll {
+                case invalid: StoreError.InvalidInput =>
+                  ZIO.succeed(error(Status.BadRequest, "invalid_pagination", invalid.reason))
+                case _                                =>
+                  ZIO.succeed(error(Status.InternalServerError, "inventory_failure", "Blob inventory lookup failed"))
               }
-              .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "inventory_failure", "Blob inventory lookup failed")))
       }
     }
 

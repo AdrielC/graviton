@@ -104,6 +104,14 @@ Built-in blob operations hold shared permits for their complete stream lifetime.
 
 The namespace separates repositories that share one PostgreSQL database. Filesystem coordination is rooted by the normalized repository path, so separate roots never share a lock even if they use the same namespace.
 
+### Transfer memory admission
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_TRANSFER_MEMORY_MAXIMUM_BUFFERED_BYTES` | `536870912` | no | Process-wide weighted byte ceiling shared by active CAS and S3 staging pipelines. Iron-refined from 64 MiB through 1 TiB. |
+
+Each upload reserves its conservative pipeline maximum before accepting bytes. Concurrent transfers wait interruptibly when their combined reservations would exceed the ceiling, and scoped permits are released on success, failure, or interruption. Size this value below the memory available to the JVM after accounting for the heap, direct buffers, database drivers, metrics, and other co-located work.
+
 ### Block backend selection
 
 | Name | Default | Required | Meaning |
@@ -158,6 +166,8 @@ export GRAVITON_REPLICATION_TARGET_ZONE_A_SECRET_KEY='...'
 | `GRAVITON_REPLICATION_REPAIR_BATCH_SIZE` | `10000` | Iron-refined maximum referenced blocks per cycle, from 1 through 1,000,000. |
 | `GRAVITON_REPLICATION_MODE` | `replicated` | `replicated` or fixed `erasure-2-1`. |
 | `GRAVITON_REPLICATION_LOCAL_FAILURE_DOMAIN` | empty | Prefer validated reads from this domain before remote targets. |
+
+Repair progress is durable. Filesystem mode stores its cursor and unresolved failure records below `<GRAVITON_FS_ROOT>/cas/repair`. S3/MinIO mode stores shared state in `graviton.repair_state` and `graviton.repair_dead_letter` PostgreSQL tables.
 
 For each target name, uppercase it and replace hyphens with underscores to obtain its environment prefix. `zone-a` becomes `GRAVITON_REPLICATION_TARGET_ZONE_A`. Configure `_ENDPOINT`, `_ACCESS_KEY`, `_SECRET_KEY`, and optionally `_REGION`. Named targets never inherit `GRAVITON_S3_ENDPOINT` or its credentials. Startup validation also rejects duplicate target endpoint URLs, because separate buckets on one endpoint are not independently stoppable failure domains.
 

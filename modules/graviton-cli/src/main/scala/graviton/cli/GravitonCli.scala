@@ -3,7 +3,7 @@ package graviton.cli
 import graviton.core.bytes.*
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.types.*
-import graviton.runtime.config.{GarbageCollectionConfig, GravitonConfig, MaintenanceConfig}
+import graviton.runtime.config.{GarbageCollectionConfig, GravitonConfig, MaintenanceConfig, TransferMemoryConfig}
 import graviton.runtime.stores.*
 import graviton.streams.Chunker
 import zio.*
@@ -141,8 +141,7 @@ object GravitonCli extends ZIOAppDefault:
   private def list(cfg: GravitonConfig): ZIO[Any, Any, Unit] =
     for
       store <- makeStore(cfg)
-      blobs <- store.list
-      _     <- ZIO.foreachDiscard(blobs) { item =>
+      _     <- store.streamInventory.runForeach { item =>
                  Console.printLine(s"${item.key.bits.render}\t${item.stat.size.value}\t${item.stat.lastModified}\t${item.blockCount}")
                }
     yield ()
@@ -163,7 +162,9 @@ object GravitonCli extends ZIOAppDefault:
       repo               = new FsBlobManifestRepo(root)
       report            <- GarbageCollection
                              .sweep(ageHours.hours, dryRun = !applyChanges) { block =>
-                               Console.printLine(s"  ${block.key.bits.render}\t${block.token}")
+                               Console
+                                 .printLine(s"  ${block.key.bits.render}\t${block.token}")
+                                 .mapError(error => StoreError.fromThrowable(StoreOperation.GarbageCollect)(error))
                              }
                              .provide(
                                (ZLayer.succeed[BlobManifestRepo](repo) ++
@@ -185,10 +186,12 @@ object GravitonCli extends ZIOAppDefault:
       root              <- ZIO.attempt(Paths.get(cfg.dataDir).toAbsolutePath)
       _                 <- ZIO.attemptBlocking(Files.createDirectories(root))
       maintenanceConfig <- ZIO.config(MaintenanceConfig.config)
+      transferConfig    <- ZIO.config(TransferMemoryConfig.config)
       coordinator       <- FileMaintenanceCoordinator.make(root, maintenanceConfig)
+      transferBudget    <- TransferBudget.make(transferConfig)
       blockStore         = new FsBlockStore(root)
       repo               = new FsBlobManifestRepo(root)
-      rawStore           = new CasBlobStore(blockStore, repo)
+      rawStore           = new CasBlobStore(blockStore, repo, transferBudget = transferBudget)
       blobStore          = new CoordinatedBlobStore(rawStore, coordinator)
     yield blobStore
 

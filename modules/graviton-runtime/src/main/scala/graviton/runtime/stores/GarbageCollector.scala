@@ -50,9 +50,11 @@ final class GarbageCollector(
     minimumAge: Duration,
     dryRun: Boolean,
   )(
-    onQuarantined: QuarantinedBlock => Task[Unit] = _ => ZIO.unit
-  ): Task[SweepReport] =
-    run(minimumAge, dryRun, None)(onQuarantined).map(_.report)
+    onQuarantined: QuarantinedBlock => IO[StoreError, Unit] = _ => ZIO.unit
+  ): IO[StoreError, SweepReport] =
+    run(minimumAge, dryRun, None)(onQuarantined)
+      .map(_.report)
+      .mapError(StoreError.fromThrowable(StoreOperation.GarbageCollect))
 
   /**
    * Small-batch compatibility API.
@@ -61,8 +63,8 @@ final class GarbageCollector(
    * `Chunk[QuarantinedBlock]`. It rejects oversized repository or receipt
    * collections before any mutation. Use [[sweep]] for production inventory.
    */
-  def collect(minimumAge: Duration, dryRun: Boolean): Task[Report] =
-    for
+  def collect(minimumAge: Duration, dryRun: Boolean): IO[StoreError, Report] =
+    (for
       receipts   <- Ref.make(ChunkBuilder.make[QuarantinedBlock]())
       outcome    <- run(
                       minimumAge,
@@ -88,39 +90,44 @@ final class GarbageCollector(
       candidateBlocks = candidates,
       candidateBytes = outcome.report.candidateBytes,
       quarantined = values,
-    )
+    )).mapError(StoreError.fromThrowable(StoreOperation.GarbageCollect))
 
-  def restore(quarantined: Chunk[QuarantinedBlock]): Task[Unit] =
+  def restore(quarantined: Chunk[QuarantinedBlock]): IO[StoreError, Unit] =
     restore(ZStream.fromChunk(quarantined)).unit
 
   /** Restore a durable quarantine receipt without first collecting it. */
-  override def restore(quarantined: ZStream[Any, Throwable, QuarantinedBlock]): Task[Long] =
-    coordinator.withMaintenance {
-      quarantined.runFoldZIO(0L) { (count, block) =>
-        blocks.restore(block).as(java.lang.Math.addExact(count, 1L))
+  override def restore(quarantined: ZStream[Any, StoreError, QuarantinedBlock]): IO[StoreError, Long] =
+    coordinator
+      .withMaintenance {
+        quarantined.runFoldZIO(0L) { (count, block) =>
+          blocks.restore(block).as(java.lang.Math.addExact(count, 1L))
+        }
       }
-    }
+      .mapError(StoreError.fromThrowable(StoreOperation.Restore))
 
-  def purge(quarantined: Chunk[QuarantinedBlock], minimumQuarantineAge: Duration): Task[Int] =
-    purge(ZStream.fromChunk(quarantined), minimumQuarantineAge).flatMap(count => ZIO.attempt(java.lang.Math.toIntExact(count)))
+  def purge(quarantined: Chunk[QuarantinedBlock], minimumQuarantineAge: Duration): IO[StoreError, Int] =
+    purge(ZStream.fromChunk(quarantined), minimumQuarantineAge)
+      .flatMap(count => ZIO.attempt(java.lang.Math.toIntExact(count)).mapError(StoreError.fromThrowable(StoreOperation.Purge)))
 
   /** Purge an already-reviewed quarantine receipt as a stream. */
   override def purge(
-    quarantined: ZStream[Any, Throwable, QuarantinedBlock],
+    quarantined: ZStream[Any, StoreError, QuarantinedBlock],
     minimumQuarantineAge: Duration,
-  ): Task[Long] =
-    coordinator.withMaintenance {
-      ZIO
-        .fail(new IllegalArgumentException("minimumQuarantineAge must be non-negative"))
-        .when(minimumQuarantineAge < Duration.Zero) *>
-        Clock.instant.flatMap { now =>
-          val oldestEligible = now.minusMillis(minimumQuarantineAge.toMillis)
-          quarantined.runFoldZIO(0L) { (count, block) =>
-            if block.quarantinedAt.isAfter(oldestEligible) then ZIO.succeed(count)
-            else blocks.purge(block).as(java.lang.Math.addExact(count, 1L))
+  ): IO[StoreError, Long] =
+    coordinator
+      .withMaintenance {
+        ZIO
+          .fail(new IllegalArgumentException("minimumQuarantineAge must be non-negative"))
+          .when(minimumQuarantineAge < Duration.Zero) *>
+          Clock.instant.flatMap { now =>
+            val oldestEligible = now.minusMillis(minimumQuarantineAge.toMillis)
+            quarantined.runFoldZIO(0L) { (count, block) =>
+              if block.quarantinedAt.isAfter(oldestEligible) then ZIO.succeed(count)
+              else blocks.purge(block).as(java.lang.Math.addExact(count, 1L))
+            }
           }
-        }
-    }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.Purge))
 
   private def run(
     minimumAge: Duration,
@@ -189,7 +196,7 @@ final class GarbageCollector(
                 }
     yield report
 
-  private def referencedBlocks: ZStream[Any, Throwable, BinaryKey.Block] =
+  private def referencedBlocks: ZStream[Any, StoreError, BinaryKey.Block] =
     manifests.streamSummaries.flatMap { case (blob, _) =>
       // `flatMap` is sequential here: only one manifest cursor is live while
       // its block references are consumed, preserving backend connection and

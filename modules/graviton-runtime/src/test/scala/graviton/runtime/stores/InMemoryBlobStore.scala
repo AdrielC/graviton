@@ -32,36 +32,49 @@ final class InMemoryBlobStore private (
         builder ++= chunk
         builder
       }
-      .mapZIO(builder => persist(builder.result(), plan))
+      .mapZIO(builder => persist(builder.result(), plan).mapError(StoreError.fromThrowable(StoreOperation.PutBlob)))
 
-  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
     ZStream
       .fromZIO(
         blobs.get.flatMap { map =>
           ZIO
             .fromOption(map.get(key))
-            .mapError(_ => new NoSuchElementException(s"Blob ${key.bits.digest.value} not found"))
+            .mapError(_ => StoreError.NotFound(StoreOperation.GetBlob, key))
         }
       )
       .flatMap(blob => ZStream.fromChunk(blob.bytes))
 
-  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =
     blobs.get.map(_.get(key).map(_.stat))
 
-  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
-    blobs.get.map { entries =>
-      Chunk.fromIterable(
-        entries.iterator.collect { case (key: BinaryKey.Blob, stored) => BlobListing(key, stored.stat, blockCount = 1) }.toList
-      )
-    }
+  override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize): IO[StoreError, InventoryPage[BlobListing]] =
+    for
+      anchor  <- ZIO
+                   .fromEither(
+                     after.fold[Either[String, Option[String]]](Right(None))(cursor =>
+                       InventoryCursor.decode(cursor, InventoryNamespace.InMemory).map(Some(_))
+                     )
+                   )
+                   .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+      entries <- blobs.get
+      ordered  = entries.iterator.collect { case (key: BinaryKey.Blob, stored) => key -> stored }.toList.sortBy(_._1.bits.render)
+      rows     = ordered.dropWhile { case (key, _) => anchor.exists(_ >= key.bits.render) }.take(limit.value + 1)
+      items    = Chunk.fromIterable(rows.take(limit.value).map { case (key, stored) => BlobListing(key, stored.stat, blockCount = 1) })
+      next    <- ZIO.foreach(rows.lift(limit.value - 1).filter(_ => rows.length > limit.value)) { case (key, _) =>
+                   ZIO
+                     .fromEither(InventoryCursor.encode(InventoryNamespace.InMemory, key.bits.render))
+                     .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+                 }
+    yield InventoryPage(items, next)
 
-  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
+  override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     stat(key).map(_.map(value => BlobDescription(BlobListing(key, value, blockCount = 1), Chunk.empty)))
 
-  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+  override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     blobs.update(_ - key).unit
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+  override def healthCheck: IO[StoreError, Unit] = ZIO.unit
 
   private def persist(bytes: Chunk[Byte], plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for

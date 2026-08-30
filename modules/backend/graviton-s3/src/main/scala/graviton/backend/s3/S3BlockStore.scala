@@ -3,7 +3,7 @@ package graviton.backend.s3
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.runtime.model.*
-import graviton.runtime.stores.{BlockInventoryEntry, BlockMaintenance, BlockStore, QuarantinedBlock, RepairableBlockStore}
+import graviton.runtime.stores.*
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -28,8 +28,10 @@ final class S3BlockStore(
   override def putBlock(
     block: CanonicalBlock,
     plan: BlockWritePlan = BlockWritePlan(),
-  ): IO[Throwable, StoredBlock] =
-    storeBlock(block).map(status => StoredBlock(block.key, block.size, status))
+  ): IO[StoreError, StoredBlock] =
+    storeBlock(block)
+      .map(status => StoredBlock(block.key, block.size, status))
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.S3, retryUnknown = true))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -43,9 +45,10 @@ final class S3BlockStore(
         yield next
       }
       .mapZIO(_.toResult)
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.S3, retryUnknown = true))
       .ignoreLeftover
 
-  override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
+  override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
     val req =
       GetObjectRequest
         .builder()
@@ -58,8 +61,12 @@ final class S3BlockStore(
         ZIO.attemptBlocking(client.getObject(req))
       )(is => ZIO.attemptBlocking(is.close()).orDie)
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
+      .mapError {
+        case error: S3Exception if isNotFound(error) => StoreError.NotFound(StoreOperation.GetBlock, key)
+        case error                                   => StoreError.fromThrowable(StoreOperation.GetBlock, StoreBackend.S3, retryUnknown = true)(error)
+      }
 
-  override def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean] =
+  override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
     val req =
       HeadObjectRequest
         .builder()
@@ -75,9 +82,10 @@ final class S3BlockStore(
         case error: S3Exception if error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(_.errorCode() == "NoSuchKey") =>
           ZIO.succeed(false)
       }
+      .mapError(StoreError.fromThrowable(StoreOperation.ExistsBlock, StoreBackend.S3, retryUnknown = true))
 
-  override def repairBlock(block: CanonicalBlock): Task[Unit] =
-    for
+  override def repairBlock(block: CanonicalBlock): IO[StoreError, Unit] =
+    (for
       _        <- ZIO
                     .fail(
                       new IllegalArgumentException(
@@ -97,59 +105,65 @@ final class S3BlockStore(
                     .build()
       _        <- ZIO.attemptBlocking(client.putObject(request, RequestBody.fromBytes(payload))).unit
       _        <- verifyExisting(block, checksum)
-    yield ()
+    yield ()).mapError(StoreError.fromThrowable(StoreOperation.Repair, StoreBackend.S3, retryUnknown = true))
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking {
-      val request = HeadBucketRequest.builder().bucket(config.blocks.bucket).build()
-      client.headBucket(request)
-      ()
-    }
-
-  override def inventory: ZStream[Any, Throwable, BlockInventoryEntry] =
-    ZStream.paginateChunkZIO("") { continuationToken =>
-      ZIO.attemptBlocking {
-        val builder  = ListObjectsV2Request
-          .builder()
-          .bucket(config.blocks.bucket)
-          .prefix(activeListPrefix)
-        if continuationToken.nonEmpty then
-          val _ = builder.continuationToken(continuationToken)
-        val response = client.listObjectsV2(builder.build())
-        val entries  = Chunk.fromIterable(
-          response
-            .contents()
-            .iterator()
-            .asScala
-            .filterNot(obj => obj.key().startsWith(quarantinePrefix))
-            .map { obj =>
-              val key = parseObjectKey(obj.key()).fold(
-                message => throw new IllegalStateException(s"Invalid block object '${obj.key()}': $message"),
-                identity,
-              )
-              BlockInventoryEntry(key, obj.size(), obj.lastModified())
-            }
-            .toList
-        )
-        (entries, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val request = HeadBucketRequest.builder().bucket(config.blocks.bucket).build()
+        client.headBucket(request)
+        ()
       }
-    }
+      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, StoreBackend.S3, retryUnknown = true))
 
-  override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
-    for
+  override def inventory: ZStream[Any, StoreError, BlockInventoryEntry] =
+    ZStream
+      .paginateChunkZIO("") { continuationToken =>
+        ZIO.attemptBlocking {
+          val builder  = ListObjectsV2Request
+            .builder()
+            .bucket(config.blocks.bucket)
+            .prefix(activeListPrefix)
+          if continuationToken.nonEmpty then
+            val _ = builder.continuationToken(continuationToken)
+          val response = client.listObjectsV2(builder.build())
+          val entries  = Chunk.fromIterable(
+            response
+              .contents()
+              .iterator()
+              .asScala
+              .filterNot(obj => obj.key().startsWith(quarantinePrefix))
+              .map { obj =>
+                val key = parseObjectKey(obj.key()).fold(
+                  message => throw new IllegalStateException(s"Invalid block object '${obj.key()}': $message"),
+                  identity,
+                )
+                BlockInventoryEntry(key, obj.size(), obj.lastModified())
+              }
+              .toList
+          )
+          (entries, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
+        }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.S3, retryUnknown = true))
+
+  override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] =
+    (for
       quarantinedAt <- Clock.instant
       token          = s"$quarantinePrefix${UUID.randomUUID()}/${objectKeyFor(entry.key).stripPrefix(activeListPrefix)}"
       _             <- copyObject(objectKeyFor(entry.key), token)
       _             <- deleteObject(objectKeyFor(entry.key))
-    yield QuarantinedBlock(entry.key, token, entry.size, quarantinedAt)
+    yield QuarantinedBlock(entry.key, token, entry.size, quarantinedAt))
+      .mapError(StoreError.fromThrowable(StoreOperation.Quarantine, StoreBackend.S3, retryUnknown = true))
 
-  override def restore(block: QuarantinedBlock): Task[Unit] =
-    validateQuarantineToken(block.token) *>
+  override def restore(block: QuarantinedBlock): IO[StoreError, Unit] =
+    (validateQuarantineToken(block.token) *>
       copyObject(block.token, objectKeyFor(block.key)) *>
-      deleteObject(block.token)
+      deleteObject(block.token)).mapError(StoreError.fromThrowable(StoreOperation.Restore, StoreBackend.S3, retryUnknown = true))
 
-  override def purge(block: QuarantinedBlock): Task[Unit] =
-    validateQuarantineToken(block.token) *> deleteObject(block.token)
+  override def purge(block: QuarantinedBlock): IO[StoreError, Unit] =
+    (validateQuarantineToken(block.token) *> deleteObject(block.token))
+      .mapError(StoreError.fromThrowable(StoreOperation.Purge, StoreBackend.S3, retryUnknown = true))
 
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
     for

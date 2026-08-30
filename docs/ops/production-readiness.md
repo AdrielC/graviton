@@ -18,6 +18,9 @@ Current Graviton main is a production candidate for controlled embedded and sing
 | Packaging | Fat JAR, distroless non-root image, Kubernetes example, SBOM, checksums, attestations, and Maven Central publication | Release secrets and target repositories remain operator-owned |
 | gRPC | Packaged listener, generated stubs, bounded streaming client, lifecycle calls, auth, capabilities, rate limiting, and audit | HTTP additionally supports ranges, preconditions, and verification |
 | RocksDB | Durable key-value adapter | Not a complete CAS `BlockStore` backend |
+| Storage contracts | Typed operation-specific `StoreError`, native opaque cursor pages, complete lazy inventory, published backend laws | Third-party adapters must run the same laws and retain backend-specific fault evidence |
+| Transfer admission | Process-wide weighted byte budget with scoped, interruption-safe reservations | Size the configured ceiling against heap, direct memory, and non-Graviton co-tenants |
+| Repair progress | Durable filesystem or PostgreSQL cursor plus streamed unresolved-failure records | Alert and operate the dead-letter stream; a journal does not repair an unavailable target by itself |
 
 ## Executable release gates
 
@@ -94,4 +97,4 @@ A `v*` tag validates the build, runs the packaged smoke, proves external consump
 
 ## Remaining product work
 
-The main product gaps are physical power-loss and disk-corruption injection, a durable cross-process repair cursor and dead-letter state, coordinated provider snapshots, retained benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides resumable uploads, automatic durability orchestration, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.
+The main product gaps are physical power-loss and disk-corruption injection, coordinated provider snapshots, retained benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides resumable uploads, durable repair progress and dead letters, automatic durability orchestration, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.

@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.runtime.config.MaintenanceConfig
-import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
+import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
 import zio.*
 import zio.stream.{ZSink, ZStream}
 import zio.test.*
@@ -207,16 +207,18 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
     release: Promise[Nothing, Unit],
   ): BlobStore =
     new BlobStore:
-      override def put(plan: BlobWritePlan): BlobSink                          = ZSink.fail(new UnsupportedOperationException("unused"))
-      override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte]     =
+      override def put(plan: BlobWritePlan): BlobSink                                                                                  =
+        ZSink.fail(StoreError.InvalidInput(StoreOperation.PutBlob, "unused in this read-coordination test"))
+      override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte]                                                            =
         ZStream.fromZIO(entered.succeed(())).drain ++
           ZStream.fromZIO(release.await).drain ++
           ZStream.succeed(1.toByte)
-      override def stat(key: BinaryKey.Blob): Task[Option[BlobStat]]           = ZIO.none
-      override def list: Task[Chunk[BlobListing]]                              = ZIO.succeed(Chunk.empty)
-      override def inspect(key: BinaryKey.Blob): Task[Option[BlobDescription]] = ZIO.none
-      override def delete(key: BinaryKey.Blob): Task[Unit]                     = ZIO.unit
-      override def healthCheck: Task[Unit]                                     = ZIO.unit
+      override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]]                                                         = ZIO.none
+      override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize): IO[StoreError, InventoryPage[BlobListing]] =
+        ZIO.succeed(InventoryPage(Chunk.empty, None))
+      override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]]                                               = ZIO.none
+      override def delete(key: BinaryKey.Blob): IO[StoreError, Unit]                                                                   = ZIO.unit
+      override def healthCheck: IO[StoreError, Unit]                                                                                   = ZIO.unit
 
   private def deleteRecursive(path: java.nio.file.Path): Unit =
     if Files.exists(path) then

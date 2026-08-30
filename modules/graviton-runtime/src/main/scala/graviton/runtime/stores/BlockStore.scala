@@ -6,7 +6,7 @@ import zio.*
 import zio.stream.*
 
 trait BlockStore:
-  type BlockSink = ZSink[Any, Throwable, CanonicalBlock, Nothing, BlockBatchResult]
+  type BlockSink = ZSink[Any, StoreError, CanonicalBlock, Nothing, BlockBatchResult]
 
   /** Persist canonical blocks produced by the chunker + hashing pipeline. */
   def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink
@@ -23,24 +23,24 @@ trait BlockStore:
   def putBlock(
     block: CanonicalBlock,
     plan: BlockWritePlan = BlockWritePlan(),
-  ): ZIO[Any, Throwable, StoredBlock] =
+  ): IO[StoreError, StoredBlock] =
     ZStream
       .succeed(block)
       .run(putBlocks(plan))
       .flatMap(result =>
         ZIO
           .fromOption(result.stored.headOption)
-          .mapError(_ => new IllegalStateException("Block store completed without a stored-block result"))
+          .mapError(_ => StoreError.CorruptData(StoreOperation.PutBlock, "Block store completed without a stored-block result"))
       )
 
   /** Stream the bytes for a previously stored canonical block. */
-  def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte]
+  def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte]
 
   /** Return whether a canonical block already exists in the configured store. */
-  def exists(key: BinaryKey.Block): ZIO[Any, Throwable, Boolean]
+  def exists(key: BinaryKey.Block): IO[StoreError, Boolean]
 
   /** Verify that the backing block service is reachable and writable/readable. */
-  def healthCheck: ZIO[Any, Throwable, Unit] = ZIO.unit
+  def healthCheck: IO[StoreError, Unit] = ZIO.unit
 
 object BlockStore:
   val service: ZIO[BlockStore, Nothing, BlockStore] = ZIO.service[BlockStore]
@@ -50,11 +50,11 @@ object BlockStore:
  * with bytes already validated against its content key.
  */
 trait RepairableBlockStore extends BlockStore:
-  def repairBlock(block: CanonicalBlock): ZIO[Any, Throwable, Unit]
+  def repairBlock(block: CanonicalBlock): IO[StoreError, Unit]
 
 /** A block store whose background scrub can restore its configured durability. */
 trait ConvergentBlockStore extends BlockStore:
-  def converge(key: BinaryKey.Block): ZIO[Any, Throwable, RepairConvergence]
+  def converge(key: BinaryKey.Block): IO[StoreError, RepairConvergence]
 
 final case class RepairConvergence(
   healthyCopies: Int,
@@ -67,7 +67,7 @@ final case class RepairConvergence(
 trait ErasureFragmentStore:
   def name: String
   def failureDomain: String
-  def put(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): Task[BlockStoredStatus]
-  def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[graviton.runtime.model.ErasureFragment]
-  def repair(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): Task[Unit]
-  def healthCheck: Task[Unit]
+  def put(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): IO[StoreError, BlockStoredStatus]
+  def get(key: BinaryKey.Block, index: Int, expectedLength: Int): IO[StoreError, graviton.runtime.model.ErasureFragment]
+  def repair(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): IO[StoreError, Unit]
+  def healthCheck: IO[StoreError, Unit]

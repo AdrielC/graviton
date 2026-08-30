@@ -25,8 +25,8 @@ final class ErasureBlockStore private (
 ) extends ConvergentBlockStore:
   import ErasureBlockStore.*
 
-  override def putBlock(block: CanonicalBlock, plan: BlockWritePlan = BlockWritePlan()): Task[StoredBlock] =
-    for
+  override def putBlock(block: CanonicalBlock, plan: BlockWritePlan = BlockWritePlan()): IO[StoreError, StoredBlock] =
+    (for
       fragments <- Xor21Codec.encode(block)
       results   <- ZIO.foreachPar(targets) { target =>
                      target.store.put(block.key, fragments(target.index)).either.flatMap { result =>
@@ -41,7 +41,8 @@ final class ErasureBlockStore private (
       successes  = results.collect { case (_, Right(status)) => status }
       _         <- ZIO.fail(WriteThresholdFailed(successes.length)).when(successes.length < DataShards)
       status     = if successes.contains(BlockStoredStatus.Fresh) then BlockStoredStatus.Fresh else BlockStoredStatus.Duplicate
-    yield StoredBlock(block.key, block.size, status)
+    yield StoredBlock(block.key, block.size, status))
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, retryUnknown = true))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -49,32 +50,41 @@ final class ErasureBlockStore private (
         putBlock(block, plan).flatMap(stored => acc.append(block, stored))
       }
       .mapZIO(_.result)
+      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, retryUnknown = true))
       .ignoreLeftover
 
-  override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
-    ZStream.unwrap {
-      readAvailable(key, stopAfter = DataShards).flatMap { read =>
-        for
-          block <- Xor21Codec.decode(key, read.fragments)
-          kind   = if read.fragments.keySet == Set(0, 1) then "systematic" else "reconstructed"
-          _     <- metrics.counter(MetricKeys.ErasureReadsTotal, Map("path" -> kind))
-          _     <- metrics.counter(MetricKeys.ErasureReconstructionsTotal, Map("path" -> kind)).when(kind == "reconstructed")
-        yield ZStream.fromChunk(block.bytes)
+  override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
+    ZStream
+      .unwrap {
+        readAvailable(key, stopAfter = DataShards).flatMap { read =>
+          for
+            block <- Xor21Codec.decode(key, read.fragments)
+            kind   = if read.fragments.keySet == Set(0, 1) then "systematic" else "reconstructed"
+            _     <- metrics.counter(MetricKeys.ErasureReadsTotal, Map("path" -> kind))
+            _     <- metrics.counter(MetricKeys.ErasureReconstructionsTotal, Map("path" -> kind)).when(kind == "reconstructed")
+          yield ZStream.fromChunk(block.bytes)
+        }
       }
-    }
+      .mapError(StoreError.fromThrowable(StoreOperation.GetBlock, retryUnknown = true))
 
-  override def exists(key: BinaryKey.Block): Task[Boolean] =
-    get(key).runDrain.as(true).catchSome { case _: NotEnoughShards => ZIO.succeed(false) }
+  override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
+    readAvailable(key, stopAfter = DataShards)
+      .as(true)
+      .catchSome { case _: NotEnoughShards => ZIO.succeed(false) }
+      .mapError(StoreError.fromThrowable(StoreOperation.ExistsBlock, retryUnknown = true))
 
-  override def healthCheck: Task[Unit] =
-    ZIO.foreachPar(targets)(_.store.healthCheck.either).flatMap { checks =>
-      val healthy = checks.count(_.isRight)
-      metrics.gauge(MetricKeys.ErasureHealthyTargets, healthy.toDouble, Map.empty) *>
-        ZIO.fail(WriteThresholdFailed(healthy)).when(healthy < DataShards).unit
-    }
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .foreachPar(targets)(_.store.healthCheck.either)
+      .flatMap { checks =>
+        val healthy = checks.count(_.isRight)
+        metrics.gauge(MetricKeys.ErasureHealthyTargets, healthy.toDouble, Map.empty) *>
+          ZIO.fail(WriteThresholdFailed(healthy)).when(healthy < DataShards).unit
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, retryUnknown = true))
 
-  override def converge(key: BinaryKey.Block): Task[RepairConvergence] =
-    for
+  override def converge(key: BinaryKey.Block): IO[StoreError, RepairConvergence] =
+    (for
       read      <- readAvailable(key, stopAfter = TotalShards)
       block     <- Xor21Codec.decode(key, read.fragments)
       fragments <- Xor21Codec.encode(block)
@@ -90,7 +100,8 @@ final class ErasureBlockStore private (
                              ZIO.succeed(failures.updated(target.store.name, detail) -> count)
                        }
                    }
-    yield RepairConvergence(read.fragments.size, repaired._2, repaired._1)
+    yield RepairConvergence(read.fragments.size, repaired._2, repaired._1))
+      .mapError(StoreError.fromThrowable(StoreOperation.Repair, retryUnknown = true))
 
   private def readAvailable(key: BinaryKey.Block, stopAfter: Int): Task[ReadSet] =
     ZIO

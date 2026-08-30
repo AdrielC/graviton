@@ -1,6 +1,13 @@
 package graviton.server
 
-import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator, PgResumableUploadRepository}
+import graviton.backend.pg.{
+  PgBlobManifestRepo,
+  PgCatalog,
+  PgDataSource,
+  PgMaintenanceCoordinator,
+  PgRepairJournal,
+  PgResumableUploadRepository,
+}
 import graviton.backend.s3.{
   S3BlockStore,
   S3BlockStoreConfig,
@@ -15,7 +22,7 @@ import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
-import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig, ReplicaStorageMode}
+import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig, ReplicaStorageMode, TransferMemoryConfig}
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
@@ -31,8 +38,11 @@ import graviton.runtime.stores.{
   MetricsBlobStore,
   RepairableBlockStore,
   ReplicaPlacement,
+  RepairJournal,
   ReplicaRepairService,
   ReplicatedBlockStore,
+  FsRepairJournal,
+  TransferBudget,
 }
 import graviton.runtime.upload.{FsResumableUploadRepository, ResumableUploadService, UploadStagingTarget}
 import graviton.core.types.UploadChunkSize
@@ -61,6 +71,8 @@ object Main extends ZIOAppDefault:
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
+      transferMemory                               <- ZIO.config(TransferMemoryConfig.config)
+      transferBudget                               <- TransferBudget.make(transferMemory)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
@@ -249,8 +261,8 @@ object Main extends ZIOAppDefault:
                       if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
                       else streaming.port(port)
                     },
-                    blobLayer(cfg, maintenance, blockPersistence),
-                    resumableUploadLayer(cfg),
+                    blobLayer(cfg, maintenance, blockPersistence, transferBudget),
+                    resumableUploadLayer(cfg, transferBudget),
                     catalogLayer(cfg),
                     shardcakeNodeLayer(shardcake),
                     ZLayer.succeed(healthConfig),
@@ -305,21 +317,24 @@ object Main extends ZIOAppDefault:
     cfg: GravitonConfig,
     maintenance: MaintenanceConfig,
     blockPersistence: BlockPersistenceConfig,
+    transferBudget: TransferBudget,
   ): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     val storageLayer =
       cfg.blobBackend.toLowerCase match
         case "s3" | "minio" =>
-          val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator](
+          val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
             PgDataSource.layerFromEnv,
             PgBlobManifestRepo.layer,
             PgMaintenanceCoordinator.layer(maintenance),
+            PgRepairJournal.layer,
           )
           (ZLayer.service[MetricsRegistry] ++ metadata) >+> s3BlockLayer(cfg)
         case "fs"           =>
           val root     = Path.of(cfg.fs.root)
-          val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator](
+          val metadata = ZLayer.make[BlobManifestRepo & MaintenanceCoordinator & RepairJournal](
             ZLayer.succeed[BlobManifestRepo](new FsBlobManifestRepo(root)),
             FileMaintenanceCoordinator.layer(root, maintenance),
+            ZLayer.succeed[RepairJournal](new FsRepairJournal(root)),
           )
           (ZLayer.service[MetricsRegistry] ++ metadata) >+> fsBlockLayer(cfg)
         case other          =>
@@ -330,14 +345,14 @@ object Main extends ZIOAppDefault:
           )
 
     val casLayer =
-      (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence)) >>>
+      (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence) ++ ZLayer.succeed(transferBudget)) >>>
         CasBlobStore.coordinatedLayerWithMetricsAndPersistence
 
     (casLayer ++ ZLayer.service[MetricsRegistry]) >>> MetricsBlobStore.layer
 
   private[server] def fsBlockLayer(
     cfg: GravitonConfig
-  ): ZLayer[BlobManifestRepo & MetricsRegistry, Throwable, BlockStore] =
+  ): ZLayer[BlobManifestRepo & RepairJournal & MetricsRegistry, Throwable, BlockStore] =
     if !cfg.replication.enabled then ZLayer.succeed[BlockStore](new FsBlockStore(Path.of(cfg.fs.root), cfg.fs.blockPrefix))
     else if cfg.replication.mode == ReplicaStorageMode.Erasure21 then
       ZLayer.fail(new IllegalArgumentException("erasure-2-1 currently requires the S3-compatible backend (AWS S3, MinIO, or Ceph RGW)"))
@@ -345,6 +360,7 @@ object Main extends ZIOAppDefault:
       ZLayer.scoped {
         for
           manifests <- ZIO.service[BlobManifestRepo]
+          journal   <- ZIO.service[RepairJournal]
           metrics   <- ZIO.service[MetricsRegistry]
           replicas  <- ZIO.foreach(cfg.replication.targets) { target =>
                          ZIO.attempt {
@@ -364,14 +380,14 @@ object Main extends ZIOAppDefault:
                            )
                          )
                          .mapError(new IllegalArgumentException(_))
-          repair    <- ReplicaRepairService.make(store, manifests, cfg.replication, metrics)
+          repair    <- ReplicaRepairService.make(store, manifests, cfg.replication, journal, metrics)
           _         <- repair.start
         yield store: BlockStore
       }
 
   private[server] def s3BlockLayer(
     cfg: GravitonConfig
-  ): ZLayer[BlobManifestRepo & MetricsRegistry, Throwable, BlockStore] =
+  ): ZLayer[BlobManifestRepo & RepairJournal & MetricsRegistry, Throwable, BlockStore] =
     if !cfg.replication.enabled then
       ZLayer.scoped {
         for
@@ -385,6 +401,7 @@ object Main extends ZIOAppDefault:
       ZLayer.scoped {
         for
           manifests <- ZIO.service[BlobManifestRepo]
+          journal   <- ZIO.service[RepairJournal]
           metrics   <- ZIO.service[MetricsRegistry]
           targets   <- ZIO.foreach(cfg.replication.targets) { target =>
                          for
@@ -427,7 +444,7 @@ object Main extends ZIOAppDefault:
                                ErasureBlockStore.make(fragments, metrics, cfg.replication.localFailureDomain.map(_.value))
                              )
                              .mapError(new IllegalArgumentException(_))
-          repair    <- ReplicaRepairService.make(store, manifests, cfg.replication, metrics)
+          repair    <- ReplicaRepairService.make(store, manifests, cfg.replication, journal, metrics)
           _         <- repair.start
         yield store: BlockStore
       }
@@ -444,7 +461,8 @@ object Main extends ZIOAppDefault:
         )
 
   private[server] def resumableUploadLayer(
-    cfg: GravitonConfig
+    cfg: GravitonConfig,
+    transferBudget: TransferBudget,
   ): ZLayer[MetricsRegistry, Throwable, ResumableUploadService] =
     ZLayer.scoped {
       for
@@ -471,7 +489,7 @@ object Main extends ZIOAppDefault:
                                          .fromEither(UploadStagingTarget.from("s3", cfg.s3.tmpBucket))
                                          .mapError(message => new IllegalArgumentException(message))
                          ledger      = new PgResumableUploadRepository(dataSource)
-                         staging     = new S3MutableObjectStore(client, S3ObjectStoreConfig(storageCfg))
+                         staging     = new S3MutableObjectStore(client, S3ObjectStoreConfig(storageCfg), transferBudget)
                        yield new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics)
                      case other          =>
                        ZIO.fail(
@@ -484,7 +502,9 @@ object Main extends ZIOAppDefault:
 
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
-    blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default)
+    ZLayer.fromZIO(TransferBudget.make(TransferMemoryConfig.Default)).flatMap { budget =>
+      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget])
+    }
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =
     ZIO

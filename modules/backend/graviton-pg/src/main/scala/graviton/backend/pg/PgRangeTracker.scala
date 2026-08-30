@@ -5,7 +5,8 @@ import graviton.core.ranges.{RangeSet, Span}
 import graviton.core.types.BlobOffset
 import graviton.runtime.indexes.RangeTracker
 import graviton.runtime.kv.{KeyValueStore, KvKey, KvValue}
-import zio.{Ref, ZIO, ZLayer}
+import graviton.runtime.stores.{StoreError, StoreOperation}
+import zio.{IO, Ref, ZIO, ZLayer}
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
@@ -30,14 +31,14 @@ final class PgRangeTracker private (
   cache: Ref.Synchronized[Map[BlobLocator, RangeSet[BlobOffset]]],
 ) extends RangeTracker:
 
-  override def current(locator: BlobLocator): ZIO[Any, Throwable, RangeSet[BlobOffset]] =
+  override def current(locator: BlobLocator): IO[StoreError, RangeSet[BlobOffset]] =
     cache.modifyZIO { m =>
       m.get(locator) match
         case Some(rs) => ZIO.succeed((rs, m))
         case None     => load(locator).map(rs => (rs, m.updated(locator, rs)))
     }
 
-  override def merge(locator: BlobLocator, span: Span[BlobOffset]): ZIO[Any, Throwable, RangeSet[BlobOffset]] =
+  override def merge(locator: BlobLocator, span: Span[BlobOffset]): IO[StoreError, RangeSet[BlobOffset]] =
     cache.modifyZIO { entries =>
       val existing = entries.get(locator).fold(load(locator))(ZIO.succeed(_))
       existing.flatMap { ranges =>
@@ -45,7 +46,7 @@ final class PgRangeTracker private (
         for
           encoded <- ZIO
                        .fromEither(PgRangeTracker.encode(merged))
-                       .mapError(message => new IllegalArgumentException(message))
+                       .mapError(StoreError.InvalidInput(StoreOperation.MergeRanges, _))
           // Keep serialization and persistence inside the synchronized update.
           // Otherwise two fibers can write their snapshots out of order, or a
           // failed write can leave the cache claiming durability it never got.
@@ -54,14 +55,14 @@ final class PgRangeTracker private (
       }
     }
 
-  private def load(locator: BlobLocator): ZIO[Any, Throwable, RangeSet[BlobOffset]] =
+  private def load(locator: BlobLocator): IO[StoreError, RangeSet[BlobOffset]] =
     kv.get(PgRangeTracker.key(locator)).flatMap {
       case None        => ZIO.succeed(RangeSet.empty[BlobOffset])
       case Some(bytes) =>
         PgRangeTracker.decode(bytes) match
           case Right(rs)     => ZIO.succeed(rs)
           case Left(message) =>
-            ZIO.fail(new IllegalStateException(s"Corrupt persisted range set for '${locator.render}': $message"))
+            ZIO.fail(StoreError.CorruptData(StoreOperation.ReadRanges, s"Corrupt persisted range set for '${locator.render}': $message"))
     }
 
 object PgRangeTracker:

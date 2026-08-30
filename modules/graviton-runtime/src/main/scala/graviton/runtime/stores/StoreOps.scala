@@ -11,12 +11,7 @@ import zio.stream.*
 import java.nio.file.Path
 
 /**
- * Extension methods for store services that provide typed-error variants
- * and convenience helpers.
- *
- * These extensions layer over the existing `Throwable`-based APIs so that
- * callers who want `GravitonError` typed channels can opt in without
- * changing the core trait signatures.
+ * Streaming convenience methods over the typed store contracts.
  */
 object StoreOps:
 
@@ -32,10 +27,11 @@ object StoreOps:
     def insertFile(
       path: Path,
       plan: BlobWritePlan = BlobWritePlan(),
-    ): ZIO[Any, Throwable, BlobWriteResult] =
+    ): IO[StoreError, BlobWriteResult] =
       ZStream
         .fromFile(path.toFile, chunkSize = 64 * 1024)
         .run(store.put(plan))
+        .mapError(StoreError.fromThrowable(StoreOperation.PutBlob, StoreBackend.Filesystem))
 
     /**
      * Ingest raw bytes from an in-memory chunk.
@@ -45,7 +41,7 @@ object StoreOps:
     def insertBytes(
       data: Chunk[Byte],
       plan: BlobWritePlan = BlobWritePlan(),
-    ): ZIO[Any, Throwable, BlobWriteResult] =
+    ): IO[StoreError, BlobWriteResult] =
       ZStream.fromChunk(data).run(store.put(plan))
 
     /**
@@ -57,7 +53,7 @@ object StoreOps:
     def roundTrip(
       data: Chunk[Byte],
       plan: BlobWritePlan = BlobWritePlan(),
-    ): ZIO[Any, Throwable, (BlobWriteResult, InMemoryBytes)] =
+    ): IO[StoreError | BoundedByteStream.Error, (BlobWriteResult, InMemoryBytes)] =
       for
         result   <- insertBytes(data, plan)
         readBack <- BoundedByteStream.collectInMemory(store.get(result.key))

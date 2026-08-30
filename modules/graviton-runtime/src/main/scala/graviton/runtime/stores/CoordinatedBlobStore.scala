@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlobOffset, FileSize}
-import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan}
+import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
 import zio.*
 import zio.stream.*
 
@@ -16,32 +16,44 @@ final class CoordinatedBlobStore(
 ) extends BlobStore:
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
-    ZSink.unwrapScoped(coordinator.operationPermit.as(underlying.put(plan)))
+    ZSink.unwrapScoped(
+      coordinator.operationPermit
+        .mapError(error => StoreError.BackendFailure(StoreOperation.PutBlob, StoreBackend.Runtime, error, retryable = true))
+        .as(underlying.put(plan))
+    )
 
-  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
-    ZStream.unwrapScoped(coordinator.operationPermit.as(underlying.get(key)))
+  override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
+    ZStream.unwrapScoped(operationPermit(StoreOperation.GetBlob).as(underlying.get(key)))
 
   override def getRange(
     key: BinaryKey.Blob,
     start: BlobOffset,
     length: FileSize,
-  ): ZStream[Any, Throwable, Byte] =
-    ZStream.unwrapScoped(coordinator.operationPermit.as(underlying.getRange(key, start, length)))
+  ): ZStream[Any, StoreError, Byte] =
+    ZStream.unwrapScoped(operationPermit(StoreOperation.GetRange).as(underlying.getRange(key, start, length)))
 
-  override def stat(key: BinaryKey.Blob): Task[Option[BlobStat]] =
-    coordinator.withOperation(underlying.stat(key))
+  override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =
+    withOperation(StoreOperation.StatBlob)(underlying.stat(key))
 
-  override def list: Task[Chunk[BlobListing]] =
-    coordinator.withOperation(underlying.list)
+  override def inventoryPage(after: Option[InventoryCursor], limit: InventoryPageSize): IO[StoreError, InventoryPage[BlobListing]] =
+    withOperation(StoreOperation.Inventory)(underlying.inventoryPage(after, limit))
 
-  override def inspect(key: BinaryKey.Blob): Task[Option[BlobDescription]] =
-    coordinator.withOperation(underlying.inspect(key))
+  override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
+    withOperation(StoreOperation.InspectBlob)(underlying.inspect(key))
 
-  override def delete(key: BinaryKey.Blob): Task[Unit] =
-    coordinator.withOperation(underlying.delete(key))
+  override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
+    withOperation(StoreOperation.DeleteBlob)(underlying.delete(key))
 
-  override def healthCheck: Task[Unit] =
-    underlying.healthCheck *> coordinator.healthCheck
+  override def healthCheck: IO[StoreError, Unit] =
+    underlying.healthCheck *> coordinator.healthCheck.mapError(error =>
+      StoreError.BackendFailure(StoreOperation.HealthCheck, StoreBackend.Runtime, error, retryable = true)
+    )
+
+  private def operationPermit(operation: StoreOperation): ZIO[Scope, StoreError, Unit] =
+    coordinator.operationPermit.mapError(error => StoreError.BackendFailure(operation, StoreBackend.Runtime, error, retryable = true))
+
+  private def withOperation[A](operation: StoreOperation)(effect: IO[StoreError, A]): IO[StoreError, A] =
+    ZIO.scoped(operationPermit(operation) *> effect)
 
 object CoordinatedBlobStore:
   val layer: ZLayer[BlobStore & MaintenanceCoordinator, Nothing, BlobStore] =

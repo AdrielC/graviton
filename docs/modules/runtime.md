@@ -6,12 +6,12 @@ The `graviton-runtime` project bridges the pure data model from `graviton-core` 
 
 All storage backends implement the following traits under `graviton.runtime.stores`:
 
-- `BlobStore`: streaming CRUD operations for deduplicated blobs (`put`, `get`, `stat`, `delete`).
+- `BlobStore`: streaming CRUD plus opaque cursor pages and a complete lazy inventory stream.
 - `BlockStore`: lower-level content-addressed block access for chunk-oriented ingestion.
 - `ImmutableObjectStore` / `MutableObjectStore`: abstractions for manifests and binary assets that may or may not be mutated after ingest.
 - `KeyValueStore`: generic metadata persistence for manifests, replication plans, and coarse-grained indexes.
 
-The ports are intentionally minimal—backends compose them to express capabilities (e.g., S3 supplies immutable + blob, PostgreSQL implements every port).
+The ports are intentionally minimal. Backends compose them to express capabilities. All storage-facing effects use the `StoreError` ADT, including retry classification, rather than exposing arbitrary `Throwable` values.
 
 ## Policies and layout
 
@@ -31,7 +31,7 @@ Under `graviton.runtime.constraints` you will find:
 - `Quota`, `Throttle`, and `SemaphoreLimit` primitives for concurrency control and rate limiting.
 - `SpillPolicy` and related value objects that describe how to offload large uploads to disk when in-memory buffering would exceed limits.
 
-The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. When replica targets are configured, the server starts one supervised bounded repair worker that walks durable manifest references fairly across cycles.
+The packaged CLI, HTTP gateway, gRPC service, and Shardcake owner streams use these runtime services today. A process-wide `TransferBudget` admits only transfers whose aggregate conservative buffer reservations fit the configured byte ceiling. When replica targets are configured, the server starts one supervised bounded repair worker whose cursor and unresolved failures survive restart through `FsRepairJournal` or `PgRepairJournal`.
 
 ## Upload orchestration
 

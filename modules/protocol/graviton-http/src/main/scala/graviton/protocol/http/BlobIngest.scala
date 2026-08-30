@@ -3,7 +3,7 @@ package graviton.protocol.http
 import graviton.core.attributes.IngestStats
 import graviton.core.keys.BinaryKey
 import graviton.pdf.PdfUploadSupport
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, StoreError}
 import graviton.runtime.upload.{LocalityAwareUpload, UploadIngestor, UploadIntent, UploadNode, UploadSessionKey}
 import zio.*
 import zio.stream.ZStream
@@ -44,7 +44,8 @@ object BlobIngest:
     final case class Locality(cause: LocalityAwareUpload.Error)
         extends Exception("Upload locality could not complete the stream", cause)
         with Error
-    final case class Storage(cause: Throwable)                        extends Exception("Blob ingest failed", cause) with Error
+    final case class Storage(cause: StoreError)                       extends Exception("Blob ingest failed", cause) with Error
+    final case class Processing(cause: UploadIngestor.Error)          extends Exception("Blob processing failed", cause) with Error
 
   def make(blobStore: BlobStore, localizedUpload: Option[LocalityAwareUpload]): BlobIngest =
     make(PdfUploadSupport.ingestor(blobStore), localizedUpload)
@@ -116,6 +117,6 @@ object BlobIngest:
         case ambiguous: UploadIngestor.Error.AmbiguousDetection                  => Error.InvalidInput(ambiguous.getMessage)
         case validation: UploadIngestor.Error.Validation                         => Error.InvalidInput(validation.getMessage)
         case UploadIngestor.Error.Source(error: HttpSecurityPolicy.BodyRejected) => Error.Rejected(error)
-        case UploadIngestor.Error.Storage(error: IllegalArgumentException)       =>
-          Error.InvalidInput(Option(error.getMessage).getOrElse("Invalid blob"))
-        case other                                                               => Error.Storage(other)
+        case UploadIngestor.Error.Storage(error: StoreError.InvalidInput)        => Error.InvalidInput(error.reason)
+        case UploadIngestor.Error.Storage(error)                                 => Error.Storage(error)
+        case other                                                               => Error.Processing(other)

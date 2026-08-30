@@ -55,7 +55,7 @@ object ReplicatedBlockStoreSpec extends ZIOSpecDefault:
                      .toOption
                      .get
         exit    <- ZStream.succeed(block).run(store.putBlocks()).exit
-      yield assert(exit)(fails(isSubtype[ReplicatedBlockStore.WriteQuorumFailed](anything)))
+      yield assert(exit)(fails(isSubtype[StoreError.QuorumUnavailable](anything)))
     },
     test("falls back to a valid copy and repairs a missing replica") {
       for
@@ -157,20 +157,24 @@ object ReplicatedBlockStoreSpec extends ZIOSpecDefault:
   )
 
   private final class CountingFailingStore(reads: AtomicInteger) extends RepairableBlockStore:
-    override def putBlocks(plan: BlockWritePlan): BlockSink               = ZSink.fail(new IOException("replica unavailable"))
-    override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
+    private val failure                                                    = StoreError.Unavailable(StoreOperation.GetBlock, StoreBackend.InMemory, new IOException("replica unavailable"))
+    override def putBlocks(plan: BlockWritePlan): BlockSink                =
+      ZSink.fail(StoreError.Unavailable(StoreOperation.PutBlock, StoreBackend.InMemory, new IOException("replica unavailable")))
+    override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
       reads.incrementAndGet()
-      ZStream.fail(new IOException("replica unavailable"))
-    override def exists(key: BinaryKey.Block): Task[Boolean]              = ZIO.fail(new IOException("replica unavailable"))
-    override def healthCheck: Task[Unit]                                  = ZIO.fail(new IOException("replica unavailable"))
-    override def repairBlock(block: CanonicalBlock): Task[Unit]           = ZIO.fail(new IOException("replica unavailable"))
+      ZStream.fail(failure)
+    override def exists(key: BinaryKey.Block): IO[StoreError, Boolean]     = ZIO.fail(failure)
+    override def healthCheck: IO[StoreError, Unit]                         = ZIO.fail(failure)
+    override def repairBlock(block: CanonicalBlock): IO[StoreError, Unit]  = ZIO.fail(failure)
 
   private object FailingStore extends RepairableBlockStore:
-    override def putBlocks(plan: BlockWritePlan): BlockSink               = ZSink.fail(new IOException("replica unavailable"))
-    override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] = ZStream.fail(new IOException("replica unavailable"))
-    override def exists(key: BinaryKey.Block): Task[Boolean]              = ZIO.fail(new IOException("replica unavailable"))
-    override def healthCheck: Task[Unit]                                  = ZIO.fail(new IOException("replica unavailable"))
-    override def repairBlock(block: CanonicalBlock): Task[Unit]           = ZIO.fail(new IOException("replica unavailable"))
+    private val failure                                                    = StoreError.Unavailable(StoreOperation.GetBlock, StoreBackend.InMemory, new IOException("replica unavailable"))
+    override def putBlocks(plan: BlockWritePlan): BlockSink                =
+      ZSink.fail(StoreError.Unavailable(StoreOperation.PutBlock, StoreBackend.InMemory, new IOException("replica unavailable")))
+    override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] = ZStream.fail(failure)
+    override def exists(key: BinaryKey.Block): IO[StoreError, Boolean]     = ZIO.fail(failure)
+    override def healthCheck: IO[StoreError, Unit]                         = ZIO.fail(failure)
+    override def repairBlock(block: CanonicalBlock): IO[StoreError, Unit]  = ZIO.fail(failure)
 
   private def canonical(value: String): Task[CanonicalBlock] =
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))

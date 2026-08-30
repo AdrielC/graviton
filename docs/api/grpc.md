@@ -71,7 +71,7 @@ ZIO.scoped {
 }
 ```
 
-`ListBlobs` and `InspectBlob` are server-streaming, so clients are not forced to collect response frames. The current server still materializes repository inventory and a blob's complete manifest before emitting those frames. Backend-pushed cursor pagination and streamed manifest references remain required for fixed-memory server behavior at repository scale.
+`ListBlobs` streams directly from `BlobStore.streamInventory`, which follows backend-native cursor pages and never collects repository inventory. `InspectBlob` is also server-streaming at the transport boundary, but the current logical inspect operation materializes one explicitly requested manifest and rejects manifests above its configured materialization bound. Repository-scale inventory and single-blob inspection therefore have different memory contracts.
 
 ## Security and audit
 

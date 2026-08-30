@@ -1,7 +1,7 @@
 package graviton.backend.pg
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.MutableObjectStore
+import graviton.runtime.stores.{MutableObjectStore, StoreError, StoreOperation}
 import zio.*
 import zio.stream.*
 
@@ -10,9 +10,9 @@ import javax.sql.DataSource
 
 final class PgMutableObjectStore(dataSource: DataSource) extends PgImmutableObjectStore(dataSource), MutableObjectStore:
 
-  override def put(locator: BlobLocator): ZSink[Any, Throwable, Byte, Nothing, Unit] =
+  override def put(locator: BlobLocator): ZSink[Any, StoreError, Byte, Nothing, Unit] =
     ZSink.unwrapScoped {
-      for
+      (for
         connection <- transaction
         _          <- deleteWithin(connection, locator)
         _          <- insertObject(connection, locator)
@@ -25,54 +25,59 @@ final class PgMutableObjectStore(dataSource: DataSource) extends PgImmutableObje
             ZIO.attemptBlocking(connection.commit()).unit
         }
         .ignoreLeftover
+        .mapError(storeError(StoreOperation.PutObject))).mapError(storeError(StoreOperation.PutObject))
     }
 
-  override def delete(locator: BlobLocator): ZIO[Any, Throwable, Unit] =
-    ZIO.scoped(transaction.flatMap(connection => deleteWithin(connection, locator) *> ZIO.attemptBlocking(connection.commit()).unit))
+  override def delete(locator: BlobLocator): IO[StoreError, Unit] =
+    ZIO
+      .scoped(transaction.flatMap(connection => deleteWithin(connection, locator) *> ZIO.attemptBlocking(connection.commit()).unit))
+      .mapError(storeError(StoreOperation.DeleteObject))
 
-  override def copy(src: BlobLocator, dest: BlobLocator): ZIO[Any, Throwable, Unit] =
-    ZIO.scoped {
-      transaction.flatMap { connection =>
-        for
-          _        <- deleteWithin(connection, dest)
-          inserted <- ZIO.attemptBlocking {
-                        val statement = connection.prepareStatement(
-                          """INSERT INTO graviton.object_data (locator, scheme, bucket, path, byte_length)
-                            |SELECT ?, ?, ?, ?, byte_length
-                            |FROM graviton.object_data
-                            |WHERE locator = ?""".stripMargin
-                        )
-                        try
-                          statement.setString(1, dest.render)
-                          statement.setString(2, dest.scheme.value)
-                          statement.setString(3, dest.bucket.value)
-                          statement.setString(4, dest.path.value)
-                          statement.setString(5, src.render)
-                          statement.executeUpdate()
-                        finally statement.close()
-                      }
-          _        <- ZIO
-                        .fail(new NoSuchElementException(s"Source object '${src.render}' does not exist"))
-                        .when(inserted != 1)
-          _        <- ZIO.attemptBlocking {
-                        val statement = connection.prepareStatement(
-                          """INSERT INTO graviton.object_chunk (locator, ordinal, bytes)
-                            |SELECT ?, ordinal, bytes
-                            |FROM graviton.object_chunk
-                            |WHERE locator = ?
-                            |ORDER BY ordinal""".stripMargin
-                        )
-                        try
-                          statement.setString(1, dest.render)
-                          statement.setString(2, src.render)
-                          statement.executeUpdate()
-                          ()
-                        finally statement.close()
-                      }
-          _        <- ZIO.attemptBlocking(connection.commit()).unit
-        yield ()
+  override def copy(src: BlobLocator, dest: BlobLocator): IO[StoreError, Unit] =
+    ZIO
+      .scoped {
+        transaction.flatMap { connection =>
+          for
+            _        <- deleteWithin(connection, dest)
+            inserted <- ZIO.attemptBlocking {
+                          val statement = connection.prepareStatement(
+                            """INSERT INTO graviton.object_data (locator, scheme, bucket, path, byte_length)
+                              |SELECT ?, ?, ?, ?, byte_length
+                              |FROM graviton.object_data
+                              |WHERE locator = ?""".stripMargin
+                          )
+                          try
+                            statement.setString(1, dest.render)
+                            statement.setString(2, dest.scheme.value)
+                            statement.setString(3, dest.bucket.value)
+                            statement.setString(4, dest.path.value)
+                            statement.setString(5, src.render)
+                            statement.executeUpdate()
+                          finally statement.close()
+                        }
+            _        <- ZIO
+                          .fail(new NoSuchElementException(s"Source object '${src.render}' does not exist"))
+                          .when(inserted != 1)
+            _        <- ZIO.attemptBlocking {
+                          val statement = connection.prepareStatement(
+                            """INSERT INTO graviton.object_chunk (locator, ordinal, bytes)
+                              |SELECT ?, ordinal, bytes
+                              |FROM graviton.object_chunk
+                              |WHERE locator = ?
+                              |ORDER BY ordinal""".stripMargin
+                          )
+                          try
+                            statement.setString(1, dest.render)
+                            statement.setString(2, src.render)
+                            statement.executeUpdate()
+                            ()
+                          finally statement.close()
+                        }
+            _        <- ZIO.attemptBlocking(connection.commit()).unit
+          yield ()
+        }
       }
-    }
+      .mapError(storeError(StoreOperation.CopyObject))
 
   private def transaction: ZIO[Scope, Throwable, Connection] =
     ZIO.acquireRelease(

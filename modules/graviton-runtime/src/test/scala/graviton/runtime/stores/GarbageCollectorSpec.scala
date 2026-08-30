@@ -5,7 +5,7 @@ import graviton.core.bytes.{Digest, HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.types.FileSize
 import graviton.runtime.config.GarbageCollectionConfig
-import graviton.runtime.model.{BlockWritePlan, CanonicalBlock, StoredBlock}
+import graviton.runtime.model.{BlockWritePlan, CanonicalBlock, InventoryCursor, InventoryPage, InventoryPageSize, StoredBlock}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.ZStream
@@ -173,7 +173,15 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
           _         <- TestClock.setTime(now)
           collector  = new GarbageCollector(manifests, blocks)
           exit      <- collector
-                         .sweep(1.minute, dryRun = false)(_ => ZIO.fail(new RuntimeException("receipt sink unavailable")))
+                         .sweep(1.minute, dryRun = false)(_ =>
+                           ZIO.fail(
+                             StoreError.Unavailable(
+                               StoreOperation.Quarantine,
+                               StoreBackend.InMemory,
+                               new RuntimeException("receipt sink unavailable"),
+                             )
+                           )
+                         )
                          .exit
           present   <- blocks.exists(orphan.key)
         yield assertTrue(exit.isFailure, present)
@@ -256,24 +264,31 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
   )
 
   private class StreamingOnlyManifestRepo(
-    summaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)],
-    refs: BinaryKey.Blob => ZStream[Any, Throwable, BlobStreamer.BlockRef],
+    summaries: ZStream[Any, StoreError, (BinaryKey.Blob, StoredManifestSummary)],
+    refs: BinaryKey.Blob => ZStream[Any, StoreError, BlobStreamer.BlockRef],
   ) extends BlobManifestRepo:
-    override def put(blob: BinaryKey.Blob, manifest: graviton.core.manifest.Manifest, ingestedAt: Instant): Task[Unit] =
-      ZIO.fail(new UnsupportedOperationException("test repository is read-only"))
+    override def put(
+      blob: BinaryKey.Blob,
+      manifest: graviton.core.manifest.Manifest,
+      ingestedAt: Instant,
+    ): IO[StoreError, Unit] =
+      ZIO.fail(StoreError.Conflict(StoreOperation.PutManifest, "test repository is read-only"))
 
-    override def get(blob: BinaryKey.Blob): Task[Option[StoredManifest]] = ZIO.none
+    override def get(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifest]] = ZIO.none
 
-    override def list: Task[Chunk[(BinaryKey.Blob, StoredManifest)]] =
-      ZIO.dieMessage("GarbageCollector.sweep must not call BlobManifestRepo.list")
+    override def inventoryPage(
+      after: Option[InventoryCursor],
+      limit: InventoryPageSize,
+    ): IO[StoreError, InventoryPage[(BinaryKey.Blob, StoredManifestSummary)]] =
+      after match
+        case Some(_) => ZIO.fail(StoreError.InvalidInput(StoreOperation.Inventory, "test cursor is unsupported"))
+        case None    => summaries.take(limit.value.toLong).runCollect.map(InventoryPage(_, None))
 
-    override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] = summaries
+    override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef] = refs(blob)
 
-    override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] = refs(blob)
+    override def delete(blob: BinaryKey.Blob): IO[StoreError, Boolean] = ZIO.succeed(false)
 
-    override def delete(blob: BinaryKey.Blob): Task[Boolean] = ZIO.succeed(false)
-
-    override def healthCheck: Task[Unit] = ZIO.unit
+    override def healthCheck: IO[StoreError, Unit] = ZIO.unit
 
   private final class SwitchingManifestRepo(
     markPasses: Ref[Int],
@@ -284,50 +299,52 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
         ZStream.empty,
         _ => ZStream.succeed(BlobStreamer.BlockRef(0L, referenced)),
       ):
-    override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
-      ZStream.unwrap {
-        markPasses.updateAndGet(_ + 1).map { pass =>
-          if pass == 1 then ZStream.empty else ZStream.succeed(blob -> summary)
-        }
+    override def inventoryPage(
+      after: Option[InventoryCursor],
+      limit: InventoryPageSize,
+    ): IO[StoreError, InventoryPage[(BinaryKey.Blob, StoredManifestSummary)]] =
+      markPasses.updateAndGet(_ + 1).map { pass =>
+        val items = if pass == 1 then Chunk.empty else Chunk(blob -> summary)
+        InventoryPage(items, None)
       }
 
   private final class CountingMaintenance(
-    override val inventory: ZStream[Any, Throwable, BlockInventoryEntry],
+    override val inventory: ZStream[Any, StoreError, BlockInventoryEntry],
     quarantines: Ref[Int],
   ) extends BlockMaintenance:
-    override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] =
+    override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] =
       Clock.instant.flatMap { now =>
         quarantines.updateAndGet(_ + 1).map { count =>
           QuarantinedBlock(entry.key, s"test-$count", entry.size, now)
         }
       }
 
-    override def restore(block: QuarantinedBlock): Task[Unit] = ZIO.unit
+    override def restore(block: QuarantinedBlock): IO[StoreError, Unit] = ZIO.unit
 
-    override def purge(block: QuarantinedBlock): Task[Unit] = ZIO.unit
+    override def purge(block: QuarantinedBlock): IO[StoreError, Unit] = ZIO.unit
 
   private final class CommitBlockingBlockStore(
     delegate: BlockStore,
     persisted: Promise[Nothing, Unit],
     releaseCommit: Promise[Nothing, Unit],
   ) extends BlockStore:
-    override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+    override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): IO[StoreError, StoredBlock] =
       delegate.putBlock(block, plan).flatMap(stored => persisted.succeed(()) *> releaseCommit.await.as(stored))
 
-    override def putBlocks(plan: BlockWritePlan): BlockSink               = delegate.putBlocks(plan)
-    override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] = delegate.get(key)
-    override def exists(key: BinaryKey.Block): Task[Boolean]              = delegate.exists(key)
-    override def healthCheck: Task[Unit]                                  = delegate.healthCheck
+    override def putBlocks(plan: BlockWritePlan): BlockSink                = delegate.putBlocks(plan)
+    override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] = delegate.get(key)
+    override def exists(key: BinaryKey.Block): IO[StoreError, Boolean]     = delegate.exists(key)
+    override def healthCheck: IO[StoreError, Unit]                         = delegate.healthCheck
 
   private final class InventorySignallingMaintenance(
     delegate: BlockMaintenance,
     inventoryTouched: Promise[Nothing, Unit],
   ) extends BlockMaintenance:
-    override val inventory: ZStream[Any, Throwable, BlockInventoryEntry]        =
+    override val inventory: ZStream[Any, StoreError, BlockInventoryEntry]                 =
       ZStream.fromZIO(inventoryTouched.succeed(())).drain ++ delegate.inventory
-    override def quarantine(entry: BlockInventoryEntry): Task[QuarantinedBlock] = delegate.quarantine(entry)
-    override def restore(block: QuarantinedBlock): Task[Unit]                   = delegate.restore(block)
-    override def purge(block: QuarantinedBlock): Task[Unit]                     = delegate.purge(block)
+    override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] = delegate.quarantine(entry)
+    override def restore(block: QuarantinedBlock): IO[StoreError, Unit]                   = delegate.restore(block)
+    override def purge(block: QuarantinedBlock): IO[StoreError, Unit]                     = delegate.purge(block)
 
   private def canonical(value: String): Task[CanonicalBlock] =
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))

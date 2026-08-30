@@ -5,6 +5,6 @@ import zio.*
 import zio.stream.*
 
 trait MutableObjectStore extends ImmutableObjectStore:
-  def put(locator: BlobLocator): ZSink[Any, Throwable, Byte, Nothing, Unit]
-  def delete(locator: BlobLocator): ZIO[Any, Throwable, Unit]
-  def copy(src: BlobLocator, dest: BlobLocator): ZIO[Any, Throwable, Unit]
+  def put(locator: BlobLocator): ZSink[Any, StoreError, Byte, Nothing, Unit]
+  def delete(locator: BlobLocator): IO[StoreError, Unit]
+  def copy(src: BlobLocator, dest: BlobLocator): IO[StoreError, Unit]

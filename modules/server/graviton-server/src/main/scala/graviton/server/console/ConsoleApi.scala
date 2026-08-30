@@ -4,7 +4,7 @@ import graviton.core.types.FileSize
 import graviton.server.RuntimeHealth
 import graviton.protocol.http.BlobIngest
 import graviton.runtime.catalog.*
-import graviton.runtime.stores.BlobStore
+import graviton.runtime.stores.{BlobStore, StoreError, StoreOperation}
 import graviton.runtime.upload.{TenantId, UploadIntent, UploadNode, UploadSessionId, UploadSessionKey}
 import graviton.shared.{ApiJson, ApiJsonCodec, MediaTypeText}
 import zio.*
@@ -167,7 +167,12 @@ final class ConsoleApi(
       result                  <- blobIngest.upload(session, UploadIntent(mediaType, expectedSize), request.body.asStream)
       _                       <- blobStore
                                    .stat(result.key)
-                                   .someOrFail(new IllegalStateException("Persisted upload is missing its manifest summary"))
+                                   .someOrFail(
+                                     StoreError.CorruptData(
+                                       StoreOperation.StatBlob,
+                                       "persisted upload is missing its manifest summary",
+                                     )
+                                   )
                                    .mapError(BlobIngest.Error.Storage(_))
       attached                <- attachIdempotently(folder, name, result.key, mediaType, result.stats)
       (file, referenceCreated) = attached

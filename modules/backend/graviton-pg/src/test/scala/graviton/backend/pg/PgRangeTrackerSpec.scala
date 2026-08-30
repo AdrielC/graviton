@@ -4,6 +4,7 @@ import graviton.core.locator.BlobLocator
 import graviton.core.ranges.{RangeSet, Span}
 import graviton.core.types.BlobOffset
 import graviton.runtime.kv.{KeyValueStore, KvKey, KvValue}
+import graviton.runtime.stores.{StoreBackend, StoreError, StoreOperation}
 import zio.*
 import zio.test.*
 
@@ -45,15 +46,22 @@ object PgRangeTrackerSpec extends ZIOSpecDefault:
     failNext: Ref[Boolean],
   ) extends KeyValueStore:
 
-    override def put(key: KvKey, value: KvValue): Task[Unit] =
+    override def put(key: KvKey, value: KvValue): IO[StoreError, Unit] =
       failNext.getAndSet(false).flatMap { fail =>
-        if fail then ZIO.fail(new RuntimeException("intentional persistence failure"))
+        if fail then
+          ZIO.fail(
+            StoreError.Unavailable(
+              StoreOperation.PutKeyValue,
+              StoreBackend.InMemory,
+              new RuntimeException("intentional persistence failure"),
+            )
+          )
         else values.update(_.updated(key, value))
       }
 
-    override def get(key: KvKey): Task[Option[KvValue]] = values.get.map(_.get(key))
+    override def get(key: KvKey): IO[StoreError, Option[KvValue]] = values.get.map(_.get(key))
 
-    override def delete(key: KvKey): Task[Unit] = values.update(_ - key)
+    override def delete(key: KvKey): IO[StoreError, Unit] = values.update(_ - key)
 
     def failNextPut: UIO[Unit] = failNext.set(true)
 

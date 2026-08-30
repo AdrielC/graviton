@@ -138,6 +138,26 @@ CREATE TABLE IF NOT EXISTS graviton.replica_index (
 CREATE INDEX IF NOT EXISTS replica_index_key_idx
   ON graviton.replica_index (key_kind, alg, hash_bytes, byte_length);
 
+-- Durable, cluster-shared progress for idempotent replica convergence.
+CREATE TABLE IF NOT EXISTS graviton.repair_state (
+  namespace text PRIMARY KEY CHECK (length(namespace) BETWEEN 1 AND 128),
+  next_offset bigint NOT NULL DEFAULT 0 CHECK (next_offset >= 0),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+CREATE TABLE IF NOT EXISTS graviton.repair_dead_letter (
+  namespace text NOT NULL CHECK (length(namespace) BETWEEN 1 AND 128),
+  alg core.hash_alg NOT NULL,
+  hash_bytes bytea NOT NULL,
+  byte_length core.byte_size NOT NULL CHECK (byte_length > 0),
+  attempts bigint NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  last_error varchar(2048) NOT NULL,
+  last_failed_at timestamptz NOT NULL,
+  PRIMARY KEY (namespace, alg, hash_bytes, byte_length)
+);
+CREATE INDEX IF NOT EXISTS repair_dead_letter_failed_idx
+  ON graviton.repair_dead_letter (namespace, last_failed_at DESC);
+
 -- Durable resumable-upload control plane. Payload bytes live in the selected
 -- MutableObjectStore; these rows retain only bounded metadata and opaque
 -- locators. Row locks serialize append and commit leases across nodes.

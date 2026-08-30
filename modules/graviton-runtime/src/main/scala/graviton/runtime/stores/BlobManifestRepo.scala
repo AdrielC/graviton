@@ -3,9 +3,9 @@ package graviton.runtime.stores
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.types.{BlobOffset, FileSize}
+import graviton.runtime.model.{InventoryCursor, InventoryPage, InventoryPageSize}
 import graviton.runtime.streaming.BlobStreamer
-import zio.ZIO
-import zio.Chunk
+import zio.*
 import zio.stream.ZStream
 
 import java.time.Instant
@@ -32,7 +32,7 @@ final case class StoredManifestSummary(
  * and let the block store stream payload bytes.
  */
 trait BlobManifestRepo:
-  def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): ZIO[Any, Throwable, Unit]
+  def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): IO[StoreError, Unit]
 
   /**
    * Persist ordered entries from a bounded-memory stream.
@@ -45,38 +45,38 @@ trait BlobManifestRepo:
     blob: BinaryKey.Blob,
     totalSize: FileSize,
     blockCount: Int,
-    entries: ZStream[Any, Throwable, ManifestEntry],
+    entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
-  ): ZIO[Any, Throwable, Unit] =
+  ): IO[StoreError, Unit] =
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
-      .mapError(new IllegalArgumentException(_)) *>
+      .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
       entries
         .runFoldZIO((List.empty[ManifestEntry], 0)) { case ((reversed, count), entry) =>
           if count >= BlobManifestRepo.MaxEntries then
             ZIO.fail(
-              new IllegalArgumentException(
-                s"Manifest exceeds ${BlobManifestRepo.MaxEntries} entries"
-              )
+              StoreError.InvalidInput(StoreOperation.PutManifest, s"Manifest exceeds ${BlobManifestRepo.MaxEntries} entries")
             )
           else ZIO.succeed((entry :: reversed, count + 1))
         }
         .flatMap { case (reversed, observedCount) =>
           if observedCount != blockCount then
             ZIO.fail(
-              new IllegalArgumentException(
-                s"Manifest entry count mismatch: expected $blockCount, observed $observedCount"
+              StoreError.InvalidInput(
+                StoreOperation.PutManifest,
+                s"Manifest entry count mismatch: expected $blockCount, observed $observedCount",
               )
             )
           else
             ZIO
               .fromEither(Manifest.fromEntries(reversed.reverse))
-              .mapError(message => new IllegalArgumentException(message))
+              .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _))
               .flatMap { manifest =>
                 if manifest.size != totalSize.value then
                   ZIO.fail(
-                    new IllegalArgumentException(
-                      s"Manifest size mismatch: expected ${totalSize.value}, observed ${manifest.size}"
+                    StoreError.InvalidInput(
+                      StoreOperation.PutManifest,
+                      s"Manifest size mismatch: expected ${totalSize.value}, observed ${manifest.size}",
                     )
                   )
                 else put(blob, manifest, ingestedAt)
@@ -84,47 +84,42 @@ trait BlobManifestRepo:
         }
 
   /** Retrieve the manifest and its ingestion timestamp for a blob, if it exists. */
-  def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]]
+  def get(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifest]]
 
   /** Read size/count metadata without loading the entry list when supported. */
-  def getSummary(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifestSummary]] =
+  def getSummary(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifestSummary]] =
     get(blob).flatMap {
       case None         => ZIO.none
       case Some(stored) =>
         ZIO
           .fromEither(FileSize.either(stored.manifest.size))
-          .mapError(message => new IllegalArgumentException(message))
+          .mapError(StoreError.CorruptData(StoreOperation.GetManifest, _))
           .map(size => Some(StoredManifestSummary(size, stored.manifest.entries.length, stored.ingestedAt)))
     }
 
-  /** List every persisted blob manifest, newest first. */
-  def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]]
-
-  /** List metadata without loading every block reference when supported. */
-  def listSummaries: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifestSummary)]] =
-    list.flatMap(entries =>
-      ZIO.foreach(entries) { case (blob, stored) =>
-        ZIO
-          .fromEither(FileSize.either(stored.manifest.size))
-          .mapError(message => new IllegalArgumentException(message))
-          .map(size => blob -> StoredManifestSummary(size, stored.manifest.entries.length, stored.ingestedAt))
-      }
-    )
+  /** Return one bounded page in the repository's stable native order. */
+  def inventoryPage(
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, InventoryPage[(BinaryKey.Blob, StoredManifestSummary)]]
 
   /**
    * Stream persisted blob summaries without loading their block references.
    *
-   * Implementations that back production repository maintenance must override
-   * this with a cursor or directory walk whose resources remain alive for the
-   * lifetime of the returned stream. The default is convenient for bounded
-   * development stores, but inherits the boundedness of [[listSummaries]] and
-   * is therefore not suitable for repository-scale maintenance.
+   * Every page is obtained through the backend's native cursor contract. Any
+   * page resource must remain scoped until that page completes; the stream
+   * never materializes repository-scale state.
    */
-  def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
-    ZStream.fromZIO(listSummaries).flatMap(ZStream.fromChunk)
+  final def streamSummaries: ZStream[Any, StoreError, (BinaryKey.Blob, StoredManifestSummary)] =
+    ZStream
+      .paginateChunkZIO(Option.empty[InventoryCursor]) { cursor =>
+        inventoryPage(cursor, InventoryPageSize.Maximum).map { page =>
+          page.items -> page.next.map(Some(_))
+        }
+      }
 
   /** Stream block refs in manifest order for read. */
-  def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef]
+  def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef]
 
   /**
    * Stream only block refs intersecting the requested half-open blob range.
@@ -136,16 +131,18 @@ trait BlobManifestRepo:
     blob: BinaryKey.Blob,
     start: BlobOffset,
     length: FileSize,
-  ): ZStream[Any, Throwable, BlobStreamer.RangedBlockRef] =
+  ): ZStream[Any, StoreError, BlobStreamer.RangedBlockRef] =
     val requestedStart = start.value
     val requestedEnd   = java.lang.Math.addExact(requestedStart, length.value)
 
     streamBlockRefs(blob)
       .mapAccumZIO(0L) { (blockStart, ref) =>
-        ZIO.attempt {
-          val blockEnd = java.lang.Math.addExact(blockStart, ref.key.bits.size)
-          blockEnd -> (ref, blockStart, blockEnd)
-        }
+        ZIO
+          .attempt {
+            val blockEnd = java.lang.Math.addExact(blockStart, ref.key.bits.size)
+            blockEnd -> (ref, blockStart, blockEnd)
+          }
+          .mapError(StoreError.fromThrowable(StoreOperation.GetRange))
       }
       .collect {
         case (ref, blockStart, blockEnd) if blockStart < requestedEnd && blockEnd > requestedStart =>
@@ -153,10 +150,10 @@ trait BlobManifestRepo:
       }
 
   /** Remove the manifest entry for a blob. Returns true if it existed. */
-  def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean]
+  def delete(blob: BinaryKey.Blob): IO[StoreError, Boolean]
 
   /** Verify that manifest persistence is reachable. */
-  def healthCheck: ZIO[Any, Throwable, Unit]
+  def healthCheck: IO[StoreError, Unit]
 
 object BlobManifestRepo:
   /**

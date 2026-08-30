@@ -46,9 +46,13 @@ The repository keeps behavioral tests beside the implementation they exercise. R
 | HTTP contract and policy | `HttpApiSpec`, `HttpSecurityPolicySpec`, `GravitonClientSpec` |
 | gRPC socket lifecycle | `GravitonGrpcIntegrationSpec` |
 | Backend adapters | `S3BlobStoreSpec`, `PgRangeTrackerSpec`, `RocksKeyValueStoreSpec` |
+| Published backend contract | `BlobStoreLawsSpec`, applied to isolated in-memory and filesystem CAS stores |
+| Transfer and repair faults | `TransferBudgetSpec`, `FsRepairJournalSpec`, interruption laws |
 | Security | capability, rate-limit, OIDC, audit, and claim-mapping specs |
 
 Tests that compare bytes may collect only fixtures whose bound is explicit in the test setup. Production sources are checked separately and may use only the approved bounded collection helpers.
+
+Third-party `BlobStore` implementations can depend on `graviton-backend-laws_3` in the test configuration and mount `BlobStoreLaws.suite`. The law acquisition effect must return a new isolated empty store in a `Scope`; this lets the same suite test real backend resources and verify cleanup.
 
 ## Container-backed integration
 

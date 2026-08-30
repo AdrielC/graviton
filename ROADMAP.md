@@ -23,6 +23,11 @@ Graviton is an operational pre-1.0 content-addressable storage runtime. This roa
 - PDF-aware chunker selection through bounded media sniffing and scoped ZIO services, with the reusable `graviton-pdf` adapter consuming `zio-pdf`
 - Operator console backed by live storage and Shardcake state, using ZIO Blocks DataStar actions and the official local browser runtime
 - Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, 90-day retained benchmark distributions, rolling upgrade and rollback proof, sustained backend failure drills, container SBOM, provenance, and keyless image signing
+- Backend-native opaque cursor pagination and complete streaming inventory for filesystem, PostgreSQL, S3, HTTP, gRPC, CLI, and the Scala SDK
+- Typed `StoreError` channels across blob, block, manifest, locator-object, maintenance, and garbage-collection ports
+- Process-wide weighted transfer-memory admission plus interruption-safe release tests
+- Filesystem and PostgreSQL repair journals with durable cursors, attempt counts, resolution, and streamed dead letters
+- Published `graviton-backend-laws` ZIO Test contract, self-applied to in-memory and filesystem CAS implementations
 
 ## Operator acceptance
 
@@ -44,7 +49,6 @@ These items depend on the deployment and cannot be completed once for every user
 ### Storage and reliability
 
 - Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
-- Persist and coordinate the repair cursor across server processes instead of allowing redundant idempotent scrubs
 - Add operator-facing inventory and restore commands for S3 quarantine records
 - Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
 - Add a RocksDB `BlockStore` only when a real embedded blob-backend use case requires it; the published RocksDB module currently promises durable typed key-value storage

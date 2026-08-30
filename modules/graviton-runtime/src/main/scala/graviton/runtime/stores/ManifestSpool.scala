@@ -56,7 +56,7 @@ private[stores] final class ManifestSpool private (
       ManifestSpool.Summary(nextIndex.toInt, nextOffset)
     }
 
-  def entries: ZStream[Any, Throwable, ManifestEntry] =
+  def entries: ZStream[Any, StoreError, ManifestEntry] =
     ZStream
       .acquireReleaseWith(ZIO.attemptBlocking(ManifestSpool.Reader.open(path)))(reader => ZIO.attemptBlocking(reader.close()).orDie)
       .flatMap(reader =>
@@ -64,6 +64,7 @@ private[stores] final class ManifestSpool private (
           ZIO.attemptBlocking(current.readBatch()).map(_.map(batch => batch -> current))
         }
       )
+      .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
 
   private[stores] def closeAndDelete: Task[Unit] =
     ZIO.attemptBlocking {

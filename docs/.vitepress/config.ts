@@ -219,6 +219,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Contributing', link: '/dev/contributing' },
           { text: 'Testing', link: '/dev/testing' },
+          { text: 'Backend Laws', link: '/dev/backend-laws' },
           { text: 'Scala.js Development', link: '/dev/scalajs' },
           { text: 'Design Documents', link: '/design/' },
           {

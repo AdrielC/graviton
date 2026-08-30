@@ -4,6 +4,7 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.types.FileSize
+import graviton.runtime.model.{InventoryCursor, InventoryNamespace, InventoryPage, InventoryPageSize}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 import zio.stream.ZStream
@@ -34,11 +35,11 @@ final class FsBlobManifestRepo(
     blob: BinaryKey.Blob,
     manifest: Manifest,
     ingestedAt: Instant,
-  ): ZIO[Any, Throwable, Unit] =
+  ): IO[StoreError, Unit] =
     for
       size <- ZIO
                 .fromEither(FileSize.either(manifest.size))
-                .mapError(message => new IllegalArgumentException(message))
+                .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _))
       _    <- putStream(blob, size, manifest.entries.length, ZStream.fromIterable(manifest.entries), ingestedAt)
     yield ()
 
@@ -46,123 +47,128 @@ final class FsBlobManifestRepo(
     blob: BinaryKey.Blob,
     totalSize: FileSize,
     blockCount: Int,
-    entries: ZStream[Any, Throwable, ManifestEntry],
+    entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
-  ): ZIO[Any, Throwable, Unit] =
+  ): IO[StoreError, Unit] =
     val path = pathFor(blob)
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
-      .mapError(new IllegalArgumentException(_)) *>
-      ZIO.scoped {
-        for
-          tmp    <- ZIO.attemptBlocking {
-                      Files.createDirectories(path.getParent)
-                      Files.createTempFile(path.getParent, ".manifest-", ".tmp")
-                    }
-          _      <- ZIO.addFinalizer(ZIO.attemptBlocking(Files.deleteIfExists(tmp)).ignore)
-          writer <- ZIO.acquireRelease(
-                      ZIO.attemptBlocking(
-                        StreamingManifestFile.Writer.open(
-                          tmp,
-                          StreamingManifestFile.Header(totalSize, blockCount),
+      .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
+      ZIO
+        .scoped {
+          for
+            tmp    <- ZIO.attemptBlocking {
+                        Files.createDirectories(path.getParent)
+                        Files.createTempFile(path.getParent, ".manifest-", ".tmp")
+                      }
+            _      <- ZIO.addFinalizer(ZIO.attemptBlocking(Files.deleteIfExists(tmp)).ignore)
+            writer <- ZIO.acquireRelease(
+                        ZIO.attemptBlocking(
+                          StreamingManifestFile.Writer.open(
+                            tmp,
+                            StreamingManifestFile.Header(totalSize, blockCount),
+                          )
                         )
-                      )
-                    )(current => ZIO.attemptBlocking(current.close()).orDie)
-          _      <- entries
-                      .rechunk(FsBlobManifestRepo.WriteBatchEntries)
-                      .chunks
-                      .runForeach(batch => ZIO.attemptBlocking(writer.writeBatch(batch)))
-          _      <- ZIO.attemptBlocking(writer.finish())
-          _      <- ZIO.attemptBlocking(writer.close())
-          _      <- commitStreamingManifest(tmp, path, ingestedAt)
-        yield ()
+                      )(current => ZIO.attemptBlocking(current.close()).orDie)
+            _      <- entries
+                        .rechunk(FsBlobManifestRepo.WriteBatchEntries)
+                        .chunks
+                        .runForeach(batch => ZIO.attemptBlocking(writer.writeBatch(batch)))
+            _      <- ZIO.attemptBlocking(writer.finish())
+            _      <- ZIO.attemptBlocking(writer.close())
+            _      <- commitStreamingManifest(tmp, path, ingestedAt)
+          yield ()
+        }
+        .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
+
+  override def get(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifest]] =
+    val path = pathFor(blob)
+    ZIO
+      .attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS))
+      .flatMap {
+        case false => ZIO.none
+        case true  => readStreamingManifest(path).map(Some(_))
       }
+      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
 
-  override def get(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifest]] =
+  override def getSummary(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifestSummary]] =
     val path = pathFor(blob)
-    ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
-      case false => ZIO.none
-      case true  => readStreamingManifest(path).map(Some(_))
-    }
+    ZIO
+      .attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS))
+      .flatMap {
+        case false => ZIO.none
+        case true  => readSummary(path).map(Some(_))
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
 
-  override def getSummary(blob: BinaryKey.Blob): ZIO[Any, Throwable, Option[StoredManifestSummary]] =
-    val path = pathFor(blob)
-    ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
-      case false => ZIO.none
-      case true  => readSummary(path).map(Some(_))
-    }
-
-  override def list: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifest)]] =
-    manifestKeys.flatMap(keys =>
-      ZIO
-        .foreach(keys)(blob => get(blob).map(_.map(blob -> _)))
-        .map(values =>
-          Chunk.fromIterable(
-            values.flatten.sortBy { case (_, stored) => stored.ingestedAt }(using Ordering[Instant].reverse)
-          )
-        )
-    )
-
-  override def listSummaries: ZIO[Any, Throwable, Chunk[(BinaryKey.Blob, StoredManifestSummary)]] =
-    manifestKeys.flatMap(keys =>
-      ZIO
-        .foreach(keys)(blob => getSummary(blob).map(_.map(blob -> _)))
-        .map(values =>
-          Chunk.fromIterable(
-            values.flatten.sortBy { case (_, stored) => stored.ingestedAt }(using Ordering[Instant].reverse)
-          )
-        )
-    )
-
-  /**
-   * Directory-backed maintenance cursor. Unlike [[listSummaries]], this keeps
-   * only the active walk entry and one manifest header in memory. The walk has
-   * no global ordering because obtaining newest-first order would require
-   * materializing the repository inventory.
-   */
-  override def streamSummaries: ZStream[Any, Throwable, (BinaryKey.Blob, StoredManifestSummary)] =
-    manifestPaths.mapZIO { path =>
-      for
-        blob    <- ZIO.fromEither(keyFromPath(path)).mapError(message => new IllegalArgumentException(message))
-        summary <- readSummary(path)
-      yield blob -> summary
-    }
-
-  override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, Throwable, BlobStreamer.BlockRef] =
-    val path = pathFor(blob)
-    ZStream.unwrap {
-      ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
-        case false => ZIO.fail(new NoSuchElementException(s"Missing manifest for ${blob.bits.render}"))
-        case true  =>
-          ZIO.succeed {
-            StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
-              entry.key match
-                case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
-                case other                  =>
-                  throw new IllegalArgumentException(
-                    s"CAS manifest entry $index must reference a block key, got $other"
+  override def inventoryPage(
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, InventoryPage[(BinaryKey.Blob, StoredManifestSummary)]] =
+    for
+      anchor <- ZIO
+                  .fromEither(
+                    after.fold[Either[String, Option[String]]](Right(None))(cursor =>
+                      InventoryCursor.decode(cursor, InventoryNamespace.Filesystem).map(Some(_))
+                    )
                   )
+                  .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+      paths  <- smallestPathsAfter(anchor, limit.value + 1)
+                  .mapError(StoreError.fromThrowable(StoreOperation.Inventory, StoreBackend.Filesystem))
+      items  <- ZIO.foreach(paths.take(limit.value)) { path =>
+                  for
+                    blob    <- ZIO.fromEither(keyFromPath(path)).mapError(StoreError.CorruptData(StoreOperation.Inventory, _))
+                    summary <- readSummary(path).mapError(StoreError.fromThrowable(StoreOperation.Inventory, StoreBackend.Filesystem))
+                  yield blob -> summary
+                }
+      next   <- ZIO.foreach(paths.lift(limit.value - 1).filter(_ => paths.length > limit.value)) { path =>
+                  ZIO
+                    .fromEither(InventoryCursor.encode(InventoryNamespace.Filesystem, relativePath(path)))
+                    .mapError(StoreError.InvalidInput(StoreOperation.Inventory, _))
+                }
+    yield InventoryPage(Chunk.fromIterable(items), next)
+
+  override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef] =
+    val path = pathFor(blob)
+    ZStream
+      .unwrap {
+        ZIO.attemptBlocking(Files.exists(path, LinkOption.NOFOLLOW_LINKS)).flatMap {
+          case false => ZIO.fail(StoreError.NotFound(StoreOperation.GetManifest, blob))
+          case true  =>
+            ZIO.succeed {
+              StreamingManifestFile.streamEntries(path).zipWithIndex.map { case (entry, index) =>
+                entry.key match
+                  case block: BinaryKey.Block => BlobStreamer.BlockRef(index, block)
+                  case other                  =>
+                    throw new IllegalArgumentException(
+                      s"CAS manifest entry $index must reference a block key, got $other"
+                    )
+              }
             }
-          }
+        }
       }
-    }
+      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.Filesystem))
 
-  override def delete(blob: BinaryKey.Blob): ZIO[Any, Throwable, Boolean] =
-    ZIO.attemptBlocking(Files.deleteIfExists(pathFor(blob)))
+  override def delete(blob: BinaryKey.Blob): IO[StoreError, Boolean] =
+    ZIO
+      .attemptBlocking(Files.deleteIfExists(pathFor(blob)))
+      .mapError(StoreError.fromThrowable(StoreOperation.DeleteManifest, StoreBackend.Filesystem))
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
-    ZIO.attemptBlocking {
-      val directory = root.resolve(prefix)
-      Files.createDirectories(directory)
-      val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
-      try
-        val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
-        try channel.force(true)
-        finally channel.close()
-      finally
-        val _ = Files.deleteIfExists(probe)
-      ()
-    }
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val directory = root.resolve(prefix)
+        Files.createDirectories(directory)
+        val probe     = Files.createTempFile(directory, ".ready-", ".tmp")
+        try
+          val channel = FileChannel.open(probe, StandardOpenOption.WRITE)
+          try channel.force(true)
+          finally channel.close()
+        finally
+          val _ = Files.deleteIfExists(probe)
+        ()
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, StoreBackend.Filesystem))
 
   private[stores] def pathFor(blob: BinaryKey.Blob): Path =
     val algo = blob.bits.algo.primaryName.toLowerCase.replace("-", "")
@@ -193,31 +199,34 @@ final class FsBlobManifestRepo(
       ingestedAt <- ZIO.attemptBlocking(Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant)
     yield StoredManifestSummary(header.totalSize, header.blockCount, ingestedAt)
 
-  private def manifestPaths: ZStream[Any, Throwable, Path] =
-    FsBlobManifestRepo.walkFiles(root.resolve(prefix)) { path =>
-      Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && path.getFileName.toString.endsWith(".manifest")
-    }
-
-  private def manifestKeys: Task[Chunk[BinaryKey.Blob]] =
+  private def smallestPathsAfter(anchor: Option[String], count: Int): Task[Vector[Path]] =
     ZIO.attemptBlocking {
       val manifestsRoot = root.resolve(prefix)
-      if !Files.exists(manifestsRoot, LinkOption.NOFOLLOW_LINKS) then Chunk.empty
+      if !Files.exists(manifestsRoot, LinkOption.NOFOLLOW_LINKS) then Vector.empty
       else if !Files.isDirectory(manifestsRoot, LinkOption.NOFOLLOW_LINKS) then
         throw new IllegalStateException(s"Manifest root is not a directory: $manifestsRoot")
       else
         val paths = Files.walk(manifestsRoot)
         try
-          Chunk.fromIterable(
-            paths
-              .iterator()
-              .asScala
-              .filter(path => path.getFileName.toString.endsWith(".manifest"))
-              .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
-              .map(path => keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity))
-              .toVector
-          )
+          val selected = new java.util.PriorityQueue[Path](count, (left, right) => relativePath(right).compareTo(relativePath(left)))
+          paths.iterator().asScala.foreach { path =>
+            val relative = relativePath(path)
+            if path.getFileName.toString.endsWith(".manifest") &&
+              Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) &&
+              anchor.forall(_ < relative)
+            then
+              if selected.size() < count then
+                val _ = selected.add(path)
+              else if relative < relativePath(selected.peek()) then
+                val _ = selected.poll()
+                val _ = selected.add(path)
+          }
+          selected.iterator().asScala.toVector.sortBy(relativePath)
         finally paths.close()
     }
+
+  private def relativePath(path: Path): String =
+    root.resolve(prefix).relativize(path).iterator().asScala.map(_.toString).mkString("/")
 
   private def keyFromPath(path: Path): Either[String, BinaryKey.Blob] =
     val algorithmDirectory = Option(path.getParent).flatMap(parent => Option(parent.getFileName)).map(_.toString).getOrElse("")

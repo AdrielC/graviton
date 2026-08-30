@@ -1,5 +1,6 @@
 import ai.hylo.graviton.client.GravitonClient
 import graviton.backend.pg.{PgMaintenanceCoordinator, PgMutableObjectStore}
+import graviton.backend.laws.BlobStoreLaws
 import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
 import graviton.core.attributes.BinaryAttributes
@@ -75,6 +76,7 @@ object ConsumerProof extends ZIOAppDefault:
       _        <- ZIO.fail(new IllegalStateException("backend modules did not resolve")).unless(
                     classOf[PgMutableObjectStore].getName.nonEmpty &&
                       classOf[PgMaintenanceCoordinator].getName.nonEmpty &&
+                      BlobStoreLaws.getClass.getName.nonEmpty &&
                       classOf[RocksKeyValueStore].getName.nonEmpty &&
                       S3BlobStore.PartSize.Default.value >= 5 * 1024 * 1024
                   )

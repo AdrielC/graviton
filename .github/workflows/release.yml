@@ -170,6 +170,7 @@ jobs:
             graviton-shared_3
             graviton-shared_sjs1_3
             graviton-runtime_3
+            graviton-backend-laws_3
             graviton-pdf_3
             graviton-shardcake_3
             graviton-proto_3

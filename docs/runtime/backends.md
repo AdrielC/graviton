@@ -24,9 +24,13 @@ Deleting a blob removes its manifest. Shared content-addressed blocks remain ava
 
 ## PostgreSQL manifests
 
-`PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. Its maintenance inventory uses a fetch-sized cursor, so it can feed the same streamed garbage-collection join without loading all manifests. The server combines it with `S3BlockStore` and `PgMaintenanceCoordinator` for the S3/MinIO deployment path. Ordinary operations use a shared PostgreSQL session advisory lock and maintenance uses the exclusive form under one refined repository namespace. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
+`PgBlobManifestRepo` persists blob identity, ordered block spans, and ingestion time in a transaction. Inventory uses a keyset query over the canonical `(algorithm, digest, byte length)` identity and returns an opaque backend cursor. It therefore feeds HTTP pages, gRPC streams, repair, and garbage collection without loading all manifests. The server combines it with `S3BlockStore` and `PgMaintenanceCoordinator` for the S3/MinIO deployment path. Ordinary operations use a shared PostgreSQL session advisory lock and maintenance uses the exclusive form under one refined repository namespace. The default filesystem server uses `FsBlobManifestRepo` and does not require PostgreSQL.
+
+Filesystem inventory walks the repository but retains only the smallest `limit + 1` paths after the cursor in a bounded max-heap. S3 full-object inventory delegates continuation to `ListObjectsV2` and respects the service's 1,000-key ceiling. Cursors are backend-owned and must be passed back unchanged.
 
 `PgImmutableObjectStore` and `PgMutableObjectStore` stream objects through ordered rows capped at 1 MiB. Writes, replacement, copy, and cleanup are transactional. `PgKeyValueStore`, `PgReplicaIndex`, and `PgRangeTracker` use the same schema and propagate database failures rather than silently degrading to empty state.
+
+`PgRepairJournal` persists one shared repair cursor and unresolved per-block failures with attempt counts. `FsRepairJournal` provides the same contract with atomic cursor replacement and one bounded failure record per block.
 
 See [PostgreSQL storage](../ops/postgres-storage.md) for the database layout.
 

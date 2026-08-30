@@ -40,6 +40,7 @@ final class CasBlobStore(
   metrics: MetricsRegistry = MetricsRegistry.noop,
   ingestConfig: CasBlobStore.IngestConfig = CasBlobStore.IngestConfig(),
   persistenceConfig: BlockPersistenceConfig = BlockPersistenceConfig.sequential,
+  transferBudget: TransferBudget = TransferBudget.unbounded,
 ) extends BlobStore:
 
   /** Binary-compatible constructor retained for clients compiled against 0.4.0. */
@@ -55,6 +56,7 @@ final class CasBlobStore(
     metrics,
     CasBlobStore.IngestConfig(),
     BlockPersistenceConfig.sequential,
+    TransferBudget.unbounded,
   )
 
   /** Source-compatible constructor for the bounded-ingest configuration added after 0.4.0. */
@@ -64,7 +66,7 @@ final class CasBlobStore(
     streamerConfig: BlobStreamer.Config,
     metrics: MetricsRegistry,
     ingestConfig: CasBlobStore.IngestConfig,
-  ) = this(blockStore, manifests, streamerConfig, metrics, ingestConfig, BlockPersistenceConfig.sequential)
+  ) = this(blockStore, manifests, streamerConfig, metrics, ingestConfig, BlockPersistenceConfig.sequential, TransferBudget.unbounded)
 
   /**
    * Pipeline that converts post-chunker Blocks into CanonicalBlocks.
@@ -89,9 +91,10 @@ final class CasBlobStore(
 
   override def put(plan: BlobWritePlan = BlobWritePlan()): BlobSink =
     ZSink.unwrapScoped {
-      for
+      (for
         startedNanos <- Clock.nanoTime
         chunker      <- graviton.streams.Chunker.current.get
+        _            <- transferBudget.reserveScoped(ingestConfig.maximumPipelineBytes(chunker, persistenceConfig))
         _            <- ZIO
                           .fail(
                             new IllegalArgumentException(
@@ -327,16 +330,18 @@ final class CasBlobStore(
                           )
           yield BlobWriteResult(blob, locator, validatedAttrs, ingestStats)
         }
+        .mapError(StoreError.fromThrowable(StoreOperation.PutBlob))).mapError(StoreError.fromThrowable(StoreOperation.PutBlob))
     }
 
-  override def get(key: BinaryKey.Blob): ZStream[Any, Throwable, Byte] =
-    BlobStreamer.streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
+  override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
+    BlobStreamer
+      .streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
 
   override def getRange(
     key: BinaryKey.Blob,
     start: BlobOffset,
     length: FileSize,
-  ): ZStream[Any, Throwable, Byte] =
+  ): ZStream[Any, StoreError, Byte] =
     BlobStreamer.streamRange(
       manifests.streamBlockRefsRange(key, start, length),
       blockStore,
@@ -345,23 +350,34 @@ final class CasBlobStore(
       streamerConfig,
     )
 
-  override def stat(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobStat]] =
+  override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =
     manifests.getSummary(key).map {
       case None          => None
       case Some(summary) => Some(BlobStat(summary.totalSize, key.bits.digest, summary.ingestedAt))
     }
 
-  override def list: ZIO[Any, Throwable, Chunk[BlobListing]] =
-    manifests.listSummaries.map(_.map { case (key, summary) => listing(key, summary) })
+  override def inventoryPage(
+    after: Option[graviton.runtime.model.InventoryCursor],
+    limit: graviton.runtime.model.InventoryPageSize,
+  ): IO[StoreError, graviton.runtime.model.InventoryPage[BlobListing]] =
+    manifests.inventoryPage(after, limit).map(page => page.copy(items = page.items.map { case (key, summary) => listing(key, summary) }))
 
-  override def inspect(key: BinaryKey.Blob): ZIO[Any, Throwable, Option[BlobDescription]] =
-    manifests.get(key).map(_.map(stored => description(key, stored)))
+  override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
+    manifests.get(key).flatMap {
+      case None         => ZIO.none
+      case Some(stored) =>
+        ZIO
+          .attempt(description(key, stored))
+          .mapError(StoreError.fromThrowable(StoreOperation.InspectBlob))
+          .map(Some(_))
+    }
 
-  override def delete(key: BinaryKey.Blob): ZIO[Any, Throwable, Unit] =
+  override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     manifests.delete(key).unit
 
-  override def healthCheck: ZIO[Any, Throwable, Unit] =
-    blockStore.healthCheck *> manifests.healthCheck
+  override def healthCheck: IO[StoreError, Unit] =
+    blockStore.healthCheck
+      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck)) *> manifests.healthCheck
 
   private def listing(blob: BinaryKey.Blob, stored: StoredManifest): BlobListing =
     val totalSize = stored.manifest.entries.foldLeft(0L) { (acc, entry) =>
@@ -422,7 +438,7 @@ object CasBlobStore:
       persistence: BlockPersistenceConfig,
     ): Long =
       maximumQueuedBytes(chunker) +
-        (persistence.parallelism.value.toLong + 1L) * chunker.maximumBlockBytes.toLong
+        (2L * persistence.parallelism.value.toLong + 1L) * chunker.maximumBlockBytes.toLong
 
   private final case class PersistCursor(index: Long, offset: Long):
     def advance(size: Int): PersistCursor =
@@ -520,10 +536,16 @@ object CasBlobStore:
     loop(0)
 
   val layer: ZLayer[BlockStore & BlobManifestRepo, Nothing, BlobStore] =
-    ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo) => new CasBlobStore(bs, repo))
+    (ZLayer.service[BlockStore] ++ ZLayer.service[BlobManifestRepo] ++ TransferBudget.default) >>>
+      ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, budget: TransferBudget) =>
+        new CasBlobStore(bs, repo, transferBudget = budget): BlobStore
+      )
 
   val layerWithMetrics: ZLayer[BlockStore & BlobManifestRepo & MetricsRegistry, Nothing, BlobStore] =
-    ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, reg: MetricsRegistry) => new CasBlobStore(bs, repo, metrics = reg))
+    (ZLayer.service[BlockStore] ++ ZLayer.service[BlobManifestRepo] ++ ZLayer.service[MetricsRegistry] ++ TransferBudget.default) >>>
+      ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, reg: MetricsRegistry, budget: TransferBudget) =>
+        new CasBlobStore(bs, repo, metrics = reg, transferBudget = budget): BlobStore
+      )
 
   /**
    * Production composition that coordinates complete blob operations with
@@ -531,24 +553,30 @@ object CasBlobStore:
    * consumes input or a download stream emits output.
    */
   val coordinatedLayer: ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator, Nothing, BlobStore] =
-    ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, coordinator: MaintenanceCoordinator) =>
-      new CoordinatedBlobStore(new CasBlobStore(bs, repo), coordinator): BlobStore
-    )
+    (ZLayer.service[BlockStore] ++ ZLayer.service[BlobManifestRepo] ++ ZLayer.service[MaintenanceCoordinator] ++ TransferBudget.default) >>>
+      ZLayer.fromFunction((bs: BlockStore, repo: BlobManifestRepo, coordinator: MaintenanceCoordinator, budget: TransferBudget) =>
+        new CoordinatedBlobStore(new CasBlobStore(bs, repo, transferBudget = budget), coordinator): BlobStore
+      )
 
   /** Coordinated production composition with an explicit metrics registry. */
   val coordinatedLayerWithMetrics: ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator & MetricsRegistry, Nothing, BlobStore] =
-    ZLayer.fromFunction(
+    (ZLayer.service[BlockStore] ++ ZLayer.service[BlobManifestRepo] ++ ZLayer.service[MaintenanceCoordinator] ++
+      ZLayer.service[MetricsRegistry] ++ TransferBudget.default) >>> ZLayer.fromFunction(
       (
         bs: BlockStore,
         repo: BlobManifestRepo,
         coordinator: MaintenanceCoordinator,
         reg: MetricsRegistry,
-      ) => new CoordinatedBlobStore(new CasBlobStore(bs, repo, metrics = reg), coordinator): BlobStore
+        budget: TransferBudget,
+      ) => new CoordinatedBlobStore(new CasBlobStore(bs, repo, metrics = reg, transferBudget = budget), coordinator): BlobStore
     )
 
   /** Coordinated composition with explicit bounded block-write concurrency. */
-  val coordinatedLayerWithMetricsAndPersistence
-    : ZLayer[BlockStore & BlobManifestRepo & MaintenanceCoordinator & MetricsRegistry & BlockPersistenceConfig, Nothing, BlobStore] =
+  val coordinatedLayerWithMetricsAndPersistence: ZLayer[
+    BlockStore & BlobManifestRepo & MaintenanceCoordinator & MetricsRegistry & BlockPersistenceConfig & TransferBudget,
+    Nothing,
+    BlobStore,
+  ] =
     ZLayer.fromFunction(
       (
         bs: BlockStore,
@@ -556,9 +584,10 @@ object CasBlobStore:
         coordinator: MaintenanceCoordinator,
         reg: MetricsRegistry,
         persistence: BlockPersistenceConfig,
+        budget: TransferBudget,
       ) =>
         new CoordinatedBlobStore(
-          new CasBlobStore(bs, repo, metrics = reg, persistenceConfig = persistence),
+          new CasBlobStore(bs, repo, metrics = reg, persistenceConfig = persistence, transferBudget = budget),
           coordinator,
         ): BlobStore
     )

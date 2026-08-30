@@ -1,6 +1,7 @@
 package graviton.integration.shardcake
 
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
+import graviton.runtime.stores.StoreError
 import graviton.runtime.upload.*
 import zio.*
 import zio.stream.ZStream
@@ -45,11 +46,11 @@ object CasUploadNodeIngest:
           .locally(key)(ingest)
           .tapBoth(_ => hotState.fail(key), _ => hotState.complete(key))
           .mapError {
-            case invalid: UploadIngestor.Error.InvalidInput                    => UploadNodeIngest.Error.InvalidUpload(invalid.getMessage)
-            case mismatch: UploadIngestor.Error.MediaTypeMismatch              => UploadNodeIngest.Error.InvalidUpload(mismatch.getMessage)
-            case validation: UploadIngestor.Error.Validation                   => UploadNodeIngest.Error.InvalidUpload(validation.getMessage)
-            case UploadIngestor.Error.Storage(error: IllegalArgumentException) =>
-              UploadNodeIngest.Error.InvalidUpload(error.getMessage)
-            case cause                                                         => UploadNodeIngest.Error.StorageFailure(cause)
+            case invalid: UploadIngestor.Error.InvalidInput                   => UploadNodeIngest.Error.InvalidUpload(invalid.getMessage)
+            case mismatch: UploadIngestor.Error.MediaTypeMismatch             => UploadNodeIngest.Error.InvalidUpload(mismatch.getMessage)
+            case validation: UploadIngestor.Error.Validation                  => UploadNodeIngest.Error.InvalidUpload(validation.getMessage)
+            case UploadIngestor.Error.Storage(error: StoreError.InvalidInput) =>
+              UploadNodeIngest.Error.InvalidUpload(error.reason)
+            case cause                                                        => UploadNodeIngest.Error.StorageFailure(cause)
           }
           .ensuring(recordHotStateSize)

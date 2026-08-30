@@ -31,8 +31,10 @@ final class ReplicatedBlockStore private (
   override def putBlock(
     block: CanonicalBlock,
     plan: BlockWritePlan = BlockWritePlan(),
-  ): IO[Throwable, StoredBlock] =
-    writeOne(block, plan).map(status => StoredBlock(block.key, block.size, status))
+  ): IO[StoreError, StoredBlock] =
+    writeOne(block, plan)
+      .map(status => StoredBlock(block.key, block.size, status))
+      .mapError(storageError(StoreOperation.PutBlock))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -40,44 +42,67 @@ final class ReplicatedBlockStore private (
         writeOne(block, plan).flatMap(status => acc.append(block, status))
       }
       .mapZIO(_.result)
+      .mapError(storageError(StoreOperation.PutBlock))
       .ignoreLeftover
 
-  override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
-    ZStream.unwrap {
-      for
-        selected <- select(key)
-        source   <- findSource(key, sourceCandidates(selected))
-        locality  =
-          preferredFailureDomain.fold("unconfigured")(domain => if source.replica.failureDomain == domain then "local" else "remote")
-        _        <- metrics.counter(MetricKeys.ReplicaReadsTotal, Map("replica" -> source.replica.name, "locality" -> locality))
-        targets   = selected.iterator.map(_.name).toSet
-        _        <- ZIO.foreachDiscard(source.failedBefore.filter { case (replica, _) => targets.contains(replica.name) }) { case (replica, _) =>
-                      replaceReplica(replica, source.block, "read_repair").ignore
-                    }
-      yield ZStream.fromChunk(source.block.bytes)
-    }
+  override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
+    ZStream
+      .unwrap {
+        for
+          selected <- select(key)
+          source   <- findSource(key, sourceCandidates(selected))
+          locality  =
+            preferredFailureDomain.fold("unconfigured")(domain => if source.replica.failureDomain == domain then "local" else "remote")
+          _        <- metrics.counter(MetricKeys.ReplicaReadsTotal, Map("replica" -> source.replica.name, "locality" -> locality))
+          targets   = selected.iterator.map(_.name).toSet
+          _        <- ZIO.foreachDiscard(source.failedBefore.filter { case (replica, _) => targets.contains(replica.name) }) { case (replica, _) =>
+                        replaceReplica(replica, source.block, "read_repair").ignore
+                      }
+        yield ZStream.fromChunk(source.block.bytes)
+      }
+      .mapError(storageError(StoreOperation.GetBlock))
 
-  override def converge(key: BinaryKey.Block): Task[RepairConvergence] =
-    repair(key).map(report => RepairConvergence(report.validReplicas, report.repairedReplicas, report.failedReplicas))
+  override def converge(key: BinaryKey.Block): IO[StoreError, RepairConvergence] =
+    repairInternal(key)
+      .map(report => RepairConvergence(report.validReplicas, report.repairedReplicas, report.failedReplicas))
+      .mapError(storageError(StoreOperation.Repair))
 
-  override def exists(key: BinaryKey.Block): Task[Boolean] =
+  override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
     select(key)
       .flatMap(selected => findSource(key, sourceCandidates(selected)))
       .as(true)
       .catchSome { case _: NoValidReplica => ZIO.succeed(false) }
+      .mapError(storageError(StoreOperation.ExistsBlock))
 
-  override def healthCheck: Task[Unit] =
-    ZIO.foreachPar(replicas)(replica => replica.store.healthCheck.either).flatMap { checks =>
-      val healthy = checks.count(_.isRight)
-      metrics.gauge(MetricKeys.ReplicaHealthyTargets, healthy.toDouble, Map.empty) *>
-        ZIO
-          .fail(WriteQuorumFailed(writeQuorum, healthy, replicas.length))
-          .when(healthy < writeQuorum)
-          .unit
-    }
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .foreachPar(replicas)(replica => replica.store.healthCheck.either)
+      .flatMap { checks =>
+        val healthy = checks.count(_.isRight)
+        metrics.gauge(MetricKeys.ReplicaHealthyTargets, healthy.toDouble, Map.empty) *>
+          ZIO
+            .fail(WriteQuorumFailed(writeQuorum, healthy, replicas.length))
+            .when(healthy < writeQuorum)
+            .unit
+      }
+      .mapError(storageError(StoreOperation.HealthCheck))
 
   /** Validate the selected copies and atomically replace every bad replica. */
-  def repair(key: BinaryKey.Block): Task[RepairReport] =
+  def repair(key: BinaryKey.Block): IO[StoreError, RepairReport] =
+    repairInternal(key).mapError(storageError(StoreOperation.Repair))
+
+  private def storageError(operation: StoreOperation)(error: Throwable): StoreError =
+    error match
+      case WriteQuorumFailed(required, succeeded, total) =>
+        StoreError.QuorumUnavailable(operation, required, succeeded, total)
+      case InvalidPlacement(expected, actual)            =>
+        StoreError.InvalidInput(operation, s"replica placement returned $actual targets, expected $expected")
+      case NoValidReplica(key, failures)                 =>
+        StoreError.NoHealthyReplica(operation, key, failures)
+      case other                                         =>
+        StoreError.fromThrowable(operation, retryUnknown = true)(other)
+
+  private def repairInternal(key: BinaryKey.Block): Task[RepairReport] =
     for
       selected <- select(key)
       source   <- findSource(key, sourceCandidates(selected))
@@ -230,13 +255,13 @@ object ReplicatedBlockStore:
     def apply(name: String, failureDomain: String, store: RepairableBlockStore): Replica =
       new Replica(name, store, failureDomain)
 
-  final case class WriteQuorumFailed(required: Int, succeeded: Int, total: Int)
+  private final case class WriteQuorumFailed(required: Int, succeeded: Int, total: Int)
       extends RuntimeException(s"Block write quorum failed: required=$required succeeded=$succeeded total=$total")
 
-  final case class InvalidPlacement(expected: Int, actual: Int)
+  private final case class InvalidPlacement(expected: Int, actual: Int)
       extends RuntimeException(s"Replica placement returned $actual targets, expected $expected")
 
-  final case class NoValidReplica(key: BinaryKey.Block, failures: Map[String, String])
+  private final case class NoValidReplica(key: BinaryKey.Block, failures: Map[String, String])
       extends RuntimeException(s"No valid replica for ${key.bits.render}; checked ${failures.keys.toList.sorted.mkString(",")}")
 
   final case class RepairReport(

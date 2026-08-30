@@ -262,7 +262,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           exit       <- Chunker
                           .locally(dishonest)(ZStream.fromChunk(Chunk.fill(1024)(1.toByte)).run(store.put()))
                           .exit
-          manifests  <- repo.list
+          manifests  <- repo.keys
         yield assertTrue(
           exit match
             case Exit.Failure(cause) =>
@@ -280,11 +280,11 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           release      <- Promise.make[Nothing, Unit]
           delegate     <- InMemoryBlockStore.make
           slowStore     = new BlockStore:
-                            override def putBlocks(plan: BlockWritePlan)                                          = delegate.putBlocks(plan)
-                            override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+                            override def putBlocks(plan: BlockWritePlan)                                                    = delegate.putBlocks(plan)
+                            override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): IO[StoreError, StoredBlock] =
                               writeStarted.succeed(()).ignore *> release.await *> delegate.putBlock(block, plan)
-                            override def get(key: graviton.core.keys.BinaryKey.Block)                             = delegate.get(key)
-                            override def exists(key: graviton.core.keys.BinaryKey.Block)                          = delegate.exists(key)
+                            override def get(key: graviton.core.keys.BinaryKey.Block)                                       = delegate.get(key)
+                            override def exists(key: graviton.core.keys.BinaryKey.Block)                                    = delegate.exists(key)
           repo         <- InMemoryBlobManifestRepo.make
           store         = new CasBlobStore(
                             slowStore,
@@ -327,8 +327,8 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           release    <- Promise.make[Nothing, Unit]
           delegate   <- InMemoryBlockStore.make
           concurrent  = new BlockStore:
-                          override def putBlocks(plan: BlockWritePlan)                                          = delegate.putBlocks(plan)
-                          override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+                          override def putBlocks(plan: BlockWritePlan)                                                    = delegate.putBlocks(plan)
+                          override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): IO[StoreError, StoredBlock] =
                             (for
                               now   <- active.updateAndGet(_ + 1)
                               _     <- peak.update(current => math.max(current, now))
@@ -337,8 +337,8 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
                               _     <- release.await
                               saved <- delegate.putBlock(block, plan)
                             yield saved).ensuring(active.update(_ - 1))
-                          override def get(key: graviton.core.keys.BinaryKey.Block)                             = delegate.get(key)
-                          override def exists(key: graviton.core.keys.BinaryKey.Block)                          = delegate.exists(key)
+                          override def get(key: graviton.core.keys.BinaryKey.Block)                                       = delegate.get(key)
+                          override def exists(key: graviton.core.keys.BinaryKey.Block)                                    = delegate.exists(key)
           repo       <- InMemoryBlobManifestRepo.make
           store       = new CasBlobStore(
                           concurrent,
@@ -360,16 +360,17 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
         )
       },
       test("propagates a failed block write without deadlocking the upload") {
-        val failure = new java.io.IOException("block backend unavailable")
+        val cause   = new java.io.IOException("block backend unavailable")
+        val failure = StoreError.Unavailable(StoreOperation.PutBlock, StoreBackend.InMemory, cause)
 
         for
           delegate  <- InMemoryBlockStore.make
           broken     = new BlockStore:
-                         override def putBlocks(plan: BlockWritePlan)                                          = delegate.putBlocks(plan)
-                         override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): Task[StoredBlock] =
+                         override def putBlocks(plan: BlockWritePlan)                                                    = delegate.putBlocks(plan)
+                         override def putBlock(block: CanonicalBlock, plan: BlockWritePlan): IO[StoreError, StoredBlock] =
                            ZIO.fail(failure)
-                         override def get(key: graviton.core.keys.BinaryKey.Block)                             = delegate.get(key)
-                         override def exists(key: graviton.core.keys.BinaryKey.Block)                          = delegate.exists(key)
+                         override def get(key: graviton.core.keys.BinaryKey.Block)                                       = delegate.get(key)
+                         override def exists(key: graviton.core.keys.BinaryKey.Block)                                    = delegate.exists(key)
           repo      <- InMemoryBlobManifestRepo.make
           store      = new CasBlobStore(broken, repo)
           completed <- Live.live(
@@ -400,7 +401,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           _           <- firstPull.await
           _           <- fiber.interrupt
           wasReleased <- released.get
-          manifests   <- repo.list
+          manifests   <- repo.keys
         yield assertTrue(
           wasReleased,
           manifests.isEmpty,
@@ -420,7 +421,7 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
             config.inputBufferChunks.toLong * config.ioChunkBytes.value.toLong +
             config.blockBufferBlocks.toLong * chunker.maximumBlockBytes.toLong,
           config.maximumQueuedBytes(chunker) == 2_359_296L,
-          config.maximumPipelineBytes(chunker, persistence) == 7_602_176L,
+          config.maximumPipelineBytes(chunker, persistence) == 11_796_480L,
         )
       },
       test("block persistence configuration rejects unbounded concurrency") {

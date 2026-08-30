@@ -3,6 +3,8 @@ package graviton.backend.s3
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.*
 import graviton.runtime.model.BlobWritePlan
+import graviton.runtime.config.{TransferMemoryConfig, TransferMemoryLimit}
+import graviton.runtime.stores.{StoreError, TransferBudget}
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -13,7 +15,9 @@ import zio.test.*
 import java.lang.reflect.Proxy
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 object S3BlobStoreSpec extends ZIOSpecDefault:
 
@@ -21,7 +25,7 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
     suite("S3BlobStore")(
       test("rejects invalid BlobWritePlan attributes before calling S3 client") {
         val calls = new AtomicInteger(0)
-        val store = new S3BlobStore(recordingClient(calls), testConfig)
+        val store = new S3BlobStore(recordingClient(calls), testConfig, TransferBudget.unbounded)
         val data  = Chunk.fromArray("blob-data".getBytes(StandardCharsets.UTF_8))
         val attrs =
           BinaryAttributes.empty
@@ -39,9 +43,22 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
           calls.get() == 0,
         )
       },
+      test("reserves the complete adaptive part ceiling before pulling input") {
+        val calls = new AtomicInteger(0)
+        for
+          budget <- TransferBudget.make(
+                      TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(64L * 1024L * 1024L))
+                    )
+          store   = new S3BlobStore(recordingClient(calls), testConfig, budget)
+          exit   <- ZStream.fromChunk(Chunk.single(1.toByte)).run(store.put()).exit
+        yield assertTrue(
+          exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.CapacityExceeded]),
+          calls.get() == 0,
+        )
+      },
       test("exact multipart boundary does not upload an empty final part") {
         val calls = MultipartCalls()
-        val store = new S3BlobStore(multipartClient(calls), testConfig)
+        val store = new S3BlobStore(multipartClient(calls), testConfig, TransferBudget.unbounded)
         val data  = Chunk.fromArray(Array.fill[Byte](S3BlobStore.PartSize.Default.value)(1))
 
         for result <- ZStream.fromChunk(data).run(store.put())
@@ -56,7 +73,7 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
       },
       test("one oversized upstream chunk is split into bounded S3 parts") {
         val calls = MultipartCalls()
-        val store = new S3BlobStore(multipartClient(calls), testConfig)
+        val store = new S3BlobStore(multipartClient(calls), testConfig, TransferBudget.unbounded)
         val data  = Chunk.fromArray(Array.fill[Byte](S3BlobStore.PartSize.Default.value + 17)(2))
 
         for result <- ZStream.fromChunk(data).run(store.put())
@@ -68,7 +85,7 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
       },
       test("an interrupted multipart upload is explicitly aborted") {
         val calls = MultipartCalls()
-        val store = new S3BlobStore(multipartClient(calls), testConfig)
+        val store = new S3BlobStore(multipartClient(calls), testConfig, TransferBudget.unbounded)
         val data  = Chunk.fromArray(Array.fill[Byte](S3BlobStore.PartSize.Default.value)(3))
 
         for exit <- (ZStream.fromChunk(data) ++ ZStream.fail(new RuntimeException("intentional failure"))).run(store.put()).exit
@@ -105,6 +122,20 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
           calls.copiedParts.get() == ranges.length,
           calls.completed.get() == 1,
           calls.aborted.get() == 0,
+        )
+      },
+      test("streaming inventory uses S3-native continuation without exceeding the 1000-key API ceiling") {
+        val requests = new AtomicReference(Vector.empty[ListObjectsV2Request])
+        val store    = new S3BlobStore(inventoryClient(requests), testConfig, TransferBudget.unbounded)
+
+        for listed <- store.streamInventory.runCollect
+        yield assertTrue(
+          listed.length == 2,
+          listed.map(_.key).distinct.length == 2,
+          requests.get().length == 2,
+          requests.get().forall(_.maxKeys() == 1000),
+          Option(requests.get()(0).startAfter()).isEmpty,
+          Option(requests.get()(1).startAfter()).exists(_.contains("-1")),
         )
       },
     )
@@ -184,5 +215,38 @@ object S3BlobStoreSpec extends ZIOSpecDefault:
             case "toString"                => "multipart-s3-client"
             case other                     =>
               throw new UnsupportedOperationException(s"Unexpected S3 client method: $other"),
+      )
+      .asInstanceOf[S3Client]
+
+  private def inventoryClient(requests: AtomicReference[Vector[ListObjectsV2Request]]): S3Client =
+    val firstDigest  = "1" * 64
+    val secondDigest = "2" * 64
+    Proxy
+      .newProxyInstance(
+        classOf[S3Client].getClassLoader,
+        Array(classOf[S3Client]),
+        (_, method, arguments) =>
+          method.getName match
+            case "listObjectsV2" =>
+              val request = arguments(0).asInstanceOf[ListObjectsV2Request]
+              requests.updateAndGet(_ :+ request)
+              val second  = Option(request.startAfter()).nonEmpty
+              val digest  = if second then secondDigest else firstDigest
+              ListObjectsV2Response
+                .builder()
+                .contents(
+                  S3Object
+                    .builder()
+                    .key(s"cas/blobs/sha256/$digest-1")
+                    .size(1L)
+                    .lastModified(Instant.EPOCH)
+                    .build()
+                )
+                .isTruncated(!second)
+                .build()
+            case "close"         => null
+            case "serviceName"   => "s3"
+            case "toString"      => "inventory-s3-client"
+            case other           => throw new UnsupportedOperationException(s"Unexpected S3 client method: $other"),
       )
       .asInstanceOf[S3Client]

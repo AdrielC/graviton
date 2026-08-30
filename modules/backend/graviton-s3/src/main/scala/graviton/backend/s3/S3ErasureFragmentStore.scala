@@ -3,7 +3,7 @@ package graviton.backend.s3
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
 import graviton.runtime.model.{BlockStoredStatus, ErasureFragment, ErasureFragmentBytes}
-import graviton.runtime.stores.ErasureFragmentStore
+import graviton.runtime.stores.{ErasureFragmentStore, StoreBackend, StoreError, StoreOperation}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -22,38 +22,44 @@ final class S3ErasureFragmentStore(
 ) extends ErasureFragmentStore:
   import S3ErasureFragmentStore.*
 
-  override def put(key: BinaryKey.Block, fragment: ErasureFragment): Task[BlockStoredStatus] =
-    write(key, fragment, replace = false)
+  override def put(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, BlockStoredStatus] =
+    write(key, fragment, replace = false).mapError(storeError(StoreOperation.PutBlock))
 
-  override def repair(key: BinaryKey.Block, fragment: ErasureFragment): Task[Unit] =
-    write(key, fragment, replace = true).unit
+  override def repair(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, Unit] =
+    write(key, fragment, replace = true).unit.mapError(storeError(StoreOperation.Repair))
 
-  override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[ErasureFragment] =
-    if expectedLength <= 0 || expectedLength > ErasureFragmentBytes.maxBytes then
-      ZIO.fail(new IllegalArgumentException(s"Invalid expected erasure shard length: $expectedLength"))
-    else
-      val request = GetObjectRequest.builder().bucket(config.bucket).key(objectKeyFor(key, index)).build()
-      ZIO.scoped {
-        for
-          response <-
-            ZIO.acquireRelease(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
-          bytes    <- ZIO.attemptBlocking(response.readNBytes(expectedLength + 1))
-          _        <-
-            ZIO
-              .fail(new IllegalStateException(s"Shard $index for ${key.bits.render} has ${bytes.length} bytes, expected $expectedLength"))
-              .unless(bytes.length == expectedLength)
-          metadata  = response.response().metadata().asScala.toMap
-          checksum <- sha256(bytes)
-          _        <- verifyProof(key, index, expectedLength, checksum.hex, metadata)
-          refined  <- ZIO.fromEither(ErasureFragmentBytes.fromChunk(Chunk.fromArray(bytes))).mapError(new IllegalStateException(_))
-        yield ErasureFragment(index, refined)
+  override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): IO[StoreError, ErasureFragment] =
+    (if expectedLength <= 0 || expectedLength > ErasureFragmentBytes.maxBytes then
+       ZIO.fail(new IllegalArgumentException(s"Invalid expected erasure shard length: $expectedLength"))
+     else
+       val request = GetObjectRequest.builder().bucket(config.bucket).key(objectKeyFor(key, index)).build()
+       ZIO.scoped {
+         for
+           response <-
+             ZIO.acquireRelease(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
+           bytes    <- ZIO.attemptBlocking(response.readNBytes(expectedLength + 1))
+           _        <-
+             ZIO
+               .fail(new IllegalStateException(s"Shard $index for ${key.bits.render} has ${bytes.length} bytes, expected $expectedLength"))
+               .unless(bytes.length == expectedLength)
+           metadata  = response.response().metadata().asScala.toMap
+           checksum <- sha256(bytes)
+           _        <- verifyProof(key, index, expectedLength, checksum.hex, metadata)
+           refined  <- ZIO.fromEither(ErasureFragmentBytes.fromChunk(Chunk.fromArray(bytes))).mapError(new IllegalStateException(_))
+         yield ErasureFragment(index, refined)
+       }
+    ) .mapError(storeError(StoreOperation.GetBlock))
+
+  override def healthCheck: IO[StoreError, Unit] =
+    ZIO
+      .attemptBlocking {
+        client.headBucket(HeadBucketRequest.builder().bucket(config.bucket).build())
+        ()
       }
+      .mapError(storeError(StoreOperation.HealthCheck))
 
-  override def healthCheck: Task[Unit] =
-    ZIO.attemptBlocking {
-      client.headBucket(HeadBucketRequest.builder().bucket(config.bucket).build())
-      ()
-    }
+  private def storeError(operation: StoreOperation)(error: Throwable): StoreError =
+    StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(error)
 
   private def write(key: BinaryKey.Block, fragment: ErasureFragment, replace: Boolean): Task[BlockStoredStatus] =
     val payload = fragment.chunk.toArray

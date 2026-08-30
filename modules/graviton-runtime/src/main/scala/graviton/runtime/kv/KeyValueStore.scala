@@ -2,7 +2,8 @@ package graviton.runtime.kv
 
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
-import zio.{Chunk, ZIO}
+import graviton.runtime.stores.StoreError
+import zio.{Chunk, IO}
 
 type KvKey = KvKey.T
 object KvKey extends RefinedType[String, MinLength[1] & MaxLength[1024]]
@@ -18,6 +19,6 @@ object KvValue:
     fromChunk(Chunk.fromArray(value))
 
 trait KeyValueStore:
-  def put(key: KvKey, value: KvValue): ZIO[Any, Throwable, Unit]
-  def get(key: KvKey): ZIO[Any, Throwable, Option[KvValue]]
-  def delete(key: KvKey): ZIO[Any, Throwable, Unit]
+  def put(key: KvKey, value: KvValue): IO[StoreError, Unit]
+  def get(key: KvKey): IO[StoreError, Option[KvValue]]
+  def delete(key: KvKey): IO[StoreError, Unit]
