@@ -117,10 +117,9 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// The v0.7.0 boundary replaces raw storage failures and collected inventory
-// with typed errors, opaque native cursors, and streaming contracts. Return to
-// BinaryCompatible immediately after the v0.7.0 tag.
-ThisBuild / versionPolicyIntention := Compatibility.None
+// v0.7.0 established the typed storage and streaming-inventory boundary.
+// Patch releases must preserve that public binary contract.
+ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
