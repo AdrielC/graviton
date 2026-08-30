@@ -3,7 +3,9 @@ package graviton.runtime.stores
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.model.Block.*
 import graviton.runtime.model.*
+import graviton.streams.BoundedByteStream
 import zio.*
 import zio.stream.*
 import zio.test.*
@@ -11,6 +13,7 @@ import zio.test.Assertion.*
 
 import java.io.IOException
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicInteger
 
 object ReplicatedBlockStoreSpec extends ZIOSpecDefault:
 
@@ -127,7 +130,40 @@ object ReplicatedBlockStoreSpec extends ZIOSpecDefault:
         bytes   <- newStore.get(block.key).runCollect
       yield assertTrue(report.repairedReplicas == 2, a, b, bytes == block.bytes)
     },
+    test("tries a validated local failure-domain copy before a remote candidate") {
+      val remoteReads = new AtomicInteger(0)
+      val remote      = new CountingFailingStore(remoteReads)
+      for
+        local <- InMemoryBlockStore.make
+        block <- canonical("local-read-preference")
+        _     <- local.putBlock(block)
+        store  = ReplicatedBlockStore
+                   .make(
+                     Chunk(
+                       ReplicatedBlockStore.Replica("remote", "zone-b", remote),
+                       ReplicatedBlockStore.Replica("local", "zone-a", local),
+                     ),
+                     desiredReplicas = 2,
+                     writeQuorum = 1,
+                     placement = ReplicaPlacement.rendezvous,
+                     metrics = graviton.runtime.metrics.MetricsRegistry.noop,
+                     preferredFailureDomain = Some("zone-a"),
+                   )
+                   .toOption
+                   .get
+        bytes <- BoundedByteStream.collectBlock(store.get(block.key))
+      yield assertTrue(bytes.bytes == block.bytes, remoteReads.get() == 0)
+    },
   )
+
+  private final class CountingFailingStore(reads: AtomicInteger) extends RepairableBlockStore:
+    override def putBlocks(plan: BlockWritePlan): BlockSink               = ZSink.fail(new IOException("replica unavailable"))
+    override def get(key: BinaryKey.Block): ZStream[Any, Throwable, Byte] =
+      reads.incrementAndGet()
+      ZStream.fail(new IOException("replica unavailable"))
+    override def exists(key: BinaryKey.Block): Task[Boolean]              = ZIO.fail(new IOException("replica unavailable"))
+    override def healthCheck: Task[Unit]                                  = ZIO.fail(new IOException("replica unavailable"))
+    override def repairBlock(block: CanonicalBlock): Task[Unit]           = ZIO.fail(new IOException("replica unavailable"))
 
   private object FailingStore extends RepairableBlockStore:
     override def putBlocks(plan: BlockWritePlan): BlockSink               = ZSink.fail(new IOException("replica unavailable"))

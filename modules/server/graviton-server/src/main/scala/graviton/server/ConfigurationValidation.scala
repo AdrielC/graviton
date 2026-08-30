@@ -1,6 +1,7 @@
 package graviton.server
 
 import graviton.core.types.UploadChunkSize
+import graviton.backend.s3.S3Config
 import graviton.integration.shardcake.{ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.runtime.config.GravitonConfig
 import graviton.security.SecurityConfig
@@ -96,9 +97,38 @@ object ConfigurationValidation:
           _        <- validateHttpUri("GRAVITON_S3_ENDPOINT", endpoint)
           _        <- required(environment, "GRAVITON_S3_ACCESS_KEY").map(_ => ())
           _        <- required(environment, "GRAVITON_S3_SECRET_KEY").map(_ => ())
+          _        <- validateReplicationTargets(config, environment)
           _        <- validatePostgres(environment)
         yield ()
       case _              => Left("unsupported backend")
+
+  private def validateReplicationTargets(config: GravitonConfig, environment: Map[String, String]): Either[String, Unit] =
+    if !config.replication.enabled then Right(())
+    else
+      for
+        endpoints <- config.replication.targets.foldLeft[Either[String, List[String]]](Right(Nil)) { (acc, target) =>
+                       for
+                         current  <- acc
+                         _        <- S3Config
+                                       .fromNamedTargetEnvironment(
+                                         target.name.value,
+                                         target.location.value,
+                                         config.s3.blockPrefix,
+                                         environment,
+                                       )
+                                       .left
+                                       .map(message => s"replication target '${target.name.value}': $message")
+                         prefix    = target.name.value.toUpperCase(java.util.Locale.ROOT).replace('-', '_')
+                         name      = s"GRAVITON_REPLICATION_TARGET_${prefix}_ENDPOINT"
+                         endpoint <- required(environment, name)
+                         _        <- validateHttpUri(name, endpoint)
+                       yield endpoint.stripSuffix("/") :: current
+                     }
+        _         <- require(
+                       endpoints.distinct.length == endpoints.length,
+                       "replication targets must use distinct endpoint URLs; separate buckets on one endpoint are not independent failure domains",
+                     )
+      yield ()
 
   private def validateProfile(
     profile: Profile,

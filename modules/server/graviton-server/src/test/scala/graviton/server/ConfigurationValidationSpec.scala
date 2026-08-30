@@ -1,7 +1,7 @@
 package graviton.server
 
 import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
-import graviton.runtime.config.GravitonConfig
+import graviton.runtime.config.{GravitonConfig, ReplicaStorageMode, ReplicaTargetConfig, ReplicationConfig}
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
 import zio.test.*
@@ -101,6 +101,41 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
                       ConsoleConfig.Default,
                       SecurityConfig.Default,
                       Map.empty,
+                    )
+                    .exit
+      yield assertTrue(exit.isFailure)
+    },
+    test("rejects several declared failure domains that resolve to one endpoint") {
+      val targets     = ReplicaTargetConfig
+        .parseList("a|zone-a|blocks-a,b|zone-b|blocks-b,c|zone-c|blocks-c")
+        .toOption
+        .get
+      val config      = GravitonConfig(
+        blobBackend = "s3",
+        replication = ReplicationConfig(
+          targets = targets,
+          desiredReplicas = Some(3),
+          writeQuorum = Some(2),
+          mode = ReplicaStorageMode.Erasure21,
+        ),
+      )
+      val named       = List("A", "B", "C").flatMap { name =>
+        List(
+          s"GRAVITON_REPLICATION_TARGET_${name}_ENDPOINT"   -> "https://same.example.com",
+          s"GRAVITON_REPLICATION_TARGET_${name}_ACCESS_KEY" -> name.toLowerCase,
+          s"GRAVITON_REPLICATION_TARGET_${name}_SECRET_KEY" -> "not-rendered-target-secret",
+        )
+      }.toMap
+      val environment = clusterEnvironment.updated("GRAVITON_DEPLOYMENT_PROFILE", "development") ++ named
+
+      for exit <- ConfigurationValidation
+                    .validate(
+                      config,
+                      ShardcakeUploadConfig.Default,
+                      ShardcakeRegistrationConfig.Default,
+                      ConsoleConfig.Default,
+                      SecurityConfig.Default,
+                      environment,
                     )
                     .exit
       yield assertTrue(exit.isFailure)

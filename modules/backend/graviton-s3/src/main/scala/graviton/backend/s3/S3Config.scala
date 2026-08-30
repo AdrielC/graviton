@@ -97,3 +97,49 @@ object S3Config:
       case None    =>
         val region = sys.env.get("GRAVITON_S3_REGION").map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
         Right(S3Config(bucket = bucket, region = region, prefix = prefix))
+
+  /**
+   * Resolve one independently addressable replication target.
+   *
+   * The target name `west-a` maps to the environment prefix
+   * `GRAVITON_REPLICATION_TARGET_WEST_A`. Endpoint and credentials are never
+   * inherited from the process-wide S3 variables, which prevents an operator
+   * from accidentally declaring several buckets on one endpoint as separate
+   * failure domains.
+   */
+  def fromNamedTargetEnvironment(
+    targetName: String,
+    bucket: String,
+    prefix: String,
+    environment: Map[String, String] = sys.env,
+  ): Either[String, S3Config] =
+    val normalized = targetName.trim.toUpperCase(java.util.Locale.ROOT).replace('-', '_')
+    val envPrefix  = s"GRAVITON_REPLICATION_TARGET_$normalized"
+    val endpoint   = s"${envPrefix}_ENDPOINT"
+    val accessKey  = s"${envPrefix}_ACCESS_KEY"
+    val secretKey  = s"${envPrefix}_SECRET_KEY"
+    val region     = s"${envPrefix}_REGION"
+
+    environment.get(endpoint).map(_.trim).filter(_.nonEmpty) match
+      case Some(url) =>
+        for
+          ak       <- environment.get(accessKey).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env var '$accessKey'")
+          sk       <- environment.get(secretKey).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env var '$secretKey'")
+          endpoint <- scala.util.Try(URI.create(url)).toEither.left.map(err => s"Invalid URI in '$endpoint': ${err.getMessage}")
+          resolved  = environment.get(region).map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
+        yield S3Config(bucket.trim, resolved, Some(endpoint), Some(ak), Some(sk), forcePathStyle = true, prefix)
+      case None      =>
+        val credentials = (environment.get(accessKey).filter(_.nonEmpty), environment.get(secretKey).filter(_.nonEmpty))
+        credentials match
+          case (Some(_), None) | (None, Some(_)) => Left(s"'$accessKey' and '$secretKey' must be configured together")
+          case (maybeAccess, maybeSecret)        =>
+            val resolvedRegion = environment.get(region).map(_.trim).filter(_.nonEmpty).map(Region.of).getOrElse(Region.US_EAST_1)
+            Right(
+              S3Config(
+                bucket = bucket.trim,
+                region = resolvedRegion,
+                accessKeyId = maybeAccess,
+                secretAccessKey = maybeSecret,
+                prefix = prefix,
+              )
+            )

@@ -1,19 +1,28 @@
 package graviton.server
 
 import graviton.backend.pg.{PgBlobManifestRepo, PgCatalog, PgDataSource, PgMaintenanceCoordinator, PgResumableUploadRepository}
-import graviton.backend.s3.{S3BlockStore, S3BlockStoreConfig, S3ClientLayer, S3Config, S3MutableObjectStore, S3ObjectStoreConfig}
+import graviton.backend.s3.{
+  S3BlockStore,
+  S3BlockStoreConfig,
+  S3ClientLayer,
+  S3Config,
+  S3ErasureFragmentStore,
+  S3MutableObjectStore,
+  S3ObjectStoreConfig,
+}
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
-import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig}
+import graviton.runtime.config.{BlockPersistenceConfig, GravitonConfig, MaintenanceConfig, ReplicaStorageMode}
 import graviton.runtime.metrics.MetricsRegistry
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
   BlockStore,
   CasBlobStore,
+  ErasureBlockStore,
   FileMaintenanceCoordinator,
   FsBlobManifestRepo,
   FsBlockStore,
@@ -330,6 +339,8 @@ object Main extends ZIOAppDefault:
     cfg: GravitonConfig
   ): ZLayer[BlobManifestRepo & MetricsRegistry, Throwable, BlockStore] =
     if !cfg.replication.enabled then ZLayer.succeed[BlockStore](new FsBlockStore(Path.of(cfg.fs.root), cfg.fs.blockPrefix))
+    else if cfg.replication.mode == ReplicaStorageMode.Erasure21 then
+      ZLayer.fail(new IllegalArgumentException("erasure-2-1 currently requires the S3-compatible backend (AWS S3, MinIO, or Ceph RGW)"))
     else
       ZLayer.scoped {
         for
@@ -349,6 +360,7 @@ object Main extends ZIOAppDefault:
                              cfg.replication.effectiveWriteQuorum,
                              ReplicaPlacement.rendezvous,
                              metrics,
+                             cfg.replication.localFailureDomain.map(_.value),
                            )
                          )
                          .mapError(new IllegalArgumentException(_))
@@ -374,26 +386,47 @@ object Main extends ZIOAppDefault:
         for
           manifests <- ZIO.service[BlobManifestRepo]
           metrics   <- ZIO.service[MetricsRegistry]
-          replicas  <- ZIO.foreach(cfg.replication.targets) { target =>
+          targets   <- ZIO.foreach(cfg.replication.targets) { target =>
                          for
                            storageCfg <- ZIO
-                                           .fromEither(S3Config.fromEnvironment(target.location.value, cfg.s3.blockPrefix))
+                                           .fromEither(
+                                             S3Config.fromNamedTargetEnvironment(
+                                               target.name.value,
+                                               target.location.value,
+                                               cfg.s3.blockPrefix,
+                                             )
+                                           )
                                            .mapError(new IllegalArgumentException(_))
                            client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg))(current => ZIO.attempt(current.close()).orDie)
-                           store       = new S3BlockStore(client, S3BlockStoreConfig(storageCfg))
-                         yield ReplicatedBlockStore.Replica(target.name.value, target.failureDomain.value, store)
+                         yield (target, storageCfg, client)
                        }
-          store     <- ZIO
-                         .fromEither(
-                           ReplicatedBlockStore.make(
-                             replicas,
-                             cfg.replication.effectiveDesiredReplicas,
-                             cfg.replication.effectiveWriteQuorum,
-                             ReplicaPlacement.rendezvous,
-                             metrics,
-                           )
-                         )
-                         .mapError(new IllegalArgumentException(_))
+          store     <- cfg.replication.mode match
+                         case ReplicaStorageMode.Replicated =>
+                           val replicas = targets.map { case (target, storageCfg, client) =>
+                             val backend: RepairableBlockStore = new S3BlockStore(client, S3BlockStoreConfig(storageCfg))
+                             ReplicatedBlockStore.Replica(target.name.value, target.failureDomain.value, backend)
+                           }
+                           ZIO
+                             .fromEither(
+                               ReplicatedBlockStore.make(
+                                 replicas,
+                                 cfg.replication.effectiveDesiredReplicas,
+                                 cfg.replication.effectiveWriteQuorum,
+                                 ReplicaPlacement.rendezvous,
+                                 metrics,
+                                 cfg.replication.localFailureDomain.map(_.value),
+                               )
+                             )
+                             .mapError(new IllegalArgumentException(_))
+                         case ReplicaStorageMode.Erasure21  =>
+                           val fragments = targets.map { case (target, storageCfg, client) =>
+                             new S3ErasureFragmentStore(target.name.value, target.failureDomain.value, client, storageCfg)
+                           }
+                           ZIO
+                             .fromEither(
+                               ErasureBlockStore.make(fragments, metrics, cfg.replication.localFailureDomain.map(_.value))
+                             )
+                             .mapError(new IllegalArgumentException(_))
           repair    <- ReplicaRepairService.make(store, manifests, cfg.replication, metrics)
           _         <- repair.start
         yield store: BlockStore

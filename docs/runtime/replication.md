@@ -1,4 +1,4 @@
-# Replication and Replica Index
+# Failure-domain durability and Replica Index
 
 Graviton separates content identity from placement. `BinaryKey` answers what the bytes are; `BlobLocator` and `ReplicaIndex` answer where copies live.
 
@@ -20,15 +20,23 @@ flowchart LR
 
 Writes run in parallel only across the selected targets and succeed only after the configured number report success. A failed quorum fails the block batch, so the logical manifest cannot report a completed blob. If `GRAVITON_REPLICATION_WRITE_QUORUM` is omitted, it defaults to the desired replica count rather than silently accepting one copy.
 
-Reads try selected replicas sequentially, then fall back to other configured targets as migration sources when a topology expansion changes rendezvous placement. Each candidate is collected only under the compile-time 16 MiB block ceiling, then checked for exact byte count and digest before it is trusted. A missing or corrupt candidate falls through to the next replica. Earlier bad selected candidates are repaired from the validated bounded block without detached fibers.
+Reads try selected replicas sequentially, preferring the configured local failure domain, then fall back to other configured targets as migration sources when a topology expansion changes rendezvous placement. Each candidate is collected only under the compile-time 16 MiB block ceiling, then checked for exact byte count and digest before it is trusted. A missing or corrupt candidate falls through to the next replica. Earlier bad selected candidates are repaired from the validated bounded block without detached fibers.
 
 `repair` validates every selected target sequentially, retaining at most the validated source and one bounded candidate, then atomically replaces missing or corrupt filesystem or S3 objects. The health check requires the configured write quorum.
+
+## Fixed 2+1 erasure mode
+
+`ErasureBlockStore` is the lower-overhead three-domain option. It splits each canonical block into two equal-length systematic shards, padding the final byte when needed, and computes one XOR parity shard. The three target names are sorted before shard indexes are assigned, so configuration order does not change physical placement. Target names must remain stable after data is written.
+
+Any two shards reconstruct the original. A read validates each shard's length and SHA-256 object proof, reconstructs only when necessary, and then validates the complete result against the original block length and content digest. A background convergence pass regenerates any missing shard from two validated shards. Two target losses are not recoverable.
+
+The codec is deliberately fixed rather than exposing unqualified Reed-Solomon knobs. For a maximum 16 MiB canonical block, each shard is at most 8 MiB. Encoding retains the 16 MiB source plus at most 24 MiB of shards. Reconstruction retains two 8 MiB source shards, one possible 8 MiB reconstructed shard, and the verified 16 MiB result. Synchronous S3 request bodies and convergence repair have separately documented conservative ceilings in [Performance](../ops/performance.md). Blob payloads remain streamed block by block and are never materialized.
 
 ## Scheduled repair
 
 When `GRAVITON_REPLICATION_TARGETS` is non-empty, the packaged server starts one scoped `ReplicaRepairService`. Each cycle walks manifest summaries and block references as streams, skips to a fair process-local cursor, and processes at most the Iron-refined batch limit. Per-block failures are counted and retried on a later cycle; enumeration failures fail the cycle and are logged before the schedule continues.
 
-Prometheus observations include placement decisions, per-target writes, repair attempts, cycle duration, failed blocks, and healthy target count. Target names are configuration-bounded labels. Content IDs, tenants, and upload session IDs never become metric labels.
+Prometheus observations include placement decisions, local and remote reads, per-target writes, erasure reconstruction, repair attempts, cycle duration, cursor, last successful convergence, under-protected blocks, and healthy target count. Target names are configuration-bounded labels. Content IDs, tenants, and upload session IDs never become metric labels.
 
 ## PostgreSQL replica index
 
@@ -43,7 +51,7 @@ The embedded PostgreSQL integration suite writes two locators, reads them back, 
 
 ## What is wired today
 
-`ReplicatedBlockStore`, rendezvous `ReplicaPlacement`, `ReplicaRepairService`, and `PgReplicaIndex` are operational library surfaces with executable tests. The packaged server builds filesystem targets from independent roots or S3-compatible targets from independent buckets, applies configured desired count and quorum, and starts repair automatically.
+`ReplicatedBlockStore`, `ErasureBlockStore`, rendezvous `ReplicaPlacement`, `ReplicaRepairService`, and `PgReplicaIndex` are operational library surfaces with executable tests. The packaged server builds filesystem replica targets from independent roots or S3-compatible targets from independently configured endpoint contracts, applies the selected durability policy, and starts repair automatically.
 
 The PostgreSQL replica index remains an application-facing locator catalog. The packaged repair worker derives desired placement directly from deterministic configuration and manifest keys, so correctness does not depend on an eventually updated index row.
 
@@ -60,7 +68,7 @@ The PostgreSQL replica index remains an application-facing locator catalog. The 
 
 ## Remaining boundaries
 
-- the repair cursor is process-local; it is fair across uninterrupted cycles but restarts at the first manifest after a process restart
+- the repair cursor is process-local; it is fair across uninterrupted cycles but restarts at the first manifest after a process restart, and horizontally scaled servers may perform redundant idempotent repair work
 - repair failure observations are process metrics, not a durable dead-letter queue
 - object-store accounts, regions, bucket policies, throttling, and correlated failures require target acceptance
 - each exact mixed-version pair still requires the rolling and rollback qualification record

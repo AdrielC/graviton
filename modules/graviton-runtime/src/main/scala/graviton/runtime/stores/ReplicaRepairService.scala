@@ -6,7 +6,7 @@ import zio.*
 
 /** Bounded, fair background scrub of every block referenced by a manifest. */
 final class ReplicaRepairService private (
-  store: ReplicatedBlockStore,
+  store: ConvergentBlockStore,
   manifests: BlobManifestRepo,
   config: ReplicationConfig,
   cursor: Ref[Int],
@@ -22,7 +22,7 @@ final class ReplicaRepairService private (
         report  <- referencedBlocks
                      .drop(offset)
                      .take(config.repairBatchSize.value.toLong)
-                     .mapZIO(key => store.repair(key).either)
+                     .mapZIO(key => store.converge(key).either)
                      .runFold(CycleAcc.empty) {
                        case (acc, Right(current)) => acc.record(current)
                        case (acc, Left(_))        => acc.failedBlock
@@ -47,6 +47,12 @@ final class ReplicaRepairService private (
                    )
         _       <- metrics.histogram(MetricKeys.ReplicaRepairCycleDuration, duration, Map.empty)
         _       <- metrics.gauge(MetricKeys.ReplicaRepairFailedBlocks, result.failedBlocks.toDouble, Map.empty)
+        _       <- metrics.gauge(MetricKeys.ReplicaUnderProtectedBlocks, result.failedBlocks.toDouble, Map.empty)
+        _       <- metrics.gauge(MetricKeys.ReplicaRepairCursor, result.nextOffset.toDouble, Map.empty)
+        now     <- Clock.instant
+        _       <- metrics
+                     .gauge(MetricKeys.ReplicaRepairLastSuccess, now.getEpochSecond.toDouble, Map.empty)
+                     .when(result.failedBlocks == 0L)
         _       <- ZIO.logInfo(
                      s"Replica repair cycle processed=${result.processedBlocks} repaired=${result.repairedReplicas} " +
                        s"failed_blocks=${result.failedBlocks} next_offset=${result.nextOffset}"
@@ -77,11 +83,20 @@ object ReplicaRepairService:
     duration: Double,
   )
 
+  /** Source-compatible entry point for callers that use the concrete replicated store. */
   def make(
     store: ReplicatedBlockStore,
     manifests: BlobManifestRepo,
     config: ReplicationConfig,
     metrics: MetricsRegistry = MetricsRegistry.noop,
+  ): UIO[ReplicaRepairService] =
+    make(store: ConvergentBlockStore, manifests, config, metrics)
+
+  def make(
+    store: ConvergentBlockStore,
+    manifests: BlobManifestRepo,
+    config: ReplicationConfig,
+    metrics: MetricsRegistry,
   ): UIO[ReplicaRepairService] =
     Ref.make(0).map(new ReplicaRepairService(store, manifests, config, _, metrics))
 
@@ -91,12 +106,12 @@ object ReplicaRepairService:
     failedReplicas: Long,
     failedBlocks: Long,
   ):
-    def record(report: ReplicatedBlockStore.RepairReport): CycleAcc =
+    def record(report: RepairConvergence): CycleAcc =
       copy(
         processed = processed + 1L,
-        repaired = repaired + report.repairedReplicas.toLong,
-        failedReplicas = failedReplicas + report.failedReplicas.size.toLong,
-        failedBlocks = failedBlocks + (if report.failedReplicas.nonEmpty then 1L else 0L),
+        repaired = repaired + report.repairedCopies.toLong,
+        failedReplicas = failedReplicas + report.failedCopies.size.toLong,
+        failedBlocks = failedBlocks + (if report.failedCopies.nonEmpty then 1L else 0L),
       )
 
     def failedBlock: CycleAcc = copy(processed = processed + 1L, failedBlocks = failedBlocks + 1L)

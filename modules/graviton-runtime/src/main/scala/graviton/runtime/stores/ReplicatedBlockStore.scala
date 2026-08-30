@@ -24,7 +24,8 @@ final class ReplicatedBlockStore private (
   writeQuorum: Int,
   placement: ReplicaPlacement,
   metrics: MetricsRegistry,
-) extends BlockStore:
+  preferredFailureDomain: Option[String],
+) extends ConvergentBlockStore:
   import ReplicatedBlockStore.*
 
   override def putBlock(
@@ -46,12 +47,18 @@ final class ReplicatedBlockStore private (
       for
         selected <- select(key)
         source   <- findSource(key, sourceCandidates(selected))
+        locality  =
+          preferredFailureDomain.fold("unconfigured")(domain => if source.replica.failureDomain == domain then "local" else "remote")
+        _        <- metrics.counter(MetricKeys.ReplicaReadsTotal, Map("replica" -> source.replica.name, "locality" -> locality))
         targets   = selected.iterator.map(_.name).toSet
         _        <- ZIO.foreachDiscard(source.failedBefore.filter { case (replica, _) => targets.contains(replica.name) }) { case (replica, _) =>
                       replaceReplica(replica, source.block, "read_repair").ignore
                     }
       yield ZStream.fromChunk(source.block.bytes)
     }
+
+  override def converge(key: BinaryKey.Block): Task[RepairConvergence] =
+    repair(key).map(report => RepairConvergence(report.validReplicas, report.repairedReplicas, report.failedReplicas))
 
   override def exists(key: BinaryKey.Block): Task[Boolean] =
     select(key)
@@ -97,7 +104,12 @@ final class ReplicatedBlockStore private (
    */
   private def sourceCandidates(selected: Chunk[Replica]): Chunk[Replica] =
     val selectedNames = selected.iterator.map(_.name).toSet
-    selected ++ replicas.filterNot(replica => selectedNames.contains(replica.name))
+    preferLocal(selected) ++ preferLocal(replicas.filterNot(replica => selectedNames.contains(replica.name)))
+
+  private def preferLocal(candidates: Chunk[Replica]): Chunk[Replica] =
+    preferredFailureDomain match
+      case None         => candidates
+      case Some(domain) => candidates.sortBy(replica => if replica.failureDomain == domain then 0 else 1)
 
   private def repairKnownBad(
     acc: RepairAcc,
@@ -239,7 +251,7 @@ object ReplicatedBlockStore:
     case Unavailable(replica: Replica, error: Throwable)
 
   def make(replicas: Chunk[Replica], writeQuorum: Int): Either[String, ReplicatedBlockStore] =
-    make(replicas, replicas.length, writeQuorum, ReplicaPlacement.rendezvous, MetricsRegistry.noop)
+    make(replicas, replicas.length, writeQuorum, ReplicaPlacement.rendezvous, MetricsRegistry.noop, None)
 
   def make(
     replicas: Chunk[Replica],
@@ -248,6 +260,16 @@ object ReplicatedBlockStore:
     placement: ReplicaPlacement,
     metrics: MetricsRegistry = MetricsRegistry.noop,
   ): Either[String, ReplicatedBlockStore] =
+    make(replicas, desiredReplicas, writeQuorum, placement, metrics, None)
+
+  def make(
+    replicas: Chunk[Replica],
+    desiredReplicas: Int,
+    writeQuorum: Int,
+    placement: ReplicaPlacement,
+    metrics: MetricsRegistry,
+    preferredFailureDomain: Option[String],
+  ): Either[String, ReplicatedBlockStore] =
     Either.cond(
       replicas.nonEmpty &&
         desiredReplicas >= 1 &&
@@ -255,7 +277,7 @@ object ReplicatedBlockStore:
         writeQuorum >= 1 &&
         writeQuorum <= desiredReplicas &&
         replicas.map(_.name).distinct.length == replicas.length,
-      new ReplicatedBlockStore(replicas, desiredReplicas, writeQuorum, placement, metrics),
+      new ReplicatedBlockStore(replicas, desiredReplicas, writeQuorum, placement, metrics, preferredFailureDomain),
       "replicas must be non-empty with unique names, desiredReplicas within target count, and writeQuorum within desiredReplicas",
     )
 

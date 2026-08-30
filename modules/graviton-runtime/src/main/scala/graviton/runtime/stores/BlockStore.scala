@@ -1,7 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
-import graviton.runtime.model.{BlockBatchResult, BlockWritePlan, CanonicalBlock, StoredBlock}
+import graviton.runtime.model.{BlockBatchResult, BlockStoredStatus, BlockWritePlan, CanonicalBlock, StoredBlock}
 import zio.*
 import zio.stream.*
 
@@ -51,3 +51,23 @@ object BlockStore:
  */
 trait RepairableBlockStore extends BlockStore:
   def repairBlock(block: CanonicalBlock): ZIO[Any, Throwable, Unit]
+
+/** A block store whose background scrub can restore its configured durability. */
+trait ConvergentBlockStore extends BlockStore:
+  def converge(key: BinaryKey.Block): ZIO[Any, Throwable, RepairConvergence]
+
+final case class RepairConvergence(
+  healthyCopies: Int,
+  repairedCopies: Int,
+  failedCopies: Map[String, String],
+):
+  def underProtected: Boolean = failedCopies.nonEmpty
+
+/** Physical storage for one deterministic shard of a canonical block. */
+trait ErasureFragmentStore:
+  def name: String
+  def failureDomain: String
+  def put(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): Task[BlockStoredStatus]
+  def get(key: BinaryKey.Block, index: Int, expectedLength: Int): Task[graviton.runtime.model.ErasureFragment]
+  def repair(key: BinaryKey.Block, fragment: graviton.runtime.model.ErasureFragment): Task[Unit]
+  def healthCheck: Task[Unit]
