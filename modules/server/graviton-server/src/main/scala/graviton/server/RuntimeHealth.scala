@@ -53,6 +53,15 @@ object RuntimeHealth:
   val refresh: ZIO[RuntimeHealth, Nothing, Snapshot] =
     ZIO.serviceWithZIO[RuntimeHealth](_.refresh)
 
+  def make(
+    blobStore: BlobStore,
+    resumable: ResumableUploadService,
+    shardcake: Option[ShardcakeNode],
+    metrics: MetricsRegistry,
+    config: Config,
+  ): RuntimeHealth =
+    Live(blobStore, resumable, shardcake.map(_.health), metrics, config)
+
   val live: ZLayer[BlobStore & ResumableUploadService & MetricsRegistry & Option[ShardcakeNode] & Config, Nothing, RuntimeHealth] =
     ZLayer.fromZIO {
       for
@@ -61,7 +70,7 @@ object RuntimeHealth:
         metrics   <- ZIO.service[MetricsRegistry]
         shardcake <- ZIO.service[Option[ShardcakeNode]]
         config    <- ZIO.service[Config]
-      yield Live(blobStore, resumable, shardcake.map(_.health), metrics, config)
+      yield make(blobStore, resumable, shardcake, metrics, config)
     }
 
   private final case class Live(

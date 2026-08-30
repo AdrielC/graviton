@@ -2,6 +2,10 @@ package graviton.protocol.grpc
 
 import graviton.core.types.FileSize
 import graviton.runtime.Graviton
+import graviton.runtime.model.BlobWritePlan
+import graviton.runtime.stores.{StoreError, StoreOperation}
+import graviton.runtime.tenant.{TenantContext, TenantRoute, TenantStoreBinding, TenantStoreProvider}
+import graviton.runtime.upload.{TenantId, UploadIngestor, UploadIntent}
 import graviton.security.*
 import graviton.shared.MediaTypeText
 import io.grpc.Status
@@ -101,6 +105,50 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
           statusCode(underflow).contains(Status.Code.INVALID_ARGUMENT),
           afterOver.isEmpty,
           afterUnder.isEmpty,
+        )
+      },
+      test("maps typed tenant exhaustion without exposing configured limits") {
+        import io.graviton.blobstore.v1.blob_service.*
+
+        val failures = Chunk(
+          StoreError.TenantStorageQuotaExceeded(
+            StoreOperation.PutBlob,
+            limitBytes = 987654321L,
+            retainedBytes = 987654321L,
+            attemptedAdditionalBytes = 1L,
+          )                                                                                 -> Status.Code.RESOURCE_EXHAUSTED,
+          StoreError.CapacityExceeded(StoreOperation.PutBlob, 987654321L, Some(987654322L)) -> Status.Code.RESOURCE_EXHAUSTED,
+          StoreError.TenantConcurrencyExceeded(StoreOperation.PutBlob)                      -> Status.Code.RESOURCE_EXHAUSTED,
+          StoreError.TenantAdmissionUnavailable(StoreOperation.PutBlob)                     -> Status.Code.UNAVAILABLE,
+        )
+
+        def failingIngestor(error: StoreError) = new UploadIngestor:
+          override def put(intent: UploadIntent, bytes: ZStream[Any, Throwable, Byte], plan: BlobWritePlan) =
+            ZIO.fail(UploadIngestor.Error.Storage(error))
+
+        for
+          graviton <- Graviton.inMemory()
+          denied   <- ZIO.foreach(failures) { case (storeError, expectedCode) =>
+                        new BlobServiceImpl(graviton.blobStore, failingIngestor(storeError))
+                          .putBlob(
+                            ZStream(
+                              PutBlobRequest(
+                                PutBlobRequest.Kind.Metadata(PutBlobMetadata(contentType = MediaTypeText.render(ContentType)))
+                              ),
+                              PutBlobRequest(PutBlobRequest.Kind.Data(com.google.protobuf.ByteString.copyFrom(Array[Byte](1)))),
+                            )
+                          )
+                          .exit
+                          .map(exit => exit -> expectedCode)
+                      }
+        yield assertTrue(
+          denied.forall { case (exit, expectedCode) => statusCode(exit).contains(expectedCode) },
+          denied.forall { case (exit, _) =>
+            !exit.causeOption
+              .flatMap(_.failureOption)
+              .flatMap(error => Option(error.getStatus.getDescription))
+              .exists(_.contains("987654321"))
+          },
         )
       },
       test("carries a logical 1 TiB expected size over gRPC without allocation and rejects immediate EOF atomically") {
@@ -208,6 +256,67 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
           )
         }
       } @@ TestAspect.timeout(20.seconds),
+      test("routes authenticated organizations to isolated stores on the real listener") {
+        ZIO.scoped {
+          for
+            first            <- Graviton.inMemory(chunkSize = 64)
+            second           <- Graviton.inMemory(chunkSize = 64)
+            tenantContextEnv <- TenantContext.live.build
+            tenantContext     = tenantContextEnv.get[TenantContext]
+            firstCaller       = callerFor("10000000-0000-4000-8000-000000000001")
+            secondCaller      = callerFor("20000000-0000-4000-8000-000000000002")
+            firstTenant       = TenantId.applyUnsafe(firstCaller.orgId.toString)
+            secondTenant      = TenantId.applyUnsafe(secondCaller.orgId.toString)
+            provider         <- ZIO.fromEither(
+                                  TenantStoreProvider.static(
+                                    Chunk(
+                                      TenantStoreBinding(TenantRoute(firstTenant), first.blobStore),
+                                      TenantStoreBinding(TenantRoute(secondTenant), second.blobStore),
+                                    )
+                                  )
+                                )
+            audit            <- AuditSink.inMemory
+            runtime          <- ZIO.runtime[Any]
+            allowAll          = new RateLimiter:
+                                  def check(kind: RateLimiter.Kind, tokens: Long): IO[SecurityError, Unit] = ZIO.unit
+            verifier          = tokenVerifier(Map("tenant-a" -> firstCaller, "tenant-b" -> secondCaller))
+            server           <- GravitonGrpcServer.scopedTenants(
+                                  first.blobStore,
+                                  provider,
+                                  tenantContext,
+                                  UploadIngestor.default,
+                                  GrpcServerConfig(port = 0),
+                                  List(
+                                    new AuthInterceptor(verifier, audit, runtime),
+                                    new CapabilityInterceptor(CapabilityCheck.tokenOnly, runtime, Some(audit)),
+                                    new RateLimitInterceptor(allowAll, runtime),
+                                  ),
+                                )
+            port             <- server.port
+            firstClient      <- GravitonGrpcClient.scoped(
+                                  "127.0.0.1",
+                                  port,
+                                  Some(GravitonGrpcClient.BearerToken.applyUnsafe("tenant-a")),
+                                )
+            secondClient     <- GravitonGrpcClient.scoped(
+                                  "127.0.0.1",
+                                  port,
+                                  Some(GravitonGrpcClient.BearerToken.applyUnsafe("tenant-b")),
+                                )
+            bytes             = Chunk.fromArray("grpc-organization-private".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            firstWrite       <- firstClient.put(ZStream.fromChunk(bytes), ContentType)
+            firstRead        <- firstClient.get(firstWrite.key).runCollect
+            hiddenFromSecond <- secondClient.stat(firstWrite.key).exit
+            secondWrite      <- secondClient.put(ZStream.fromChunk(bytes), ContentType)
+            callerAfterCalls <- CallerContext.current
+          yield assertTrue(
+            firstRead == bytes,
+            statusCode(hiddenFromSecond).contains(Status.Code.NOT_FOUND),
+            secondWrite.key == firstWrite.key,
+            callerAfterCalls.isEmpty,
+          )
+        }
+      } @@ TestAspect.timeout(20.seconds),
       test("stops a rate-limited upload frame before it reaches storage") {
         ZIO.scoped {
           for
@@ -258,3 +367,21 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
       tokenExpiresAt = Instant.parse("2099-01-01T00:00:00Z"),
       requestId = UUID.fromString("00000000-0000-0000-0000-000000000003"),
     )
+
+  private def callerFor(orgId: String): CallerContext =
+    CallerContext(
+      orgId = UUID.fromString(orgId),
+      principalId = UUID.randomUUID(),
+      capabilities = CapabilitySet.of(Capability.BlobRead, Capability.BlobWrite, Capability.BlobDelete),
+      jti = UUID.randomUUID().toString,
+      tokenExpiresAt = Instant.parse("2099-01-01T00:00:00Z"),
+      requestId = UUID.randomUUID(),
+    )
+
+  private def tokenVerifier(contexts: Map[String, CallerContext]): JwtVerifier =
+    new JwtVerifier:
+      override def verify(bearerToken: String, requestId: UUID): IO[SecurityError, CallerContext] =
+        ZIO
+          .fromOption(contexts.get(bearerToken))
+          .orElseFail(SecurityError.Unauthenticated("unknown test token"))
+          .map(_.copy(requestId = requestId))

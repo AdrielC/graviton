@@ -122,16 +122,32 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
 
   private def toStatus(error: Throwable): StatusException =
     error match
-      case status: StatusException                                      => status
-      case UploadIngestor.Error.Source(status: StatusException)         => status
-      case invalid: UploadIngestor.Error.InvalidInput                   => invalidStatus(invalid)
-      case mismatch: UploadIngestor.Error.MediaTypeMismatch             => invalidStatus(mismatch)
-      case ambiguous: UploadIngestor.Error.AmbiguousDetection           => invalidStatus(ambiguous)
-      case validation: UploadIngestor.Error.Validation                  => invalidStatus(validation)
-      case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput) => invalidStatus(cause)
-      case _: NoSuchElementException                                    => Status.NOT_FOUND.withDescription("blob was not found").asException()
-      case _: IllegalArgumentException                                  => invalidStatus(error)
-      case _                                                            => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
+      case status: StatusException                                                => status
+      case UploadIngestor.Error.Source(status: StatusException)                   => status
+      case invalid: UploadIngestor.Error.InvalidInput                             => invalidStatus(invalid)
+      case mismatch: UploadIngestor.Error.MediaTypeMismatch                       => invalidStatus(mismatch)
+      case ambiguous: UploadIngestor.Error.AmbiguousDetection                     => invalidStatus(ambiguous)
+      case validation: UploadIngestor.Error.Validation                            => invalidStatus(validation)
+      case UploadIngestor.Error.Storage(cause: StoreError.InvalidInput)           => invalidStatus(cause)
+      case UploadIngestor.Error.Storage(_: StoreError.TenantStorageQuotaExceeded) =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant storage quota exceeded").asException()
+      case UploadIngestor.Error.Storage(_: StoreError.CapacityExceeded)           =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant object size limit exceeded").asException()
+      case UploadIngestor.Error.Storage(_: StoreError.TenantConcurrencyExceeded)  =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant concurrent operation limit exceeded").asException()
+      case UploadIngestor.Error.Storage(_: StoreError.TenantAdmissionUnavailable) =>
+        Status.UNAVAILABLE.withDescription("tenant admission is temporarily unavailable").asException()
+      case _: StoreError.TenantStorageQuotaExceeded                               =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant storage quota exceeded").asException()
+      case _: StoreError.CapacityExceeded                                         =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant object size limit exceeded").asException()
+      case _: StoreError.TenantConcurrencyExceeded                                =>
+        Status.RESOURCE_EXHAUSTED.withDescription("tenant concurrent operation limit exceeded").asException()
+      case _: StoreError.TenantAdmissionUnavailable                               =>
+        Status.UNAVAILABLE.withDescription("tenant admission is temporarily unavailable").asException()
+      case _: NoSuchElementException                                              => Status.NOT_FOUND.withDescription("blob was not found").asException()
+      case _: IllegalArgumentException                                            => invalidStatus(error)
+      case _                                                                      => Status.INTERNAL.withDescription("storage operation failed").withCause(error).asException()
 
   private def invalidStatus(error: Throwable): StatusException =
     Status.INVALID_ARGUMENT.withDescription(safeMessage(error)).asException()

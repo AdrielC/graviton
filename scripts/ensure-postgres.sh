@@ -26,7 +26,7 @@ PG_DATABASE="${PG_DATABASE:-postgres}"
 EXTRA_DBS="${PG_DBS:-}"
 PG_USERNAME="${PG_USERNAME:-postgres}"
 PG_PASSWORD="${PG_PASSWORD:-postgres}"
-DDL_PATH="${DDL_PATH:-modules/pg/ddl.sql}"
+DDL_PATH="${DDL_PATH:-modules/backend/graviton-pg/src/main/resources/ddl.sql}"
 DO_DDL=${DO_DDL:-1}
 # If PG is already reachable (external), optionally apply DDL using local psql
 APPLY_EXTERNAL=${APPLY_EXTERNAL:-0}
@@ -419,5 +419,4 @@ export PG_USERNAME=${PG_USERNAME}
 export PG_PASSWORD=${PG_PASSWORD}
 export DATABASE_URL=postgres://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}
 ENV
-
 

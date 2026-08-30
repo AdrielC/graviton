@@ -31,6 +31,16 @@ END $$;
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS graviton;
 
+-- Transaction-local tenant identity used by row-level security. Define it
+-- before any tenant table policy references it.
+CREATE OR REPLACE FUNCTION graviton.current_org_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT nullif(current_setting('app.org_id', true), '')::uuid;
+$$;
+
 -- Shardcake placement state. The manager lease rejects overlapping managers,
 -- while transaction advisory locks serialize complete assignment and pod
 -- replacements. Upload bytes and session hot state never live here.
@@ -122,6 +132,36 @@ STABLE
 AS $$
   SELECT now();
 $$;
+
+-- Server-owned organization routing policy. Authenticated callers map to
+-- tenant_id and cannot select deduplication domains or admission limits.
+-- NULL deduplication_domain means a physically isolated storage namespace.
+CREATE TABLE IF NOT EXISTS graviton.tenant_storage_policy (
+  tenant_id uuid PRIMARY KEY,
+  cell_id varchar(120) NOT NULL DEFAULT 'default' CHECK (cell_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'),
+  lifecycle text NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'suspended')),
+  deduplication_domain varchar(120) NULL CHECK (
+    deduplication_domain IS NULL OR deduplication_domain ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'
+  ),
+  max_concurrent_operations integer NOT NULL DEFAULT 32 CHECK (max_concurrent_operations BETWEEN 1 AND 65535),
+  max_object_bytes core.byte_size NOT NULL DEFAULT 1099511627776 CHECK (max_object_bytes BETWEEN 1 AND 1099511627776),
+  max_retained_bytes core.byte_size NOT NULL DEFAULT 1125899906842624 CHECK (max_retained_bytes BETWEEN 1 AND 9223372036854775807),
+  revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+CREATE INDEX IF NOT EXISTS tenant_storage_policy_cell_idx
+  ON graviton.tenant_storage_policy (cell_id, tenant_id);
+
+-- Cluster-atomic logical usage. Writers lock this row in the same transaction
+-- that publishes or deletes a tenant manifest, so independent upload nodes
+-- cannot collectively exceed a tenant's retained-byte policy.
+CREATE TABLE IF NOT EXISTS graviton.tenant_storage_usage (
+  tenant_id uuid PRIMARY KEY REFERENCES graviton.tenant_storage_policy(tenant_id) ON DELETE CASCADE,
+  retained_bytes core.byte_size NOT NULL DEFAULT 0,
+  blob_count bigint NOT NULL DEFAULT 0 CHECK (blob_count >= 0),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
 
 -- Library-level replica catalog. This complements physical block_location
 -- topology and also supports logical blob replicas exposed by ReplicaIndex.
@@ -225,6 +265,27 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- A policy update must invalidate every server's cached route. Operators do
+-- not need to coordinate or remember a revision value by hand.
+CREATE OR REPLACE FUNCTION graviton.bump_tenant_policy_revision()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id THEN
+    RAISE EXCEPTION 'tenant_id is immutable';
+  END IF;
+  NEW.revision := OLD.revision + 1;
+  NEW.updated_at := clock_timestamp();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS tenant_storage_policy_revision_trg ON graviton.tenant_storage_policy;
+CREATE TRIGGER tenant_storage_policy_revision_trg
+BEFORE UPDATE ON graviton.tenant_storage_policy
+FOR EACH ROW EXECUTE FUNCTION graviton.bump_tenant_policy_revision();
 
 -- Generic change notification trigger for Graviton cache invalidation and subscriptions.
 -- Emits JSON payloads to the 'graviton_inval' channel.
@@ -346,6 +407,92 @@ CREATE TABLE graviton.sector (
 CREATE INDEX sector_read_pref_idx ON graviton.sector (status, priority, sector_id);
 
 -- 1.3 Blocks (immutable chunks)
+-- Multi-tenant data plane. Storage-domain identity is part of every block key,
+-- while tenant identity is part of every blob and manifest key. This permits
+-- explicit block sharing without granting cross-tenant blob ownership.
+CREATE TABLE graviton.tenant_block (
+  storage_domain_id varchar(128) NOT NULL CHECK (storage_domain_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+  alg core.hash_alg NOT NULL,
+  hash_bytes bytea NOT NULL,
+  byte_length core.byte_size NOT NULL CHECK (byte_length > 0),
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  PRIMARY KEY (storage_domain_id, alg, hash_bytes, byte_length),
+  CONSTRAINT tenant_block_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length))
+);
+CREATE INDEX tenant_block_created_idx ON graviton.tenant_block (storage_domain_id, created_at DESC);
+
+CREATE TABLE graviton.tenant_blob (
+  tenant_id uuid NOT NULL,
+  storage_domain_id varchar(128) NOT NULL,
+  alg core.hash_alg NOT NULL,
+  hash_bytes bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  block_count int NOT NULL CHECK (block_count >= 0),
+  PRIMARY KEY (tenant_id, storage_domain_id, alg, hash_bytes, byte_length),
+  CONSTRAINT tenant_blob_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
+  CONSTRAINT tenant_blob_policy_fk FOREIGN KEY (tenant_id) REFERENCES graviton.tenant_storage_policy(tenant_id)
+);
+CREATE INDEX tenant_blob_inventory_idx
+  ON graviton.tenant_blob (tenant_id, storage_domain_id, alg, hash_bytes, byte_length);
+
+CREATE TABLE graviton.tenant_blob_block (
+  tenant_id uuid NOT NULL,
+  storage_domain_id varchar(128) NOT NULL,
+  alg core.hash_alg NOT NULL,
+  hash_bytes bytea NOT NULL,
+  byte_length core.byte_size NOT NULL,
+  ordinal int NOT NULL CHECK (ordinal >= 0),
+  block_alg core.hash_alg NOT NULL,
+  block_hash_bytes bytea NOT NULL,
+  block_byte_length core.byte_size NOT NULL,
+  block_offset core.byte_size NOT NULL,
+  block_length core.byte_size NOT NULL CHECK (block_length > 0),
+  span int8range GENERATED ALWAYS AS (int8range(block_offset, block_offset + block_length, '[)')) STORED,
+  PRIMARY KEY (tenant_id, storage_domain_id, alg, hash_bytes, byte_length, ordinal),
+  FOREIGN KEY (tenant_id, storage_domain_id, alg, hash_bytes, byte_length)
+    REFERENCES graviton.tenant_blob(tenant_id, storage_domain_id, alg, hash_bytes, byte_length),
+  FOREIGN KEY (storage_domain_id, block_alg, block_hash_bytes, block_byte_length)
+    REFERENCES graviton.tenant_block(storage_domain_id, alg, hash_bytes, byte_length)
+);
+CREATE INDEX tenant_blob_block_read_idx
+  ON graviton.tenant_blob_block (tenant_id, storage_domain_id, alg, hash_bytes, byte_length, ordinal);
+ALTER TABLE graviton.tenant_blob_block
+  ADD CONSTRAINT tenant_blob_block_non_overlapping
+  EXCLUDE USING gist (
+    tenant_id WITH =,
+    storage_domain_id WITH =,
+    alg WITH =,
+    hash_bytes WITH =,
+    byte_length WITH =,
+    span WITH &&
+  );
+
+-- Defense in depth for the data plane. The application still binds every
+-- tenant predicate explicitly, while FORCE ROW LEVEL SECURITY makes a missed
+-- predicate fail closed for the non-superuser runtime role. Shared physical
+-- blocks intentionally remain domain-scoped rather than tenant-scoped.
+ALTER TABLE graviton.tenant_storage_usage ENABLE ROW LEVEL SECURITY;
+ALTER TABLE graviton.tenant_storage_usage FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_storage_usage_org_isolation
+  ON graviton.tenant_storage_usage
+  USING (tenant_id = graviton.current_org_id())
+  WITH CHECK (tenant_id = graviton.current_org_id());
+
+ALTER TABLE graviton.tenant_blob ENABLE ROW LEVEL SECURITY;
+ALTER TABLE graviton.tenant_blob FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_blob_org_isolation
+  ON graviton.tenant_blob
+  USING (tenant_id = graviton.current_org_id())
+  WITH CHECK (tenant_id = graviton.current_org_id());
+
+ALTER TABLE graviton.tenant_blob_block ENABLE ROW LEVEL SECURITY;
+ALTER TABLE graviton.tenant_blob_block FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_blob_block_org_isolation
+  ON graviton.tenant_blob_block
+  USING (tenant_id = graviton.current_org_id())
+  WITH CHECK (tenant_id = graviton.current_org_id());
+
 CREATE TABLE graviton.block (
   alg         core.hash_alg NOT NULL,
   hash_bytes  bytea NOT NULL,
@@ -660,14 +807,6 @@ BEGIN
   END IF;
 END $$;
 
-CREATE OR REPLACE FUNCTION graviton.current_org_id()
-RETURNS uuid
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT nullif(current_setting('app.org_id', true), '')::uuid;
-$$;
-
 CREATE TABLE graviton.acl_entry (
   org_id uuid NOT NULL,
   principal_id uuid NOT NULL,
@@ -686,14 +825,14 @@ CREATE TABLE graviton.audit_log (
   seq bigint NOT NULL CHECK (seq > 0),
   ts timestamptz NOT NULL DEFAULT core.now_utc(),
   principal_id uuid NOT NULL,
-  action core.nonempty_text NOT NULL,
+  action core.nonempty_text NOT NULL CHECK (length(action) <= 255),
   resource_kind graviton.resource_kind NOT NULL,
   resource_id uuid NULL,
   request_id uuid NOT NULL,
   source_ip inet NULL,
-  user_agent text NULL,
+  user_agent text NULL CHECK (length(user_agent) <= 1024),
   outcome graviton.audit_outcome NOT NULL,
-  reason text NULL,
+  reason text NULL CHECK (length(reason) <= 2048),
   bytes core.byte_size NULL,
   prev_hash bytea NOT NULL CHECK (octet_length(prev_hash) = 32),
   row_hash bytea NOT NULL CHECK (octet_length(row_hash) = 32),

@@ -49,8 +49,13 @@ final case class TenantStoreBinding(
 
 sealed abstract class TenantRoutingError(message: String) extends Exception(message)
 object TenantRoutingError:
-  case object MissingContext                         extends TenantRoutingError("no tenant context is active in this fiber")
-  final case class UnknownTenant(tenantId: TenantId) extends TenantRoutingError(s"tenant ${tenantId.value} is not configured")
+  case object MissingContext                           extends TenantRoutingError("no tenant context is active in this fiber")
+  final case class UnknownTenant(tenantId: TenantId)   extends TenantRoutingError(s"tenant ${tenantId.value} is not configured")
+  final case class SuspendedTenant(tenantId: TenantId) extends TenantRoutingError(s"tenant ${tenantId.value} is suspended")
+  final case class InvalidPolicy(tenantId: TenantId, reason: String)
+      extends TenantRoutingError(s"tenant ${tenantId.value} has an invalid storage policy: $reason")
+  final case class PolicyUnavailable(cause: Throwable) extends TenantRoutingError("tenant policy is unavailable"):
+    override def getCause: Throwable = cause
 
 sealed abstract class TenantTopologyError(message: String) extends Exception(message)
 object TenantTopologyError:
@@ -100,6 +105,78 @@ object TenantStoreProvider:
       case None           =>
         val byTenant = bindings.map(binding => binding.route.tenantId -> binding).toMap
         Right(fromFunction(tenantId => ZIO.fromOption(byTenant.get(tenantId)).orElseFail(TenantRoutingError.UnknownTenant(tenantId))))
+
+  /**
+   * Resolve durable policy on every logical operation and reuse only the cheap,
+   * immutable store composition. The cache is bounded and a policy revision or
+   * storage-domain change replaces the binding before it can serve new work.
+   */
+  def cached(
+    catalog: TenantPolicyCatalog,
+    maximumEntries: Int,
+  )(
+    build: TenantPolicy => IO[TenantRoutingError, BlobStore]
+  ): UIO[TenantStoreProvider] =
+    for
+      _      <- ZIO.dieMessage("tenant store cache maximumEntries must be positive").unless(maximumEntries > 0)
+      shards <- ZIO.foreach(0 until dynamicShardCount(maximumEntries)) { index =>
+                  Ref.Synchronized
+                    .make(DynamicState.empty)
+                    .map(state => DynamicShard(state, dynamicShardCapacity(maximumEntries, index)))
+                }
+    yield fromFunction { tenantId =>
+      catalog.resolve(tenantId).flatMap { policy =>
+        val shard = shards(dynamicShardIndex(tenantId, shards.length))
+        shard.state.modifyZIO { current =>
+          current.entries.get(tenantId) match
+            case Some(cached)
+                if cached.policy.revision == policy.revision && cached.policy.route.storageDomain == policy.route.storageDomain =>
+              val touched = cached.copy(lastAccess = current.nextSequence)
+              ZIO.succeed(
+                touched.binding -> current.copy(entries = current.entries.updated(tenantId, touched), sequence = current.nextSequence)
+              )
+            case _ =>
+              build(policy).map { store =>
+                val binding  = TenantStoreBinding(policy.route, store)
+                val cached   = DynamicBinding(policy, binding, current.nextSequence)
+                val inserted = current.entries.updated(tenantId, cached)
+                val bounded  =
+                  if inserted.size <= shard.capacity then inserted
+                  else
+                    inserted.iterator
+                      .filterNot(_._1 == tenantId)
+                      .minByOption(_._2.lastAccess)
+                      .fold(inserted) { case (victim, _) => inserted.removed(victim) }
+                binding -> DynamicState(bounded, current.nextSequence)
+              }
+        }
+      }
+    }
+
+  private final case class DynamicBinding(
+    policy: TenantPolicy,
+    binding: TenantStoreBinding,
+    lastAccess: Long,
+  )
+
+  private final case class DynamicState(entries: Map[TenantId, DynamicBinding], sequence: Long):
+    def nextSequence: Long = if sequence == Long.MaxValue then 0L else sequence + 1L
+
+  private object DynamicState:
+    val empty: DynamicState = DynamicState(Map.empty, 0L)
+
+  private final case class DynamicShard(state: Ref.Synchronized[DynamicState], capacity: Int)
+
+  private def dynamicShardCount(maximumEntries: Int): Int = math.min(64, maximumEntries)
+
+  private def dynamicShardCapacity(maximumEntries: Int, index: Int): Int =
+    val shards    = dynamicShardCount(maximumEntries)
+    val base      = maximumEntries / shards
+    val remainder = maximumEntries % shards
+    base + (if index < remainder then 1 else 0)
+
+  private def dynamicShardIndex(tenantId: TenantId, shards: Int): Int =
+    java.lang.Math.floorMod(tenantId.value.hashCode, shards)
 
 /**
  * Fiber-local tenant identity established only after authentication and policy
@@ -260,8 +337,11 @@ final class ContextualTenantBlobStore(
           provider
             .resolve(tenantId)
             .mapError {
-              case TenantRoutingError.MissingContext          => StoreError.MissingTenantContext(operation)
-              case TenantRoutingError.UnknownTenant(tenantId) => StoreError.TenantNotConfigured(operation, tenantId)
+              case TenantRoutingError.MissingContext            => StoreError.MissingTenantContext(operation)
+              case TenantRoutingError.UnknownTenant(tenantId)   => StoreError.TenantNotConfigured(operation, tenantId)
+              case TenantRoutingError.SuspendedTenant(tenantId) => StoreError.TenantSuspended(operation, tenantId)
+              case TenantRoutingError.InvalidPolicy(_, reason)  => StoreError.InvalidInput(operation, reason)
+              case TenantRoutingError.PolicyUnavailable(cause)  => StoreError.Unavailable(operation, StoreBackend.PostgreSql, cause)
             }
         )
         .tapBoth(
@@ -294,6 +374,7 @@ final class ContextualTenantBlobStore(
     val outcome = error match
       case _: StoreError.MissingTenantContext => "missing_context"
       case _: StoreError.TenantNotConfigured  => "unknown_tenant"
+      case _: StoreError.TenantSuspended      => "suspended"
       case _                                  => "failed"
     Map("operation" -> operation.toString, "outcome" -> outcome, "scope" -> "unresolved")
 

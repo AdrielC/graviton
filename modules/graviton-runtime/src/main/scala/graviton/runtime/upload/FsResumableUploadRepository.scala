@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.channels.FileChannel
 import java.nio.file.{Files, LinkOption, Path, StandardCopyOption, StandardOpenOption}
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -30,8 +29,8 @@ import scala.jdk.CollectionConverters.*
 final class FsResumableUploadRepository(root: Path) extends ResumableUploadRepository:
   import FsResumableUploadRepository.*
 
-  private val base  = root.resolve("cas/upload-sessions").toAbsolutePath.normalize()
-  private val locks = new ConcurrentHashMap[UploadSessionKey, Object]()
+  private val base       = root.resolve("cas/upload-sessions").toAbsolutePath.normalize()
+  private val lockShards = Array.fill(SessionLockShards)(new Object())
 
   override def healthCheck: IO[Error, Unit] =
     fromBlocking("health check") {
@@ -168,7 +167,7 @@ final class FsResumableUploadRepository(root: Path) extends ResumableUploadRepos
 
   private def withLock[A](key: UploadSessionKey)(operation: => Either[Error, A]): IO[Error, A] =
     fromBlocking("transition") {
-      val lock = locks.computeIfAbsent(key, _ => new Object())
+      val lock = lockShards(java.lang.Math.floorMod(key.hashCode, lockShards.length))
       lock.synchronized(operation)
     }.flatMap(ZIO.fromEither)
 
@@ -261,6 +260,9 @@ final class FsResumableUploadRepository(root: Path) extends ResumableUploadRepos
     finally channel.close()
 
 object FsResumableUploadRepository:
+  /** Fixed-cardinality local serialization for the single-node filesystem backend. */
+  private val SessionLockShards = 256
+
   type LedgerBytes = LedgerBytes.T
   object LedgerBytes extends RefinedTypeExt[Array[Byte], MinLength[1] & MaxLength[16777216]]:
     inline val MaxBytes                                            = 16777216

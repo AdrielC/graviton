@@ -39,7 +39,7 @@ Cause: Postgres is reachable, but the schema wasn’t applied.
 Fix:
 
 ```bash
-psql -U postgres -d graviton -f modules/pg/ddl.sql
+psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
 ```
 
 ### Upload returns 500 on MinIO/S3 mode

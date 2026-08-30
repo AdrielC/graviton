@@ -32,7 +32,16 @@ final class MetricsBlobStore(
         _       <- metrics.counter(MetricKeys.BlobOperationsTotal, tags)
       yield underlying
         .put(plan)
-        .mapErrorZIO(error => metrics.counter(MetricKeys.BlobOperationFailuresTotal, tags).as(error))
+        .mapErrorZIO { error =>
+          metrics.counter(MetricKeys.BlobOperationFailuresTotal, tags) *>
+            (error match
+              case _: StoreError.TenantStorageQuotaExceeded =>
+                metrics.counter(MetricKeys.TenantQuotaRejectionsTotal, Map("quota" -> "retained_bytes"))
+              case _: StoreError.CapacityExceeded           =>
+                metrics.counter(MetricKeys.TenantQuotaRejectionsTotal, Map("quota" -> "object_bytes"))
+              case _                                        => ZIO.unit
+            ).as(error)
+        }
         .ensuring(recordDuration(tags, started))
     }
 

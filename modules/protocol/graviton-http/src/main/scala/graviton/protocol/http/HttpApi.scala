@@ -481,8 +481,12 @@ final case class HttpApi(
               ZIO.succeed(error(Status.BadRequest, "invalid_blob", Option(err.getMessage).getOrElse("Invalid blob")))
             case BlobIngest.Error.LocalityUnavailable      =>
               ZIO.succeed(error(Status.ServiceUnavailable, "locality_unavailable", "Upload locality is not enabled"))
-            case _: BlobIngest.Error.Locality              =>
-              ZIO.succeed(error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream"))
+            case locality: BlobIngest.Error.Locality       =>
+              ZIO.succeed(
+                tenantStorageResponse(locality).getOrElse(
+                  error(Status.ServiceUnavailable, "locality_failed", "Upload locality could not complete the stream")
+                )
+              )
             case invalid: BlobIngest.Error.InvalidInput    =>
               ZIO.succeed(error(Status.BadRequest, "invalid_blob", invalid.message))
             case BlobIngest.Error.Rejected(rejected)       =>
@@ -493,8 +497,12 @@ final case class HttpApi(
                   ZIO.succeed(error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded"))
                 case _                                =>
                   ZIO.succeed(error(Status.Forbidden, "forbidden", "Request denied"))
-            case _: BlobIngest.Error.Storage               =>
-              ZIO.succeed(error(Status.InternalServerError, "ingest_failed", "Blob ingest failed"))
+            case storage: BlobIngest.Error.Storage         =>
+              ZIO.succeed(
+                tenantStorageResponse(storage.cause).getOrElse(
+                  error(Status.InternalServerError, "ingest_failed", "Blob ingest failed")
+                )
+              )
             case response: Response                        =>
               ZIO.succeed(response)
             case _                                         =>
@@ -502,6 +510,22 @@ final case class HttpApi(
           }
       }
     }
+
+  private def tenantStorageResponse(cause: Throwable): Option[Response] =
+    Iterator
+      .iterate(Option(cause))(_.flatMap(value => Option(value.getCause)))
+      .takeWhile(_.nonEmpty)
+      .flatten
+      .collectFirst {
+        case _: StoreError.TenantStorageQuotaExceeded =>
+          error(Status.InsufficientStorage, "tenant_storage_quota_exceeded", "Tenant storage quota exceeded")
+        case _: StoreError.CapacityExceeded           =>
+          error(Status.RequestEntityTooLarge, "tenant_object_limit_exceeded", "Tenant object size limit exceeded")
+        case _: StoreError.TenantConcurrencyExceeded  =>
+          error(Status.TooManyRequests, "tenant_concurrency_exceeded", "Tenant concurrent operation limit exceeded")
+        case _: StoreError.TenantAdmissionUnavailable =>
+          error(Status.ServiceUnavailable, "tenant_admission_unavailable", "Tenant admission is temporarily unavailable")
+      }
 
   private val listBlobsHandler: Handler[Any, Nothing, Request, Response] =
     Handler.fromFunctionZIO[Request] { req =>
@@ -584,12 +608,11 @@ final case class HttpApi(
         ZIO.succeed(error(Status.BadRequest, "invalid_blob_id", message))
       case Right(key)    =>
         secured(request, "blob.read", Capability.BlobRead, ResourceRef.blob(key.bits.render)) {
-          blobStore
-            .stat(key)
+          (CallerContext.current zip blobStore.stat(key))
             .map {
-              case None       => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
-              case Some(stat) =>
-                conditionalResponse(key, stat, request, includeBody)
+              case (_, None)            => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
+              case (caller, Some(stat)) =>
+                conditionalResponse(key, stat, request, includeBody, caller)
             }
             .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "storage_failure", "Blob metadata lookup failed")))
         }
@@ -599,6 +622,7 @@ final case class HttpApi(
     stat: graviton.runtime.model.BlobStat,
     request: Request,
     includeBody: Boolean,
+    caller: Option[CallerContext],
   ): Response =
     val etag            = s"\"${key.bits.render}\""
     val lastModified    = stat.lastModified.truncatedTo(ChronoUnit.SECONDS)
@@ -637,7 +661,8 @@ final case class HttpApi(
               key,
               BlobOffset.unsafe(range.start),
               FileSize.unsafe(length),
-            )
+            ),
+            caller,
           )
           Response(
             status = Status.PartialContent,
@@ -648,11 +673,16 @@ final case class HttpApi(
           Response(
             status = Status.Ok,
             headers = blobHeaders(key, stat) ++ Headers(Header.Custom("Accept-Ranges", "bytes")),
-            body = if includeBody then Body.fromStream(checkedDownload(blobStore.get(key)), stat.size.value) else Body.empty,
+            body = if includeBody then Body.fromStream(checkedDownload(blobStore.get(key), caller), stat.size.value) else Body.empty,
           )
 
-  private def checkedDownload(stream: zio.stream.ZStream[Any, Throwable, Byte]): zio.stream.ZStream[Any, Throwable, Byte] =
-    security.fold(stream)(_.checkedDownload(stream))
+  private def checkedDownload(
+    stream: zio.stream.ZStream[Any, Throwable, Byte],
+    caller: Option[CallerContext],
+  ): zio.stream.ZStream[Any, Throwable, Byte] =
+    security match
+      case None         => stream
+      case Some(policy) => caller.fold(policy.checkedDownload(stream))(policy.checkedDownload(_, stream))
 
   private final case class ByteRange(start: Long, endInclusive: Long)
 

@@ -106,6 +106,33 @@ object StoreError:
   ) extends StoreError(operation, s"tenant ${tenantId.value} is not configured"):
     override val retryable: Boolean = false
 
+  final case class TenantSuspended(
+    override val operation: StoreOperation,
+    tenantId: TenantId,
+  ) extends StoreError(operation, s"tenant ${tenantId.value} is suspended"):
+    override val retryable: Boolean = false
+
+  final case class TenantAdmissionUnavailable(
+    override val operation: StoreOperation
+  ) extends StoreError(operation, "tenant admission capacity is unavailable"):
+    override val retryable: Boolean = true
+
+  final case class TenantConcurrencyExceeded(
+    override val operation: StoreOperation
+  ) extends StoreError(operation, "tenant concurrent operation limit was exceeded"):
+    override val retryable: Boolean = true
+
+  final case class TenantStorageQuotaExceeded(
+    override val operation: StoreOperation,
+    limitBytes: Long,
+    retainedBytes: Long,
+    attemptedAdditionalBytes: Long,
+  ) extends StoreError(
+        operation,
+        s"tenant retained-byte quota exceeded: limit=$limitBytes retained=$retainedBytes additional=$attemptedAdditionalBytes",
+      ):
+    override val retryable: Boolean = false
+
   final case class CorruptData(
     override val operation: StoreOperation,
     reason: String,

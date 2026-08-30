@@ -19,7 +19,7 @@ Current Graviton main is a production candidate for controlled embedded and sing
 | gRPC | Packaged listener, generated stubs, bounded streaming client, lifecycle calls, auth, capabilities, rate limiting, and audit | HTTP additionally supports ranges, preconditions, and verification |
 | RocksDB | Durable key-value adapter | Not a complete CAS `BlockStore` backend |
 | Storage contracts | Typed operation-specific `StoreError`, native opaque cursor pages, complete lazy inventory, published backend laws | Third-party adapters must run the same laws and retain backend-specific fault evidence |
-| Crash and tenant contracts | Deterministic bounded fault plans, reconstructed-filesystem crash laws, fail-closed tenant context, default-isolated domains, explicit shared-dedup policy, tenant law suite, and domain-wide GC marks | In-process faults are not physical power loss; the packaged server is still single-composition rather than turnkey multi-tenant |
+| Multi-tenant contracts | Authenticated HTTP and gRPC binding, durable cell-scoped policy, private manifests, forced PostgreSQL RLS, isolated or explicit shared domains, cluster-atomic retained quotas, bounded sharded admission, a connection-coalescing cell maintenance barrier, tenant laws, and domain-wide GC marks | Exclusive maintenance drains a cell; in-process faults are not physical power loss; global request limits, target IdP acceptance, billing, and target-scale capacity remain deployment work |
 | Transfer admission | Process-wide weighted byte budget with scoped, interruption-safe reservations | Size the configured ceiling against heap, direct memory, and non-Graviton co-tenants |
 | Repair progress | Durable filesystem or PostgreSQL cursor plus streamed unresolved-failure records | Alert and operate the dead-letter stream; a journal does not repair an unavailable target by itself |
 
@@ -30,6 +30,7 @@ Run these from a clean clone:
 ```bash
 TESTCONTAINERS=0 ./sbt scalafmtCheckAll test
 GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"
+./scripts/qualify-multitenant.sh
 ./scripts/verify-external-consumer.sh
 ./scripts/audit-published-artifacts.sh
 ./sbt server/assembly
@@ -65,11 +66,11 @@ Use one writable volume, backend readiness probes, and a conservative `Recreate`
 
 ### Shared S3 plus PostgreSQL
 
-Use provider-native object durability, existing staging and block buckets, PostgreSQL migrations, encrypted connections, least-privilege credentials, and coordinated backups. Configure the same `GRAVITON_MAINTENANCE_NAMESPACE` in every process that reaches the repository. Shared blob operations and exclusive maintenance use PostgreSQL session advisory locks. Drain traffic or retry if sustained activity from another process makes exclusive acquisition time out. The repository proves real adapter integration and supplies exact rolling and failure harnesses, not a particular provider service level. Re-run them with the target image pair, credentials, network, database, and object store before declaring the deployment highly available.
+Use provider-native object durability, existing staging and block buckets, PostgreSQL migrations, encrypted connections, least-privilege credentials, and coordinated backups. The production Compose topology separates the bootstrap owner from a `NOSUPERUSER NOBYPASSRLS` runtime role and denies the runtime role tenant-policy writes. Configure the same `GRAVITON_MAINTENANCE_NAMESPACE` in every process that reaches the repository. Shared blob operations and exclusive maintenance use PostgreSQL session advisory locks. Drain traffic or retry if sustained activity from another process makes exclusive acquisition time out. The repository proves real adapter integration and supplies exact rolling and failure harnesses, not a particular provider service level. Re-run them with the target image pair, credentials, network, database, and object store before declaring the deployment highly available.
 
-### Embedded multi-tenant runtime
+### Packaged multi-tenant service
 
-Use `TenantContext` only after authenticating the caller and resolving the server-owned tenant policy. Keep the default isolated route for unrelated customers. Shared dedup domains are appropriate only for explicit trust groups because duplicate-write observations expose a content-membership signal. Every shared domain needs one coordinator, a stable catalog snapshot, and `GarbageCollector.forStorageDomain` over all tenant manifest repositories. The packaged server does not mount this topology yet. See [Multi-tenant storage](../runtime/multi-tenancy.md).
+Set `GRAVITON_MULTI_TENANT_ENABLED=true` only with production OIDC, TLS enforcement, JDBC audit, PostgreSQL, and S3-compatible storage. The verified token organization selects a server-owned, cell-scoped policy. Keep the default isolated route for unrelated customers. Shared dedup domains are appropriate only for explicit trust groups because duplicate-write observations expose a content-membership signal. One cell-wide coordinator coalesces ordinary operations onto one shared advisory-lock session per process; an exclusive maintenance lease drains the cell. Use separate deployment cells, credentials, buckets, databases, and encryption policy when a customer's contract requires a silo boundary or a smaller maintenance blast radius. See [Multi-tenant storage](../runtime/multi-tenancy.md).
 
 ## Security acceptance
 
@@ -92,7 +93,7 @@ Those properties do not replace environment tests. Each deployment still needs a
 
 ## Observability
 
-`/api/health/live` proves the process is alive. `/api/health/ready` checks the active block, manifest, resumable-ledger, and staging composition with a timeout and, when upload locality is enabled, fails until the local node owns a Shardcake assignment. `/api/stats` and `/metrics` expose process-local counters plus HTTP request, error, and latency observations. When security is enabled, stats and metrics require `observability.read`.
+`/api/health/live` proves the process is alive. `/api/health/ready` checks the active block, manifest, resumable-ledger, and staging composition with a timeout and, when upload locality is enabled, fails until the local node owns a Shardcake assignment. `/api/stats` and `/metrics` expose process-local counters plus HTTP request, error, and latency observations. PostgreSQL deployments also expose fixed-cardinality pool gauges for active, idle, total, maximum, and waiting connections, labeled `primary` and `shardcake` where both pools are active. When security is enabled, stats and metrics require `observability.read`.
 
 `deploy/three-domain` ships live Prometheus recording and alert rules plus a provisioned Grafana dashboard for HTTP success ratio, p99 latency, erasure target health, read locality, and repair backlog. These read the server's actual `/metrics` endpoint. They are an operational baseline, not a capacity guarantee. Tune service levels from target workload and retained measurements.
 
@@ -102,4 +103,4 @@ A `v*` tag validates the build, runs the packaged smoke, proves external consump
 
 ## Remaining product work
 
-The main product gaps are packaged-server tenant binding and quotas, durable tenant-catalog snapshots, physical power-loss and disk-corruption injection, coordinated provider snapshots, retained benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides resumable uploads, durable repair progress and dead letters, automatic durability orchestration, in-process CrashLab laws, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.
+The main product gaps are scheduled multi-tenant domain scrubbing, durable shared-domain membership snapshots, distributed contractual request limiting, physical power-loss and disk-corruption injection, retained multi-tenant benchmark envelopes from multiple operator environments, and acceptance against each real IdP, ingress, Ceph cluster, and storage provider. The repository now provides authenticated tenant binding, cluster-atomic retained quotas, pooled connection bounds, resumable uploads, durable repair progress and dead letters, automatic durability orchestration, in-process CrashLab laws, destructive single-target volume-loss evidence, mixed-version rollback qualification, and a sustained outage drill, but those cannot make every deployment topology equivalent. RocksDB remains a durable key-value module rather than an advertised blob backend.

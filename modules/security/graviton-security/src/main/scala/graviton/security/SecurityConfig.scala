@@ -23,6 +23,8 @@ final case class SecurityConfig(
   rateLimitPerPrincipalPerSec: Long,
   rateLimitUploadBytesPerSec: Long,
   rateLimitDownloadBytesPerSec: Long,
+  rateLimitMaximumPrincipals: Int,
+  rateLimitIdleTtl: Duration,
   maxRequestBytes: FileSize,
   auditFlushInterval: Duration,
   kmsKeyArn: Option[String],
@@ -41,6 +43,8 @@ final case class SecurityConfig(
         _ <- Either.cond(rateLimitPerPrincipalPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_PER_PRINCIPAL_PER_SEC must be positive")
         _ <- Either.cond(rateLimitUploadBytesPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_UPLOAD_BYTES_PER_SEC must be positive")
         _ <- Either.cond(rateLimitDownloadBytesPerSec > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_DOWNLOAD_BYTES_PER_SEC must be positive")
+        _ <- Either.cond(rateLimitMaximumPrincipals > 0, (), "GRAVITON_SECURITY_RATE_LIMIT_MAXIMUM_PRINCIPALS must be positive")
+        _ <- Either.cond(rateLimitIdleTtl.toNanos > 0L, (), "GRAVITON_SECURITY_RATE_LIMIT_IDLE_TTL must be positive")
         _ <- FileSize
                .either(maxRequestBytes.value)
                .left
@@ -85,6 +89,8 @@ object SecurityConfig:
     rateLimitPerPrincipalPerSec = 100L,
     rateLimitUploadBytesPerSec = 10L * 1024L * 1024L,
     rateLimitDownloadBytesPerSec = 50L * 1024L * 1024L,
+    rateLimitMaximumPrincipals = 100000,
+    rateLimitIdleTtl = 10.minutes,
     maxRequestBytes = FileSize.unsafe(5L * 1024L * 1024L * 1024L),
     auditFlushInterval = 2.seconds,
     kmsKeyArn = None,
@@ -103,6 +109,8 @@ object SecurityConfig:
       Config.long("rate-limit-per-principal-per-sec").withDefault(100L) ++
       Config.long("rate-limit-upload-bytes-per-sec").withDefault(10L * 1024L * 1024L) ++
       Config.long("rate-limit-download-bytes-per-sec").withDefault(50L * 1024L * 1024L) ++
+      Config.int("rate-limit-maximum-principals").withDefault(100000) ++
+      Config.duration("rate-limit-idle-ttl").withDefault(10.minutes) ++
       Config.long("max-request-bytes").withDefault(5L * 1024L * 1024L * 1024L) ++
       Config.duration("audit-flush-interval").withDefault(2.seconds) ++
       Config.string("kms-key-arn").optional ++
@@ -110,7 +118,7 @@ object SecurityConfig:
       Config.string("dev-shared-secret").optional ++
       Config.string("audit-backend").withDefault("memory") ++
       Config.string("authorization-backend").withDefault("token"))
-      .map {
+      .mapOrFail {
         case (
               enabled,
               issuer,
@@ -123,6 +131,8 @@ object SecurityConfig:
               rpsPrincipal,
               bpsUpload,
               bpsDownload,
+              maximumPrincipals,
+              idleTtl,
               maxBytes,
               auditFlush,
               kms,
@@ -131,29 +141,36 @@ object SecurityConfig:
               auditBackend,
               authorizationBackend,
             ) =>
-          SecurityConfig(
-            enabled = enabled,
-            oidcIssuer = issuer,
-            oidcAudience = audience,
-            oidcJwksUri = jwksUri,
-            jwksCacheTtl = jwks,
-            requireTls = tls,
-            trustProxyHeaders = trustProxy,
-            corsAllowedOrigins =
-              if origins.trim.isEmpty then Nil
-              else origins.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList,
-            rateLimitPerPrincipalPerSec = rpsPrincipal,
-            rateLimitUploadBytesPerSec = bpsUpload,
-            rateLimitDownloadBytesPerSec = bpsDownload,
-            // Config validation rejects an out-of-range value before the server starts.
-            maxRequestBytes = FileSize.unsafe(maxBytes),
-            auditFlushInterval = auditFlush,
-            kmsKeyArn = kms,
-            clockSkewSeconds = skew,
-            devSharedSecret = devSecret.filter(_.nonEmpty),
-            auditBackend = auditBackend.trim.toLowerCase,
-            authorizationBackend = authorizationBackend.trim.toLowerCase,
-          )
+          FileSize
+            .either(maxBytes)
+            .left
+            .map(message => Config.Error.InvalidData(Chunk.empty, s"invalid max-request-bytes: $message"))
+            .map { refinedMaxBytes =>
+              SecurityConfig(
+                enabled = enabled,
+                oidcIssuer = issuer,
+                oidcAudience = audience,
+                oidcJwksUri = jwksUri,
+                jwksCacheTtl = jwks,
+                requireTls = tls,
+                trustProxyHeaders = trustProxy,
+                corsAllowedOrigins =
+                  if origins.trim.isEmpty then Nil
+                  else origins.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList,
+                rateLimitPerPrincipalPerSec = rpsPrincipal,
+                rateLimitUploadBytesPerSec = bpsUpload,
+                rateLimitDownloadBytesPerSec = bpsDownload,
+                rateLimitMaximumPrincipals = maximumPrincipals,
+                rateLimitIdleTtl = idleTtl,
+                maxRequestBytes = refinedMaxBytes,
+                auditFlushInterval = auditFlush,
+                kmsKeyArn = kms,
+                clockSkewSeconds = skew,
+                devSharedSecret = devSecret.filter(_.nonEmpty),
+                auditBackend = auditBackend.trim.toLowerCase,
+                authorizationBackend = authorizationBackend.trim.toLowerCase,
+              )
+            }
       }
       .nested("security")
       .nested("graviton")

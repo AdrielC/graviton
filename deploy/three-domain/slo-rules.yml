@@ -34,3 +34,15 @@ groups:
         labels: {severity: ticket}
         annotations:
           summary: Referenced blocks remain under-protected
+      - alert: GravitonPostgresPoolWaiting
+        expr: max by (pool) (graviton_postgres_pool_awaiting_connections) > 0
+        for: 2m
+        labels: {severity: ticket}
+        annotations:
+          summary: Graviton requests are waiting for a PostgreSQL connection
+      - alert: GravitonPostgresPoolNearCapacity
+        expr: max by (pool) (graviton_postgres_pool_connections{state="active"}) / clamp_min(max by (pool) (graviton_postgres_pool_connections{state="maximum"}), 1) > 0.9
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: A Graviton PostgreSQL pool is above 90 percent utilization

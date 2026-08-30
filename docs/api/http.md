@@ -229,10 +229,14 @@ Liveness reports the packaged build version and uptime. Readiness checks active 
 | 410 | `upload_expired` | The durable session passed its expiry |
 | 412 | response without body | A request precondition failed |
 | 413 | `payload_too_large` | The streamed upload exceeded its configured maximum |
+| 413 | `tenant_object_limit_exceeded` | The streamed upload exceeded the authenticated tenant's object-size policy |
 | 416 | `invalid_range` | The requested single range is malformed or unsatisfiable |
 | 429 | `rate_limited` | A per-principal request or byte budget was exhausted |
+| 429 | `tenant_concurrency_exceeded` | The authenticated tenant's concurrent-operation limit was exhausted |
+| 503 | `tenant_admission_unavailable` | Bounded tenant admission cannot safely accept another operation yet |
 | 503 | `locality_unavailable` | Typed locality headers were supplied to a server without the Shardcake runtime |
 | 503 | `locality_failed` | Placement or the selected owner could not complete the one-pass stream |
+| 507 | `tenant_storage_quota_exceeded` | Publishing a distinct manifest would exceed the tenant's cluster-atomic retained-byte quota |
 | 500 | `inventory_failure` | Durable inventory could not be read |
 | 500 | `storage_failure` | Metadata lookup, retrieval, or deletion failed |
 | 500 | `verification_failure` | Persisted bytes could not be read and hashed |

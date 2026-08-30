@@ -12,7 +12,7 @@ object UpdateSnapshot:
     val pg = EmbeddedPostgres.builder().setPort(0).start()
     try
       val connection = pg.getPostgresDatabase.getConnection
-      try executeSqlFile(connection, base.resolve("modules/pg/ddl.sql"))
+      try executeSqlFile(connection, base.resolve("modules/backend/graviton-pg/src/main/resources/ddl.sql"))
       finally connection.close()
 
       val config = CodeGeneratorConfig.default.copy(

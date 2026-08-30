@@ -573,9 +573,20 @@ final class ConsoleApi(
       case _: BlobIngest.Error.InvalidInput     => ZIO.succeed(jsonError(Status.BadRequest, error.getMessage))
       case _: BlobIngest.Error.Rejected         => ZIO.succeed(jsonError(Status.RequestEntityTooLarge, error.getMessage))
       case BlobIngest.Error.LocalityUnavailable => ZIO.succeed(jsonError(Status.ServiceUnavailable, error.getMessage))
-      case _: BlobIngest.Error.Locality         => ZIO.succeed(jsonError(Status.ServiceUnavailable, error.getMessage))
-      case _: BlobIngest.Error.Storage          => ZIO.succeed(jsonError(Status.InternalServerError, "Blob ingest failed"))
+      case locality: BlobIngest.Error.Locality  =>
+        if hasTenantQuota(locality) then ZIO.succeed(jsonError(Status.InsufficientStorage, "Tenant storage quota exceeded"))
+        else ZIO.succeed(jsonError(Status.ServiceUnavailable, error.getMessage))
+      case storage: BlobIngest.Error.Storage    =>
+        if hasTenantQuota(storage) then ZIO.succeed(jsonError(Status.InsufficientStorage, "Tenant storage quota exceeded"))
+        else ZIO.succeed(jsonError(Status.InternalServerError, "Blob ingest failed"))
       case _                                    => ZIO.succeed(jsonError(Status.InternalServerError, "Upload failed"))
+
+  private def hasTenantQuota(error: Throwable): Boolean =
+    Iterator
+      .iterate(Option(error))(_.flatMap(value => Option(value.getCause)))
+      .takeWhile(_.nonEmpty)
+      .flatten
+      .exists(_.isInstanceOf[graviton.runtime.stores.StoreError.TenantStorageQuotaExceeded])
 
   private def jsonError(status: Status, message: String): Response =
     Response.json(Json.Obj("message" -> Json.Str(message)).toJson).copy(status = status)

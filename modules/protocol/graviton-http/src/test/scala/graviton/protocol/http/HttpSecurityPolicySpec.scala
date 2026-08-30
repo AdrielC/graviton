@@ -159,6 +159,20 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
         second  <- callAs(fixture.api, caller, request)
       yield assertTrue(first.status == Status.Ok, second.status == Status.TooManyRequests)
     },
+    test("accepts only literal forwarded IP addresses for audit metadata") {
+      val request = Request
+        .get(URL.decode("http://localhost/api/v1/blobs").toOption.get)
+        .addHeader(Header.Custom("X-Forwarded-For", "192.0.2.14, 198.51.100.1"))
+      assertTrue(
+        AuthMiddleware.canonicalSourceIp(" 192.0.2.14 ").contains("192.0.2.14"),
+        AuthMiddleware.canonicalSourceIp("2001:db8::1").exists(_.contains("2001:db8")),
+        AuthMiddleware.canonicalSourceIp("999.0.0.1").isEmpty,
+        AuthMiddleware.canonicalSourceIp("dead.beef").isEmpty,
+        AuthMiddleware.canonicalSourceIp("attacker.example").isEmpty,
+        AuthMiddleware.sourceIp(request, trustProxyHeaders = false).isEmpty,
+        AuthMiddleware.sourceIp(request, trustProxyHeaders = true).contains("192.0.2.14"),
+      )
+    },
   )
 
   private final case class Fixture(api: HttpApi, audit: AuditSink & AuditSink.Inspect, policy: HttpSecurityPolicy)

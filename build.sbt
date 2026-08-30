@@ -637,7 +637,8 @@ lazy val pg = (project in file("modules/backend/graviton-pg"))
   .settings(baseSettings,
     name := "graviton-pg",
     libraryDependencies ++= Seq(
-      "org.postgresql" % "postgresql" % V.pg
+      "org.postgresql" % "postgresql" % V.pg,
+      "com.zaxxer" % "HikariCP" % V.hikari,
     )
   )
 
@@ -689,6 +690,7 @@ lazy val shardcakeIntegration = (project in file("modules/integration/graviton-s
       "dev.zio" %% "zio-blocks-schema-messagepack" % V.zioBlocks,
       "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
       "org.postgresql" % "postgresql" % V.pg,
+      "com.zaxxer" % "HikariCP" % V.hikari,
       "dev.zio" %% "zio-test" % V.zio % Test,
       "dev.zio" %% "zio-test-sbt" % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
@@ -744,6 +746,10 @@ lazy val server = (project in file("modules/server/graviton-server"))
       "org.apache.logging.log4j" % "log4j-slf4j2-impl" % V.log4j,
       "dev.zio" %% "zio-metrics-connectors-prometheus" % V.zioMetricsConnectors,
       "dev.zio" %% "zio-blocks-schema" % V.zioBlocks,
+      // Inter-project dependencies do not export their external runtime
+      // dependencies. The server constructs and closes the shared primary
+      // pool directly, so Hikari must be present in tests and the assembly.
+      "com.zaxxer" % "HikariCP" % V.hikari,
       // The Datastar attribute DSL and HTML algebra are compatible with the
       // server. Exclude zio-blocks-http-model because 0.0.51 publishes an
       // experimental zio.http model under the same package as zio-http 3.x.

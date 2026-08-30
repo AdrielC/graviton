@@ -8,7 +8,7 @@ import graviton.core.types.FileSize
 import graviton.runtime.upload.*
 import graviton.runtime.Graviton
 import graviton.runtime.metrics.MetricsRegistry
-import graviton.pdf.PdfUploadSupport
+import graviton.runtime.tenant.{TenantRoute, TenantStoreBinding, TenantStoreProvider}
 import zio.*
 import zio.blocks.mediatype.MediaTypes
 import zio.http.*
@@ -169,7 +169,7 @@ object ShardcakeIntegrationSpec extends ZIOSpecDefault:
                       .service[UploadNodeIngest]
                       .provide(
                         ZLayer.succeed(graviton.blobStore),
-                        PdfUploadSupport.layer(),
+                        CasUploadNodeIngest.UploadIngestorResolver.fixed,
                         ZLayer.succeed(config),
                         UploadHotState.default,
                         UploadSessionContext.live,
@@ -190,6 +190,58 @@ object ShardcakeIntegrationSpec extends ZIOSpecDefault:
         detail.blocks.forall(_.size <= 4L * 1024L * 1024L),
       )
     } @@ TestAspect.timeout(30.seconds),
+    test("owner-local ingest resolves tenant storage before pulling upload bytes") {
+      val secondTenant  = TenantId.applyUnsafe("20000000-0000-4000-8000-000000000002")
+      val unknownTenant = TenantId.applyUnsafe("30000000-0000-4000-8000-000000000003")
+      val knownKey      = UploadSessionKey(secondTenant, UploadSessionId.applyUnsafe("22222222-2222-4222-8222-222222222222"))
+      val unknownKey    = UploadSessionKey(unknownTenant, UploadSessionId.applyUnsafe("33333333-3333-4333-8333-333333333333"))
+      val payload       = Chunk.fromArray("shardcake-tenant-private".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+
+      for
+        first    <- Graviton.inMemory(chunkSize = 64)
+        second   <- Graviton.inMemory(chunkSize = 64)
+        provider <- ZIO.fromEither(
+                      TenantStoreProvider.static(
+                        Chunk(
+                          TenantStoreBinding(TenantRoute(tenant), first.blobStore),
+                          TenantStoreBinding(TenantRoute(secondTenant), second.blobStore),
+                        )
+                      )
+                    )
+        ingest   <- ZIO
+                      .service[UploadNodeIngest]
+                      .provide(
+                        ZLayer.succeed[TenantStoreProvider](provider),
+                        CasUploadNodeIngest.UploadIngestorResolver.tenants,
+                        ZLayer.succeed(config),
+                        UploadHotState.default,
+                        UploadSessionContext.live,
+                        ZLayer.succeed[MetricsRegistry](MetricsRegistry.noop),
+                        CasUploadNodeIngest.live,
+                      )
+        pulled   <- Ref.make(false)
+        rejected <- ingest
+                      .uploadLocal(
+                        unknownKey,
+                        UploadIntent(MediaTypes.application.`octet-stream`, Some(FileSize.applyUnsafe(1L))),
+                        ZStream.fromZIO(pulled.set(true)).as(1.toByte),
+                      )
+                      .exit
+        consumed <- pulled.get
+        written  <- ingest.uploadLocal(
+                      knownKey,
+                      UploadIntent(MediaTypes.application.`octet-stream`, Some(FileSize.applyUnsafe(payload.length.toLong))),
+                      ZStream.fromChunk(payload),
+                    )
+        present  <- second.blobStore.get(written.key).runCollect
+        hidden   <- first.blobStore.stat(written.key)
+      yield assertTrue(
+        rejected.isFailure,
+        !consumed,
+        present == payload,
+        hidden.isEmpty,
+      )
+    },
     test("enabled ZIO Config fails closed without an internal token") {
       val provider = ConfigProvider.fromMap(Map("graviton.shardcake.enabled" -> "true"))
       for exit <- ZIO.withConfigProvider(provider)(ZIO.config(ShardcakeUploadConfig.config)).exit

@@ -77,6 +77,8 @@ ZIO.scoped {
 
 When security is enabled, the packaged listener validates the bearer token, requires the matching blob capability, and records authentication and authorization decisions before service execution. It charges each RPC against the caller's request budget, each received `PutBlob` data frame against the upload-byte budget, and each emitted `GetBlob` frame against the download-byte budget. Byte accounting happens at the transport boundary without collecting payloads. A denied frame closes the call with `RESOURCE_EXHAUSTED` before that frame reaches storage or the client. Audit persistence is fail-closed: an authenticated RPC does not begin if its audit decision cannot be stored. `AdminService.Health` remains public so orchestrators can probe backend readiness without a token.
 
+With the packaged multi-tenant data plane enabled, the verified token organization selects the server-owned policy and store. An unknown, suspended, or wrong-cell organization receives `PERMISSION_DENIED`; callers cannot enumerate tenant policies. Retained-byte quota, object-size, and concurrent-operation exhaustion return `RESOURCE_EXHAUSTED` without exposing configured limits. Bounded admission saturation returns `UNAVAILABLE`. The database serializes retained quota with manifest publication across every node.
+
 ## Limits and errors
 
 - Data frames are capped at 1 MiB with an Iron-refined `Chunk[Byte]` boundary.

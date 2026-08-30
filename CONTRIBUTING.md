@@ -77,7 +77,7 @@ Schema updates must be reflected in generated bindings so migrations and code st
 2. Apply the DDL to an empty database:
 
    ```bash
-   psql -d graviton -f modules/pg/ddl.sql
+   psql -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
    ```
 
 3. Regenerate bindings and commit them together with the DDL change:
