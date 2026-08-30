@@ -22,19 +22,99 @@ object RateLimiter:
   enum Kind:
     case Request, UploadBytes, DownloadBytes
 
+  /** Bounded registry policy, configured independently of the released security API. */
+  final case class RegistryConfig(maximumPrincipals: Int, idleTtl: Duration):
+    private[security] def validate: Either[Config.Error, RegistryConfig] =
+      for
+        _ <- Either.cond(
+               maximumPrincipals > 0,
+               (),
+               Config.Error.InvalidData(Chunk.empty, "rate-limit-maximum-principals must be positive"),
+             )
+        _ <- Either.cond(
+               idleTtl.toNanos > 0L,
+               (),
+               Config.Error.InvalidData(Chunk.empty, "rate-limit-idle-ttl must be positive"),
+             )
+      yield this
+
+  object RegistryConfig:
+    val Default: RegistryConfig = RegistryConfig(maximumPrincipals = 100000, idleTtl = 10.minutes)
+
+    val config: Config[RegistryConfig] =
+      (Config.int("rate-limit-maximum-principals").withDefault(Default.maximumPrincipals) ++
+        Config.duration("rate-limit-idle-ttl").withDefault(Default.idleTtl))
+        .mapOrFail { case (maximumPrincipals, idleTtl) =>
+          RegistryConfig(maximumPrincipals, idleTtl).validate
+        }
+        .nested("security")
+        .nested("graviton")
+
   def live: URLayer[SecurityConfig, RateLimiter] =
+    bounded(RegistryConfig.Default)
+
+  def configured(registryConfig: RegistryConfig): ZLayer[SecurityConfig, Config.Error, RateLimiter] =
+    ZLayer.fromZIO(ZIO.fromEither(registryConfig.validate)) >>> bounded(registryConfig)
+
+  private def bounded(registryConfig: RegistryConfig): URLayer[SecurityConfig, RateLimiter] =
     ZLayer.fromZIO {
       for
         cfg    <- ZIO.service[SecurityConfig]
-        shards <- ZIO.foreach(0 until shardCount(cfg.rateLimitMaximumPrincipals)) { index =>
+        shards <- ZIO.foreach(0 until shardCount(registryConfig.maximumPrincipals)) { index =>
                     Ref.Synchronized
-                      .make(Map.empty[Key, Entry])
-                      .map(state => Shard(state, shardCapacity(cfg.rateLimitMaximumPrincipals, index)))
+                      .make(Map.empty[PrincipalKey, Entry])
+                      .map(state => Shard(state, shardCapacity(registryConfig.maximumPrincipals, index)))
                   }
-      yield new Impl(cfg, shards)
+      yield new BoundedImpl(cfg, registryConfig, shards)
     }
 
-  private final case class Key(orgId: UUID, principalId: UUID)
+  /** Retained for binary compatibility with v0.7.0. New code uses PrincipalKey. */
+  private final case class Key(orgId: UUID, principalId: UUID, kind: Kind)
+
+  /** Retained for binary compatibility with v0.7.0. */
+  private final class Impl(cfg: SecurityConfig, buckets: Ref[Map[Key, Throttle]]) extends RateLimiter:
+
+    private val requestLimit  = cfg.rateLimitPerPrincipalPerSec
+    private val uploadLimit   = cfg.rateLimitUploadBytesPerSec
+    private val downloadLimit = cfg.rateLimitDownloadBytesPerSec
+
+    def check(kind: Kind, tokens: Long): IO[SecurityError, Unit] =
+      CallerContext.required.flatMap { ctx =>
+        val rate = kind match
+          case Kind.Request       => requestLimit
+          case Kind.UploadBytes   => uploadLimit
+          case Kind.DownloadBytes => downloadLimit
+
+        val key = Key(ctx.orgId, ctx.principalId, kind)
+        bucketFor(key, rate).flatMap { bucket =>
+          ZIO
+            .clockWith { clock =>
+              bucket
+                .take(tokens)
+                .provideEnvironment(ZEnvironment[Clock](clock))
+            }
+            .flatMap { allowed =>
+              if allowed then ZIO.unit
+              else ZIO.fail(SecurityError.RateLimited(s"rate limit exceeded for $kind"))
+            }
+        }
+      }
+
+    private def bucketFor(key: Key, rate: Long): UIO[Throttle] =
+      buckets.get.flatMap { current =>
+        current.get(key) match
+          case Some(bucket) => ZIO.succeed(bucket)
+          case None         =>
+            Throttle.make(rate).flatMap { fresh =>
+              buckets.modify { entries =>
+                entries.get(key) match
+                  case Some(existing) => (existing, entries)
+                  case None           => (fresh, entries.updated(key, fresh))
+              }
+            }
+      }
+
+  private final case class PrincipalKey(orgId: UUID, principalId: UUID)
 
   private final case class Entry(
     request: Throttle,
@@ -47,9 +127,9 @@ object RateLimiter:
       case Kind.UploadBytes   => upload
       case Kind.DownloadBytes => download
 
-  private final case class Shard(state: Ref.Synchronized[Map[Key, Entry]], capacity: Int)
+  private final case class Shard(state: Ref.Synchronized[Map[PrincipalKey, Entry]], capacity: Int)
 
-  private final class Impl(cfg: SecurityConfig, shards: IndexedSeq[Shard]) extends RateLimiter:
+  private final class BoundedImpl(cfg: SecurityConfig, registryConfig: RegistryConfig, shards: IndexedSeq[Shard]) extends RateLimiter:
 
     private val requestLimit  = cfg.rateLimitPerPrincipalPerSec
     private val uploadLimit   = cfg.rateLimitUploadBytesPerSec
@@ -58,7 +138,7 @@ object RateLimiter:
     def check(kind: Kind, tokens: Long): IO[SecurityError, Unit] =
       ZIO.fail(SecurityError.RateLimited("rate-limit charge must be positive")).unless(tokens > 0L) *>
         CallerContext.required.flatMap { ctx =>
-          val key = Key(ctx.orgId, ctx.principalId)
+          val key = PrincipalKey(ctx.orgId, ctx.principalId)
           bucketFor(key, kind).flatMap { bucket =>
             ZIO
               .clockWith { clock =>
@@ -73,7 +153,7 @@ object RateLimiter:
           }
         }
 
-    private def bucketFor(key: Key, kind: Kind): IO[SecurityError, Throttle] =
+    private def bucketFor(key: PrincipalKey, kind: Kind): IO[SecurityError, Throttle] =
       Clock.nanoTime.flatMap { now =>
         val shard = shards(shardIndex(key, shards.length))
         shard.state.modifyZIO { current =>
@@ -83,7 +163,7 @@ object RateLimiter:
               ZIO.succeed(touched.bucket(kind) -> current.updated(key, touched))
             case None        =>
               val expired  = current.iterator
-                .filter { case (_, entry) => elapsedSince(entry.lastAccessNanos, now) >= cfg.rateLimitIdleTtl.toNanos }
+                .filter { case (_, entry) => elapsedSince(entry.lastAccessNanos, now) >= registryConfig.idleTtl.toNanos }
                 .minByOption(_._2.lastAccessNanos)
                 .map(_._1)
               val withRoom =
@@ -113,5 +193,5 @@ object RateLimiter:
     val remainder = maximumEntries % shards
     base + (if index < remainder then 1 else 0)
 
-  private def shardIndex(key: Key, shards: Int): Int =
+  private def shardIndex(key: PrincipalKey, shards: Int): Int =
     java.lang.Math.floorMod(key.hashCode, shards)

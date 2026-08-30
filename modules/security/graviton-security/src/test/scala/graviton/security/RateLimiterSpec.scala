@@ -51,24 +51,24 @@ object RateLimiterSpec extends ZIOSpecDefault:
         assert(d)(fails(isSubtype[SecurityError.RateLimited](anything)))
     },
     test("bounds principal cardinality and fails closed while entries are active") {
-      val first  = mkContext
-      val second = mkContext
-      val config = smallConfig.copy(rateLimitMaximumPrincipals = 1, rateLimitIdleTtl = 1.hour)
+      val first          = mkContext
+      val second         = mkContext
+      val registryConfig = RateLimiter.RegistryConfig(maximumPrincipals = 1, idleTtl = 1.hour)
 
       for
-        limiter  <- ZIO.service[RateLimiter].provide(ZLayer.succeed(config), RateLimiter.live)
+        limiter  <- ZIO.service[RateLimiter].provide(ZLayer.succeed(smallConfig), RateLimiter.configured(registryConfig))
         accepted <- CallerContext.scopedWith(first)(limiter.check(RateLimiter.Kind.Request, 1L).exit)
         rejected <- CallerContext.scopedWith(second)(limiter.check(RateLimiter.Kind.Request, 1L).exit)
       yield assert(accepted)(succeeds(isUnit)) &&
         assert(rejected)(fails(isSubtype[SecurityError.RateLimited](anything)))
     },
     test("evicts only an expired principal entry") {
-      val first  = mkContext
-      val second = mkContext
-      val config = smallConfig.copy(rateLimitMaximumPrincipals = 1, rateLimitIdleTtl = 1.second)
+      val first          = mkContext
+      val second         = mkContext
+      val registryConfig = RateLimiter.RegistryConfig(maximumPrincipals = 1, idleTtl = 1.second)
 
       for
-        limiter  <- ZIO.service[RateLimiter].provide(ZLayer.succeed(config), RateLimiter.live)
+        limiter  <- ZIO.service[RateLimiter].provide(ZLayer.succeed(smallConfig), RateLimiter.configured(registryConfig))
         _        <- CallerContext.scopedWith(first)(limiter.check(RateLimiter.Kind.Request, 1L))
         _        <- TestClock.adjust(1.second)
         accepted <- CallerContext.scopedWith(second)(limiter.check(RateLimiter.Kind.Request, 1L).exit)

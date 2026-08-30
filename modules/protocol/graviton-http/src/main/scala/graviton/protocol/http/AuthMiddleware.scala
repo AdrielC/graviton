@@ -33,7 +33,19 @@ object AuthMiddleware:
     verifier: JwtVerifier,
     auditSink: AuditSink,
     decorateFailure: (Request, Response) => Response = (_, response) => response,
-    trustProxyHeaders: Boolean = false,
+  ): HandlerAspect[Any, Unit] =
+    legacyAspect(verifier, auditSink, decorateFailure, optional = false)
+
+  /**
+   * Mandatory auth with explicit proxy trust. This middleware owns the full
+   * downstream effect, so CallerContext is always restored on success, typed
+   * failure, defect, or interruption.
+   */
+  def required(
+    verifier: JwtVerifier,
+    auditSink: AuditSink,
+    decorateFailure: (Request, Response) => Response,
+    trustProxyHeaders: Boolean,
   ): Middleware[Any] =
     scoped(verifier, auditSink, decorateFailure, optional = false, trustProxyHeaders = trustProxyHeaders)
 
@@ -42,9 +54,46 @@ object AuthMiddleware:
     verifier: JwtVerifier,
     auditSink: AuditSink,
     decorateFailure: (Request, Response) => Response = (_, response) => response,
-    trustProxyHeaders: Boolean = false,
+  ): HandlerAspect[Any, Unit] =
+    legacyAspect(verifier, auditSink, decorateFailure, optional = true)
+
+  /** Optional auth with explicit proxy trust and scoped caller context. */
+  def optional(
+    verifier: JwtVerifier,
+    auditSink: AuditSink,
+    decorateFailure: (Request, Response) => Response,
+    trustProxyHeaders: Boolean,
   ): Middleware[Any] =
     scoped(verifier, auditSink, decorateFailure, optional = true, trustProxyHeaders = trustProxyHeaders)
+
+  /**
+   * Preserve the released HandlerAspect surface. New server wiring uses the
+   * scoped four-argument overload above. The stateful outgoing interceptor
+   * restores the previous FiberRef value for normal and typed-failure paths.
+   */
+  private def legacyAspect(
+    verifier: JwtVerifier,
+    auditSink: AuditSink,
+    decorateFailure: (Request, Response) => Response,
+    optional: Boolean,
+  ): HandlerAspect[Any, Unit] =
+    HandlerAspect.interceptHandlerStateful[Any, Option[CallerContext], Unit](
+      Handler.fromFunctionZIO[Request] { request =>
+        for
+          previous <- CallerContext.currentRef.get
+          _        <-
+            if optional && request.headers.get("Authorization").isEmpty then ZIO.unit
+            else
+              authenticate(verifier, auditSink, request, trustProxyHeaders = false)
+                .mapError(response => decorateFailure(request, response))
+                .flatMap(context => CallerContext.currentRef.set(Some(context)))
+        yield (previous, (request, ()))
+      }
+    )(
+      Handler.fromFunctionZIO[(Option[CallerContext], Response)] { case (previous, response) =>
+        CallerContext.currentRef.set(previous).as(response)
+      }
+    )
 
   /**
    * Wrap the complete handler effect in a FiberRef region. Setting the ref in

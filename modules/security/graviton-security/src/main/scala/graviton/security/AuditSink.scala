@@ -62,9 +62,10 @@ object AuditSink:
   def jdbc: URLayer[DataSource, AuditSink] =
     ZLayer.fromZIO {
       for
-        ds     <- ZIO.service[DataSource]
-        guards <- ZIO.foreach(0 until JdbcGuardShards)(_ => Semaphore.make(1L))
-      yield (new JdbcSink(ds, guards)): AuditSink
+        ds           <- ZIO.service[DataSource]
+        legacyGuards <- Ref.Synchronized.make(Map.empty[UUID, Semaphore])
+        guards       <- ZIO.foreach(0 until JdbcGuardShards)(_ => Semaphore.make(1L))
+      yield JdbcSink.bounded(ds, legacyGuards, guards)
     }
 
   /** Test hook exposed by the in-memory sink. */
@@ -203,7 +204,16 @@ object AuditSink:
 
   // ---- JDBC ---------------------------------------------------------------
 
-  private final class JdbcSink(ds: DataSource, guards: IndexedSeq[Semaphore]) extends AuditSink:
+  private final class JdbcSink(
+    ds: DataSource,
+    legacyGuards: Ref.Synchronized[Map[UUID, Semaphore]],
+  ) extends AuditSink:
+
+    private var guards: IndexedSeq[Semaphore] = IndexedSeq.empty
+
+    private def withBoundedGuards(value: IndexedSeq[Semaphore]): JdbcSink =
+      guards = value
+      this
 
     def record(event: AuditEvent): IO[SecurityError, Unit] =
       CallerContext.required.flatMap(ctx => appendWithLock(ctx, bounded(event)))
@@ -221,17 +231,25 @@ object AuditSink:
       ZIO.logWarning(s"audit.auth_fail action=$action request_id=$requestId reason=$reason ip=${sourceIp.getOrElse("-")}")
 
     private def appendWithLock(ctx: CallerContext, event: AuditEvent): IO[SecurityError, Unit] =
-      guardFor(ctx.orgId).withPermit {
-        ZIO.clockWith(_.instant).flatMap { now =>
-          TenantScopedBlocking
-            .attemptBlockingWith(ctx)(insertOne(ctx, event, now))
-            .mapError(err => SecurityError.AuditFailure(s"audit insert failed: ${err.getMessage}", Some(err)))
-            .unit
+      guardFor(ctx.orgId).flatMap { guard =>
+        guard.withPermit {
+          ZIO.clockWith(_.instant).flatMap { now =>
+            TenantScopedBlocking
+              .attemptBlockingWith(ctx)(insertOne(ctx, event, now))
+              .mapError(err => SecurityError.AuditFailure(s"audit insert failed: ${err.getMessage}", Some(err)))
+              .unit
+          }
         }
       }
 
-    private def guardFor(orgId: UUID): Semaphore =
-      guards(java.lang.Math.floorMod(orgId.hashCode, guards.length))
+    private def guardFor(orgId: UUID): UIO[Semaphore] =
+      if guards.nonEmpty then ZIO.succeed(guards(java.lang.Math.floorMod(orgId.hashCode, guards.length)))
+      else
+        legacyGuards.modifyZIO { current =>
+          current.get(orgId) match
+            case Some(guard) => ZIO.succeed(guard -> current)
+            case None        => Semaphore.make(1L).map(guard => guard -> current.updated(orgId, guard))
+        }
 
     private def insertOne(ctx: CallerContext, event: AuditEvent, now: Instant): Unit =
       val conn = ds.getConnection
@@ -337,3 +355,11 @@ object AuditSink:
           val _ = result.next()
         finally result.close()
       finally statement.close()
+
+  private object JdbcSink:
+    def bounded(
+      ds: DataSource,
+      legacyGuards: Ref.Synchronized[Map[UUID, Semaphore]],
+      guards: IndexedSeq[Semaphore],
+    ): AuditSink =
+      new JdbcSink(ds, legacyGuards).withBoundedGuards(guards)

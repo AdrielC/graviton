@@ -96,6 +96,7 @@ object Main extends ZIOAppDefault:
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
+      rateLimiterRegistry                          <- ZIO.config(RateLimiter.RegistryConfig.config)
       registration                                 <- ZIO.config(ShardcakeRegistrationConfig.config)
       _                                            <- ConfigurationValidation.validate(cfg, shardcake, registration, console, sec)
       _                                            <- validateSecurityOrFail(sec)
@@ -351,7 +352,7 @@ object Main extends ZIOAppDefault:
                     catalogLayer(cfg, primaryDataSource),
                     auditLayer,
                     capabilityLayer(sec, primaryDataSource),
-                    ZLayer.succeed(sec) >>> RateLimiter.live,
+                    ZLayer.succeed(sec) >>> RateLimiter.configured(rateLimiterRegistry),
                     ZLayer.succeed(MetricsConfig(5.seconds)),
                     prometheus.publisherLayer,
                     prometheus.prometheusLayer,

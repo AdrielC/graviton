@@ -142,7 +142,12 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
                                                                  .get(URL.decode("http://localhost/api/v1/blobs").toOption.get)
                                                                  .addHeader(Header.Custom("Origin", "https://console.example"))
         securedApp: Handler[Any, Nothing, Request, Response] =
-          (fixture.api.routes @@ AuthMiddleware.required(JwtVerifier.denyAll, fixture.audit, fixture.policy.addCorsHeaders)).toHandler
+          (fixture.api.routes @@ AuthMiddleware.required(
+            JwtVerifier.denyAll,
+            fixture.audit,
+            fixture.policy.addCorsHeaders,
+            trustProxyHeaders = false,
+          )).toHandler
         response                                            <- ZIO.scoped(securedApp(request))
       yield assertTrue(
         response.status == Status.Unauthorized,

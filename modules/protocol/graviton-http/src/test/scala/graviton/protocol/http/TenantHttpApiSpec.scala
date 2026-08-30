@@ -41,7 +41,7 @@ object TenantHttpApiSpec extends ZIOSpecDefault:
           policy             = HttpSecurityPolicy.make(config, CapabilityCheck.tokenOnly, limiter, audit)
           verifier           = tokenVerifier(Map("tenant-a" -> firstCaller, "tenant-b" -> secondCaller))
           tenantApi          = new TenantHttpApi(provider, tenantContext, first.blobStore, security = Some(policy))
-          app                = (tenantApi.routes @@ AuthMiddleware.required(verifier, audit)).toHandler
+          app                = (tenantApi.routes @@ AuthMiddleware.required(verifier, audit, (_, response) => response, false)).toHandler
           uploaded          <- call(app, "tenant-a", Method.POST, "/api/v1/blobs", Body.fromString("organization-private"))
           uploadedJson      <- uploaded.body.asString
           result            <- ZIO.fromEither(uploadedJson.fromJson[BlobUploadResult]).mapError(new IllegalArgumentException(_))
@@ -79,7 +79,7 @@ object TenantHttpApiSpec extends ZIOSpecDefault:
           audit            <- AuditSink.inMemory
           verifier          = tokenVerifier(Map("known" -> knownCaller, "unknown" -> unknownCaller))
           tenantApi         = new TenantHttpApi(provider, tenantContext, fallback.blobStore)
-          app               = (tenantApi.routes @@ AuthMiddleware.required(verifier, audit)).toHandler
+          app               = (tenantApi.routes @@ AuthMiddleware.required(verifier, audit, (_, response) => response, false)).toHandler
           pulled           <- Ref.make(false)
           body              = Body.fromStreamChunked(zio.stream.ZStream.fromZIO(pulled.set(true)).as(1.toByte))
           response         <- call(app, "unknown", Method.POST, "/api/v1/blobs", body)
