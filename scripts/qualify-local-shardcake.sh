@@ -111,7 +111,8 @@ upload_pid=$!
 sleep 2
 kill "$upload_pid" 2>/dev/null || true
 wait "$upload_pid" 2>/dev/null || true
-inventory_after="$(curl --fail --silent --show-error "$node_two/api/v1/blobs" | jq -S .)"
+wait_ready "$node_two"
+inventory_after="$(curl --fail --silent --show-error --retry 10 --retry-delay 1 --retry-max-time 30 --retry-all-errors "$node_two/api/v1/blobs" | jq -S .)"
 [[ "$inventory_before" == "$inventory_after" ]] || {
   echo "an interrupted upload published a manifest" >&2
   exit 1

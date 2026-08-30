@@ -44,6 +44,7 @@ compose ps --status running --services | grep -qx graviton || {
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/graviton-three-domain.XXXXXX")"
 cleanup() { find "$work_dir" -depth -delete 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
+trap 'status=$?; printf "qualification failed at line %s with status %s\n" "$LINENO" "$status" >&2; exit "$status"' ERR
 
 payload="$work_dir/payload.bin"
 download="$work_dir/download.bin"
@@ -102,10 +103,13 @@ repaired_objects="$(object_count)"
 repair_ended="$(python3 -c 'import time; print(time.time_ns())')"
 [[ "$repaired_objects" -ge "$fresh_blocks" ]]
 volume_after="$(docker volume inspect "$lost_volume" --format '{{.CreatedAt}}')"
+printf 'target-b volume creation: %s -> %s\n' "$volume_before" "$volume_after" >&2
 [[ "$volume_before" != "$volume_after" ]]
+stage "verify repaired byte stream and convergence metrics"
 curl --fail --silent --show-error "$base_url/api/v1/blobs/$blob_id" | cmp --silent - "$payload"
 
 metrics_after_repair="$(curl --fail --silent --show-error "$base_url/metrics")"
+grep -E 'graviton_erasure_repairs_total|graviton_replica_under_protected_blocks' <<<"$metrics_after_repair" >&2 || true
 grep -q 'graviton_erasure_repairs_total.*outcome="repaired"' <<<"$metrics_after_repair"
 grep -Eq 'graviton_replica_under_protected_blocks(\{[^}]*\})? 0(\.0)?' <<<"$metrics_after_repair"
 

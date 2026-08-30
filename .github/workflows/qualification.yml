@@ -133,6 +133,9 @@ jobs:
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/graviton-three-domain"
+          curl --fail --silent http://127.0.0.1:58181/metrics > "$RUNNER_TEMP/graviton-three-domain/metrics.prom" || true
+          curl --fail --silent http://127.0.0.1:59090/api/v1/rules > "$RUNNER_TEMP/graviton-three-domain/prometheus-rules.json" || true
+          curl --fail --silent http://127.0.0.1:59300/api/dashboards/uid/graviton-slo > "$RUNNER_TEMP/graviton-three-domain/grafana-dashboard-live.json" || true
           docker compose -f deploy/three-domain/docker-compose.yml ps -a > "$RUNNER_TEMP/graviton-three-domain/compose-status.txt"
           docker compose -f deploy/three-domain/docker-compose.yml logs --no-color > "$RUNNER_TEMP/graviton-three-domain/compose.log"
           cp deploy/three-domain/grafana/dashboards/graviton-slo.json "$RUNNER_TEMP/graviton-three-domain/dashboard.json"
