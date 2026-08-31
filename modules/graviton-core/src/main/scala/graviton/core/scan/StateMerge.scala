@@ -13,9 +13,10 @@ import scala.util.NotGiven
  * The composed state is **user-facing** — it's the summary type that callers
  * get back from `runChunk`, `toSink`, etc. So the merge strategy directly
  * affects the API surface: Record fields are intended to be accessible by name,
- * and tuple fields by position. Mixed-field Kyo Record access is currently
- * unreliable on Scala 3.8, so this merge shape must not be treated as a stable
- * named-access contract yet.
+ * and tuple fields by position. Public aggregate pipelines map the merged state
+ * to explicit schema-backed products at their terminal boundary. Authors of new
+ * aggregate APIs should follow that pattern rather than expose a mixed-field
+ * dynamic Record as a stable public contract.
  *
  * Instance resolution priority:
  *   1. `Unit + Unit = Unit`
@@ -71,8 +72,8 @@ object StateMerge extends StateMergeLowPriority:
   // --- Priority 4: Record[A] + Record[B] = Record[A & B] (field union) ---
   //
   // kyo.Record `&` merges fields at the JVM level (Map union).
-  // After merge, both sides retain their fields. Kyo's Scala 3.8
-  // selectDynamic compatibility still governs named access.
+  // After merge, both sides retain their fields. Public aggregate APIs should
+  // use Transducer.mapSummary to expose an explicit terminal product.
   //
   // INVARIANT: Field names must not overlap. Overlap silently takes right-side value.
 

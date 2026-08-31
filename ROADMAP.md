@@ -8,24 +8,22 @@ Graviton is a pre-1.0 content-addressed byte-storage runtime. The [implementatio
 
 Before that release:
 
+- publish the current main line as `v0.8.0` only after its exact commit passes CI;
 - keep source and binary compatibility checks green against `v0.7.0`;
 - run the clean external consumer and published-JAR audit;
 - run packaged HTTP and gRPC smoke tests;
 - retain filesystem backup and restore proof;
 - confirm every machine-readable qualification and observability contract;
-- state the clean-store GVM4 boundary in the release notes.
+- state the clean-store GVM4 and PostgreSQL V001 boundaries in the release notes.
 
 ## Code gaps
 
 These are implementation gaps, not shipped capabilities:
 
-- Extend the Redis or Valkey request-count and delivered-egress contract to authenticated gRPC, or explicitly keep it as an HTTP-only edge contract.
-- Split the combined PostgreSQL bootstrap DDL so the Graviton migration set contains only the byte substrate.
 - Add a complete RocksDB `BlockStore` only if an embedded CAS use case justifies it. `graviton-rocks` currently provides typed key-value storage only.
 - Add page extraction, semantic PDF chunking, malware policy, or content enrichment only as separate, bounded integrations. Current PDF-aware ingest validates the signature and chooses structural block boundaries.
 - Remove or quarantine the unbuilt `modules/core`, `modules/db`, and `modules/pg` source trees after confirming that no still-useful experiment is lost.
 - Replace the compatibility fallback implementations of manifest inspection and quarantine inventory before advertising a third-party backend as production supported.
-- Replace the Kyo Record summary boundary or consume an upstream fix, then re-enable the Scala 3.8 `IngestPipelineSpec` and `CasIngestSpec` aggregate-summary suites. Production CAS does not depend on those accessors.
 
 ## Target qualification
 

@@ -34,7 +34,7 @@ object RegisterVsTupleBenchSpec extends ZIOSpecDefault:
     builder.result()
 
   private def benchTuple(data: Chunk[Chunk[Byte]]): (Long, Long, String) =
-    val pipeline          = IngestPipeline.countHashRechunk(blockSize)
+    val pipeline          = IngestPipeline.countHashRechunkSummary(blockSize)
     val start             = java.lang.System.nanoTime()
     val (summary, blocks) = pipeline.runChunk(data)
     val elapsed           = java.lang.System.nanoTime() - start

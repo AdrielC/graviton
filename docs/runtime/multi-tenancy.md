@@ -64,11 +64,11 @@ The stock server enforces six bounded controls:
 3. per-principal request, upload-byte, and download-byte token buckets bound one process;
 4. PostgreSQL serializes retained-byte accounting with manifest publication and deletion.
 5. Optional Redis or Valkey leases atomically cap active bytes and transfers across the complete service, each tenant, and each backend.
-6. Optional Redis or Valkey counters enforce authenticated HTTP request and delivered-egress ceilings per tenant using Redis server time.
+6. Optional Redis or Valkey counters enforce authenticated HTTP and gRPC request and delivered-egress ceilings per tenant using Redis server time.
 
 The retained-byte row is locked in the same transaction that publishes a manifest. Concurrent writers on different nodes cannot collectively exceed the tenant limit. Re-uploading the exact same tenant blob is idempotent and does not consume the quota twice. Deleting a tenant manifest releases its logical bytes. HTTP reports `507 tenant_storage_quota_exceeded`; gRPC reports `RESOURCE_EXHAUSTED`.
 
-Per-principal token buckets remain process-local load shedding. When Redis or Valkey admission is enabled, authenticated HTTP requests also charge a cluster-atomic tenant request counter, and response chunks charge a cluster-atomic tenant delivered-egress counter as they leave the server. The current gRPC interceptor uses the process-local request, upload-byte, and download-byte limiter and does not charge those distributed traffic counters. Put contractual cross-protocol traffic accounting at the authenticated edge until gRPC parity is implemented. The retained storage quota is separately cluster-atomic.
+Per-principal token buckets remain process-local load shedding. When Redis or Valkey admission is enabled, authenticated HTTP requests and gRPC calls also charge a cluster-atomic tenant request counter. HTTP response chunks and gRPC download frames charge the cluster-atomic tenant delivered-egress counter immediately before delivery. The retained storage quota is separately cluster-atomic.
 
 The optional coordinator prevents a busy organization from consuming the entire shared transfer pool by applying its tenant byte and concurrency ceilings in the same atomic state transition as service and backend ceilings. `DistributedAdmissionControl` can tighten or relax one tenant without restarting data nodes. Every admission, release, expiry, queue, timeout, and policy change appends a bounded decision event with occupancy and policy version, so an external scheduled or predictive controller can propose and apply reviewed overrides. Tenant identifiers are SHA-256 keyed in Redis and never used as metric labels.
 
@@ -101,7 +101,7 @@ Before quarantining or purging a shared domain:
 
 ## Rollout sequence
 
-1. Apply `modules/backend/graviton-pg/src/main/resources/ddl.sql`.
+1. Apply `modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql`.
 2. Create one deployment cell with distinct database and object-store credentials.
 3. Provision isolated policies for a small canary group.
 4. Enable the packaged multi-tenant data plane on one canary node.

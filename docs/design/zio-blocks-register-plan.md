@@ -18,11 +18,11 @@ Graviton's `Transducer` algebra currently uses two state representations:
 
 1. **Hot state** (`type Hot`) — primitives, arrays, and tuples used in the per-element processing loop. This avoids per-step Record construction, but the current `step` contract still returns tuples and output Chunks and is not allocation-free. Examples: `Long`, `(Array[Byte], Int, Long)`, `(Either[String, Hasher], Long)`.
 
-2. **Summary state** (`S`) — `kyo.Record` with named fields, constructed only at flush boundaries via `toSummary(h: Hot): S`. Relies on `asInstanceOf[Record[...]]` casts that are safe because `Record` is erased, but fragile if field names change.
+2. **Summary state** (`S`) — individual low-level stages can expose `kyo.Record` fields constructed only at flush boundaries via `toSummary(h: Hot): S`. The recommended `IngestPipeline.countHashRechunkSummary` and `CasIngest.pipelineSummary` aggregates project terminal state to explicit schema-backed case classes. The published v0.7 names remain binary-compatible Record-shaped shims.
 
 The problems:
 
-- **`kyo.Record` is not reliable on the supported Scala 3.8 line** — multi-field summaries containing `String` can throw `NoSuchElementException` during `selectDynamic`. The streaming transformation still works, and production CAS does not read the affected aggregate summary.
+- **Generic `kyo.Record` composition is not the stable aggregate API** — the supported Scala 3.8 line has exhibited `selectDynamic` failures for mixed-field summaries. The implemented aggregate entry points avoid that boundary with explicit case classes; the broader experimental algebra remains a candidate for isolation or migration.
 - **`asInstanceOf` casts are error-prone** — every `toSummary` method ends with `(Record.empty & ("f1" ~ v1) & ("f2" ~ v2)).asInstanceOf[S]`. If a field name or type representation drifts, the cast succeeds and later field access can fail at runtime.
 - **The Kyo dependency surface is broader than the production need** — `graviton-core` pulls Kyo artifacts for `Record`, tags, and experimental scan interpreters even though the CAS data plane uses only one streaming transformation from this algebra.
 - **Summary construction allocates** — building a `Record` at flush time creates a `Map[String, Any]` under the hood. This is acceptable today (flush is infrequent) but prevents using summaries in the hot path.
@@ -207,7 +207,7 @@ Then `toSummary(h: Registers): IngestSummary = constructor.construct(h, Register
 
 **Option C**: Keep `Record`-like named access via a thin wrapper around `Registers` that maps field names to `(RegisterOffset, Register[A])` pairs at construction time.
 
-**Recommendation**: Option B (case classes) is the most practical. It gives named field access, plays well with `zio.blocks.schema.Schema`, and avoids the `kyo.Record` `selectDynamic` problems entirely. The `StateMerge` typeclass would merge case class types via a macro or manual instances.
+**Implemented boundary**: Option B is now used for the two public aggregate ingest summaries. `Transducer.mapSummary` projects the terminal composed state into `IngestPipeline.Summary` or `CasIngest.Summary`, each with a derived ZIO Blocks schema. Replacing generic `StateMerge` with register-backed composition remains research, not required for the stable aggregate API.
 
 ### Phase 6: Migrate or isolate FreeScan / Kyo code
 
@@ -240,7 +240,7 @@ TESTCONTAINERS=0 ./sbt scalafmtAll compile test
 Key test suites to verify:
 - `ChunkerSpec` — chunker still produces correct blocks
 - `TransducerSpec` (if exists) or the 257 passing tests — composition still works
-- `IngestPipeline.countHashRechunk` — single-pass semantics preserved
+- `IngestPipeline.countHashRechunkSummary` — single-pass semantics preserved
 - `CasBlobStoreSpec` — end-to-end ingest still works
 
 ## 7. Risks & Mitigations

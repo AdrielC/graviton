@@ -13,7 +13,7 @@ set -euo pipefail
 
 export PGPASSWORD="${PG_ADMIN_PASSWORD}"
 export PGSSLMODE=require
-export GRAVITON_DDL_FILE=/opt/graviton/ddl.sql
+export GRAVITON_MIGRATIONS_DIR=/opt/graviton/migrations
 export GRAVITON_DATABASE_URL="postgresql://${PG_ADMIN_USERNAME}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}"
 
 /opt/graviton/migrate-postgres.sh

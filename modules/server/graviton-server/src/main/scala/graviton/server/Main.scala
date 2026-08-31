@@ -25,7 +25,14 @@ import graviton.integration.shardcake.{ShardcakeNode, ShardcakeRegistrationConfi
 import graviton.integration.redis.{RedisAdmissionConfig, RedisDistributedAdmission}
 import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi, TenantHttpApi}
-import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
+import graviton.protocol.grpc.{
+  AuthInterceptor,
+  CapabilityInterceptor,
+  GravitonGrpcServer,
+  GrpcServerConfig,
+  RateLimitInterceptor,
+  TrafficQuotaBlobService,
+}
 import graviton.runtime.catalog.{Catalog, FsCatalog}
 import graviton.runtime.config.{
   BlockPersistenceConfig,
@@ -244,6 +251,7 @@ object Main extends ZIOAppDefault:
                                                                                                       uploadIngestor,
                                                                                                       GrpcServerConfig(cfg.grpcPort),
                                                                                                       interceptors,
+                                                                                                      verifierOpt.map(_ => TrafficQuotaBlobService.Dependencies(trafficQuota, metrics)),
                                                                                                     )
                                                                                                   case Some(tenant) =>
                                                                                                     GravitonGrpcServer.scopedTenants(
@@ -253,6 +261,7 @@ object Main extends ZIOAppDefault:
                                                                                                       store => PdfUploadSupport.ingestor(store),
                                                                                                       GrpcServerConfig(cfg.grpcPort),
                                                                                                       interceptors,
+                                                                                                      verifierOpt.map(_ => TrafficQuotaBlobService.Dependencies(trafficQuota, metrics)),
                                                                                                     )
                                                           boundPort                          <- grpc.port
                                                           _                                  <- ZIO.logInfo(s"gRPC API listening on :$boundPort")

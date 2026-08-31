@@ -1,10 +1,11 @@
--- Graviton authoritative schema (pre-1.0: major overhauls welcome)
+-- Graviton migration V001: authoritative byte-substrate schema
 --
--- Target: Postgres 18+.
+-- Target: PostgreSQL 16+.
 -- Notes:
--- - We target PG18 for I/O improvements + UUIDv7 support, but the DDL still avoids
---   non-portable features where not required (prefer explicitness over magic).
--- - pgvector is OPTIONAL (guarded so DDL still applies if not installed).
+-- - This migration contains only tables and functions owned by the Graviton
+--   byte, identity, integrity, security, upload, and maintenance substrate.
+-- - Document models, transforms, views, extraction, and search are not part of
+--   this schema.
 --
 -- This file is treated as source-of-truth for deployment and codegen.
 
@@ -13,19 +14,8 @@ SET standard_conforming_strings = on;
 SET check_function_bodies = off;
 
 -- ----------------------- Extensions -----------------------------
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid(), digest(...)
-CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text (contrib)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram search
-CREATE EXTENSION IF NOT EXISTS btree_gin;  -- optional (contrib)
-CREATE EXTENSION IF NOT EXISTS btree_gist; -- exclusion constraints on composite keys (contrib)
-
--- pgvector is optional: don't fail schema install if the extension isn't available.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector') THEN
-    EXECUTE 'CREATE EXTENSION IF NOT EXISTS vector';
-  END IF;
-END $$;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS btree_gist; -- exclusion constraints on CAS ranges
 
 -- ----------------------- Schemas --------------------------------
 CREATE SCHEMA IF NOT EXISTS core;
@@ -95,36 +85,6 @@ BEGIN
   END IF;
 END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'core' AND t.typname = 'lifecycle_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE core.lifecycle_status AS ENUM (''active'',''draining'',''deprecated'',''dead'')';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'core' AND t.typname = 'present_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE core.present_status AS ENUM (''present'',''missing'',''corrupt'',''relocating'')';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'core' AND t.typname = 'job_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE core.job_status AS ENUM (''queued'',''leased'',''succeeded'',''failed'',''dead'')';
-  END IF;
-END $$;
-
 CREATE OR REPLACE FUNCTION core.now_utc()
 RETURNS timestamptz
 LANGUAGE sql
@@ -186,8 +146,7 @@ CREATE TABLE IF NOT EXISTS graviton.tenant_domain_snapshot_member (
 CREATE INDEX IF NOT EXISTS tenant_domain_snapshot_member_domain_idx
   ON graviton.tenant_domain_snapshot_member (snapshot_id, storage_domain_id, tenant_id);
 
--- Library-level replica catalog. This complements physical block_location
--- topology and also supports logical blob replicas exposed by ReplicaIndex.
+-- Library-level replica catalog for logical replicas exposed by ReplicaIndex.
 CREATE TABLE IF NOT EXISTS graviton.replica_index (
   key_kind   text NOT NULL CHECK (key_kind IN ('blob', 'block', 'chunk', 'manifest', 'view')),
   alg        core.hash_alg NOT NULL,
@@ -287,17 +246,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS upload_part_one_reservation_idx
   ON graviton.upload_part (tenant_id, upload_session_id)
   WHERE byte_length IS NULL;
 
--- generic updated_at trigger helper
-CREATE OR REPLACE FUNCTION core.touch_updated_at()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  NEW.updated_at := clock_timestamp();
-  RETURN NEW;
-END;
-$$;
-
 -- A policy update must invalidate every server's cached route. Operators do
 -- not need to coordinate or remember a revision value by hand.
 CREATE OR REPLACE FUNCTION graviton.bump_tenant_policy_revision()
@@ -318,34 +266,6 @@ DROP TRIGGER IF EXISTS tenant_storage_policy_revision_trg ON graviton.tenant_sto
 CREATE TRIGGER tenant_storage_policy_revision_trg
 BEFORE UPDATE ON graviton.tenant_storage_policy
 FOR EACH ROW EXECUTE FUNCTION graviton.bump_tenant_policy_revision();
-
--- Generic change notification trigger for Graviton cache invalidation and subscriptions.
--- Emits JSON payloads to the 'graviton_inval' channel.
-CREATE OR REPLACE FUNCTION core.notify_change()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  payload jsonb;
-  chan text;
-BEGIN
-  chan := CASE TG_TABLE_SCHEMA
-    WHEN 'graviton' THEN 'graviton_inval'
-    ELSE 'core_inval'
-  END;
-
-  payload := jsonb_build_object(
-    'schema', TG_TABLE_SCHEMA,
-    'table',  TG_TABLE_NAME,
-    'op',     TG_OP,
-    'ts',     clock_timestamp(),
-    'row',    CASE WHEN TG_OP IN ('INSERT','UPDATE') THEN to_jsonb(NEW) ELSE to_jsonb(OLD) END
-  );
-
-  PERFORM pg_notify(chan, payload::text);
-  RETURN COALESCE(NEW, OLD);
-END;
-$$;
 
 -- ---------------- Graviton (CAS substrate) ----------------------
 
@@ -410,35 +330,7 @@ CREATE TABLE IF NOT EXISTS graviton.object_chunk (
   PRIMARY KEY (locator, ordinal)
 );
 
--- 1.2 Storage topology
-CREATE TABLE graviton.blob_store (
-  blob_store_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  type_id       core.nonempty_text NOT NULL,     -- 's3','minio','fs','ceph',...
-  config        jsonb NOT NULL,
-  status        core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at    timestamptz NOT NULL DEFAULT core.now_utc(),
-  updated_at    timestamptz NOT NULL DEFAULT core.now_utc(),
-  CONSTRAINT blob_store_config_is_object CHECK (jsonb_typeof(config) = 'object')
-);
-CREATE INDEX blob_store_type_status_idx ON graviton.blob_store (type_id, status);
-CREATE TRIGGER blob_store_touch_trg
-BEFORE UPDATE ON graviton.blob_store
-FOR EACH ROW EXECUTE FUNCTION core.touch_updated_at();
-
-CREATE TABLE graviton.sector (
-  sector_id     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  blob_store_id uuid NOT NULL REFERENCES graviton.blob_store(blob_store_id),
-  name          core.nonempty_text NOT NULL,
-  priority      int NOT NULL DEFAULT 100,            -- lower = preferred for reads
-  policy        jsonb NOT NULL DEFAULT '{}'::jsonb,  -- placement/replication hints
-  status        core.lifecycle_status NOT NULL DEFAULT 'active',
-  created_at    timestamptz NOT NULL DEFAULT core.now_utc(),
-  CONSTRAINT sector_policy_is_object CHECK (jsonb_typeof(policy) = 'object'),
-  UNIQUE (blob_store_id, name)
-);
-CREATE INDEX sector_read_pref_idx ON graviton.sector (status, priority, sector_id);
-
--- 1.3 Blocks (immutable chunks)
+-- Tenant and storage-domain scoped blocks.
 -- Multi-tenant data plane. Storage-domain identity is part of every block key,
 -- while tenant identity is part of every blob and manifest key. This permits
 -- explicit block sharing without granting cross-tenant blob ownership.
@@ -556,78 +448,7 @@ CREATE TABLE graviton.block (
 );
 CREATE INDEX block_created_idx ON graviton.block (created_at DESC);
 
-CREATE TABLE graviton.block_location (
-  block_location_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  alg         core.hash_alg NOT NULL,
-  hash_bytes  bytea NOT NULL,
-  byte_length core.byte_size NOT NULL,
-  sector_id   uuid NOT NULL REFERENCES graviton.sector(sector_id),
-  locator     jsonb NOT NULL,
-  locator_canonical text GENERATED ALWAYS AS (
-    coalesce(locator->>'scheme','') || '://' ||
-    coalesce(locator->>'host', locator->>'bucket', '') || '/' ||
-    coalesce(locator->>'key', locator->>'path', '')
-  ) STORED,
-  stored_length core.byte_size NOT NULL,
-  frame_format  int NOT NULL DEFAULT 1,
-  encryption    jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status        core.present_status NOT NULL DEFAULT 'present',
-  written_at    timestamptz NOT NULL DEFAULT core.now_utc(),
-  verified_at   timestamptz NULL,
-  FOREIGN KEY (alg, hash_bytes, byte_length)
-    REFERENCES graviton.block(alg, hash_bytes, byte_length),
-  CONSTRAINT locator_is_object CHECK (jsonb_typeof(locator) = 'object'),
-  CONSTRAINT encryption_is_object CHECK (jsonb_typeof(encryption) = 'object'),
-  CONSTRAINT locator_has_scheme CHECK (locator ? 'scheme'),
-  CONSTRAINT locator_has_keyish CHECK ((locator ? 'key') OR (locator ? 'path')),
-  CONSTRAINT locator_scheme_format CHECK ((locator->>'scheme') ~ '^[a-z][a-z0-9+.-]*$'),
-  CONSTRAINT locator_scheme_contract CHECK (
-    CASE locator->>'scheme'
-      WHEN 's3' THEN (locator ? 'bucket') AND (locator ? 'key')
-      WHEN 'fs' THEN (locator ? 'path')
-      WHEN 'ceph' THEN (locator ? 'pool') AND (locator ? 'key')
-      ELSE true
-    END
-  ),
-  CONSTRAINT stored_length_nonneg CHECK (stored_length >= 0)
-);
-CREATE INDEX block_location_lookup_idx
-  ON graviton.block_location (alg, hash_bytes, byte_length, status, sector_id)
-  INCLUDE (stored_length, verified_at, written_at);
-CREATE INDEX block_location_locator_gin
-  ON graviton.block_location USING gin (locator jsonb_path_ops);
-CREATE INDEX block_location_sector_status_idx
-  ON graviton.block_location (sector_id, status);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'graviton' AND t.typname = 'verify_result'
-  ) THEN
-    EXECUTE 'CREATE TYPE graviton.verify_result AS ENUM (''ok'',''missing'',''hash_mismatch'',''decrypt_fail'',''other'')';
-  END IF;
-END $$;
-
-CREATE TABLE graviton.block_verify_event (
-  event_id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  alg               core.hash_alg NOT NULL,
-  hash_bytes        bytea NOT NULL,
-  byte_length       core.byte_size NOT NULL,
-  block_location_id uuid NULL REFERENCES graviton.block_location(block_location_id),
-  result            graviton.verify_result NOT NULL,
-  details           jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at        timestamptz NOT NULL DEFAULT core.now_utc(),
-  FOREIGN KEY (alg, hash_bytes, byte_length)
-    REFERENCES graviton.block(alg, hash_bytes, byte_length),
-  CONSTRAINT details_is_object CHECK (jsonb_typeof(details) = 'object')
-);
-CREATE INDEX block_verify_event_block_idx
-  ON graviton.block_verify_event (alg, hash_bytes, byte_length, created_at DESC);
-
--- 1.4 Blobs + manifests
+-- Single-domain blobs and manifests.
 CREATE TABLE graviton.blob (
   alg         core.hash_alg NOT NULL,
   hash_bytes  bytea NOT NULL,
@@ -773,76 +594,6 @@ ALTER TABLE graviton.blob_block
   ADD CONSTRAINT blob_block_non_overlapping
   EXCLUDE USING gist (alg WITH =, hash_bytes WITH =, byte_length WITH =, span WITH &&);
 
--- 1.5 Views + transforms (DAG)
-CREATE TABLE graviton.transform (
-  transform_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name         core.nonempty_text NOT NULL,
-  version      core.nonempty_text NOT NULL,
-  arg_schema   jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at   timestamptz NOT NULL DEFAULT core.now_utc(),
-  UNIQUE (name, version),
-  CONSTRAINT arg_schema_is_object CHECK (jsonb_typeof(arg_schema) = 'object')
-);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'graviton' AND t.typname = 'view_status'
-  ) THEN
-    EXECUTE 'CREATE TYPE graviton.view_status AS ENUM (''virtual'',''materialized'',''failed'')';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'graviton' AND t.typname = 'input_kind'
-  ) THEN
-    EXECUTE 'CREATE TYPE graviton.input_kind AS ENUM (''blob'',''view'')';
-  END IF;
-END $$;
-
-CREATE TABLE graviton.view (
-  view_id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  canonical_key  bytea NOT NULL UNIQUE,
-  status         graviton.view_status NOT NULL DEFAULT 'virtual',
-  created_at     timestamptz NOT NULL DEFAULT core.now_utc()
-);
-
-CREATE TABLE graviton.view_input (
-  view_id     uuid NOT NULL REFERENCES graviton.view(view_id) ON DELETE CASCADE,
-  ordinal     int NOT NULL,
-  input_kind  graviton.input_kind NOT NULL,
-  input_ref   jsonb NOT NULL,
-  PRIMARY KEY (view_id, ordinal),
-  CONSTRAINT ordinal_nonneg CHECK (ordinal >= 0),
-  CONSTRAINT input_ref_is_object CHECK (jsonb_typeof(input_ref) = 'object')
-);
-
-CREATE TABLE graviton.view_op (
-  view_id       uuid NOT NULL REFERENCES graviton.view(view_id) ON DELETE CASCADE,
-  ordinal       int NOT NULL,
-  transform_id  uuid NOT NULL REFERENCES graviton.transform(transform_id),
-  args          jsonb NOT NULL DEFAULT '{}'::jsonb,
-  PRIMARY KEY (view_id, ordinal),
-  CONSTRAINT ordinal_nonneg CHECK (ordinal >= 0),
-  CONSTRAINT args_is_object CHECK (jsonb_typeof(args) = 'object')
-);
-
-CREATE TABLE graviton.view_materialization (
-  view_id uuid PRIMARY KEY REFERENCES graviton.view(view_id) ON DELETE CASCADE,
-  result_alg core.hash_alg NOT NULL,
-  result_hash_bytes bytea NOT NULL,
-  result_byte_length core.byte_size NOT NULL,
-  materialized_at timestamptz NOT NULL DEFAULT core.now_utc(),
-  cache_status core.lifecycle_status NOT NULL DEFAULT 'active',
-  FOREIGN KEY (result_alg, result_hash_bytes, result_byte_length)
-    REFERENCES graviton.blob(alg, hash_bytes, byte_length)
-);
-
 -- ---------------- Security and audit -----------------------------
 
 DO $$
@@ -922,206 +673,3 @@ CREATE POLICY graviton_audit_org_isolation
   ON graviton.audit_log
   USING (org_id = graviton.current_org_id())
   WITH CHECK (org_id = graviton.current_org_id());
-
-
--- ----------------------- Change notifications -------------------
--- Keep triggers small: focus on metadata + hot-path tables.
-
-CREATE TRIGGER graviton_blob_store_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_store
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER graviton_sector_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON graviton.sector
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER graviton_block_location_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON graviton.block_location
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER graviton_blob_manifest_page_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_manifest_page
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
-CREATE TRIGGER graviton_blob_block_inval_trg
-AFTER INSERT OR UPDATE OR DELETE ON graviton.blob_block
-FOR EACH ROW EXECUTE FUNCTION core.notify_change();
-
--- ----------------------------------------------------------------
--- Hot path helpers (resolution primitives)
--- ----------------------------------------------------------------
-
--- Pick best physical candidates for a logical block.
---
--- Ordering:
---   1) sector priority (lower is better)
---   2) freshest verification (NULLS LAST)
---   3) most recently written
-CREATE OR REPLACE FUNCTION graviton.best_block_locations(
-  p_alg core.hash_alg,
-  p_hash_bytes bytea,
-  p_byte_length bigint,
-  p_limit int DEFAULT 5
-)
-RETURNS TABLE (
-  sector_priority int,
-  sector_id uuid,
-  blob_store_id uuid,
-  blob_store_type_id text,
-  block_location_id uuid,
-  status core.present_status,
-  locator jsonb,
-  locator_canonical text,
-  stored_length bigint,
-  frame_format int,
-  encryption jsonb,
-  written_at timestamptz,
-  verified_at timestamptz
-)
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT
-    s.priority AS sector_priority,
-    s.sector_id,
-    s.blob_store_id,
-    bs.type_id AS blob_store_type_id,
-    bl.block_location_id,
-    bl.status,
-    bl.locator,
-    bl.locator_canonical,
-    bl.stored_length,
-    bl.frame_format,
-    bl.encryption,
-    bl.written_at,
-    bl.verified_at
-  FROM graviton.block_location bl
-  JOIN graviton.sector s
-    ON s.sector_id = bl.sector_id
-  JOIN graviton.blob_store bs
-    ON bs.blob_store_id = s.blob_store_id
-  WHERE bl.alg = p_alg
-    AND bl.hash_bytes = p_hash_bytes
-    AND bl.byte_length = p_byte_length
-    AND bl.status = 'present'
-    AND s.status = 'active'
-    AND bs.status = 'active'
-  ORDER BY
-    s.priority ASC,
-    bl.verified_at DESC NULLS LAST,
-    bl.written_at DESC
-  LIMIT GREATEST(p_limit, 0);
-$$;
-
--- Convenience: best single location per block key.
-CREATE OR REPLACE VIEW graviton.v_best_block_location AS
-SELECT DISTINCT ON (bl.alg, bl.hash_bytes, bl.byte_length)
-  bl.alg,
-  bl.hash_bytes,
-  bl.byte_length,
-  s.priority AS sector_priority,
-  bl.sector_id,
-  s.blob_store_id,
-  bl.block_location_id,
-  bl.status,
-  bl.locator,
-  bl.locator_canonical,
-  bl.stored_length,
-  bl.frame_format,
-  bl.encryption,
-  bl.written_at,
-  bl.verified_at
-FROM graviton.block_location bl
-JOIN graviton.sector s
-  ON s.sector_id = bl.sector_id
-JOIN graviton.blob_store bs
-  ON bs.blob_store_id = s.blob_store_id
-WHERE bl.status = 'present'
-  AND s.status = 'active'
-  AND bs.status = 'active'
-ORDER BY
-  bl.alg,
-  bl.hash_bytes,
-  bl.byte_length,
-  s.priority ASC,
-  bl.verified_at DESC NULLS LAST,
-  bl.written_at DESC;
-
--- Stream manifest pages for a blob in order (paged manifest hot path).
-CREATE OR REPLACE FUNCTION graviton.manifest_pages(
-  p_alg core.hash_alg,
-  p_hash_bytes bytea,
-  p_byte_length bigint
-)
-RETURNS TABLE (
-  page_no int,
-  entry_count int,
-  entries bytea
-)
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT
-    p.page_no,
-    p.entry_count,
-    p.entries
-  FROM graviton.blob_manifest_page p
-  WHERE p.alg = p_alg
-    AND p.hash_bytes = p_hash_bytes
-    AND p.byte_length = p_byte_length
-  ORDER BY p.page_no ASC;
-$$;
-
--- Full "blob → ordered block spans → best location" plan in one query.
--- Intended for repair tooling and for building a streaming plan in the app layer.
-CREATE OR REPLACE FUNCTION graviton.resolve_blob_read_plan(
-  p_alg core.hash_alg,
-  p_hash_bytes bytea,
-  p_byte_length bigint
-)
-RETURNS TABLE (
-  ordinal int,
-  block_alg core.hash_alg,
-  block_hash_bytes bytea,
-  block_byte_length bigint,
-  block_offset bigint,
-  block_length bigint,
-  sector_priority int,
-  sector_id uuid,
-  blob_store_id uuid,
-  blob_store_type_id text,
-  locator jsonb,
-  locator_canonical text,
-  stored_length bigint,
-  verified_at timestamptz
-)
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT
-    bb.ordinal,
-    bb.block_alg,
-    bb.block_hash_bytes,
-    bb.block_byte_length,
-    bb.block_offset,
-    bb.block_length,
-    cand.sector_priority,
-    cand.sector_id,
-    cand.blob_store_id,
-    cand.blob_store_type_id,
-    cand.locator,
-    cand.locator_canonical,
-    cand.stored_length,
-    cand.verified_at
-  FROM graviton.blob_block bb
-  LEFT JOIN LATERAL graviton.best_block_locations(
-    bb.block_alg,
-    bb.block_hash_bytes,
-    bb.block_byte_length,
-    1
-  ) cand ON true
-  WHERE bb.alg = p_alg
-    AND bb.hash_bytes = p_hash_bytes
-    AND bb.byte_length = p_byte_length
-  ORDER BY bb.ordinal ASC;
-$$;

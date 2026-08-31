@@ -100,7 +100,9 @@ export GRAVITON_S3_REGION="us-east-1"
 Apply the schema before startup:
 
 ```bash
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 The exact container setup and bucket command are in [Run Locally](./run-locally.md).
@@ -142,7 +144,9 @@ To run the same consumer proof locally:
 This applies only to S3/MinIO mode or a JDBC audit sink:
 
 ```bash
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 ### Missing bucket

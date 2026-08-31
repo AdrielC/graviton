@@ -176,11 +176,21 @@ object Graviton:
 
   /** Transducer pipelines for composition. */
   object pipelines:
+    @deprecated("Use basicIngestSummary for an explicit schema-backed summary", "0.8.0")
+    @scala.annotation.nowarn("cat=deprecation")
     def basicIngest(blockSize: Int, algo: HashAlgo = HashAlgo.runtimeDefault) =
       IngestPipeline.countHashRechunk(blockSize, algo)
 
+    @deprecated("Use casIngestSummary for an explicit schema-backed summary", "0.8.0")
+    @scala.annotation.nowarn("cat=deprecation")
     def casIngest(blockSize: Int, algo: HashAlgo = HashAlgo.runtimeDefault) =
       CasIngest.pipeline(blockSize, algo)
+
+    def basicIngestSummary(blockSize: Int, algo: HashAlgo = HashAlgo.runtimeDefault) =
+      IngestPipeline.countHashRechunkSummary(blockSize, algo)
+
+    def casIngestSummary(blockSize: Int, algo: HashAlgo = HashAlgo.runtimeDefault) =
+      CasIngest.pipelineSummary(blockSize, algo)
 
     def bombGuard(maxBytes: Long) =
       BombGuard(maxBytes)

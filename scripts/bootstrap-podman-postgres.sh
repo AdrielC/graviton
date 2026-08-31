@@ -4,15 +4,15 @@
 #
 # Usage:
 #   scripts/bootstrap-podman-postgres.sh [--pg 18] [--port 5432] [--name graviton-pg] \
-#       [--ddl modules/backend/graviton-pg/src/main/resources/ddl.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
+#       [--ddl modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql] [--export-docker-host] [--no-ddl] [--fix-rootless]
 #
-# Defaults: PG_VERSION=18, PORT=5432, NAME=graviton-pg, DDL=modules/backend/graviton-pg/src/main/resources/ddl.sql, EXPORT_DOCKER_HOST=on
+# Defaults: PG_VERSION=18, PORT=5432, NAME=graviton-pg, DDL=modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql, EXPORT_DOCKER_HOST=on
 #
 # What it does:
 #   - Installs Podman (and pasta/slirp4netns) if missing (Ubuntu/Debian/Fedora/Arch/Alpine).
 #   - Configures rootless-friendly Podman (VFS storage, chosen network backend).
 #   - Starts the Podman API socket at $XDG_RUNTIME_DIR/podman/podman.sock (Docker-compatible).
-#   - Runs docker.io/library/postgres:$PG_VERSION with tmpfs data, waits healthy, loads DDL.
+#   - Runs docker.io/library/postgres:$PG_VERSION with tmpfs data, waits healthy, and applies the versioned migration set.
 #
 set -euo pipefail
 
@@ -89,7 +89,7 @@ PG_VERSION="${PG_VERSION:-18}"
 PG_HOST="${PG_HOST:-127.0.0.1}"
 PG_PORT="${PG_PORT:-5432}"
 PG_NAME="${PG_NAME:-graviton-pg}"
-DDL_PATH_DEFAULT="modules/backend/graviton-pg/src/main/resources/ddl.sql"
+DDL_PATH_DEFAULT="modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql"
 DDL_PATH="$DDL_PATH_DEFAULT"
 DO_EXPORT_DOCKER_HOST=1
 DO_DDL=1
@@ -297,11 +297,18 @@ until docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1; do
 
 if [[ "$DO_DDL" -eq 1 ]]; then
   if [[ -f "$DDL_PATH" ]]; then
-    log "Loading DDL from $DDL_PATH…"
-    docker cp "$DDL_PATH" "$PG_NAME:/ddl.sql"
-    docker exec -u postgres "$PG_NAME" psql -f /ddl.sql >/dev/null
+    MIGRATIONS_DIR="$(dirname "$DDL_PATH")"
+    log "Applying migrations from $MIGRATIONS_DIR…"
+    docker exec "$PG_NAME" mkdir -p /graviton-migrations
+    docker cp "$MIGRATIONS_DIR/." "$PG_NAME:/graviton-migrations"
+    docker cp scripts/migrate-postgres.sh "$PG_NAME:/migrate-postgres.sh"
+    docker exec -u postgres \
+      -e PGPASSWORD="${PG_PASSWORD}" \
+      -e GRAVITON_DATABASE_URL="postgresql://${PG_USERNAME}@127.0.0.1:5432/${PG_DATABASE}" \
+      -e GRAVITON_MIGRATIONS_DIR=/graviton-migrations \
+      "$PG_NAME" bash /migrate-postgres.sh >/dev/null
   else
-    warn "DDL file not found at $DDL_PATH — skipping."
+    warn "Migration anchor not found at $DDL_PATH — skipping."
   fi
 fi
 

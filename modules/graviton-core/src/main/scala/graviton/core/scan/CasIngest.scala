@@ -5,6 +5,7 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import kyo.Record
 import kyo.Record.`~`
 import zio.Chunk
+import zio.blocks.schema.Schema
 
 /**
  * CAS-level transducers for content-addressed ingest.
@@ -14,12 +15,27 @@ import zio.Chunk
  * naturally with `>>>` and `&&&`:
  *
  * {{{
- * val casPipeline = IngestPipeline.countHashRechunk(blockSize) >>> CasIngest.blockKeyDeriver()
+ * val casPipeline = IngestPipeline.countHashRechunkSummary(blockSize) >>> CasIngest.blockKeyDeriver()
  * }}}
  *
  * Hot state is tuples of primitives. Records are only constructed at flush.
  */
 object CasIngest:
+
+  /** Stable, schema-backed terminal summary for full CAS ingest. */
+  final case class Summary(
+    totalBytes: Long,
+    digestHex: String,
+    hashBytes: Long,
+    blockCount: Long,
+    rechunkFill: Int,
+    blocksKeyed: Long,
+  )
+
+  object Summary:
+    given Schema[Summary] = Schema.derived
+
+  private final case class BlocksKeyedSummary(blocksKeyed: Long)
 
   /**
    * Per-block key derivation transducer.
@@ -39,6 +55,11 @@ object CasIngest:
     algo: HashAlgo = HashAlgo.runtimeDefault
   ): Transducer[Chunk[Byte], KeyedBlock, Record["blocksKeyed" ~ Long]] =
     type S = Record["blocksKeyed" ~ Long]
+    blockKeyDeriverWithSummary(algo)(h => (Record.empty & ("blocksKeyed" ~ h)).asInstanceOf[S])
+
+  private def blockKeyDeriverWithSummary[S](
+    algo: HashAlgo
+  )(summarize: Long => S): Transducer[Chunk[Byte], KeyedBlock, S] =
     new Transducer[Chunk[Byte], KeyedBlock, S]:
       type Hot = Long
       def initHot: Long = 0L
@@ -60,7 +81,7 @@ object CasIngest:
       def flush(h: Long): (Long, Chunk[KeyedBlock]) = (h, Chunk.empty)
 
       def toSummary(h: Long): S =
-        (Record.empty & ("blocksKeyed" ~ h)).asInstanceOf[S]
+        summarize(h)
 
   /**
    * A block paired with its content-addressed key.
@@ -75,6 +96,20 @@ object CasIngest:
     def size: Int = payload.length
 
   /**
+   * The v0.7-compatible count + hash + rechunk + block-key pipeline.
+   *
+   * New code should use [[pipelineSummary]], whose terminal summary is an
+   * explicit schema-backed product.
+   */
+  @deprecated("Use pipelineSummary for an explicit schema-backed summary", "0.8.0")
+  def pipeline(
+    blockSize: Int,
+    algo: HashAlgo = HashAlgo.runtimeDefault,
+  ) =
+    (IngestPipeline.countBytes >>> IngestPipeline.hashBytes(algo) >>> IngestPipeline.rechunk(blockSize)) >>>
+      blockKeyDeriver(algo)
+
+  /**
    * The full CAS ingest pipeline: count + hash + rechunk + blockKey.
    *
    * Takes raw `Chunk[Byte]` elements and produces `KeyedBlock`s with
@@ -87,10 +122,23 @@ object CasIngest:
    *   - `rechunkFill`: leftover bytes in rechunk buffer
    *   - `blocksKeyed`: blocks that received CAS keys
    */
-  def pipeline(
+  def pipelineSummary(
     blockSize: Int,
     algo: HashAlgo = HashAlgo.runtimeDefault,
-  ) =
-    IngestPipeline.countHashRechunk(blockSize, algo) >>> blockKeyDeriver(algo)
+  ): Transducer[Chunk[Byte], KeyedBlock, Summary] =
+    val composed =
+      IngestPipeline.countHashRechunkSummary(blockSize, algo) >>>
+        blockKeyDeriverWithSummary(algo)(BlocksKeyedSummary.apply)
+
+    composed.mapSummary { case (ingest, keyed) =>
+      Summary(
+        totalBytes = ingest.totalBytes,
+        digestHex = ingest.digestHex,
+        hashBytes = ingest.hashBytes,
+        blockCount = ingest.blockCount,
+        rechunkFill = ingest.rechunkFill,
+        blocksKeyed = keyed.blocksKeyed,
+      )
+    }
 
 end CasIngest

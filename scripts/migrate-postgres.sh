@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DDL_FILE="${GRAVITON_DDL_FILE:-${REPO_ROOT}/modules/backend/graviton-pg/src/main/resources/ddl.sql}"
+MIGRATIONS_DIR="${GRAVITON_MIGRATIONS_DIR:-${REPO_ROOT}/modules/backend/graviton-pg/src/main/resources/db/migration}"
 DATABASE_URL="${GRAVITON_DATABASE_URL:-}"
 
 if [[ -z "${DATABASE_URL}" ]]; then
@@ -10,42 +10,68 @@ if [[ -z "${DATABASE_URL}" ]]; then
   exit 2
 fi
 command -v psql >/dev/null || { echo "psql is required" >&2; exit 2; }
-[[ -f "${DDL_FILE}" ]] || { echo "DDL file not found: ${DDL_FILE}" >&2; exit 2; }
+[[ -d "${MIGRATIONS_DIR}" ]] || { echo "Migration directory not found: ${MIGRATIONS_DIR}" >&2; exit 2; }
 
-if command -v sha256sum >/dev/null; then
-  CHECKSUM="$(sha256sum "${DDL_FILE}" | awk '{print $1}')"
-else
-  CHECKSUM="$(shasum -a 256 "${DDL_FILE}" | awk '{print $1}')"
+shopt -s nullglob
+MIGRATIONS=("${MIGRATIONS_DIR}"/V[0-9][0-9][0-9]__*.sql)
+shopt -u nullglob
+
+if [[ ${#MIGRATIONS[@]} -eq 0 ]]; then
+  echo "No Graviton migrations found in ${MIGRATIONS_DIR}" >&2
+  exit 2
 fi
 
-EXISTING="$(PGDATABASE="${DATABASE_URL}" psql -X -A -t -v ON_ERROR_STOP=1 -c \
-  "SELECT checksum FROM public.graviton_schema_migrations WHERE version = '001'" 2>/dev/null || true)"
+checksum() {
+  if command -v sha256sum >/dev/null; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
 
-if [[ -n "${EXISTING}" && "${EXISTING}" != "${CHECKSUM}" ]]; then
-  echo "Migration 001 checksum drift: database=${EXISTING} repository=${CHECKSUM}" >&2
-  exit 1
-fi
+previous=""
+for migration in "${MIGRATIONS[@]}"; do
+  filename="$(basename "${migration}")"
+  version="${filename%%__*}"
+  version="${version#V}"
 
-PGDATABASE="${DATABASE_URL}" psql -X -v ON_ERROR_STOP=1 \
-  --set=ddl_file="${DDL_FILE}" --set=ddl_checksum="${CHECKSUM}" <<'SQL'
-SELECT pg_advisory_lock(hashtextextended('graviton-schema-migrations', 0));
+  if [[ "${version}" == "${previous}" ]]; then
+    echo "Duplicate Graviton migration version ${version}" >&2
+    exit 2
+  fi
+  previous="${version}"
+
+  migration_checksum="$(checksum "${migration}")"
+  psql --dbname="${DATABASE_URL}" -X -v ON_ERROR_STOP=1 \
+    --set=migration_file="${migration}" \
+    --set=migration_version="${version}" \
+    --set=migration_checksum="${migration_checksum}" <<'SQL'
+BEGIN;
+SELECT pg_advisory_xact_lock(hashtextextended('graviton-schema-migrations', 0));
 CREATE TABLE IF NOT EXISTS public.graviton_schema_migrations (
   version text PRIMARY KEY,
   checksum text NOT NULL,
   applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
-SELECT count(*) AS already_applied
+SELECT
+  count(*) AS already_applied,
+  count(*) FILTER (WHERE checksum <> :'migration_checksum') AS checksum_drift
 FROM public.graviton_schema_migrations
-WHERE version = '001'
+WHERE version = :'migration_version'
 \gset
-\if :already_applied
-  \echo 'Graviton migration 001 already applied'
-\else
-  BEGIN;
-  \i :ddl_file
-  INSERT INTO public.graviton_schema_migrations(version, checksum) VALUES ('001', :'ddl_checksum');
-  COMMIT;
-  \echo 'Applied Graviton migration 001'
+\if :checksum_drift
+  \echo 'Graviton migration checksum drift for version' :migration_version
+  ROLLBACK;
+  \quit 1
 \endif
-SELECT pg_advisory_unlock(hashtextextended('graviton-schema-migrations', 0));
+\if :already_applied
+  \echo 'Graviton migration already applied:' :migration_version
+\else
+  \i :migration_file
+  INSERT INTO public.graviton_schema_migrations(version, checksum)
+  VALUES (:'migration_version', :'migration_checksum');
+  \echo 'Applied Graviton migration:' :migration_version
+\endif
+COMMIT;
 SQL
+done

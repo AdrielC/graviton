@@ -98,7 +98,7 @@ Run `./scripts/verify-http-lifecycle.sh` against the running server to assert in
 
 ## Container-backed integration tests
 
-The GitHub Actions workflow is the canonical setup. It starts PostgreSQL and MinIO, applies `modules/backend/graviton-pg/src/main/resources/ddl.sql`, creates the block bucket, and runs:
+The GitHub Actions workflow is the canonical setup. It starts PostgreSQL and MinIO, applies the versioned PostgreSQL migration set twice through `scripts/migrate-postgres.sh` to prove idempotency, creates the block bucket, and runs:
 
 ```bash
 TESTCONTAINERS=1 \

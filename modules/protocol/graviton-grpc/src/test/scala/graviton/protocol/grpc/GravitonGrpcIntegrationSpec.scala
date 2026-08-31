@@ -2,6 +2,8 @@ package graviton.protocol.grpc
 
 import graviton.core.types.FileSize
 import graviton.runtime.Graviton
+import graviton.runtime.admission.DistributedTrafficQuota
+import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKeys, MetricsRegistry}
 import graviton.runtime.model.BlobWritePlan
 import graviton.runtime.stores.{StoreError, StoreOperation}
 import graviton.runtime.tenant.{TenantContext, TenantRoute, TenantStoreBinding, TenantStoreProvider}
@@ -315,6 +317,102 @@ object GravitonGrpcIntegrationSpec extends ZIOSpecDefault:
             secondWrite.key == firstWrite.key,
             callerAfterCalls.isEmpty,
           )
+        }
+      } @@ TestAspect.timeout(20.seconds),
+      test("charges distributed request and delivered-egress quotas on authenticated gRPC") {
+        ZIO.scoped {
+          for
+            graviton <- Graviton.inMemory(chunkSize = 64 * 1024)
+            audit    <- AuditSink.inMemory
+            metrics  <- InMemoryMetricsRegistry.make
+            runtime  <- ZIO.runtime[Any]
+            charges  <- Ref.make(Chunk.empty[(TenantId, DistributedTrafficQuota.Kind, Long)])
+            caller0   = callerFor("10000000-0000-4000-8000-000000000001")
+            quota     = new DistributedTrafficQuota:
+                          override def charge(
+                            tenantId: TenantId,
+                            kind: DistributedTrafficQuota.Kind,
+                            amount: Long,
+                          ): IO[DistributedTrafficQuota.Error, Unit] =
+                            charges.update(_ :+ ((tenantId, kind, amount)))
+            allowAll  = new RateLimiter:
+                          def check(kind: RateLimiter.Kind, tokens: Long): IO[SecurityError, Unit] = ZIO.unit
+            server   <- GravitonGrpcServer.scoped(
+                          graviton.blobStore,
+                          GrpcServerConfig(port = 0),
+                          List(
+                            new AuthInterceptor(JwtVerifier.static(caller0), audit, runtime),
+                            new CapabilityInterceptor(CapabilityCheck.tokenOnly, runtime, Some(audit)),
+                            new RateLimitInterceptor(allowAll, runtime),
+                          ),
+                          Some(TrafficQuotaBlobService.Dependencies(quota, metrics)),
+                        )
+            port     <- server.port
+            client   <- GravitonGrpcClient.scoped(
+                          "127.0.0.1",
+                          port,
+                          Some(GravitonGrpcClient.BearerToken.applyUnsafe("integration-token")),
+                        )
+            bytes     = Chunk.fill(2 * 1024 * 1024)(0x5a.toByte)
+            written  <- client.put(ZStream.fromChunk(bytes), ContentType)
+            received <- client.get(written.key).runCount
+            recorded <- charges.get
+            snapshot <- metrics.snapshot
+            tenant    = TenantId.applyUnsafe(caller0.orgId.toString)
+            requests  = recorded.collect { case (`tenant`, DistributedTrafficQuota.Kind.Request, amount) => amount }.sum
+            egress    = recorded.collect { case (`tenant`, DistributedTrafficQuota.Kind.DeliveredEgress, amount) => amount }.sum
+            metric    = snapshot.counters.collectFirst {
+                          case (key, value) if key.name == MetricKeys.DeliveredEgressBytesTotal && key.tags == Map("protocol" -> "grpc") =>
+                            value
+                        }
+          yield assertTrue(
+            received == bytes.length.toLong,
+            requests == 2L,
+            egress == bytes.length.toLong,
+            metric.contains(bytes.length.toLong),
+          )
+        }
+      } @@ TestAspect.timeout(20.seconds),
+      test("terminates gRPC download before sending a quota-rejected frame") {
+        ZIO.scoped {
+          for
+            graviton <- Graviton.inMemory(chunkSize = 64 * 1024)
+            seed      = ZStream.fromChunk(Chunk.fill(256 * 1024)(0x33.toByte))
+            stored   <- seed.run(graviton.blobStore.put())
+            audit    <- AuditSink.inMemory
+            runtime  <- ZIO.runtime[Any]
+            caller0   = callerFor("10000000-0000-4000-8000-000000000001")
+            quota     = new DistributedTrafficQuota:
+                          override def charge(
+                            tenantId: TenantId,
+                            kind: DistributedTrafficQuota.Kind,
+                            amount: Long,
+                          ): IO[DistributedTrafficQuota.Error, Unit] =
+                            val _ = (tenantId, amount)
+                            kind match
+                              case DistributedTrafficQuota.Kind.Request         => ZIO.unit
+                              case DistributedTrafficQuota.Kind.DeliveredEgress =>
+                                ZIO.fail(DistributedTrafficQuota.Error.Rejected(kind, 1L, 1.second))
+            allowAll  = new RateLimiter:
+                          def check(kind: RateLimiter.Kind, tokens: Long): IO[SecurityError, Unit] = ZIO.unit
+            server   <- GravitonGrpcServer.scoped(
+                          graviton.blobStore,
+                          GrpcServerConfig(port = 0),
+                          List(
+                            new AuthInterceptor(JwtVerifier.static(caller0), audit, runtime),
+                            new CapabilityInterceptor(CapabilityCheck.tokenOnly, runtime, Some(audit)),
+                            new RateLimitInterceptor(allowAll, runtime),
+                          ),
+                          Some(TrafficQuotaBlobService.Dependencies(quota, MetricsRegistry.noop)),
+                        )
+            port     <- server.port
+            client   <- GravitonGrpcClient.scoped(
+                          "127.0.0.1",
+                          port,
+                          Some(GravitonGrpcClient.BearerToken.applyUnsafe("integration-token")),
+                        )
+            denied   <- client.get(stored.key).runCollect.exit
+          yield assertTrue(statusCode(denied).contains(Status.Code.RESOURCE_EXHAUSTED))
         }
       } @@ TestAspect.timeout(20.seconds),
       test("stops a rate-limited upload frame before it reaches storage") {

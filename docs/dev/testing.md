@@ -56,7 +56,7 @@ Third-party `BlobStore` implementations can depend on `graviton-backend-laws_3` 
 
 ## Container-backed integration
 
-GitHub Actions is the canonical environment. It starts PostgreSQL 16 and MinIO, applies `modules/backend/graviton-pg/src/main/resources/ddl.sql`, creates the S3 block bucket, and runs:
+GitHub Actions is the canonical environment. It starts PostgreSQL 16 and MinIO, applies `modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql`, creates the S3 block bucket, and runs:
 
 ```bash
 TESTCONTAINERS=1 \

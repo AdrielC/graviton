@@ -2,15 +2,8 @@ package graviton.core.scan
 
 import zio.*
 import zio.test.*
-import zio.test.TestAspect.ignore
 
 object CasIngestSpec extends ZIOSpecDefault:
-
-  // Ignored under Scala 3.8+: mixed-field `kyo.Record.selectDynamic` access
-  // throws `NoSuchElementException`. Production ingest uses
-  // `blockKeyDeriver.toPipeline` and does not read the aggregate summary.
-  // Re-enable this suite only after the public summary accessors pass on the
-  // supported Scala version.
 
   def spec = suite("CasIngest")(
     suite("blockKeyDeriver")(
@@ -59,7 +52,7 @@ object CasIngestSpec extends ZIOSpecDefault:
       test("count + hash + rechunk + blockKey composes correctly") {
         val data              = Chunk.fromArray(Array.fill(2048)(0xff.toByte))
         // 2048 bytes with blockSize=1024 → 2 blocks
-        val p                 = CasIngest.pipeline(blockSize = 1024)
+        val p                 = CasIngest.pipelineSummary(blockSize = 1024)
         val (summary, blocks) = p.runChunk(List(data))
         assertTrue(
           blocks.length == 2,
@@ -74,7 +67,7 @@ object CasIngestSpec extends ZIOSpecDefault:
       test("handles non-aligned data with remainder block") {
         val data              = Chunk.fromArray(Array.fill(1500)(0xcc.toByte))
         // 1500 bytes with blockSize=1024 → 1 full block + 1 remainder (476 bytes)
-        val p                 = CasIngest.pipeline(blockSize = 1024)
+        val p                 = CasIngest.pipelineSummary(blockSize = 1024)
         val (summary, blocks) = p.runChunk(List(data))
         assertTrue(
           blocks.length == 2,
@@ -86,7 +79,7 @@ object CasIngestSpec extends ZIOSpecDefault:
       },
       test("compiles to ZPipeline and processes stream") {
         val data = Chunk.fromArray(Array.fill(3072)(0xaa.toByte))
-        val p    = CasIngest.pipeline(blockSize = 1024)
+        val p    = CasIngest.pipelineSummary(blockSize = 1024)
         for results <- zio.stream.ZStream
                          .fromChunk(data)
                          .rechunk(256)
@@ -100,7 +93,7 @@ object CasIngestSpec extends ZIOSpecDefault:
       },
       test("compiles to ZSink and yields summary") {
         val data = Chunk.fromArray(Array.fill(2048)(0xbb.toByte))
-        val p    = CasIngest.pipeline(blockSize = 1024)
+        val p    = CasIngest.pipelineSummary(blockSize = 1024)
         for (summary, blocks) <- zio.stream.ZStream
                                    .fromChunk(data)
                                    .rechunk(512)
@@ -113,4 +106,4 @@ object CasIngestSpec extends ZIOSpecDefault:
         )
       },
     ),
-  ) @@ ignore
+  )
