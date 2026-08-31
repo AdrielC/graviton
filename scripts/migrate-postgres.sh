@@ -42,7 +42,7 @@ for migration in "${MIGRATIONS[@]}"; do
   previous="${version}"
 
   migration_checksum="$(checksum "${migration}")"
-  PGDATABASE="${DATABASE_URL}" psql -X -v ON_ERROR_STOP=1 \
+  psql --dbname="${DATABASE_URL}" -X -v ON_ERROR_STOP=1 \
     --set=migration_file="${migration}" \
     --set=migration_version="${version}" \
     --set=migration_checksum="${migration_checksum}" <<'SQL'
