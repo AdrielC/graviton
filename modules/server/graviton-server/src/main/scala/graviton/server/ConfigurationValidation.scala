@@ -89,18 +89,40 @@ object ConfigurationValidation:
     environment: Map[String, String],
   ): Either[String, Unit] =
     backend match
-      case "fs"           =>
+      case "fs"    =>
         require(config.fs.root.trim.nonEmpty, "GRAVITON_FS_ROOT must not be empty")
-      case "s3" | "minio" =>
+      case "s3"    =>
         for
-          endpoint <- required(environment, "GRAVITON_S3_ENDPOINT")
-          _        <- validateHttpUri("GRAVITON_S3_ENDPOINT", endpoint)
-          _        <- required(environment, "GRAVITON_S3_ACCESS_KEY").map(_ => ())
-          _        <- required(environment, "GRAVITON_S3_SECRET_KEY").map(_ => ())
-          _        <- validateReplicationTargets(config, environment)
-          _        <- validatePostgres(environment)
+          _ <- validateAwsOrExplicitS3(environment)
+          _ <- validateReplicationTargets(config, environment)
+          _ <- validatePostgres(environment)
         yield ()
-      case _              => Left("unsupported backend")
+      case "minio" =>
+        for
+          _ <- validateExplicitS3(environment)
+          _ <- validateReplicationTargets(config, environment)
+          _ <- validatePostgres(environment)
+        yield ()
+      case _       => Left("unsupported backend")
+
+  private def validateAwsOrExplicitS3(environment: Map[String, String]): Either[String, Unit] =
+    val endpoint = environment.get("GRAVITON_S3_ENDPOINT").map(_.trim).filter(_.nonEmpty)
+    val access   = environment.get("GRAVITON_S3_ACCESS_KEY").map(_.trim).filter(_.nonEmpty)
+    val secret   = environment.get("GRAVITON_S3_SECRET_KEY").map(_.trim).filter(_.nonEmpty)
+
+    (endpoint, access, secret) match
+      case (None, None, None)          => Right(())
+      case (Some(_), Some(_), Some(_)) => validateExplicitS3(environment)
+      case (None, _, _)                => Left("GRAVITON_S3_ACCESS_KEY and GRAVITON_S3_SECRET_KEY require GRAVITON_S3_ENDPOINT")
+      case _                           => Left("GRAVITON_S3_ENDPOINT requires both GRAVITON_S3_ACCESS_KEY and GRAVITON_S3_SECRET_KEY")
+
+  private def validateExplicitS3(environment: Map[String, String]): Either[String, Unit] =
+    for
+      endpoint <- required(environment, "GRAVITON_S3_ENDPOINT")
+      _        <- validateHttpUri("GRAVITON_S3_ENDPOINT", endpoint)
+      _        <- required(environment, "GRAVITON_S3_ACCESS_KEY").map(_ => ())
+      _        <- required(environment, "GRAVITON_S3_SECRET_KEY").map(_ => ())
+    yield ()
 
   private def validateReplicationTargets(config: GravitonConfig, environment: Map[String, String]): Either[String, Unit] =
     if !config.replication.enabled then Right(())

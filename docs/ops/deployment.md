@@ -95,6 +95,17 @@ validator. The checked-in example contains placeholders only.
 
 Review the storage class, capacity, ingress source, egress policy, resources, image digest, and secret delivery before applying it. The example tag is replaced by the release workflow's published image; pin the resulting digest in a controlled environment.
 
+## AWS Production Cell v1
+
+`deploy/aws-cell-v1` is the empty-store AWS deployment contract. It provisions private three-zone ECS/Fargate compute with stable Shardcake identities, a singleton manager, TLS ALB ingress, Multi-AZ RDS PostgreSQL, separate KMS-encrypted S3 block and staging buckets, an encrypted Multi-AZ Valkey admission coordinator, Cloud Map discovery, IAM task roles, and a one-shot database bootstrap gate. Long-running services remain absent until secrets, Valkey AUTH, schema, runtime-role privileges, and the initial isolated tenant have been established.
+
+```bash
+./deploy/aws-cell-v1/operator.sh validate
+./deploy/aws-cell-v1/operator.sh plan
+```
+
+The validation command is local and non-mutating. The plan requires a reviewed remote Terraform backend and non-secret variable file. `operator.sh up` creates billable AWS resources, so run it only after reviewing the plan and estimated charges. The bundle writes generated credentials directly to Secrets Manager rather than Terraform state, then installs Valkey AUTH through a fail-closed operator step before any long-running node can exist. See [AWS Production Cell v1](https://github.com/AdrielC/graviton/tree/main/deploy/aws-cell-v1) for bootstrap, qualification, fault, restore, and capacity gates.
+
 ## Shared S3 plus PostgreSQL
 
 Apply the migration before startup:

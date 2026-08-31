@@ -1,6 +1,8 @@
 package graviton.runtime.stores
 
+import graviton.runtime.admission.{DistributedAdmission, DistributedAdmissionRequest}
 import graviton.runtime.config.{TransferAdmissionConfig, TransferMemoryConfig}
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.upload.TenantId
 import zio.*
 
@@ -14,12 +16,24 @@ import zio.*
 trait TransferBudget:
   def capacityBytes: Long
   def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit]
-  def reserveScoped(footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]                       =
+  def reserveScoped(operation: StoreOperation, bytes: Long): ZIO[Scope, StoreError, Unit]                  =
+    val _ = operation
+    reserveScoped(bytes)
+  def reserveScoped(footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]                            =
     reserveScoped(footprint.totalBytes)
-  def reserveScoped(scope: TransferScope, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit] =
+  def reserveScoped(scope: TransferScope, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]      =
     val _ = scope
     reserveScoped(footprint)
-  def bind(scope: TransferScope): TransferBudget                                                      = TransferBudget.bound(this, scope)
+  def reserveScoped(operation: StoreOperation, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit] =
+    reserveScoped(operation, footprint.totalBytes)
+  def reserveScoped(
+    scope: TransferScope,
+    operation: StoreOperation,
+    footprint: TransferFootprint,
+  ): ZIO[Scope, StoreError, Unit] =
+    val _ = operation
+    reserveScoped(scope, footprint)
+  def bind(scope: TransferScope): TransferBudget                                                           = TransferBudget.bound(this, scope)
   def availableBytes: UIO[Long]
 
 object TransferBudget:
@@ -29,12 +43,20 @@ object TransferBudget:
     make(config, TransferAdmissionConfig.Default)
 
   def make(config: TransferMemoryConfig, admission: TransferAdmissionConfig): UIO[TransferBudget] =
+    make(config, admission, DistributedAdmission.disabled, MetricsRegistry.noop)
+
+  def make(
+    config: TransferMemoryConfig,
+    admission: TransferAdmissionConfig,
+    distributed: DistributedAdmission,
+    metrics: MetricsRegistry,
+  ): UIO[TransferBudget] =
     ZIO.dieMessage("invalid transfer admission configuration").unless(admission.validate.isRight) *>
       (for
         process  <- Semaphore.make(config.maximumBufferedBytes.value)
         tenants  <- Ref.Synchronized.make(Map.empty[TenantId, WeightedEntry])
         backends <- Ref.Synchronized.make(Map.empty[StoreBackend, ConcurrentEntry])
-      yield new Live(config.maximumBufferedBytes.value, process, tenants, backends, admission))
+      yield new Live(config.maximumBufferedBytes.value, process, tenants, backends, admission, distributed, metrics))
 
   private final class Live(
     override val capacityBytes: Long,
@@ -42,35 +64,93 @@ object TransferBudget:
     tenants: Ref.Synchronized[Map[TenantId, WeightedEntry]],
     backends: Ref.Synchronized[Map[StoreBackend, ConcurrentEntry]],
     admission: TransferAdmissionConfig,
+    distributed: DistributedAdmission,
+    metrics: MetricsRegistry,
   ) extends TransferBudget:
 
     override def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit] =
-      validate(bytes) *> process.withPermitsScoped(bytes)
+      reserveScoped(StoreOperation.PutBlob, bytes)
+
+    override def reserveScoped(operation: StoreOperation, bytes: Long): ZIO[Scope, StoreError, Unit] =
+      TransferFootprint
+        .single(TransferComponent.applyUnsafe("unscoped-transfer"), bytes)
+        .fold(
+          error => ZIO.fail(StoreError.InvalidInput(operation, error.getMessage)),
+          footprint => reserveScoped(TransferScope.backend(StoreBackend.Runtime), operation, footprint),
+        )
 
     override def reserveScoped(scope: TransferScope, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit] =
-      val bytes   = footprint.totalBytes
-      val acquire =
-        validate(bytes) *>
-          process.withPermitsScoped(bytes) *>
-          ZIO.foreachDiscard(scope.tenantId)(tenant => tenantPermitsScoped(tenants, tenant, bytes, admission)) *>
-          backendPermitScoped(backends, scope.backend, admission)
+      reserveScoped(scope, StoreOperation.PutBlob, footprint)
 
-      acquire.timeoutFail(
-        StoreError.TransferAdmissionTimedOut(
-          StoreOperation.PutBlob,
-          scope.backend,
-          scope.tenantId,
-          bytes,
-          admission.acquisitionTimeout,
-        )
-      )(admission.acquisitionTimeout)
+    override def reserveScoped(
+      scope: TransferScope,
+      operation: StoreOperation,
+      footprint: TransferFootprint,
+    ): ZIO[Scope, StoreError, Unit] =
+      val bytes   = footprint.totalBytes
+      val acquire = for
+        started <- Clock.nanoTime
+        _       <- validate(operation, bytes)
+        _       <- process.withPermitsScoped(bytes)
+        _       <- ZIO.foreachDiscard(scope.tenantId)(tenant => tenantPermitsScoped(tenants, tenant, operation, bytes, admission))
+        _       <- backendPermitScoped(backends, scope.backend, operation, admission)
+        lease   <- distributed
+                     .acquireScoped(DistributedAdmissionRequest(scope, operation, footprint))
+                     .mapError(toStoreError(operation))
+        waited  <- Clock.nanoTime.map(now => math.max(0L, now - started))
+        _       <- metrics.counter(
+                     MetricKeys.TransferAdmissionTotal,
+                     Map("outcome" -> "admitted", "operation" -> operation.toString, "backend" -> scope.backend.value),
+                   )
+        _       <- metrics.histogram(
+                     MetricKeys.TransferAdmissionWait,
+                     waited.toDouble / 1000000000.0,
+                     Map("outcome" -> "admitted", "operation" -> operation.toString),
+                   )
+        _       <- process.available.flatMap(available => metrics.gauge(MetricKeys.TransferBudgetAvailableBytes, available.toDouble, Map.empty))
+        _       <- lease.revoked.catchAll { error =>
+                     metrics.counter(
+                       MetricKeys.DistributedAdmissionLeaseLoss,
+                       Map("operation" -> operation.toString, "backend" -> scope.backend.value),
+                     ) *> ZIO.logError(error.getMessage)
+                   }.forkScoped
+      yield ()
+
+      acquire
+        .timeoutFail(
+          StoreError.TransferAdmissionTimedOut(
+            operation,
+            scope.backend,
+            scope.tenantId,
+            bytes,
+            admission.acquisitionTimeout,
+          )
+        )(admission.acquisitionTimeout)
+        .tapError { error =>
+          metrics.counter(
+            MetricKeys.TransferAdmissionTotal,
+            Map("outcome" -> "rejected", "operation" -> operation.toString, "backend" -> scope.backend.value),
+          ) *> process.available.flatMap(available =>
+            metrics.gauge(MetricKeys.TransferBudgetAvailableBytes, available.toDouble, Map.empty)
+          ) *> ZIO.logDebug(error.getMessage)
+        }
 
     override def availableBytes: UIO[Long] = process.available
 
-    private def validate(bytes: Long): IO[StoreError, Unit] =
-      if bytes <= 0L then ZIO.fail(StoreError.InvalidInput(StoreOperation.PutBlob, "transfer reservation must be positive"))
-      else if bytes > capacityBytes then ZIO.fail(StoreError.CapacityExceeded(StoreOperation.PutBlob, capacityBytes, Some(bytes)))
+    private def validate(operation: StoreOperation, bytes: Long): IO[StoreError, Unit] =
+      if bytes <= 0L then ZIO.fail(StoreError.InvalidInput(operation, "transfer reservation must be positive"))
+      else if bytes > capacityBytes then ZIO.fail(StoreError.CapacityExceeded(operation, capacityBytes, Some(bytes)))
       else ZIO.unit
+
+    private def toStoreError(operation: StoreOperation)(error: DistributedAdmission.Error): StoreError = error match
+      case DistributedAdmission.Error.InvalidRequest(reason)     => StoreError.InvalidInput(operation, reason)
+      case DistributedAdmission.Error.Rejected(dimension, retry) =>
+        StoreError.DistributedAdmissionRejected(operation, dimension, retry)
+      case DistributedAdmission.Error.TimedOut(timeout)          =>
+        StoreError.DistributedAdmissionUnavailable(operation, s"timed out after $timeout")
+      case DistributedAdmission.Error.Unavailable(reason)        => StoreError.DistributedAdmissionUnavailable(operation, reason)
+      case _: DistributedAdmission.Error.LeaseLost               => StoreError.DistributedAdmissionLeaseLost(operation)
+      case DistributedAdmission.Error.Protocol(reason)           => StoreError.DistributedAdmissionUnavailable(operation, reason)
 
   private final case class WeightedEntry(bytePermits: Semaphore, transferPermits: Semaphore, active: Int, sequence: Long)
   private final case class ConcurrentEntry(permits: Semaphore, active: Int, sequence: Long)
@@ -78,13 +158,14 @@ object TransferBudget:
   private def tenantPermitsScoped(
     state: Ref.Synchronized[Map[TenantId, WeightedEntry]],
     tenantId: TenantId,
+    operation: StoreOperation,
     bytes: Long,
     config: TransferAdmissionConfig,
   ): ZIO[Scope, StoreError, Unit] =
     if bytes > config.maximumTenantBufferedBytes.value then
       ZIO.fail(
         StoreError.TenantTransferCapacityExceeded(
-          StoreOperation.PutBlob,
+          operation,
           tenantId,
           config.maximumTenantBufferedBytes.value,
           bytes,
@@ -92,21 +173,23 @@ object TransferBudget:
       )
     else
       ZIO
-        .acquireRelease(acquireWeightedEntry(state, tenantId, config))(entry => releaseWeightedEntry(state, tenantId, entry))
+        .acquireRelease(acquireWeightedEntry(state, tenantId, operation, config))(entry => releaseWeightedEntry(state, tenantId, entry))
         .flatMap(entry => entry.bytePermits.withPermitsScoped(bytes) *> entry.transferPermits.withPermitScoped)
 
   private def backendPermitScoped(
     state: Ref.Synchronized[Map[StoreBackend, ConcurrentEntry]],
     backend: StoreBackend,
+    operation: StoreOperation,
     config: TransferAdmissionConfig,
   ): ZIO[Scope, StoreError, Unit] =
     ZIO
-      .acquireRelease(acquireConcurrentEntry(state, backend, config))(entry => releaseConcurrentEntry(state, backend, entry))
+      .acquireRelease(acquireConcurrentEntry(state, backend, operation, config))(entry => releaseConcurrentEntry(state, backend, entry))
       .flatMap(_.permits.withPermitScoped)
 
   private def acquireWeightedEntry(
     state: Ref.Synchronized[Map[TenantId, WeightedEntry]],
     tenantId: TenantId,
+    operation: StoreOperation,
     config: TransferAdmissionConfig,
   ): IO[StoreError, WeightedEntry] =
     state.modifyZIO { entries =>
@@ -120,7 +203,7 @@ object TransferBudget:
         case None        =>
           makeRoom(entries, config.maximumResidentTenants, _.active, _.sequence) match
             case None            =>
-              ZIO.fail(StoreError.TransferAdmissionSaturated(StoreOperation.PutBlob, "tenant", config.maximumResidentTenants))
+              ZIO.fail(StoreError.TransferAdmissionSaturated(operation, "tenant", config.maximumResidentTenants))
             case Some(available) =>
               (Semaphore.make(config.maximumTenantBufferedBytes.value) zip
                 Semaphore.make(config.maximumConcurrentTenantTransfers.value.toLong)).map { case (bytePermits, transferPermits) =>
@@ -144,6 +227,7 @@ object TransferBudget:
   private def acquireConcurrentEntry(
     state: Ref.Synchronized[Map[StoreBackend, ConcurrentEntry]],
     backend: StoreBackend,
+    operation: StoreOperation,
     config: TransferAdmissionConfig,
   ): IO[StoreError, ConcurrentEntry] =
     state.modifyZIO { entries =>
@@ -157,7 +241,7 @@ object TransferBudget:
         case None        =>
           makeRoom(entries, config.maximumResidentBackends, _.active, _.sequence) match
             case None            =>
-              ZIO.fail(StoreError.TransferAdmissionSaturated(StoreOperation.PutBlob, "backend", config.maximumResidentBackends))
+              ZIO.fail(StoreError.TransferAdmissionSaturated(operation, "backend", config.maximumResidentBackends))
             case Some(available) =>
               Semaphore.make(config.maximumConcurrentBackendTransfers.value.toLong).map { permits =>
                 val created = ConcurrentEntry(permits, 1, nextSequence(available.valuesIterator.map(_.sequence)))
@@ -195,27 +279,43 @@ object TransferBudget:
     if current == Long.MaxValue then 0L else current + 1L
 
   private def bound(underlying: TransferBudget, scope: TransferScope): TransferBudget = new TransferBudget:
-    override def capacityBytes: Long                                                                               = underlying.capacityBytes
-    override def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit]                                          =
+    override def capacityBytes: Long                                                                                  = underlying.capacityBytes
+    override def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit]                                             =
       TransferFootprint
         .single(TransferComponent.applyUnsafe("legacy-byte-reservation"), bytes)
         .fold(
           error => ZIO.fail(StoreError.InvalidInput(StoreOperation.PutBlob, error.getMessage)),
           footprint => underlying.reserveScoped(scope, footprint),
         )
-    override def reserveScoped(footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]                         =
+    override def reserveScoped(footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]                            =
       underlying.reserveScoped(scope, footprint)
-    override def reserveScoped(ignored: TransferScope, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit] =
+    override def reserveScoped(operation: StoreOperation, bytes: Long): ZIO[Scope, StoreError, Unit]                  =
+      TransferFootprint
+        .single(TransferComponent.applyUnsafe("legacy-byte-reservation"), bytes)
+        .fold(
+          error => ZIO.fail(StoreError.InvalidInput(operation, error.getMessage)),
+          footprint => underlying.reserveScoped(scope, operation, footprint),
+        )
+    override def reserveScoped(operation: StoreOperation, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit] =
+      underlying.reserveScoped(scope, operation, footprint)
+    override def reserveScoped(ignored: TransferScope, footprint: TransferFootprint): ZIO[Scope, StoreError, Unit]    =
       underlying.reserveScoped(scope, footprint)
-    override def bind(next: TransferScope): TransferBudget                                                         = bound(underlying, next)
-    override def availableBytes: UIO[Long]                                                                         = underlying.availableBytes
+    override def reserveScoped(
+      ignored: TransferScope,
+      operation: StoreOperation,
+      footprint: TransferFootprint,
+    ): ZIO[Scope, StoreError, Unit] = underlying.reserveScoped(scope, operation, footprint)
+    override def bind(next: TransferScope): TransferBudget                                                            = bound(underlying, next)
+    override def availableBytes: UIO[Long]                                                                            = underlying.availableBytes
 
   /** Compatibility only for direct constructors. Production layers use [[live]]. */
   val unbounded: TransferBudget = new TransferBudget:
-    override val capacityBytes: Long                                      = Long.MaxValue
-    override def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit] =
+    override val capacityBytes: Long                                                                 = Long.MaxValue
+    override def reserveScoped(bytes: Long): ZIO[Scope, StoreError, Unit]                            =
       ZIO.fail(StoreError.InvalidInput(StoreOperation.PutBlob, "transfer reservation must be positive")).when(bytes <= 0L).unit
-    override val availableBytes: UIO[Long]                                = ZIO.succeed(Long.MaxValue)
+    override def reserveScoped(operation: StoreOperation, bytes: Long): ZIO[Scope, StoreError, Unit] =
+      ZIO.fail(StoreError.InvalidInput(operation, "transfer reservation must be positive")).when(bytes <= 0L).unit
+    override val availableBytes: UIO[Long]                                                           = ZIO.succeed(Long.MaxValue)
 
   val live: ZLayer[TransferMemoryConfig, Nothing, TransferBudget] =
     ZLayer.fromZIO(ZIO.serviceWithZIO[TransferMemoryConfig](make))

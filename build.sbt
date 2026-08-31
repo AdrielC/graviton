@@ -27,6 +27,9 @@ lazy val checkDocSnippets =
 lazy val verifyShardcakeDependencyGraph =
   taskKey[Unit]("Verify the audited Shardcake integration dependency graph.")
 
+lazy val verifyRedisAdmissionDependencyGraph =
+  taskKey[Unit]("Verify the typed Redis admission provider dependency graph.")
+
 lazy val V = Dependencies.V
 
 lazy val nettyHttpDependencies = Seq(
@@ -150,6 +153,7 @@ copyGeneratedDocs := {
     "backend-laws"    -> (LocalProject("backendLaws") / Compile / doc).value,
     "graviton-pdf"    -> (LocalProject("pdf") / Compile / doc).value,
     "graviton-shardcake" -> (LocalProject("shardcakeIntegration") / Compile / doc).value,
+    "graviton-admission-redis" -> (LocalProject("redisAdmission") / Compile / doc).value,
 
     // Protocol stack (JVM)
     "graviton-shared" -> (sharedProtocol.jvm / Compile / doc).value,
@@ -200,6 +204,7 @@ copyGeneratedDocs := {
       |      <li><a href="./runtime/index.html">runtime</a></li>
       |      <li><a href="./graviton-pdf/index.html">graviton-pdf</a></li>
       |      <li><a href="./graviton-shardcake/index.html">graviton-shardcake</a></li>
+      |      <li><a href="./graviton-admission-redis/index.html">graviton-admission-redis</a></li>
       |      <li><a href="./graviton-shared/index.html">graviton-shared</a></li>
       |      <li><a href="./graviton-proto/index.html">graviton-proto</a></li>
       |      <li><a href="./graviton-grpc/index.html">graviton-grpc</a></li>
@@ -364,6 +369,7 @@ lazy val root = (project in file(".")).aggregate(
   rocks,
   security,
   shardcakeIntegration,
+  redisAdmission,
   server,
   sharedProtocol.jvm,
   sharedProtocol.js,
@@ -435,6 +441,30 @@ lazy val root = (project in file(".")).aggregate(
       s"Verified Shardcake graph: Scala ${V.scala3}, ZIO Blocks ${V.zioBlocks}, " +
         s"grpc-netty-shaded ${V.grpc}, no grpc-netty, no Kryo."
     )
+  },
+  verifyRedisAdmissionDependencyGraph := {
+    val log     = Keys.streams.value.log
+    val modules = (redisAdmission / Compile / update).value.allModules
+
+    val scala3Libraries = modules.filter(_.name == "scala3-library_3")
+    val zioLibraries    = modules.filter(module => module.organization == "dev.zio" && module.name == "zio_3")
+    val zioRedis        = modules.filter(module => module.organization == "dev.zio" && module.name == "zio-redis_3")
+    val forbidden       = modules.filter(module => Set("kryo", "chill", "scala-pickling").contains(module.name))
+
+    def revisions(dependencies: Seq[ModuleID]): Set[String] = dependencies.map(_.revision).toSet
+    def coordinates(dependencies: Seq[ModuleID]): String =
+      dependencies.map(module => s"${module.organization}:${module.name}:${module.revision}").mkString(", ")
+
+    if (revisions(scala3Libraries) != Set(V.scala3))
+      sys.error(s"Redis admission must resolve only Scala ${V.scala3}; found ${coordinates(scala3Libraries)}")
+    if (revisions(zioLibraries) != Set(V.zio))
+      sys.error(s"Redis admission must resolve only ZIO ${V.zio}; found ${coordinates(zioLibraries)}")
+    if (revisions(zioRedis) != Set(V.zioRedis))
+      sys.error(s"Redis admission must resolve only zio-redis ${V.zioRedis}; found ${coordinates(zioRedis)}")
+    if (forbidden.nonEmpty)
+      sys.error(s"Object-graph serializers are forbidden in Redis admission; found ${coordinates(forbidden)}")
+
+    log.info(s"Verified Redis admission graph: Scala ${V.scala3}, ZIO ${V.zio}, zio-redis ${V.zioRedis}, no object-graph serializer.")
   }
 )
 
@@ -651,6 +681,21 @@ lazy val rocks = (project in file("modules/backend/graviton-rocks"))
     )
   )
 
+lazy val redisAdmission = (project in file("modules/integration/graviton-admission-redis"))
+  .dependsOn(runtime)
+  .settings(
+    baseSettings,
+    name := "graviton-admission-redis",
+    // This optional provider starts its compatibility baseline with its first release.
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-redis" % V.zioRedis,
+      "dev.zio" %% "zio-test" % V.zio % Test,
+      "dev.zio" %% "zio-test-sbt" % V.zio % Test,
+      "dev.zio" %% "zio-test-magnolia" % V.zio % Test,
+    ),
+  )
+
 lazy val security = (project in file("modules/security/graviton-security"))
   .dependsOn(runtime)
   .settings(
@@ -700,7 +745,7 @@ lazy val shardcakeIntegration = (project in file("modules/integration/graviton-s
 
 lazy val server = (project in file("modules/server/graviton-server"))
   .enablePlugins(AssemblyPlugin)
-  .dependsOn(runtime, http, grpc, s3, pg, rocks, security, shardcakeIntegration)
+  .dependsOn(runtime, http, grpc, s3, pg, rocks, security, shardcakeIntegration, redisAdmission)
   .settings(
     baseSettings,
     name := "graviton-server",

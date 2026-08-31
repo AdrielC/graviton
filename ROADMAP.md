@@ -48,7 +48,7 @@ These items depend on the deployment and cannot be completed once for every user
 - Define an explicit idempotency-key contract for non-content-derived operations
 - Retain target-scale multi-tenant HTTP and gRPC envelopes across tenant cardinality, payload distributions, and noisy-neighbor workloads
 - Add scheduled domain-wide replica scrubbing and shared-domain membership snapshots to the packaged multi-tenant service
-- Integrate a distributed contractual rate limiter while retaining the process-local limiter for load shedding
+- Add contractual request-count and delivered-egress limiting at the authenticated edge; Graviton's optional Redis or Valkey coordinator already governs active transfer bytes and concurrency while process-local controls remain hard load shedding
 
 ### Storage and reliability
 

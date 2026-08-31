@@ -107,6 +107,50 @@ object ResumableUploadServiceSpec extends ZIOSpecDefault:
         retry.session.offset.value == 1L,
       )
     },
+    test("tenant-scoped admission rejects before part body demand and releases the ledger reservation") {
+      val rejected = StoreError.DistributedAdmissionUnavailable(StoreOperation.PutBlob, "coordinator offline")
+      for
+        repository <- InMemoryResumableUploadRepository.make
+        staging    <- TestObjectStore.make
+        admitted   <- Ref.make(Option.empty[UploadSessionKey])
+        pulled     <- Ref.make(false)
+        admission   = new ResumablePartAdmission:
+                        override def reserveScoped(observed: UploadSessionKey): ZIO[Scope, StoreError, Unit] =
+                          admitted.set(Some(observed)) *> ZIO.fail(rejected)
+        service     = new ResumableUploadService(
+                        repository,
+                        staging,
+                        target,
+                        ResumableUploadConfig.Default,
+                        graviton.runtime.metrics.MetricsRegistry.noop,
+                        admission,
+                      )
+        _          <- service.create(key, UploadIntent(MediaTypes.application.`octet-stream`, None))
+        failed     <- service
+                        .append(
+                          key,
+                          firstPart,
+                          UploadOffset.applyUnsafe(0L),
+                          Some(FileSize.applyUnsafe(1L)),
+                          ZStream.fromZIO(pulled.set(true).as(1.toByte)),
+                        )
+                        .exit
+        seen       <- admitted.get
+        demanded   <- pulled.get
+        retry      <- new ResumableUploadService(repository, staging, target).append(
+                        key,
+                        firstPart,
+                        UploadOffset.applyUnsafe(0L),
+                        Some(FileSize.applyUnsafe(1L)),
+                        ZStream.succeed(1.toByte),
+                      )
+      yield assertTrue(
+        failed.causeOption.flatMap(_.failureOption).contains(ResumableUploadService.Error.Admission(rejected)),
+        seen.contains(key),
+        !demanded,
+        retry.session.offset.value == 1L,
+      )
+    },
     test("preserves a typed source rejection and cleans the staged reservation") {
       val rejected = UploadSourceError.Rejected("client cancelled the part")
       for

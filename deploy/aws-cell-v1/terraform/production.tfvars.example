@@ -1,0 +1,19 @@
+aws_region       = "us-east-1"
+cell_name        = "graviton-v1"
+certificate_arn  = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-4000-8000-000000000000"
+graviton_image   = "ghcr.io/adrielc/graviton@sha256:replace-with-64-lowercase-hex-characters"
+initial_tenant_id = "00000000-0000-4000-8000-000000000001"
+
+# Three nodes are created for Multi-AZ admission coordination.
+admission_cache_node_type = "cache.r7g.large"
+
+# Restrict this for a private or staged launch.
+ingress_cidrs = ["0.0.0.0/0"]
+
+# Deletion protection is intentionally on for production data.
+deletion_protection = true
+
+tags = {
+  Environment = "production"
+  Owner       = "storage-platform"
+}

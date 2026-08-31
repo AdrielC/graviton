@@ -36,6 +36,7 @@ if [[ -z "${CONSUMER_REPOSITORY}" ]]; then
     'backendLaws/publish' \
     'pdf/publish' \
     'shardcakeIntegration/publish' \
+    'redisAdmission/publish' \
     'proto/publish' \
     'security/publish' \
     'grpc/publish' \

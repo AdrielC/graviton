@@ -1,9 +1,13 @@
 package graviton.server
 
+import graviton.integration.redis.RedisAdmissionConfig
+import graviton.runtime.config.{TenantDataPlaneConfig, TransferAdmissionConfig, TransferMemoryConfig}
 import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
 import graviton.runtime.config.{GravitonConfig, ReplicaStorageMode, ReplicaTargetConfig, ReplicationConfig}
+import graviton.runtime.tenant.TenantCellId
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
+import zio.{Config, Duration}
 import zio.test.*
 
 object ConfigurationValidationSpec extends ZIOSpecDefault:
@@ -74,6 +78,63 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
         !result.render.contains("not-rendered"),
       )
     },
+    test("accepts AWS task-role credentials without a custom S3 endpoint") {
+      val security       = SecurityConfig.Default.copy(
+        enabled = true,
+        oidcIssuer = Some("https://identity.example.com"),
+        oidcAudience = Some("graviton"),
+        oidcJwksUri = Some("https://identity.example.com/.well-known/jwks.json"),
+        requireTls = true,
+        auditBackend = "jdbc",
+      )
+      val awsEnvironment = clusterEnvironment -- Set(
+        "GRAVITON_S3_ENDPOINT",
+        "GRAVITON_S3_ACCESS_KEY",
+        "GRAVITON_S3_SECRET_KEY",
+      )
+
+      for result <- ConfigurationValidation.validate(
+                      GravitonConfig(blobBackend = "s3"),
+                      clusterShardcake,
+                      ShardcakeRegistrationConfig.Default,
+                      ConsoleConfig.Default,
+                      security,
+                      awsEnvironment,
+                    )
+      yield assertTrue(result.profile == ConfigurationValidation.Profile.ProductionCluster)
+    },
+    test("requires a complete explicit credential tuple for MinIO and custom S3 endpoints") {
+      val postgres     = Map(
+        "PG_JDBC_URL" -> "jdbc:postgresql://database.example.com/graviton",
+        "PG_USERNAME" -> "graviton",
+        "PG_PASSWORD" -> "not-rendered-database-password",
+      )
+      val minioMissing = postgres
+      val danglingS3   = postgres + ("GRAVITON_S3_ACCESS_KEY" -> "dangling")
+
+      for
+        minioExit <- ConfigurationValidation
+                       .validate(
+                         GravitonConfig(blobBackend = "minio"),
+                         ShardcakeUploadConfig.Default,
+                         ShardcakeRegistrationConfig.Default,
+                         ConsoleConfig.Default,
+                         SecurityConfig.Default,
+                         minioMissing,
+                       )
+                       .exit
+        s3Exit    <- ConfigurationValidation
+                       .validate(
+                         GravitonConfig(blobBackend = "s3"),
+                         ShardcakeUploadConfig.Default,
+                         ShardcakeRegistrationConfig.Default,
+                         ConsoleConfig.Default,
+                         SecurityConfig.Default,
+                         danglingS3,
+                       )
+                       .exit
+      yield assertTrue(minioExit.isFailure, s3Exit.isFailure)
+    },
     test("rejects unbounded chunk and invalid port configuration before startup") {
       val invalid = GravitonConfig(httpPort = 0, chunkSize = Int.MaxValue)
       for exit <- ConfigurationValidation
@@ -139,5 +200,42 @@ object ConfigurationValidationSpec extends ZIOSpecDefault:
                     )
                     .exit
       yield assertTrue(exit.isFailure)
+    },
+    test("validates distributed admission timeout composition before startup") {
+      val redis = RedisAdmissionConfig.Default.copy(enabled = true, acquisitionTimeout = Duration.fromSeconds(20))
+      val local = TransferAdmissionConfig.Default.copy(acquisitionTimeout = Duration.fromSeconds(10))
+      for exit <- Main
+                    .validateDistributedAdmission(
+                      redis,
+                      TransferMemoryConfig.Default,
+                      local,
+                      TenantDataPlaneConfig.Default,
+                    )
+                    .exit
+      yield assertTrue(exit.isFailure)
+    },
+    test("requires authenticated TLS Redis in multi-tenant mode") {
+      val cell   = TenantCellId.applyUnsafe("production-cell")
+      val tenant = TenantDataPlaneConfig.Default.copy(enabled = true, cellId = cell)
+      val unsafe = RedisAdmissionConfig.Default.copy(enabled = true, cellId = cell)
+      val safe   = unsafe.copy(tls = true, verifyCertificate = true, password = Some(Config.Secret("test-password")))
+      for
+        unsafeExit <- Main
+                        .validateDistributedAdmission(
+                          unsafe,
+                          TransferMemoryConfig.Default,
+                          TransferAdmissionConfig.Default,
+                          tenant,
+                        )
+                        .exit
+        safeExit   <- Main
+                        .validateDistributedAdmission(
+                          safe,
+                          TransferMemoryConfig.Default,
+                          TransferAdmissionConfig.Default,
+                          tenant,
+                        )
+                        .exit
+      yield assertTrue(unsafeExit.isFailure, safeExit.isSuccess)
     },
   )

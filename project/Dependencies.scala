@@ -32,6 +32,7 @@ object Dependencies {
 
     // ZIO Config
     val zioConfig = "4.0.6"
+    val zioRedis  = "1.2.1"
     val shardcake = "2.8.1"
     val zioMetricsConnectors = "2.5.8"
     // Published by graviton-runtime 0.5.0. Keep this exact transitive contract

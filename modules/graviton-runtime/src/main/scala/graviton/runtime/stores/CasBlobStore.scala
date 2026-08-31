@@ -43,6 +43,18 @@ final class CasBlobStore(
   transferBudget: TransferBudget = TransferBudget.unbounded,
 ) extends BlobStore:
 
+  private val downloadPrefetchFootprint =
+    TransferFootprint.single(
+      TransferComponent.applyUnsafe("ordered-download-prefetch"),
+      streamerConfig.maximumPrefetchedBytes,
+    )
+
+  private def reserveDownload(operation: StoreOperation): ZIO[Scope, StoreError, Unit] =
+    ZIO
+      .fromEither(downloadPrefetchFootprint)
+      .mapError(error => StoreError.InvalidInput(operation, error.getMessage))
+      .flatMap(transferBudget.reserveScoped(operation, _))
+
   /** Binary-compatible constructor retained for clients compiled against 0.4.0. */
   def this(
     blockStore: BlockStore,
@@ -108,7 +120,7 @@ final class CasBlobStore(
                               persistenceConfig,
                               blockStore,
                               plan.program,
-                              streamerConfig.windowRefs,
+                              streamerConfig.windowRefs.value,
                             )
                           )
                           .mapError(error => new IllegalArgumentException(error.getMessage))
@@ -235,7 +247,7 @@ final class CasBlobStore(
               case graviton.runtime.model.IngestProgram.UseScan(_, build) =>
                 val scan = build()
                 postProgramBytes
-                  .broadcast(2, maximumLag = math.max(1, streamerConfig.windowRefs))
+                  .broadcast(2, maximumLag = streamerConfig.windowRefs.value)
                   .flatMap { streams =>
                     val ingestStream = streams(0)
                     val scanStream   = streams(1)
@@ -349,20 +361,27 @@ final class CasBlobStore(
     }
 
   override def get(key: BinaryKey.Blob): ZStream[Any, StoreError, Byte] =
-    BlobStreamer
-      .streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
+    ZStream.unwrapScoped(
+      reserveDownload(StoreOperation.GetBlob).as(
+        BlobStreamer.streamBlob(manifests.streamBlockRefs(key), blockStore, streamerConfig)
+      )
+    )
 
   override def getRange(
     key: BinaryKey.Blob,
     start: BlobOffset,
     length: FileSize,
   ): ZStream[Any, StoreError, Byte] =
-    BlobStreamer.streamRange(
-      manifests.streamBlockRefsRange(key, start, length),
-      blockStore,
-      start,
-      length,
-      streamerConfig,
+    ZStream.unwrapScoped(
+      reserveDownload(StoreOperation.GetRange).as(
+        BlobStreamer.streamRange(
+          manifests.streamBlockRefsRange(key, start, length),
+          blockStore,
+          start,
+          length,
+          streamerConfig,
+        )
+      )
     )
 
   override def stat(key: BinaryKey.Blob): IO[StoreError, Option[BlobStat]] =

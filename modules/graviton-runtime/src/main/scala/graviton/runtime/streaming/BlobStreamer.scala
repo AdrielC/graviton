@@ -6,6 +6,8 @@ import graviton.core.model.Block.*
 import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.stores.{BlockStore, StoreError, StoreOperation}
 import graviton.streams.BoundedByteStream
+import graviton.core.RefinedTypeExt
+import io.github.iltotore.iron.constraint.numeric.{GreaterEqual, LessEqual}
 import zio.*
 import zio.stream.*
 
@@ -22,6 +24,24 @@ import zio.stream.*
  */
 object BlobStreamer:
 
+  private val OrderedResultBuffer = 1
+
+  /**
+   * ZIO Streams' ordered parallel mapper can retain the element currently
+   * awaited or emitted, the bounded downstream queue, and one producer fiber
+   * blocked while offering to that queue. Keep this formula conservative and
+   * in lockstep with the explicit `bufferSize` passed below.
+   */
+  private val MaximumRetainedBlocks = OrderedResultBuffer + 2
+
+  type ReferenceWindow = ReferenceWindow.T
+  object ReferenceWindow extends RefinedTypeExt[Int, GreaterEqual[1] & LessEqual[4096]]:
+    val Default: ReferenceWindow = applyUnsafe(64)
+
+  type FetchParallelism = FetchParallelism.T
+  object FetchParallelism extends RefinedTypeExt[Int, GreaterEqual[1] & LessEqual[16]]:
+    val Default: FetchParallelism = applyUnsafe(2)
+
   final case class BlockRef(
     idx: Long,
     key: BinaryKey.Block,
@@ -34,31 +54,43 @@ object BlobStreamer:
   )
 
   final case class Config(
-    windowRefs: Int = 64,
-    maxInFlight: Int = 2,
+    windowRefs: ReferenceWindow = ReferenceWindow.Default,
+    maxInFlight: FetchParallelism = FetchParallelism.Default,
   ):
-    require(windowRefs > 0, "windowRefs must be positive")
-    require(maxInFlight > 0, "maxInFlight must be positive")
-
     /** Maximum bytes held by ordered block prefetch, excluding backend I/O chunks. */
-    def maximumPrefetchedBytes: Long = maxInFlight.toLong * graviton.core.model.Block.maxBytes.toLong
+    def maximumPrefetchedBytes: Long = MaximumRetainedBlocks.toLong * graviton.core.model.Block.maxBytes.toLong
+
+  object Config:
+    val config: zio.Config[Config] =
+      (zio.Config.int("window-refs").withDefault(64) ++
+        zio.Config.int("max-in-flight").withDefault(2))
+        .mapOrFail { case (windowRefs, maxInFlight) =>
+          (for
+            window   <- ReferenceWindow.either(windowRefs)
+            parallel <- FetchParallelism.either(maxInFlight)
+            _        <- Either.cond(parallel.value <= window.value, (), "download max-in-flight must not exceed window-refs")
+          yield Config(window, parallel)).left.map(message => zio.Config.Error.InvalidData(Chunk.empty, message))
+        }
+        .nested("download")
+        .nested("graviton")
 
   def streamBlob(
     refs: ZStream[Any, StoreError, BlockRef],
     blockStore: BlockStore,
     config: Config = Config(),
   ): ZStream[Any, StoreError, Byte] =
-    val window = math.max(1, config.windowRefs)
-    val par    = math.max(1, config.maxInFlight)
+    val window = config.windowRefs.value
+    val par    = config.maxInFlight.value
 
     // - `buffer(window)` bounds how far ahead we read refs (DB cursor pressure)
-    // - `mapZIOPar(par)` prefetches blocks concurrently while preserving manifest order
+    // - ordered `mapZIOPar` prefetches blocks concurrently while preserving manifest order
+    // - its result queue is explicitly one slot; never inherit ZIO's larger default
     // - each block is verified before emission, so corruption never leaks a
     //   partial block to a caller
-    // - worst-case memory: par * MaxBlockBytes (default: 2 * 16 MiB = 32 MiB)
+    // - conservative retained-output bound: 3 * MaxBlockBytes = 48 MiB
     refs
       .buffer(window)
-      .mapZIOPar(par)(ref => fetchVerified(ref.key, blockStore))
+      .mapZIOPar(par, bufferSize = OrderedResultBuffer)(ref => fetchVerified(ref.key, blockStore))
       .flatMap(block => ZStream.fromChunk(block.bytes))
 
   /**
@@ -75,12 +107,12 @@ object BlobStreamer:
   ): ZStream[Any, StoreError, Byte] =
     val requestedStart = start.value
     val requestedEnd   = java.lang.Math.addExact(requestedStart, length.value)
-    val window         = math.max(1, config.windowRefs)
-    val par            = math.max(1, config.maxInFlight)
+    val window         = config.windowRefs.value
+    val par            = config.maxInFlight.value
 
     refs
       .buffer(window)
-      .mapZIOPar(par)(ref => fetchVerified(ref.key, blockStore).map(ref -> _))
+      .mapZIOPar(par, bufferSize = OrderedResultBuffer)(ref => fetchVerified(ref.key, blockStore).map(ref -> _))
       .flatMap { case (ref, block) =>
         val blockStart = ref.offset.value
         val blockEnd   = java.lang.Math.addExact(blockStart, block.bytes.length.toLong)

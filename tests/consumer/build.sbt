@@ -53,6 +53,7 @@ lazy val root = project
       "io.github.adrielc" %% "graviton-backend-laws" % gravitonVersion,
       "io.github.adrielc" %% "graviton-pdf" % gravitonVersion,
       "io.github.adrielc" %% "graviton-shardcake" % gravitonVersion,
+      "io.github.adrielc" %% "graviton-admission-redis" % gravitonVersion,
       "io.github.adrielc" %% "graviton-proto" % gravitonVersion,
       "io.github.adrielc" %% "graviton-security" % gravitonVersion,
       "io.github.adrielc" %% "graviton-grpc" % gravitonVersion,

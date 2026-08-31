@@ -16,6 +16,7 @@ import graviton.backend.rocks.RocksKeyValueStore
 import graviton.backend.s3.S3BlobStore
 import graviton.core.attributes.BinaryAttributes
 import graviton.integration.shardcake.{ShardcakeInternalToken, ShardcakeUploadConfig}
+import graviton.integration.redis.RedisAdmissionConfig
 import graviton.pdf.PdfIngest
 import graviton.protocol.grpc.GravitonGrpcClient
 import graviton.runtime.Graviton
@@ -108,6 +109,7 @@ object ConsumerProof extends ZIOAppDefault:
                       !TenantStorageConfig.Default.allowSharedDeduplication &&
                       DeduplicationScope.Isolated.toString.nonEmpty &&
                       classOf[ContextualTenantBlobStore].getName.nonEmpty &&
+                      RedisAdmissionConfig.Default.validate.isRight &&
                       TenantContext.live.getClass.getName.nonEmpty &&
                       TenantStoreProvider.getClass.getName.nonEmpty &&
                       classOf[RocksKeyValueStore].getName.nonEmpty &&

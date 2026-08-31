@@ -57,16 +57,19 @@ For a trust group, replace `isolated` with `shared:research-consortium` and expl
 
 ## Quotas and noisy-neighbor controls
 
-The stock server enforces four bounded controls:
+The stock server enforces five bounded controls:
 
 1. process-wide `TransferBudget` limits aggregate live byte buffers;
 2. per-tenant admission limits concurrent logical operations;
 3. per-principal request, upload-byte, and download-byte token buckets bound one process;
 4. PostgreSQL serializes retained-byte accounting with manifest publication and deletion.
+5. Optional Redis or Valkey leases atomically cap active bytes and transfers across the complete service, each tenant, and each backend.
 
 The retained-byte row is locked in the same transaction that publishes a manifest. Concurrent writers on different nodes cannot collectively exceed the tenant limit. Re-uploading the exact same tenant blob is idempotent and does not consume the quota twice. Deleting a tenant manifest releases its logical bytes. HTTP reports `507 tenant_storage_quota_exceeded`; gRPC reports `RESOURCE_EXHAUSTED`.
 
-Request token buckets are deliberately local load-shedding, so their effective aggregate rate grows with the number of nodes. Enforce contractual request and egress rates at the authenticated edge or a distributed limiter. The retained storage quota is cluster-atomic and does not have that multiplication behavior.
+Request token buckets remain local load-shedding, so their effective aggregate request and egress rate grows with the number of nodes. The distributed transfer coordinator is cluster-atomic for admitted transfer footprints and concurrency, but it is not a request-count or delivered-egress billing meter. Enforce contractual request and delivered-byte rates at the authenticated edge. The retained storage quota is separately cluster-atomic and does not have either multiplication behavior.
+
+The optional coordinator prevents a busy organization from consuming the entire shared transfer pool by applying its tenant byte and concurrency ceilings in the same atomic state transition as service and backend ceilings. `DistributedAdmissionControl` can tighten or relax one tenant without restarting data nodes. Every admission, release, expiry, queue, timeout, and policy change appends a bounded decision event with occupancy and policy version, so an external scheduled or predictive controller can propose and apply reviewed overrides. Tenant identifiers are SHA-256 keyed in Redis and never used as metric labels.
 
 Tenant policy, store, admission, and principal-rate registries are bounded and split across deterministic shards. Resolution occurs once per upload, download, range, inventory, inspect, delete, stat, or health operation, never once per byte or block. Tenant IDs are excluded from metric labels.
 
@@ -106,6 +109,6 @@ Before purging a shared domain:
 
 ## Current deployment boundary
 
-Implemented and exercised in the repository: authenticated HTTP and gRPC tenant binding, durable PostgreSQL policy, cell filtering, private manifests, isolated or explicit shared block domains, cluster-atomic retained quotas, bounded sharded caches and admission, Shardcake tenant routing, full-quorum replicated writes, and typed protocol failures.
+Implemented and exercised in the repository: authenticated HTTP and gRPC tenant binding, durable PostgreSQL policy, cell filtering, private manifests, isolated or explicit shared block domains, cluster-atomic retained quotas, bounded sharded local admission, optional cluster-wide Redis or Valkey transfer admission, Shardcake tenant routing, full-quorum replicated writes, and typed protocol failures.
 
-Not established by repository tests alone: a universal customer count, contractual global request limits, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads validate replicas and repair the selected copy, but operators still need a scheduled domain-wide scrub before claiming unattended convergence.
+Not established by repository tests alone: a universal customer count, contractual global request or delivered-egress limits, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads validate replicas and repair the selected copy, but operators still need a scheduled domain-wide scrub before claiming unattended convergence.
