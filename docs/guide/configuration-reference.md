@@ -166,6 +166,8 @@ The optional `graviton-admission-redis` provider adds one atomic service, tenant
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_RETRY_INTERVAL` | `50ms` | no | Interruptible retry cadence after an atomic capacity rejection. |
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EVENTS` | `100000` | no | Approximate maximum length of the bounded Redis Stream decision log. |
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EXPIRED_LEASES_PER_PASS` | `256` | no | Work bound for atomic expiry reaping on one command. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_REQUESTS_PER_MINUTE` | `60000` | no | Atomic authenticated request contract per tenant and Redis-server-time minute. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_DELIVERED_EGRESS_BYTES_PER_HOUR` | `1099511627776` | no | Atomic bytes-delivered contract per tenant and Redis-server-time hour. Bytes are charged as response chunks leave the server. |
 
 The acquisition order is process bytes, process tenant and backend permits, then the distributed lease. All are acquired before a source socket, manifest stream, or block fetch is demanded. New work fails closed when the coordinator is unavailable. Lease expiry and fencing recover counters after process failure. A coordinator partition cannot revoke bytes already resident in a healthy process, so the local budget remains the authoritative memory boundary; lease loss is logged and counted while the scoped local permit stays held until that transfer exits.
 
@@ -178,7 +180,7 @@ The acquisition order is process bytes, process tenant and backend permits, then
 | `GRAVITON_MANIFEST_INTEGRITY_HMAC_KEY_BASE64` | none | when enabled | Base64 encoding of the active 32 through 64 byte HMAC key. Supply through a secret manager. |
 | `GRAVITON_MANIFEST_INTEGRITY_PREVIOUS_KEYS_BASE64` | none | no | Comma-separated `key-id:base64` verification keys retained during rotation. These keys never sign new manifests. |
 
-Authentication binds the blob content ID, total length, chunker identity, block count, and every ordered block key and byte span. Filesystem repositories persist `GVM3`; PostgreSQL stores the proof in the same transaction as the manifest rows. The compatibility default accepts older unauthenticated manifests. Production qualification enables required mode. To rotate, deploy the new active key while retaining the old key in `PREVIOUS_KEYS_BASE64`, then remove the old verifier only after every reachable old manifest has been replaced or retired. Key material is redacted by configuration values and must never be placed in command arguments or committed files.
+Authentication binds the blob content ID, total length, canonical media type, chunker identity, metadata schema, block count, and every ordered block key and byte span. Filesystem repositories persist `GVM4`; PostgreSQL stores the same bounded metadata and proof in one transaction. This pre-1.0 line deliberately starts from an empty store and does not read legacy manifest formats. Production qualification enables required mode. To rotate, deploy the new active key while retaining the old key in `PREVIOUS_KEYS_BASE64`, then remove the old verifier only after every reachable old manifest has been replaced or retired. Key material is redacted by configuration values and must never be placed in command arguments or committed files.
 
 ### Packaged multi-tenant data plane
 
@@ -313,7 +315,7 @@ Example:
 
 The S3-compatible endpoint must support `PutObject` with `If-None-Match: *`, SHA-256 request checksums, `HeadObject`, and user metadata. Graviton uses those features to create an immutable content key atomically and to verify duplicate writes without fetching object bodies. Objects without the complete current Graviton proof metadata are rejected.
 
-Quarantined objects use the configured block prefix followed by `.graviton-quarantine/`. Applications should access them through `BlockMaintenance`, not by constructing object keys.
+Quarantined objects use the configured block prefix followed by `.graviton-quarantine/`. `BlockMaintenance.quarantineInventory` pages durable recovery receipts without collecting them. Use `graviton-operator quarantine-inventory` and the dry-run-first `quarantine-restore` command instead of constructing destination keys.
 
 #### Bucket creation (MinIO)
 

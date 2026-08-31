@@ -99,7 +99,19 @@ The CLI intentionally does not purge immediately. Preserve the tokens it prints 
 
 ## S3 quarantine
 
-`S3BlockStore` implements inventory, quarantine, restore, and purge through the `BlockMaintenance` API. Quarantine copies an object into the configured `.graviton-quarantine/` prefix before deleting the active key. Restore copies it back before removing the quarantine object. Automatic S3 GC scheduling and an operator CLI are not included in 0.1.
+`S3BlockStore` implements active and quarantine inventory, quarantine, restore, and purge through the `BlockMaintenance` API. Quarantine copies an object into the configured `.graviton-quarantine/` prefix before deleting the active key. Restore copies it back before removing the quarantine object. The Operator Kit pages recovery inventory to JSON Lines and restores one exact token with dry-run as the default. Shared-domain collection still requires an explicit maintenance change because automatic quarantine or purge is intentionally not scheduled.
+
+```bash
+./scripts/graviton-operator quarantine-inventory \
+  --bucket graviton-blocks --prefix cas/blocks --output ./quarantine.jsonl
+
+./scripts/graviton-operator quarantine-restore \
+  --bucket graviton-blocks --prefix cas/blocks --token 'cas/blocks/.graviton-quarantine/receipt/sha256/block'
+
+# After review:
+./scripts/graviton-operator quarantine-restore \
+  --bucket graviton-blocks --prefix cas/blocks --token 'cas/blocks/.graviton-quarantine/receipt/sha256/block' --apply
+```
 
 ## Acceptance record
 

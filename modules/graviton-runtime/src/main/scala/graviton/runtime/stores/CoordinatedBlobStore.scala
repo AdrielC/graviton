@@ -2,7 +2,17 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlobOffset, FileSize}
-import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
+import graviton.runtime.model.{
+  BlobBlockDescription,
+  BlobDescription,
+  BlobInspectionPage,
+  BlobListing,
+  BlobStat,
+  BlobWritePlan,
+  InventoryCursor,
+  InventoryPage,
+  InventoryPageSize,
+}
 import zio.*
 import zio.stream.*
 
@@ -40,6 +50,19 @@ final class CoordinatedBlobStore(
 
   override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     withOperation(StoreOperation.InspectBlob)(underlying.inspect(key))
+
+  override def streamBlockDescriptions(key: BinaryKey.Blob): ZStream[Any, StoreError, BlobBlockDescription] =
+    ZStream.unwrapScoped(operationPermit(StoreOperation.InspectBlob).as(underlying.streamBlockDescriptions(key)))
+
+  override def inspectPage(
+    key: BinaryKey.Blob,
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, Option[BlobInspectionPage]] =
+    withOperation(StoreOperation.InspectBlob)(underlying.inspectPage(key, after, limit))
+
+  override def metadata(key: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    withOperation(StoreOperation.StatBlob)(underlying.metadata(key))
 
   override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     withOperation(StoreOperation.DeleteBlob)(underlying.delete(key))

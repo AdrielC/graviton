@@ -32,6 +32,7 @@ private[graviton] enum InventoryNamespace(val prefix: String):
   case PostgreSql extends InventoryNamespace("pg1")
   case S3         extends InventoryNamespace("s31")
   case InMemory   extends InventoryNamespace("mem1")
+  case Manifest   extends InventoryNamespace("mf1")
 
 type InventoryPageSize = InventoryPageSize.T
 object InventoryPageSize extends RefinedTypeExt[Int, GreaterEqual[1] & LessEqual[1000]]:

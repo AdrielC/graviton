@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graviton.dev/schema/production-qualification-matrix-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "minimumSoakMinutes", "gates"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema": {"const": "graviton-production-qualification-matrix-v1"},
+    "minimumSoakMinutes": {"type": "integer", "minimum": 60},
+    "gates": {
+      "type": "array",
+      "minItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "class", "evidence", "status"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+          "class": {"enum": ["repository", "scheduled", "target"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "status": {"enum": ["repository-verified", "scheduled", "target-required"]}
+        }
+      }
+    }
+  }
+}

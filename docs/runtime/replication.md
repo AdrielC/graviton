@@ -72,4 +72,4 @@ The PostgreSQL replica index remains an application-facing locator catalog. The 
 - PostgreSQL coordinates progress across nodes, but a worker that dies after repair and before checkpoint may replay already converged blocks
 - dead letters are durable operational state and still require alerts, inspection, and remediation policy
 - object-store accounts, regions, bucket policies, throttling, and correlated failures require target acceptance
-- each exact mixed-version pair still requires the rolling and rollback qualification record
+- clean pre-1.0 stores require same-version manager and node replacement evidence for the exact image; this line does not promise legacy manifest readability

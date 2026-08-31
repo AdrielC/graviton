@@ -168,6 +168,32 @@ object RedisDistributedAdmissionSpec extends ZIOSpecDefault:
             }
           }
         },
+        test("enforces request and delivered-egress contracts atomically across providers") {
+          Live.live {
+            ZIO.scoped {
+              for
+                cfg       <- ZIO.succeed(
+                               config().copy(
+                                 maximumTenantRequestsPerMinute = 2L,
+                                 maximumTenantDeliveredEgressBytesPerHour = 10L,
+                               )
+                             )
+                first     <- RedisDistributedAdmission.make(cfg)
+                second    <- RedisDistributedAdmission.make(cfg)
+                _         <- first.charge(tenantA, DistributedTrafficQuota.Kind.Request, 1L)
+                _         <- second.charge(tenantA, DistributedTrafficQuota.Kind.Request, 1L)
+                requestNo <- first.charge(tenantA, DistributedTrafficQuota.Kind.Request, 1L).exit
+                other     <- second.charge(tenantB, DistributedTrafficQuota.Kind.Request, 1L).exit
+                _         <- first.charge(tenantA, DistributedTrafficQuota.Kind.DeliveredEgress, 10L)
+                egressNo  <- second.charge(tenantA, DistributedTrafficQuota.Kind.DeliveredEgress, 1L).exit
+              yield assertTrue(
+                requestNo.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[DistributedTrafficQuota.Error.Rejected]),
+                other.isSuccess,
+                egressNo.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[DistributedTrafficQuota.Error.Rejected]),
+              )
+            }
+          }
+        },
         test("renews a live lease beyond its original TTL and releases on interruption") {
           Live.live {
             ZIO.scoped {

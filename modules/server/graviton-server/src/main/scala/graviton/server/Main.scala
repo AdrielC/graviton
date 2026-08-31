@@ -7,6 +7,7 @@ import graviton.backend.pg.{
   PgMaintenanceCoordinator,
   PgRepairJournal,
   PgResumableUploadRepository,
+  PgTenantDomainSnapshot,
   PgTenantBlobManifestRepo,
   PgTenantPolicyCatalog,
 }
@@ -37,14 +38,15 @@ import graviton.runtime.config.{
   TransferAdmissionConfig,
   TransferMemoryConfig,
 }
-import graviton.runtime.metrics.MetricsRegistry
-import graviton.runtime.admission.DistributedAdmission
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
+import graviton.runtime.admission.{DistributedAdmission, DistributedTrafficQuota}
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
   BlockTransferFootprint,
   BlockStore,
   CasBlobStore,
+  ConvergentBlockStore,
   CoordinatedBlobStore,
   ErasureBlockStore,
   FileMaintenanceCoordinator,
@@ -114,13 +116,25 @@ object Main extends ZIOAppDefault:
                                                         tenantDataPlaneConfig,
                                                       )
       metricsPublisher                             <- PrometheusPublisher.make
+      metricIdentity                                = Map(
+                                                        "service"     -> "graviton",
+                                                        "version"     -> BuildInfo.version,
+                                                        "environment" -> metricTag("GRAVITON_ENVIRONMENT", "local"),
+                                                        "cell"        -> metricTag("GRAVITON_CELL_ID", "local"),
+                                                        "node"        -> metricTag("GRAVITON_NODE_ID", metricTag("HOSTNAME", "local")),
+                                                        "backend"     -> cfg.blobBackend.toLowerCase.take(64),
+                                                      )
       metrics                                      <- ZIO
                                                         .service[MetricsRegistry]
-                                                        .provideLayer(ZLayer.succeed(metricsPublisher) >>> ZioMetricsRegistry.layer)
-      distributedAdmission                         <- (
-                                                        if redisAdmissionConfig.enabled then RedisDistributedAdmission.make(redisAdmissionConfig, metrics)
-                                                        else ZIO.succeed(DistributedAdmission.disabled)
+                                                        .provideLayer(
+                                                          ZLayer.succeed(metricsPublisher) >>> ZioMetricsRegistry.layerWithTags(metricIdentity)
+                                                        )
+      _                                            <- metrics.gauge(MetricKeys.BuildInfo, 1.0, Map.empty)
+      redisCoordinator                             <- ZIO.when(redisAdmissionConfig.enabled)(
+                                                        RedisDistributedAdmission.make(redisAdmissionConfig, metrics)
                                                       )
+      distributedAdmission                          = redisCoordinator.fold[DistributedAdmission](DistributedAdmission.disabled)(identity)
+      trafficQuota                                  = redisCoordinator.fold[DistributedTrafficQuota](DistributedTrafficQuota.disabled)(identity)
       transferBudget                               <- TransferBudget.make(
                                                         transferMemory,
                                                         transferAdmission,
@@ -243,7 +257,14 @@ object Main extends ZIOAppDefault:
                                                           boundPort                          <- grpc.port
                                                           _                                  <- ZIO.logInfo(s"gRPC API listening on :$boundPort")
                                                           policy                              = Option.when(sec.enabled)(
-                                                                                                  HttpSecurityPolicy.make(sec, capabilityCheck, rateLimiter, auditSink)
+                                                                                                  HttpSecurityPolicy.make(
+                                                                                                    sec,
+                                                                                                    capabilityCheck,
+                                                                                                    rateLimiter,
+                                                                                                    auditSink,
+                                                                                                    trafficQuota,
+                                                                                                    metrics,
+                                                                                                  )
                                                                                                 )
                                                           localizedUpload                     = shardcakeNode.map(_.locality)
                                                           metricsApi                          = Some(MetricsHttpApi(metrics, policy))
@@ -582,11 +603,122 @@ object Main extends ZIOAppDefault:
                          new MetricsBlobStore(admitted, metrics, Map("tenant_scope" -> scopeTag)): BlobStore
                        ).mapError(TenantRoutingError.PolicyUnavailable.apply)
                      }
+      _           <- ZIO.when(config.replication.enabled)(
+                       startTenantDomainMaintenance(
+                         dataSource,
+                         tenantConfig.cellId,
+                         blockStores,
+                         config,
+                         metrics,
+                         manifestIntegrity,
+                       )
+                     )
       _           <- ZIO.logInfo(
                        s"Multi-tenant data plane enabled for cell ${tenantConfig.cellId.value} " +
                          s"with a bounded ${tenantConfig.maximumCachedTenants}-tenant cache"
                      )
     yield TenantDataPlane(provider, context)
+
+  /**
+   * Capture one immutable routing snapshot per cycle, then scrub each physical
+   * storage domain sequentially. Tenant populations and manifest references
+   * remain streamed and bounded throughout the cycle.
+   */
+  private def startTenantDomainMaintenance(
+    dataSource: DataSource,
+    cellId: TenantCellId,
+    blockStores: TenantBlockStoreFactory,
+    config: GravitonConfig,
+    metrics: MetricsRegistry,
+    manifestIntegrity: Option[ManifestIntegrity],
+  ): URIO[Scope, Unit] =
+    val snapshots = new PgTenantDomainSnapshot(dataSource)
+    val cycle     = ZIO.logAnnotate("component", "tenant-domain-maintenance") {
+      for
+        started   <- Clock.nanoTime
+        snapshot  <- snapshots.capture(cellId)
+        aggregate <- snapshots
+                       .streamDomains(snapshot.snapshotId)
+                       .mapZIO { domain =>
+                         for
+                           raw        <- blockStores
+                                           .make(domain)
+                                           .mapError(
+                                             graviton.runtime.stores.StoreError.fromThrowable(
+                                               graviton.runtime.stores.StoreOperation.Repair,
+                                               StoreBackend.Runtime,
+                                               retryUnknown = true,
+                                             )
+                                           )
+                           convergent <- raw match
+                                           case value: ConvergentBlockStore => ZIO.succeed(value)
+                                           case _                           =>
+                                             ZIO.fail(
+                                               graviton.runtime.stores.StoreError.InvalidInput(
+                                                 graviton.runtime.stores.StoreOperation.Repair,
+                                                 "replicated tenant block store does not support convergence",
+                                               )
+                                             )
+                           references  =
+                             snapshots.references(snapshot.snapshotId, domain) { (tenant, storageDomain) =>
+                               manifestIntegrity.fold[BlobManifestRepo](
+                                 new PgTenantBlobManifestRepo(dataSource, tenant, storageDomain)
+                               )(integrity => PgTenantBlobManifestRepo.authenticated(dataSource, tenant, storageDomain, integrity))
+                             }
+                           namespace   = s"tenant-scrub-${domainToken(domain).take(96)}"
+                           _          <- snapshots.beginRepairEpoch(namespace, snapshot.membershipSha256)
+                           journal     = new PgRepairJournal(dataSource, namespace)
+                           repair     <- ReplicaRepairService.make(
+                                           convergent,
+                                           references,
+                                           config.replication,
+                                           journal,
+                                           metrics,
+                                         )
+                           report     <- repair.runCycle
+                         yield TenantDomainCycleAcc(
+                           domains = 1L,
+                           processed = report.processedBlocks,
+                           repaired = report.repairedReplicas,
+                           failed = report.failedBlocks,
+                         )
+                       }
+                       .runFold(TenantDomainCycleAcc.empty)(_ + _)
+        _         <- snapshots.retainLatest(cellId, 32)
+        ended     <- Clock.nanoTime
+        seconds    = (ended - started).max(0L).toDouble / 1_000_000_000.0
+        outcome    = if aggregate.failed == 0L then "succeeded" else "degraded"
+        _         <- metrics.counter(MetricKeys.MaintenanceCyclesTotal, Map("task" -> "tenant_domain_scrub", "outcome" -> outcome))
+        _         <- metrics.histogram(MetricKeys.MaintenanceCycleDuration, seconds, Map("task" -> "tenant_domain_scrub"))
+        _         <- ZIO.logInfo(
+                       s"Tenant domain maintenance domains=${aggregate.domains} processed=${aggregate.processed} " +
+                         s"repaired=${aggregate.repaired} failed=${aggregate.failed} members=${snapshot.memberCount}"
+                     )
+      yield ()
+    }
+
+    cycle
+      .catchAllCause(cause =>
+        metrics.counter(
+          MetricKeys.MaintenanceCyclesTotal,
+          Map("task" -> "tenant_domain_scrub", "outcome" -> "failed"),
+        ) *> ZIO.logErrorCause("Tenant domain maintenance cycle failed", cause)
+      )
+      .repeat(Schedule.spaced(config.replication.repairInterval))
+      .forkScoped
+      .unit
+
+  private final case class TenantDomainCycleAcc(domains: Long, processed: Long, repaired: Long, failed: Long):
+    def +(other: TenantDomainCycleAcc): TenantDomainCycleAcc =
+      TenantDomainCycleAcc(
+        domains + other.domains,
+        processed + other.processed,
+        repaired + other.repaired,
+        failed + other.failed,
+      )
+
+  private object TenantDomainCycleAcc:
+    val empty: TenantDomainCycleAcc = TenantDomainCycleAcc(0L, 0L, 0L, 0L)
 
   /**
    * Build clients once per process, then derive an opaque prefix for each
@@ -937,6 +1069,9 @@ object Main extends ZIOAppDefault:
       .fromEither(sec.validate)
       .mapError(msg => new IllegalStateException(s"invalid GRAVITON_SECURITY_* config: $msg"))
       .unit
+
+  private def metricTag(name: String, fallback: String): String =
+    sys.env.get(name).map(_.trim).filter(_.nonEmpty).fold(fallback)(_.take(128))
 
   private def capabilityLayer(sec: SecurityConfig, dataSource: Option[DataSource]): ZLayer[Any, Throwable, CapabilityCheck] =
     sec.authorizationBackend match

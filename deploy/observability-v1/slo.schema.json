@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graviton.dev/schema/production-slo-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "service", "windowDays", "objectives", "qualification"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema": {"const": "graviton-production-slo-v1"},
+    "service": {"const": "graviton"},
+    "windowDays": {"type": "integer", "minimum": 1, "maximum": 90},
+    "objectives": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "target", "indicator", "pageBurnRate", "ticketBurnRate"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+          "description": {"type": "string", "minLength": 1},
+          "target": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "thresholdSeconds": {"type": "number", "exclusiveMinimum": 0},
+          "indicator": {"type": "string", "minLength": 1},
+          "pageBurnRate": {"type": "number", "exclusiveMinimum": 0},
+          "ticketBurnRate": {"type": "number", "exclusiveMinimum": 0}
+        }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximumP99RegressionRatio", "maximumErrorRatio", "maximumHeapGrowthBytesPerHour", "maximumDirectMemoryGrowthBytesPerHour", "minimumDeduplicationRatio", "minimumSoakMinutes"],
+      "properties": {
+        "maximumP99RegressionRatio": {"type": "number", "minimum": 1},
+        "maximumErrorRatio": {"type": "number", "minimum": 0, "maximum": 1},
+        "maximumHeapGrowthBytesPerHour": {"type": "integer", "minimum": 0},
+        "maximumDirectMemoryGrowthBytesPerHour": {"type": "integer", "minimum": 0},
+        "minimumDeduplicationRatio": {"type": "number", "minimum": 1},
+        "minimumSoakMinutes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

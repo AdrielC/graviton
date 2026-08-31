@@ -1,0 +1,161 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Graviton HTTP API",
+    "version": "v1",
+    "description": "Streaming content-addressable blob API. Payload bytes are streamed and manifest inspection is cursor-paged."
+  },
+  "servers": [{"url": "http://127.0.0.1:8081"}],
+  "paths": {
+    "/api/health/ready": {
+      "get": {"operationId": "readiness", "responses": {"200": {"description": "Storage and routing dependencies are ready"}, "503": {"description": "A required dependency is unavailable"}}}
+    },
+    "/metrics": {
+      "get": {"operationId": "prometheusMetrics", "responses": {"200": {"description": "Prometheus text exposition", "content": {"text/plain": {"schema": {"type": "string"}}}}}}
+    },
+    "/api/v1/blobs": {
+      "get": {
+        "operationId": "listBlobs",
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 16384}}
+        ],
+        "responses": {"200": {"description": "Bounded inventory page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlobListResponse"}}}}}
+      },
+      "post": {
+        "operationId": "putBlob",
+        "parameters": [{"name": "Content-Length", "in": "header", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1099511627776}}],
+        "requestBody": {"required": true, "content": {"application/octet-stream": {"schema": {"type": "string", "contentMediaType": "application/octet-stream"}}, "application/pdf": {"schema": {"type": "string", "contentMediaType": "application/pdf"}}}},
+        "responses": {"200": {"description": "Durably committed blob", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlobUploadResult"}}}}, "400": {"$ref": "#/components/responses/Error"}, "413": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/api/v1/blobs/{id}": {
+      "parameters": [{"$ref": "#/components/parameters/BlobId"}],
+      "get": {
+        "operationId": "getBlob",
+        "parameters": [{"name": "Range", "in": "header", "schema": {"type": "string", "pattern": "^bytes="}}],
+        "responses": {"200": {"description": "Full streamed blob"}, "206": {"description": "Streamed byte range"}, "404": {"$ref": "#/components/responses/Error"}}
+      },
+      "head": {"operationId": "headBlob", "responses": {"200": {"description": "Blob headers including persisted Content-Type"}, "404": {"description": "Blob not found"}}},
+      "delete": {"operationId": "deleteBlob", "responses": {"204": {"description": "Manifest removed"}, "404": {"$ref": "#/components/responses/Error"}}}
+    },
+    "/api/v1/blobs/{id}/metadata": {
+      "get": {
+        "operationId": "getBlobManifestPage",
+        "parameters": [
+          {"$ref": "#/components/parameters/BlobId"},
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "minLength": 1, "maxLength": 16384}}
+        ],
+        "responses": {"200": {"description": "Bounded manifest page", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlobDetails"}}}}, "400": {"$ref": "#/components/responses/Error"}, "404": {"$ref": "#/components/responses/Error"}}
+      }
+    },
+    "/api/v1/blobs/{id}/verify": {
+      "post": {"operationId": "verifyBlob", "parameters": [{"$ref": "#/components/parameters/BlobId"}], "responses": {"200": {"description": "Server-side streaming digest verification", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BlobVerificationResult"}}}}, "404": {"$ref": "#/components/responses/Error"}}}
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "operationId": "createResumableUpload",
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantId"},
+          {"$ref": "#/components/parameters/RequestedUploadId"},
+          {"$ref": "#/components/parameters/UploadLength"}
+        ],
+        "responses": {
+          "201": {"description": "Durable upload session created", "headers": {"Location": {"schema": {"type": "string"}}, "Upload-Offset": {"schema": {"type": "integer", "minimum": 0}}, "Upload-Expires": {"schema": {"type": "string", "format": "date-time"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResumableUploadStatus"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "501": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/api/v1/uploads/{uploadId}": {
+      "parameters": [
+        {"$ref": "#/components/parameters/UploadId"},
+        {"$ref": "#/components/parameters/TenantId"}
+      ],
+      "get": {
+        "operationId": "getResumableUpload",
+        "responses": {
+          "200": {"description": "Current durable upload checkpoint", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResumableUploadStatus"}}}},
+          "404": {"$ref": "#/components/responses/Error"},
+          "410": {"$ref": "#/components/responses/Error"}
+        }
+      },
+      "head": {
+        "operationId": "headResumableUpload",
+        "responses": {
+          "200": {"description": "Current checkpoint in Upload-Offset, Upload-Length, Upload-Expires, and X-Graviton-Upload-Session-Id headers"},
+          "404": {"description": "Upload session not found"},
+          "410": {"description": "Upload session expired"}
+        }
+      },
+      "patch": {
+        "operationId": "appendResumableUploadPart",
+        "parameters": [
+          {"$ref": "#/components/parameters/UploadOffset"},
+          {"$ref": "#/components/parameters/UploadPartId"},
+          {"name": "Content-Length", "in": "header", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1099511627776}}
+        ],
+        "requestBody": {"required": true, "content": {"application/octet-stream": {"schema": {"type": "string", "contentMediaType": "application/octet-stream"}}}},
+        "responses": {
+          "204": {"description": "Part committed and Upload-Offset advanced"},
+          "400": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "410": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"}
+        }
+      },
+      "delete": {
+        "operationId": "cancelResumableUpload",
+        "responses": {
+          "204": {"description": "Upload cancelled and staging cleanup scheduled"},
+          "404": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/api/v1/uploads/{uploadId}/commit": {
+      "post": {
+        "operationId": "commitResumableUpload",
+        "parameters": [
+          {"$ref": "#/components/parameters/UploadId"},
+          {"$ref": "#/components/parameters/TenantId"}
+        ],
+        "responses": {
+          "200": {"description": "Upload finalized into immutable CAS", "headers": {"Location": {"schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResumableUploadStatus"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "409": {"$ref": "#/components/responses/Error"},
+          "410": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "BlobId": {"name": "id", "in": "path", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 256}},
+      "UploadId": {"name": "uploadId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "TenantId": {"name": "X-Graviton-Tenant-Id", "in": "header", "required": false, "description": "Optional in open mode. When authenticated, it must equal the token organization.", "schema": {"type": "string", "format": "uuid"}},
+      "RequestedUploadId": {"name": "X-Graviton-Upload-Session-Id", "in": "header", "required": false, "description": "Caller-selected idempotency key. The server generates one when absent.", "schema": {"type": "string", "format": "uuid"}},
+      "UploadLength": {"name": "Upload-Length", "in": "header", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1099511627776}},
+      "UploadOffset": {"name": "Upload-Offset", "in": "header", "required": true, "schema": {"type": "integer", "minimum": 0, "maximum": 1099511627776}},
+      "UploadPartId": {"name": "Upload-Part-Id", "in": "header", "required": true, "description": "Canonical UUID used to make part retry idempotent.", "schema": {"type": "string", "format": "uuid"}}
+    },
+    "responses": {
+      "Error": {"description": "Typed error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiError"}}}}
+    },
+    "schemas": {
+      "ApiError": {"type": "object", "additionalProperties": false, "required": ["error", "message"], "properties": {"error": {"type": "string"}, "message": {"type": "string"}}},
+      "BlobSummary": {"type": "object", "additionalProperties": false, "required": ["id", "size", "createdAt", "digest", "blockCount"], "properties": {"id": {"type": "string"}, "size": {"type": "integer", "minimum": 0, "maximum": 1099511627776}, "createdAt": {"type": "integer"}, "digest": {"type": "string"}, "blockCount": {"type": "integer", "minimum": 0}}},
+      "BlobBlock": {"type": "object", "additionalProperties": false, "required": ["index", "contentId", "offset", "size"], "properties": {"index": {"type": "integer", "minimum": 0}, "contentId": {"type": "string"}, "offset": {"type": "integer", "minimum": 0}, "size": {"type": "integer", "minimum": 0}}},
+      "BlobMetadata": {"$ref": "./blob-metadata-v1.schema.json"},
+      "BlobDetails": {"type": "object", "additionalProperties": false, "required": ["summary", "blocks"], "properties": {"summary": {"$ref": "#/components/schemas/BlobSummary"}, "metadata": {"oneOf": [{"$ref": "#/components/schemas/BlobMetadata"}, {"type": "null"}]}, "blocks": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/components/schemas/BlobBlock"}}, "nextCursor": {"type": ["string", "null"], "maxLength": 16384}}},
+      "BlobListResponse": {"type": "object", "additionalProperties": false, "required": ["blobs"], "properties": {"blobs": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/components/schemas/BlobSummary"}}, "nextCursor": {"type": ["string", "null"], "maxLength": 16384}}},
+      "BlobUploadResult": {"type": "object", "additionalProperties": false, "required": ["blob", "freshBlocks", "duplicateBlocks", "durationSeconds"], "properties": {"blob": {"$ref": "#/components/schemas/BlobSummary"}, "freshBlocks": {"type": "integer", "minimum": 0}, "duplicateBlocks": {"type": "integer", "minimum": 0}, "durationSeconds": {"type": "number", "minimum": 0}}},
+      "BlobVerificationResult": {"type": "object", "additionalProperties": false, "required": ["id", "verified", "bytesChecked"], "properties": {"id": {"type": "string"}, "verified": {"type": "boolean"}, "bytesChecked": {"type": "integer", "minimum": 0, "maximum": 1099511627776}}},
+      "ResumableUploadStatus": {"type": "object", "additionalProperties": false, "required": ["id", "offset", "expiresAt", "state"], "properties": {"id": {"type": "string", "format": "uuid"}, "offset": {"type": "integer", "minimum": 0, "maximum": 1099511627776}, "expectedSize": {"type": ["integer", "null"], "minimum": 1, "maximum": 1099511627776}, "expiresAt": {"type": "integer", "minimum": 0, "description": "Unix epoch milliseconds"}, "state": {"enum": ["Open", "Committing", "Committed", "Cancelled"]}, "committedBlob": {"type": ["string", "null"], "maxLength": 256}}}
+    },
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}}
+  },
+  "security": [{"bearerAuth": []}]
+}

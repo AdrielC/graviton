@@ -31,6 +31,7 @@ This is operational pre-1.0 software. The embedded runtime and single-node files
 | Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
 | Streaming gRPC lifecycle | Operational | Packaged listener, typed SDK, 12 MiB socket lifecycle, bounded frames, public health, authentication, capabilities, rate limiting, and audit |
 | Shardcake upload locality | Operational opt-in integration | Typed tenant/session ownership, one-shot direct ZIO HTTP streams, ZIO Blocks MessagePack control envelopes, authenticated manager and node traffic, durable PostgreSQL assignments, two-node drain/reassignment proof, and a singleton manager lease |
+| Production telemetry | Portable operator contract | Typed health snapshots, real Prometheus metrics, 15-panel Grafana dashboard, SLO recording rules, alert routing, CloudWatch Logs collection, and a validated 16-gate qualification matrix |
 | RocksDB key-value module | Operational in scope | Durable typed key-value storage with close/reopen persistence tests; it is not advertised as a blob backend |
 
 ## Prove it locally
@@ -174,6 +175,8 @@ The [documentation site](https://adrielc.github.io/graviton/) retains the Matrix
 ## Operations and releases
 
 - [Production readiness](docs/ops/production-readiness.md)
+- [Operator Kit](docs/ops/operator-kit.md)
+- [Credential rotation](docs/ops/credential-rotation.md)
 - [Deployment](docs/ops/deployment.md)
 - [Backup and restore](docs/ops/backup-restore.md)
 - [Configuration](docs/guide/configuration-reference.md)
@@ -186,7 +189,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-The repository now ships durable resumable HTTP uploads, backend-native streaming inventory, typed storage errors, reusable backend, crash, and tenant law contracts, authenticated packaged-server tenant routing, cluster-atomic retained quotas, hard process-wide memory admission, optional Redis or Valkey cluster-wide transfer admission, durable repair progress and dead letters, automated failure-domain replica or 2+1 erasure placement and repair, retained workload distributions, and executable mixed-version, sustained-failure, and target-volume-loss qualification. The highest-value remaining work is scheduled multi-tenant domain scrubbing, physical power-loss and disk-corruption injection, contractual request and delivered-egress limits at the authenticated edge, target Ceph, IdP, network, and Valkey acceptance, and retained multi-tenant benchmark envelopes from operator hardware. See [ROADMAP.md](ROADMAP.md) for the ordered plan.
+The repository now ships durable resumable HTTP uploads, backend-native cursor inventory, bounded manifest inspection, versioned blob metadata, typed storage errors, published backend, crash, maintenance, tenant, and streaming laws, authenticated tenant routing, cluster-atomic retained and traffic quotas, hard process-wide memory admission, Redis or Valkey transfer admission, durable tenant-domain snapshots, unattended cold-block convergence, S3 quarantine inventory and restore, portable SLOs and dashboards, retained workload distributions, and executable node, dependency, sustained-failure, and target-volume-loss qualification. Remaining qualification is environment-specific: physical power loss, disk corruption, real IdP and ingress behavior, Ceph and S3 semantics, Valkey and database failover, zone impairment, and retained capacity envelopes from the exact operator hardware.
 
 ## License
 

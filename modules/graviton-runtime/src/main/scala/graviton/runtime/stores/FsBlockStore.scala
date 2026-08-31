@@ -159,6 +159,26 @@ final class FsBlockStore(
       }
       .mapError(StoreError.fromThrowable(StoreOperation.Quarantine, StoreBackend.Filesystem))
 
+  override def quarantineInventory: ZStream[Any, StoreError, QuarantinedBlock] =
+    val base = root.resolve("cas/quarantine")
+    FsBlobManifestRepo
+      .walkFiles(base)(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+      .mapZIO { path =>
+        ZIO.attemptBlocking {
+          val relative = base.relativize(path)
+          if relative.getNameCount < 2 then throw new IllegalStateException(s"Invalid quarantine path: $path")
+          val token    = relative.getName(0).toString
+          val key      = keyFromPath(path).fold(message => throw new IllegalArgumentException(message), identity)
+          QuarantinedBlock(
+            key,
+            token,
+            Files.size(path),
+            Files.getLastModifiedTime(path, LinkOption.NOFOLLOW_LINKS).toInstant,
+          )
+        }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.Filesystem))
+
   override def restore(block: QuarantinedBlock): IO[StoreError, Unit] =
     ZIO
       .attemptBlocking {

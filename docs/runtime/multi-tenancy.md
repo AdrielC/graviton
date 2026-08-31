@@ -85,7 +85,9 @@ The packaged multi-tenant server derives one PostgreSQL advisory-lock namespace 
 
 A shared block domain must be maintained as one unit. Garbage collection against only one tenant's manifests can mistake another tenant's live blocks for orphans.
 
-Before purging a shared domain:
+The packaged replicated data plane now captures every cell membership in a repeatable-read PostgreSQL transaction. The immutable snapshot includes isolated and shared domains, policy revisions, a deterministic membership digest, and bounded streamed member cursors. A scoped worker uses that snapshot to scrub one domain at a time and persists a convergence cursor and dead letters without loading the tenant population in memory. It retains the latest 32 snapshot records.
+
+Before quarantining or purging a shared domain:
 
 1. acquire the cell-wide maintenance lease;
 2. freeze the domain membership and catalog revision;
@@ -94,7 +96,7 @@ Before purging a shared domain:
 5. retain receipts and complete the restore window;
 6. purge and release the lease.
 
-`GarbageCollector.forStorageDomain` and `ManifestReferenceSource` implement the bounded streaming mark side. Deployment-wide membership snapshots and operator approval remain control-plane responsibilities.
+`GarbageCollector.forStorageDomain`, `ManifestReferenceSource`, and `PgTenantDomainSnapshot` implement the bounded streaming mark and membership sides. Automated replica convergence is safe to run unattended. Quarantine and purge remain explicit operator changes with retained receipts.
 
 ## Rollout sequence
 
@@ -111,4 +113,4 @@ Before purging a shared domain:
 
 Implemented and exercised in the repository: authenticated HTTP and gRPC tenant binding, durable PostgreSQL policy, cell filtering, private manifests, isolated or explicit shared block domains, cluster-atomic retained quotas, bounded sharded local admission, optional cluster-wide Redis or Valkey transfer admission, Shardcake tenant routing, full-quorum replicated writes, and typed protocol failures.
 
-Not established by repository tests alone: a universal customer count, contractual global request or delivered-egress limits, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads validate replicas and repair the selected copy, but operators still need a scheduled domain-wide scrub before claiming unattended convergence.
+Not established by repository tests alone: a universal customer count, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide erasure repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads repair damage on demand, and the scheduled snapshot-backed domain scrub converges cold blocks. Atomic request and delivered-egress contracts require the Redis or Valkey provider and must be sized and failover-qualified in the target cell.

@@ -119,7 +119,17 @@ final class GravitonClient private (
     }
 
   def metadata(id: BlobId): IO[Error, BlobDetails] =
-    executeJson[BlobDetails](Request.get(blobUrl(id) / "metadata").copy(headers = config.defaultHeaders))
+    metadataPage(id)
+
+  /** Read one bounded manifest page. Follow `nextCursor` until it is absent. */
+  def metadataPage(
+    id: BlobId,
+    limit: ManifestPageLimit = ManifestPageLimit.Default,
+    cursor: Option[ManifestCursor] = None,
+  ): IO[Error, BlobDetails] =
+    val withLimit = (blobUrl(id) / "metadata").addQueryParam("limit", limit.value.toString)
+    val target    = cursor.fold(withLimit)(value => withLimit.addQueryParam("cursor", value.value))
+    executeJson[BlobDetails](Request.get(target).copy(headers = config.defaultHeaders))
 
   def verify(id: BlobId): IO[Error, BlobVerificationResult] =
     executeJson[BlobVerificationResult](
@@ -286,6 +296,15 @@ object GravitonClient {
   /** Opaque inventory continuation returned by a blob-list response. */
   type ListCursor = ListCursor.T
   object ListCursor extends RefinedSubtype[String, MinLength[1] & MaxLength[16384]]
+
+  /** Bounded number of block descriptions returned from one manifest page. */
+  type ManifestPageLimit = ManifestPageLimit.T
+  object ManifestPageLimit extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[1000]]:
+    val Default: ManifestPageLimit = applyUnsafe(100)
+
+  /** Opaque server cursor tied to one exact blob identity. */
+  type ManifestCursor = ManifestCursor.T
+  object ManifestCursor extends RefinedSubtype[String, MinLength[1] & MaxLength[16384]]
 
   type ResumablePartSize = ResumablePartSize.T
   object ResumablePartSize extends RefinedSubtype[Int, GreaterEqual[1] & LessEqual[67108864]]:

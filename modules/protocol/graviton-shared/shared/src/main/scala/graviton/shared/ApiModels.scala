@@ -91,7 +91,21 @@ object ApiModels {
     object BlobBlock:
       given BlocksSchema[BlobBlock] = BlocksSchema.derived
 
-    final case class BlobDetails(summary: BlobSummary, blocks: List[BlobBlock])
+    final case class BlobMetadata(
+      schemaVersion: Int,
+      codecVersion: Int,
+      mediaType: String,
+      chunker: String,
+    )
+    object BlobMetadata:
+      given BlocksSchema[BlobMetadata] = BlocksSchema.derived
+
+    final case class BlobDetails(
+      summary: BlobSummary,
+      metadata: Option[BlobMetadata],
+      blocks: List[BlobBlock],
+      nextCursor: Option[String],
+    )
     object BlobDetails:
       given BlocksSchema[BlobDetails] = BlocksSchema.derived
 
@@ -232,19 +246,42 @@ object ApiModels {
       ApiJsonCodec.mapped[BlobBlock, Wire.BlobBlock](blockToWire)(blockFromWire)
 
   /** Persisted blob metadata and block layout. */
+  final case class BlobMetadata(
+    schemaVersion: Int,
+    codecVersion: Int,
+    mediaType: String,
+    chunker: String,
+  ) derives JsonCodec
+  object BlobMetadata:
+    private given BlocksSchema[BlobMetadata] = BlocksSchema.derived
+    given ApiJsonCodec[BlobMetadata]         = ApiJsonCodec.derived
+
+  /** One bounded page from a persisted manifest. */
   final case class BlobDetails(
     summary: BlobSummary,
     blocks: List[BlobBlock],
+    metadata: Option[BlobMetadata] = None,
+    nextCursor: Option[String] = None,
   ) derives JsonCodec
   object BlobDetails:
     given ApiJsonCodec[BlobDetails] =
       ApiJsonCodec.mapped[BlobDetails, Wire.BlobDetails](value =>
-        Wire.BlobDetails(summaryToWire(value.summary), value.blocks.map(blockToWire))
+        Wire.BlobDetails(
+          summaryToWire(value.summary),
+          value.metadata.map(meta => Wire.BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
+          value.blocks.map(blockToWire),
+          value.nextCursor,
+        )
       )(value =>
         for
           summary <- summaryFromWire(value.summary)
           blocks  <- traverse(value.blocks)(blockFromWire)
-        yield BlobDetails(summary, blocks)
+        yield BlobDetails(
+          summary,
+          blocks,
+          value.metadata.map(meta => BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
+          value.nextCursor,
+        )
       )
 
   /** Current durable blob inventory. */

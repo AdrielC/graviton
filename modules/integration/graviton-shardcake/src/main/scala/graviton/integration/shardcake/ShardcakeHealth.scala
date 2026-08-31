@@ -114,7 +114,7 @@ object ShardcakeHealth:
           (snapshot, error) = result
           _                <- state.set(snapshot)
           finished         <- Clock.nanoTime
-          _                <- recordMetrics(snapshot, (finished - started).toDouble / 1e9)
+          _                <- recordMetrics(previous, snapshot, (finished - started).toDouble / 1e9)
           _                <- logTransition(previous.status, snapshot, error)
         yield result
       }
@@ -174,9 +174,13 @@ object ShardcakeHealth:
         detail = detail,
       )
 
-    private def recordMetrics(snapshot: Snapshot, durationSeconds: Double): UIO[Unit] =
+    private def recordMetrics(previous: Snapshot, snapshot: Snapshot, durationSeconds: Double): UIO[Unit] =
       val statusTag = Map("status" -> snapshot.status.code)
-      metrics.counter(MetricKeys.ShardcakeHealthChecksTotal, statusTag) *>
+      ZIO.whenDiscard(
+        previous.checkedAtMillis.nonEmpty &&
+          (previous.assignedShards != snapshot.assignedShards || previous.localAssignedShards != snapshot.localAssignedShards)
+      )(metrics.counter(MetricKeys.ShardcakeReassignmentsTotal, Map.empty)) *>
+        metrics.counter(MetricKeys.ShardcakeHealthChecksTotal, statusTag) *>
         metrics.histogram(MetricKeys.ShardcakeHealthDuration, durationSeconds, Map.empty) *>
         metrics.gauge(MetricKeys.ShardcakeReady, if snapshot.ready then 1.0 else 0.0, Map.empty) *>
         metrics.gauge(MetricKeys.ShardcakeAssignedShards, snapshot.assignedShards.toDouble, Map.empty) *>

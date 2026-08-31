@@ -3,7 +3,17 @@ package graviton.runtime.stores
 import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlobOffset, FileSize}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.model.{BlobDescription, BlobListing, BlobStat, BlobWritePlan, InventoryCursor, InventoryPage, InventoryPageSize}
+import graviton.runtime.model.{
+  BlobBlockDescription,
+  BlobDescription,
+  BlobInspectionPage,
+  BlobListing,
+  BlobStat,
+  BlobWritePlan,
+  InventoryCursor,
+  InventoryPage,
+  InventoryPageSize,
+}
 import zio.*
 import zio.stream.*
 
@@ -64,6 +74,19 @@ final class MetricsBlobStore(
   override def inspect(key: BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     instrument("inspect")(underlying.inspect(key))
 
+  override def streamBlockDescriptions(key: BinaryKey.Blob): ZStream[Any, StoreError, BlobBlockDescription] =
+    instrumentStream("inspect_stream")(underlying.streamBlockDescriptions(key))
+
+  override def inspectPage(
+    key: BinaryKey.Blob,
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, Option[BlobInspectionPage]] =
+    instrument("inspect_page")(underlying.inspectPage(key, after, limit))
+
+  override def metadata(key: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    instrument("metadata")(underlying.metadata(key))
+
   override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     instrument("delete")(underlying.delete(key))
 
@@ -79,7 +102,7 @@ final class MetricsBlobStore(
                    .ensuring(recordDuration(tags, started))
     yield result
 
-  private def instrumentStream(operation: String)(stream: ZStream[Any, StoreError, Byte]): ZStream[Any, StoreError, Byte] =
+  private def instrumentStream[A](operation: String)(stream: ZStream[Any, StoreError, A]): ZStream[Any, StoreError, A] =
     val tags = operationTags(operation)
     ZStream.unwrap {
       Clock.nanoTime.map { started =>

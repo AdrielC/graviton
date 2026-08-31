@@ -75,9 +75,9 @@ Adjacent spans merge when the selected `DiscreteDomain[A]` says they touch. Blob
 
 ## Persisted manifests
 
-Filesystem CAS writes use incremental `GVM2` compatibility or authenticated `GVM3` manifests. Their headers record total size and block count; `GVM3` also records the proof version, chunker, key ID, canonical digest, and signature. Each following record contains one length-delimited block key, absolute offset, and length. Readers reject invalid keys, non-contiguous offsets, length/key-size mismatches, unexpected entry counts, total-size drift, and trailing bytes. Authenticated readers verify the complete ordered manifest before fetching a block. The executable ceiling is 1,048,576 entries.
+Filesystem CAS writes incremental clean-store `GVM4` manifests. The header records bounded schema-versioned blob metadata, total size, block count, chunker identity, and optional proof version, key ID, canonical digest, and signature. Each following record contains one length-delimited block key, absolute offset, and length. Readers reject invalid keys, non-contiguous offsets, length/key-size mismatches, unexpected entry counts, metadata or total-size drift, older envelopes, and trailing bytes. Authenticated readers verify the complete metadata-bound ordered manifest before fetching a block. The executable ceiling is 1,048,576 entries.
 
-The older scodec `FramedManifest` and `FramedManifestRoot` version-1 codecs remain compatibility readers and bounded explicit codecs. Their defensive limits remain 16,384 entries per frame, 256 annotations per entry, 64 MiB per encoded frame, and 65,535 page references per root. Large `GVM2` and `GVM3` manifests are reconstructed through streaming entry readers rather than converted to the legacy in-memory model.
+The separate scodec `FramedManifest` and `FramedManifestRoot` version-1 codecs remain bounded explicit frame codecs, not repository manifest readers. Their defensive limits remain 16,384 entries per frame, 256 annotations per entry, 64 MiB per encoded frame, and 65,535 page references per root. Large `GVM4` repository manifests are reconstructed through streaming entry readers rather than converted to that in-memory frame model.
 
 ## Schema-driven metadata
 

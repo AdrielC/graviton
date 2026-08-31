@@ -24,6 +24,8 @@ final case class RedisAdmissionConfig(
   retryInterval: Duration,
   maximumEvents: Long,
   maximumExpiredLeasesPerPass: Int,
+  maximumTenantRequestsPerMinute: Long,
+  maximumTenantDeliveredEgressBytesPerHour: Long,
 ):
   def validate: Either[String, RedisAdmissionConfig] =
     for
@@ -57,6 +59,12 @@ final case class RedisAdmissionConfig(
              maximumExpiredLeasesPerPass >= 1 && maximumExpiredLeasesPerPass <= 4096,
              (),
              "redis maximum-expired-leases-per-pass must be within 1..4096",
+           )
+      _ <- Either.cond(maximumTenantRequestsPerMinute >= 1L, (), "redis maximum-tenant-requests-per-minute must be positive")
+      _ <- Either.cond(
+             maximumTenantDeliveredEgressBytesPerHour >= 1L,
+             (),
+             "redis maximum-tenant-delivered-egress-bytes-per-hour must be positive",
            )
     yield this
 
@@ -114,6 +122,8 @@ object RedisAdmissionConfig:
     retryInterval = Duration.fromMillis(50),
     maximumEvents = 100000L,
     maximumExpiredLeasesPerPass = 256,
+    maximumTenantRequestsPerMinute = 60000L,
+    maximumTenantDeliveredEgressBytesPerHour = 1024L * 1024L * 1024L * 1024L,
   )
 
   private val connection =
@@ -159,9 +169,15 @@ object RedisAdmissionConfig:
       Config.long("maximum-events").withDefault(Default.maximumEvents) ++
       Config.int("maximum-expired-leases-per-pass").withDefault(Default.maximumExpiredLeasesPerPass)).map(LeaseSettings.apply)
 
+  private val traffic =
+    (Config.long("maximum-tenant-requests-per-minute").withDefault(Default.maximumTenantRequestsPerMinute) ++
+      Config
+        .long("maximum-tenant-delivered-egress-bytes-per-hour")
+        .withDefault(Default.maximumTenantDeliveredEgressBytesPerHour))
+
   val config: Config[RedisAdmissionConfig] =
-    (connection ++ limits ++ leases)
-      .mapOrFail { case (connection, limits, leases) =>
+    (connection ++ limits ++ leases ++ traffic)
+      .mapOrFail { case (connection, limits, leases, (maximumRequests, maximumEgress)) =>
         (for
           cellId <- TenantCellId.either(connection.cell)
           value  <- RedisAdmissionConfig(
@@ -182,6 +198,8 @@ object RedisAdmissionConfig:
                       leases.retry,
                       leases.events,
                       leases.expired,
+                      maximumRequests,
+                      maximumEgress,
                     ).validate
         yield value).left.map(message => Config.Error.InvalidData(Chunk.empty, message))
       }

@@ -23,3 +23,10 @@ final case class BlobDescription(
   listing: BlobListing,
   blocks: Chunk[BlobBlockDescription],
 )
+
+/** One bounded page of a persisted blob manifest. */
+final case class BlobInspectionPage(
+  listing: BlobListing,
+  blocks: Chunk[BlobBlockDescription],
+  next: Option[InventoryCursor],
+)

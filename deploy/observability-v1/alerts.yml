@@ -1,0 +1,101 @@
+groups:
+  - name: graviton-pages-v1
+    rules:
+      - alert: GravitonUnavailable
+        expr: max(up{job="graviton"}) == 0
+        for: 2m
+        labels: {severity: page, service: graviton, runbook: availability}
+        annotations:
+          summary: No Graviton node is scrapeable
+      - alert: GravitonAvailabilityFastBurn
+        expr: (1 - graviton:slo:http_success_ratio_5m) > (14.4 * 0.001) and (1 - graviton:slo:http_success_ratio_1h) > (14.4 * 0.001)
+        for: 2m
+        labels: {severity: page, service: graviton, runbook: availability}
+        annotations:
+          summary: Graviton is rapidly consuming its availability budget
+      - alert: GravitonShardcakeUnavailable
+        expr: min(graviton_shardcake_ready) == 0
+        for: 5m
+        labels: {severity: page, service: graviton, runbook: shardcake}
+        annotations:
+          summary: An upload-routing node is not ready
+      - alert: GravitonDurabilityThresholdLost
+        expr: min(graviton_erasure_healthy_targets) < 2
+        for: 2m
+        labels: {severity: page, service: graviton, runbook: durability}
+        annotations:
+          summary: The erasure write threshold is unavailable
+  - name: graviton-tickets-v1
+    rules:
+      - alert: GravitonAvailabilitySlowBurn
+        expr: (1 - graviton:slo:http_success_ratio_1h) > (6 * 0.001) and (1 - graviton:slo:http_success_ratio_6h) > (6 * 0.001)
+        for: 15m
+        labels: {severity: ticket, service: graviton, runbook: availability}
+        annotations:
+          summary: Graviton is steadily consuming its availability budget
+      - alert: GravitonHighP99Latency
+        expr: graviton:slo:http_p99_seconds_5m > 0.5
+        for: 15m
+        labels: {severity: ticket, service: graviton, runbook: latency}
+        annotations:
+          summary: Graviton HTTP p99 exceeds 500 ms
+      - alert: GravitonS3FailureRatio
+        expr: graviton:slo:s3_failure_ratio_5m > 0.01
+        for: 10m
+        labels: {severity: ticket, service: graviton, runbook: s3}
+        annotations:
+          summary: S3 calls are failing above one percent
+      - alert: GravitonS3RetryStorm
+        expr: sum(rate(graviton_s3_retries_total[5m])) / clamp_min(sum(rate(graviton_s3_api_calls_total[5m])), 1) > 0.25
+        for: 10m
+        labels: {severity: ticket, service: graviton, runbook: s3}
+        annotations:
+          summary: S3 retries exceed one retry per four calls
+      - alert: GravitonPostgresPoolWaiting
+        expr: max(graviton_postgres_pool_awaiting_connections) > 0
+        for: 2m
+        labels: {severity: ticket, service: graviton, runbook: postgres}
+        annotations:
+          summary: Graviton requests are waiting for PostgreSQL
+      - alert: GravitonPostgresPoolNearCapacity
+        expr: graviton:slo:postgres_pool_saturation > 0.9
+        for: 10m
+        labels: {severity: ticket, service: graviton, runbook: postgres}
+        annotations:
+          summary: A PostgreSQL pool is above 90 percent utilization
+      - alert: GravitonRepairNotConverged
+        expr: graviton:slo:repair_backlog > 0
+        for: 10m
+        labels: {severity: ticket, service: graviton, runbook: durability}
+        annotations:
+          summary: Referenced blocks remain under-protected
+      - alert: GravitonRepairDeadLetters
+        expr: max(graviton_replica_repair_dead_letters) > 0
+        for: 5m
+        labels: {severity: ticket, service: graviton, runbook: durability}
+        annotations:
+          summary: Replica repair has unresolved durable failures
+      - alert: GravitonTenantMaintenanceFailure
+        expr: graviton:maintenance:failure_ratio_15m > 0
+        for: 5m
+        labels: {severity: ticket, service: graviton, runbook: maintenance}
+        annotations:
+          summary: Tenant-domain maintenance is failing
+      - alert: GravitonResumableCleanupFailure
+        expr: sum(rate(graviton_resumable_cleanup_duration_seconds_count{outcome="failure"}[15m])) > 0
+        for: 5m
+        labels: {severity: ticket, service: graviton, runbook: uploads}
+        annotations:
+          summary: Resumable staging cleanup is failing
+      - alert: GravitonTrafficQuotaPressure
+        expr: sum(rate(graviton_traffic_quota_rejections_total[15m])) > 0
+        for: 15m
+        labels: {severity: ticket, service: graviton, runbook: admission}
+        annotations:
+          summary: Authenticated tenant traffic is reaching contractual limits
+      - alert: GravitonShardReassignmentChurn
+        expr: sum(rate(graviton_shardcake_reassignments_total[15m])) > 0.05
+        for: 15m
+        labels: {severity: ticket, service: graviton, runbook: shardcake}
+        annotations:
+          summary: Upload shard ownership is changing repeatedly

@@ -245,27 +245,24 @@ Do not set `GRAVITON_SECURITY_DEV_SHARED_SECRET` in production. Enable trusted p
 
 Operator state, stats, and metrics require `observability.read` when security is enabled. Readiness is necessary for traffic admission but is not a substitute for an end-to-end canary or restore drill.
 
-## Upgrade sequence
+## Clean-store deployment and replacement sequence
 
-1. Back up manifests and blocks together, or take coordinated snapshots.
-2. Restore and verify the backup in isolation.
-3. Read the compatibility and migration notes for the target version.
-4. Run `scripts/migrate-postgres.sh` once for shared deployments.
-5. Deploy by immutable image digest.
-6. Wait for readiness, upload a canary, retrieve it, and run server verification.
-7. Retain the prior artifact and data snapshot until the acceptance window closes.
+1. Start from an empty pre-1.0 store and apply the current checksum-locked PostgreSQL schema.
+2. Deploy one immutable image digest with required manifest authentication.
+3. Wait for readiness, upload a canary, retrieve it, and run server verification.
+4. Back up manifests and blocks together, or take coordinated snapshots.
+5. Restore and verify the backup in isolation.
+6. Replace the manager and nodes one at a time and retain byte-exact lifecycle evidence.
 
-For filesystem mode, stop the prior writer before starting the new one. For S3 plus PostgreSQL, build immutable baseline and candidate images and run:
+For filesystem mode, stop the prior writer before starting the new one. For S3 plus PostgreSQL, run the same-version replacement qualification for the exact candidate image:
 
 ```bash
-./scripts/qualify-rolling-upgrade.sh graviton:baseline graviton:candidate
+./scripts/qualify-node-replacement.sh graviton:candidate
 ```
 
-The harness proves baseline read/write, manager-first replacement, a mixed-version cohort, candidate completion, one-node rollback against candidate-written state, and final re-upgrade. It leaves the topology on the candidate cohort and emits a machine-readable record with image IDs, content IDs, and the manifest-integrity mode. Do not infer that another version pair is compatible.
+The harness proves manager replacement, independent node replacement, writes during replacement, and byte-exact cross-node reads on one clean `GVM4` store. This pre-1.0 line does not include legacy manifest readers or backfill machinery. A future compatibility promise requires a separately designed format policy and explicit evidence.
 
-Required manifest authentication is a storage-format admission boundary. It deliberately rejects unsigned manifests written by a release that predates authentication. Do not weaken required mode to make that transition appear compatible. For the clean pre-1.0 line, enable required mode on an empty store. The repository qualification runs an explicitly unsigned, isolated mixed-version compatibility cohort, destroys all of its state, and then starts an authenticated candidate-only cohort for the sustained fault drill.
-
-After the rolling gate, run a longer fault workload:
+After the replacement gate, run a longer fault workload:
 
 ```bash
 ./scripts/qualify-long-failure.sh 900 4194304 > long-failure.json
@@ -276,5 +273,6 @@ That workload uses durable resumable offsets and byte-exact readback while repea
 ## Backup, GC, and performance
 
 - [Backup, Restore, and Garbage Collection](./backup-restore.md)
+- [Credential Rotation](./credential-rotation.md)
 - [Performance Measurement](./performance.md)
 - [Production Readiness](./production-readiness.md)

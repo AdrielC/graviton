@@ -17,7 +17,7 @@ import graviton.runtime.model.{
   InventoryPageSize,
 }
 import graviton.runtime.config.TransferMemoryConfig
-import graviton.runtime.stores.{BlobStore, StoreBackend, StoreError, StoreOperation, TransferBudget}
+import graviton.runtime.stores.{BlobMetadataV1, BlobStore, ManifestChunkerId, StoreBackend, StoreError, StoreOperation, TransferBudget}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import software.amazon.awssdk.core.sync.RequestBody
@@ -27,6 +27,7 @@ import zio.stream.{ZSink, ZStream}
 import zio.{Chunk, IO, Task, ZIO, ZLayer}
 
 import java.util.UUID
+import java.util.Base64
 import scala.jdk.CollectionConverters.*
 
 final case class S3BlobStoreConfig(
@@ -161,6 +162,19 @@ final class S3BlobStore(
           }
     }
 
+  override def metadata(key: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    val request = HeadObjectRequest.builder().bucket(config.blobs.bucket).key(objectKeyFor(key)).build()
+    ZIO
+      .attemptBlocking(client.headObject(request))
+      .flatMap(response =>
+        ZIO
+          .fromEither(S3BlobStore.decodeMetadata(response.metadata().asScala.toMap))
+          .mapError(message => new IllegalArgumentException(message))
+          .map(Some(_))
+      )
+      .catchSome { case error: S3Exception if S3BlobStore.isNotFound(error) => ZIO.succeed(None) }
+      .mapError(storeError(StoreOperation.GetManifest, Some(key)))
+
   override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     val req =
       DeleteObjectRequest
@@ -218,12 +232,14 @@ final class S3BlobStore(
 
 object S3BlobStore:
 
-  val MaxMultipartParts: Int    = 10000
-  val PartGrowthWindow: Int     = 256
-  val MaxBufferedPartBytes: Int = 128 * 1024 * 1024
-  val OneTebibyte: Long         = 1024L * 1024L * 1024L * 1024L
-  val SingleCopyMaxBytes: Long  = 4L * 1024L * 1024L * 1024L
-  val CopyPartBytes: Long       = 512L * 1024L * 1024L
+  val MaxMultipartParts: Int           = 10000
+  val PartGrowthWindow: Int            = 256
+  val MaxBufferedPartBytes: Int        = 128 * 1024 * 1024
+  val OneTebibyte: Long                = 1024L * 1024L * 1024L * 1024L
+  val SingleCopyMaxBytes: Long         = 4L * 1024L * 1024L * 1024L
+  val CopyPartBytes: Long              = 512L * 1024L * 1024L
+  val MetadataKey: String              = "graviton-blob-metadata"
+  val ObjectChunker: ManifestChunkerId = ManifestChunkerId.applyUnsafe("s3-object-v1")
 
   type PartSize = PartSize.T
   object PartSize extends RefinedSubtype[Int, GreaterEqual[5242880] & LessEqual[134217728]]:
@@ -284,6 +300,27 @@ object S3BlobStore:
     destinationKey: String,
     size: Long,
   ): Task[Unit] =
+    promoteTempObject(
+      client,
+      sourceBucket,
+      sourceKey,
+      destinationBucket,
+      destinationKey,
+      size,
+      BlobMetadataV1.DefaultMediaType,
+      java.util.Map.of[String, String](),
+    )
+
+  private[s3] def promoteTempObject(
+    client: S3Client,
+    sourceBucket: String,
+    sourceKey: String,
+    destinationBucket: String,
+    destinationKey: String,
+    size: Long,
+    contentType: String,
+    metadata: java.util.Map[String, String],
+  ): Task[Unit] =
     if size <= SingleCopyMaxBytes then
       ZIO.attemptBlocking {
         client.copyObject(
@@ -293,6 +330,9 @@ object S3BlobStore:
             .sourceKey(sourceKey)
             .destinationBucket(destinationBucket)
             .destinationKey(destinationKey)
+            .metadataDirective(MetadataDirective.REPLACE)
+            .contentType(contentType)
+            .metadata(metadata)
             .build()
         )
       }.unit
@@ -305,6 +345,8 @@ object S3BlobStore:
                          .builder()
                          .bucket(destinationBucket)
                          .key(destinationKey)
+                         .contentType(contentType)
+                         .metadata(metadata)
                          .build()
                      )
                    }
@@ -362,6 +404,21 @@ object S3BlobStore:
                          .ignore
                    }
       yield ()
+
+  private[s3] def encodeMetadata(value: BlobMetadataV1): Either[String, java.util.Map[String, String]] =
+    BlobMetadataV1.encode(value).map { bytes =>
+      Map(MetadataKey -> Base64.getUrlEncoder.withoutPadding().encodeToString(bytes.toArray)).asJava
+    }
+
+  private[s3] def decodeMetadata(values: Map[String, String]): Either[String, BlobMetadataV1] =
+    values.get(MetadataKey).toRight(s"S3 object is missing '$MetadataKey' metadata").flatMap { encoded =>
+      scala.util
+        .Try(Chunk.fromArray(Base64.getUrlDecoder.decode(encoded)))
+        .toEither
+        .left
+        .map(_ => s"S3 object '$MetadataKey' is not valid base64url")
+        .flatMap(BlobMetadataV1.decode)
+    }
 
   /**
    * Explicit S3-compatible endpoint contract:
@@ -496,6 +553,12 @@ private final case class PutState(
       validatedAttrs <- ZIO
                           .fromEither(attrs.validate)
                           .mapError(msg => new IllegalStateException(s"Generated invalid confirmed attributes: $msg"))
+      metadata       <- ZIO
+                          .fromEither(BlobMetadataV1.fromAttributes(validatedAttrs, S3BlobStore.ObjectChunker))
+                          .mapError(msg => new IllegalStateException(s"Generated invalid blob metadata: $msg"))
+      objectMetadata <- ZIO
+                          .fromEither(S3BlobStore.encodeMetadata(metadata))
+                          .mapError(msg => new IllegalStateException(s"Generated invalid S3 blob metadata: $msg"))
       _              <- multipart match
                           case None     =>
                             // Small object: upload directly to final key (buffer is bounded by partSize).
@@ -504,6 +567,8 @@ private final case class PutState(
                                 .builder()
                                 .bucket(config.blobs.bucket)
                                 .key(finalObjectKeyFor(key))
+                                .contentType(metadata.canonicalMediaType)
+                                .metadata(objectMetadata)
                                 .build()
                             ZIO.attemptBlocking(client.putObject(req, RequestBody.fromBytes(buffer.toArray))).unit
                           case Some(mp) =>
@@ -558,6 +623,8 @@ private final case class PutState(
                                             destinationBucket = config.blobs.bucket,
                                             destinationKey = finalObjectKeyFor(key),
                                             size = totalBytes,
+                                            contentType = metadata.canonicalMediaType,
+                                            metadata = objectMetadata,
                                           )
                               deleted  <- ZIO
                                             .attemptBlocking(

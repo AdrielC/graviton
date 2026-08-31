@@ -174,7 +174,7 @@
         <strong>Deployment boundary</strong>
         <p>
           Graviton is pre-1.0. Single-node filesystem mode is operational. Shared S3 and PostgreSQL deployments
-          still require workload, failover, and rolling-upgrade qualification in their target environment.
+          still require workload, failover, and same-version replacement qualification in their target environment.
         </p>
       </aside>
     </section>

@@ -84,8 +84,8 @@ final class BlobServiceImpl(blobStore: BlobStore, uploadIngestor: UploadIngestor
       .fromZIO(parseKey(request.key.map(_.value).getOrElse("")))
       .flatMap { key =>
         ZStream
-          .fromZIO(blobStore.inspect(key).mapError(toStatus).someOrFail(notFound(key.bits.render)))
-          .flatMap(description => ZStream.fromChunk(description.blocks))
+          .fromZIO(blobStore.stat(key).mapError(toStatus).someOrFail(notFound(key.bits.render)))
+          .flatMap(_ => blobStore.streamBlockDescriptions(key).mapError(toStatus))
           .map(block => BlobBlock(block.index, GrpcProtocol.render(block.key), block.offset, block.size))
       }
 

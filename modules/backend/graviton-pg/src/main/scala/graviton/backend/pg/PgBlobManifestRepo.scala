@@ -50,8 +50,10 @@ final class PgBlobManifestRepo private (
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
+    val identity = ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified"))
     putStreamInternal(
-      ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified")),
+      identity,
+      BlobMetadataV1.default(identity.chunker),
       entries,
       ingestedAt,
     )
@@ -61,10 +63,19 @@ final class PgBlobManifestRepo private (
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
-    putStreamInternal(identity, entries, ingestedAt)
+    putStreamInternal(identity, BlobMetadataV1.default(identity.chunker), entries, ingestedAt)
+
+  override def putVersionedStream(
+    identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    putStreamInternal(identity, metadata, entries, ingestedAt)
 
   private def putStreamInternal(
     identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
@@ -74,10 +85,13 @@ final class PgBlobManifestRepo private (
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
       .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
+      ZIO
+        .fail(StoreError.InvalidInput(StoreOperation.PutManifest, "blob metadata chunker does not match manifest identity"))
+        .unless(metadata.chunker == identity.chunker) *>
       withTransaction { conn =>
         for
-          accumulator  <- ZIO.foreach(integrity)(_.accumulator(identity))
-          _            <- upsertBlobSummary(conn, blob, blockCount, ingestedAt)
+          accumulator  <- ZIO.foreach(integrity)(_.accumulator(identity, metadata))
+          _            <- upsertBlobSummary(conn, blob, blockCount, ingestedAt, metadata)
           _            <- deleteBlobBlocks(conn, blob)
           authenticated = accumulator.fold(entries)(value => entries.tap(value.update))
           state        <- writeEntryStream(conn, blob, authenticated.mapError(error => error: Throwable))
@@ -251,6 +265,38 @@ final class PgBlobManifestRepo private (
       }
       .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
 
+  override def getMetadata(blob: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    ZIO
+      .fromEither(toDbAlg(blob.bits.algo))
+      .mapError(StoreError.CorruptData(StoreOperation.GetManifest, _))
+      .flatMap { algorithm =>
+        ZIO.attemptBlocking {
+          val connection = ds.getConnection()
+          try
+            val statement = connection.prepareStatement(
+              """SELECT metadata::text FROM graviton.blob
+                |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+            )
+            try
+              statement.setString(1, algorithm)
+              statement.setBytes(2, blob.bits.digest.bytes)
+              statement.setLong(3, blob.bits.size)
+              val rows = statement.executeQuery()
+              try
+                if !rows.next() then None
+                else
+                  Some(
+                    BlobMetadataV1
+                      .decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                      .fold(message => throw new IllegalArgumentException(message), identity)
+                  )
+              finally rows.close()
+            finally statement.close()
+          finally connection.close()
+        }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+
   override def inventoryPage(
     after: Option[InventoryCursor],
     limit: InventoryPageSize,
@@ -362,14 +408,14 @@ final class PgBlobManifestRepo private (
 
   private def verifyManifest(blob: BinaryKey.Blob, service: ManifestIntegrity): IO[StoreError, Unit] =
     for
-      stored           <- readStoredAuthentication(blob)
-      authentication   <- ZIO
-                            .fromOption(stored)
-                            .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
-      (identity, proof) = authentication
-      accumulator      <- service.verificationAccumulator(identity)
-      _                <- rawManifestEntries(blob).runForeach(accumulator.update)
-      _                <- accumulator.verify(proof)
+      stored                     <- readStoredAuthentication(blob)
+      authentication             <- ZIO
+                                      .fromOption(stored)
+                                      .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
+      (identity, metadata, proof) = authentication
+      accumulator                <- service.verificationAccumulator(identity, metadata)
+      _                          <- rawManifestEntries(blob).runForeach(accumulator.update)
+      _                          <- accumulator.verify(proof)
     yield ()
 
   private def rawManifestEntries(blob: BinaryKey.Blob): ZStream[Any, StoreError, ManifestEntry] =
@@ -391,7 +437,9 @@ final class PgBlobManifestRepo private (
       }
       .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
 
-  private def readStoredAuthentication(blob: BinaryKey.Blob): IO[StoreError, Option[(ManifestIdentity, ManifestProof)]] =
+  private def readStoredAuthentication(
+    blob: BinaryKey.Blob
+  ): IO[StoreError, Option[(ManifestIdentity, BlobMetadataV1, ManifestProof)]] =
     ZIO
       .fromEither(toDbAlg(blob.bits.algo))
       .mapError(StoreError.CorruptData(StoreOperation.GetManifest, _))
@@ -401,7 +449,7 @@ final class PgBlobManifestRepo private (
           try
             val statement = connection.prepareStatement(
               """SELECT byte_length, block_count, manifest_proof_version, manifest_chunker,
-                |       manifest_key_id, manifest_digest, manifest_signature
+                |       manifest_key_id, manifest_digest, manifest_signature, metadata::text
                 |FROM graviton.blob
                 |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
             )
@@ -414,14 +462,17 @@ final class PgBlobManifestRepo private (
                 if !rows.next() then None
                 else if rows.getObject(3) == null then None
                 else
-                  val size    = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val chunker =
+                  val size     = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
+                  val chunker  =
                     ManifestChunkerId.either(rows.getString(4)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val keyId   = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val proof   = ManifestProof
+                  val keyId    = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
+                  val proof    = ManifestProof
                     .make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7)))
                     .fold(message => throw new IllegalArgumentException(message), identity)
-                  Some(ManifestIdentity(blob, size, rows.getInt(2), chunker) -> proof)
+                  val metadata = BlobMetadataV1
+                    .decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                    .fold(message => throw new IllegalArgumentException(message), identity)
+                  Some((ManifestIdentity(blob, size, rows.getInt(2), chunker), metadata, proof))
               finally rows.close()
             finally statement.close()
           finally connection.close()
@@ -662,14 +713,16 @@ final class PgBlobManifestRepo private (
     blob: BinaryKey.Blob,
     blockCount: Int,
     ingestedAt: Instant,
+    metadata: BlobMetadataV1,
   ): Task[Unit] =
     val sql =
       """
-        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, created_at, chunker, attrs)
-        |VALUES (?::core.hash_alg, ?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb)
+        |INSERT INTO graviton.blob (alg, hash_bytes, byte_length, block_count, created_at, chunker, attrs, metadata)
+        |VALUES (?::core.hash_alg, ?, ?, ?, ?, '{}'::jsonb, '{}'::jsonb, ?::jsonb)
         |ON CONFLICT (alg, hash_bytes, byte_length) DO UPDATE SET
         |  block_count = EXCLUDED.block_count,
-        |  created_at = EXCLUDED.created_at
+        |  created_at = EXCLUDED.created_at,
+        |  metadata = EXCLUDED.metadata
         |""".stripMargin
 
     for
@@ -677,6 +730,9 @@ final class PgBlobManifestRepo private (
                    .fail(new IllegalArgumentException(s"Manifest block count must be within 1..${BlobManifestRepo.MaxEntries}"))
                    .unless(blockCount >= 1 && blockCount <= BlobManifestRepo.MaxEntries)
       blobAlg <- ZIO.fromEither(toDbAlg(blob.bits.algo)).mapError(message => new IllegalArgumentException(message))
+      encoded <- ZIO
+                   .fromEither(BlobMetadataV1.encode(metadata))
+                   .mapError(message => new IllegalArgumentException(message))
       _       <- ZIO.attemptBlocking {
                    val ps = conn.prepareStatement(sql)
                    try
@@ -685,6 +741,7 @@ final class PgBlobManifestRepo private (
                      ps.setLong(3, blob.bits.size)
                      ps.setInt(4, blockCount)
                      ps.setTimestamp(5, java.sql.Timestamp.from(ingestedAt))
+                     ps.setString(6, new String(encoded.toArray, java.nio.charset.StandardCharsets.UTF_8))
                      ps.executeUpdate()
                      ()
                    finally ps.close()

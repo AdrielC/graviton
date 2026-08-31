@@ -353,6 +353,7 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
     override val inventory: ZStream[Any, StoreError, BlockInventoryEntry],
     quarantines: Ref[Int],
   ) extends BlockMaintenance:
+    override val quarantineInventory: ZStream[Any, StoreError, QuarantinedBlock]          = ZStream.empty
     override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] =
       Clock.instant.flatMap { now =>
         quarantines.updateAndGet(_ + 1).map { count =>
@@ -381,6 +382,7 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
     delegate: BlockMaintenance,
     inventoryTouched: Promise[Nothing, Unit],
   ) extends BlockMaintenance:
+    override val quarantineInventory: ZStream[Any, StoreError, QuarantinedBlock]          = ZStream.empty
     override val inventory: ZStream[Any, StoreError, BlockInventoryEntry]                 =
       ZStream.fromZIO(inventoryTouched.succeed(())).drain ++ delegate.inventory
     override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] = delegate.quarantine(entry)

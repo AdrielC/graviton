@@ -11,6 +11,7 @@ import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{
   BlobBlockDescription,
   BlobDescription,
+  BlobInspectionPage,
   BlobListing,
   BlobStat,
   BlobWritePlan,
@@ -306,7 +307,10 @@ final class CasBlobStore(
                            .fromEither(ManifestChunkerId.either(chunker.name))
                            .mapError(message => StoreError.InvalidInput(StoreOperation.PutManifest, s"invalid chunker identity: $message"))
             identity   = ManifestIdentity(blob, fileSize, persisted.blockCount, chunkerId)
-            _         <- manifests.putAuthenticatedStream(identity, spool.entries, ingestedAt)
+            metadata  <- ZIO
+                           .fromEither(BlobMetadataV1.fromAttributes(plan.attributes, chunkerId))
+                           .mapError(message => StoreError.InvalidInput(StoreOperation.PutManifest, s"invalid blob metadata: $message"))
+            _         <- manifests.putVersionedStream(identity, metadata, spool.entries, ingestedAt)
 
             locator <- plan.locatorHint match
                          case Some(value) => ZIO.succeed(value)
@@ -405,6 +409,46 @@ final class CasBlobStore(
           .mapError(StoreError.fromThrowable(StoreOperation.InspectBlob))
           .map(Some(_))
     }
+
+  override def streamBlockDescriptions(key: BinaryKey.Blob): ZStream[Any, StoreError, BlobBlockDescription] =
+    manifests.streamBlockRefs(key).mapAccumZIO(0L) { (offset, ref) =>
+      ZIO
+        .attempt {
+          val size = ref.key.bits.size
+          java.lang.Math.addExact(offset, size) -> BlobBlockDescription(ref.idx, ref.key, offset, size)
+        }
+        .mapError(StoreError.fromThrowable(StoreOperation.InspectBlob))
+    }
+
+  override def inspectPage(
+    key: BinaryKey.Blob,
+    after: Option[graviton.runtime.model.InventoryCursor],
+    limit: graviton.runtime.model.InventoryPageSize,
+  ): IO[StoreError, Option[BlobInspectionPage]] =
+    manifests.getSummary(key).flatMap {
+      case None          => ZIO.none
+      case Some(summary) =>
+        for
+          offset <- ZIO
+                      .fromEither(BlobStore.decodeManifestCursor(key, after))
+                      .mapError(StoreError.InvalidInput(StoreOperation.InspectBlob, _))
+          rows   <- streamBlockDescriptions(key).drop(offset).take(limit.value.toLong + 1L).runCollect
+          page    = rows.take(limit.value)
+          next   <- ZIO.foreach(Option.when(rows.length > limit.value)(offset.toLong + page.length.toLong))(index =>
+                      ZIO
+                        .fromEither(BlobStore.encodeManifestCursor(key, index))
+                        .mapError(StoreError.InvalidInput(StoreOperation.InspectBlob, _))
+                    )
+          listing = BlobListing(
+                      key,
+                      BlobStat(summary.totalSize, key.bits.digest, summary.ingestedAt),
+                      summary.blockCount,
+                    )
+        yield Some(BlobInspectionPage(listing, page, next))
+    }
+
+  override def metadata(key: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    manifests.getMetadata(key)
 
   override def delete(key: BinaryKey.Blob): IO[StoreError, Unit] =
     manifests.delete(key).unit

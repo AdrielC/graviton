@@ -162,6 +162,40 @@ final class S3BlockStore(
     yield QuarantinedBlock(entry.key, token, entry.size, quarantinedAt))
       .mapError(StoreError.fromThrowable(StoreOperation.Quarantine, StoreBackend.S3, retryUnknown = true))
 
+  override def quarantineInventory: ZStream[Any, StoreError, QuarantinedBlock] =
+    ZStream
+      .paginateChunkZIO("") { continuationToken =>
+        ZIO.attemptBlocking {
+          val builder  = ListObjectsV2Request
+            .builder()
+            .bucket(config.blocks.bucket)
+            .prefix(quarantinePrefix)
+          if continuationToken.nonEmpty then
+            val _ = builder.continuationToken(continuationToken)
+          val response = client.listObjectsV2(builder.build())
+          val entries  = Chunk.fromIterable(
+            response
+              .contents()
+              .iterator()
+              .asScala
+              .map { obj =>
+                val relative = obj.key().stripPrefix(quarantinePrefix).split("/", 2).toList match
+                  case _ :: blockPath :: Nil => blockPath
+                  case _                     => throw new IllegalStateException(s"Invalid quarantine object '${obj.key()}'")
+                val active   = s"$activeListPrefix$relative"
+                val key      = parseObjectKey(active).fold(
+                  message => throw new IllegalStateException(s"Invalid quarantine object '${obj.key()}': $message"),
+                  identity,
+                )
+                QuarantinedBlock(key, obj.key(), obj.size(), obj.lastModified())
+              }
+              .toList
+          )
+          entries -> Option(response.nextContinuationToken()).filter(_ => response.isTruncated)
+        }
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.S3, retryUnknown = true))
+
   override def restore(block: QuarantinedBlock): IO[StoreError, Unit] =
     (validateQuarantineToken(block.token) *>
       copyObject(block.token, objectKeyFor(block.key)) *>

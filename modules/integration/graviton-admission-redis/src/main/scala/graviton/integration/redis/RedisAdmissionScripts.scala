@@ -243,5 +243,28 @@ if action == 'event' then
   return 'RECORDED'
 end
 
+if action == 'traffic' then
+  local quota_key = KEYS[7]
+  local amount = tonumber(ARGV[4])
+  local limit = tonumber(ARGV[5])
+  local window_ms = tonumber(ARGV[6])
+  if not amount or amount <= 0 then return 'PROTOCOL|invalid_traffic_amount' end
+  local window = math.floor(at / window_ms)
+  local observed_window = tonumber(redis.call('HGET', quota_key, 'window') or '-1')
+  local current = 0
+  if observed_window == window then
+    current = tonumber(redis.call('HGET', quota_key, 'count') or '0')
+  end
+  if current + amount > limit then
+    local remaining = ((window + 1) * window_ms) - at
+    if remaining < 1 then remaining = 1 end
+    return table.concat({'TRAFFIC_REJECTED', tostring(limit), tostring(remaining)}, '|')
+  end
+  local updated = current + amount
+  redis.call('HSET', quota_key, 'window', tostring(window), 'count', tostring(updated))
+  redis.call('PEXPIRE', quota_key, window_ms * 2)
+  return 'TRAFFIC_CHARGED|' .. tostring(updated)
+end
+
 return 'PROTOCOL|unknown_action'
 """

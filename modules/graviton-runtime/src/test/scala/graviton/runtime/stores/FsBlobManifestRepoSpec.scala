@@ -1,11 +1,12 @@
 package graviton.runtime.stores
 
 import graviton.core.bytes.Hasher
+import graviton.core.attributes.BinaryAttributes
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{FramedManifest, ManifestEntry}
 import graviton.core.ranges.Span
-import graviton.core.types.{BlobOffset, FileSize, UploadChunkSize}
-import graviton.runtime.model.{BlockBatchResult, BlockWritePlan, CanonicalBlock}
+import graviton.core.types.{BlobOffset, FileSize, Mime, UploadChunkSize}
+import graviton.runtime.model.{BlobWritePlan, BlockBatchResult, BlockWritePlan, CanonicalBlock, InventoryPageSize}
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.{ZSink, ZStream}
@@ -120,7 +121,7 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             failure <- repo.get(result.key).exit
           yield assertTrue(
             failure.isFailure,
-            failure.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("Not a Graviton streaming manifest")),
+            failure.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("Not a Graviton GVM4 streaming manifest")),
           )
         }
       },
@@ -173,6 +174,33 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             summaries.map(_._2.blockCount).contains(entryCount),
             refs == entryCount.toLong,
             inspect.isFailure,
+          )
+        }
+      },
+      test("persists bounded semantic metadata and pages manifest blocks") {
+        withTempDir { root =>
+          val data    = Chunk.fromArray(Array.tabulate(12_000)(index => (index % 251).toByte))
+          val chunker = Chunker.fixed(UploadChunkSize(4096))
+          val plan    = BlobWritePlan(attributes = BinaryAttributes.empty.advertiseMime(Mime.applyUnsafe("application/pdf")))
+
+          for
+            store    <- makeStore(root)
+            result   <- Chunker.locally(chunker)(ZStream.fromChunk(data).run(store.put(plan)))
+            metadata <- store.metadata(result.key).someOrFail(new NoSuchElementException("blob metadata missing"))
+            first    <- store
+                          .inspectPage(result.key, None, InventoryPageSize.applyUnsafe(1))
+                          .someOrFail(new NoSuchElementException("manifest missing"))
+            second   <- store
+                          .inspectPage(result.key, first.next, InventoryPageSize.applyUnsafe(1))
+                          .someOrFail(new NoSuchElementException("second manifest page missing"))
+          yield assertTrue(
+            metadata.canonicalMediaType == "application/pdf",
+            metadata.chunker.value != "legacy-unspecified",
+            first.blocks.length == 1,
+            first.next.nonEmpty,
+            second.blocks.length == 1,
+            second.blocks.head.index == 1L,
+            second.blocks.head.offset == first.blocks.head.size,
           )
         }
       },

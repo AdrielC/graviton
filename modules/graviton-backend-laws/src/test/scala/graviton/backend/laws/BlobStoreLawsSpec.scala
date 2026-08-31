@@ -1,7 +1,7 @@
 package graviton.backend.laws
 
 import graviton.runtime.Graviton
-import graviton.runtime.stores.{StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{FsBlockStore, StoreBackend, StoreError, StoreOperation}
 import zio.*
 import zio.test.*
 
@@ -22,6 +22,15 @@ object BlobStoreLawsSpec extends ZIOSpecDefault:
               .mapError(StoreError.fromThrowable(StoreOperation.PutBlob, StoreBackend.Filesystem))
           )(deleteTree)
           .flatMap(root => Graviton.fs(root, chunkSize = 64 * 1024).map(_.blobStore))
+      ),
+      BlockMaintenanceLaws.suite("filesystem")(
+        ZIO
+          .acquireRelease(
+            ZIO
+              .attemptBlocking(Files.createTempDirectory("graviton-maintenance-laws-"))
+              .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.Filesystem))
+          )(deleteTree)
+          .map(root => new FsBlockStore(root): BlockMaintenanceLaws.Subject)
       ),
     )
 

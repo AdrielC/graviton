@@ -22,9 +22,55 @@ final class RedisDistributedAdmission private[redis] (
   scriptSha: Ref[String],
   metrics: MetricsRegistry,
 ) extends DistributedAdmission,
-      DistributedAdmissionControl:
+      DistributedAdmissionControl,
+      DistributedTrafficQuota:
 
   import RedisDistributedAdmission.*
+
+  override def charge(
+    tenantId: TenantId,
+    kind: DistributedTrafficQuota.Kind,
+    amount: Long,
+  ): IO[DistributedTrafficQuota.Error, Unit] =
+    if amount <= 0L then ZIO.fail(DistributedTrafficQuota.Error.InvalidCharge("traffic quota charge must be positive"))
+    else
+      for
+        parameters                   = kind match
+                                         case DistributedTrafficQuota.Kind.Request         =>
+                                           (60000L, config.maximumTenantRequestsPerMinute, "request")
+                                         case DistributedTrafficQuota.Kind.DeliveredEgress =>
+                                           (3600000L, config.maximumTenantDeliveredEgressBytesPerHour, "egress")
+        (windowMillis, limit, label) = parameters
+        tenantHash                   = hashTenant(tenantId)
+        quotaKey                     = trafficKey(config, tenantHash, label)
+        value                       <- executeWithKeys(
+                                         "traffic",
+                                         redisKeys :+ quotaKey,
+                                         Chunk(amount.toString, limit.toString, windowMillis.toString),
+                                       ).mapError(toTrafficError)
+        _                           <- value.split("\\|", -1).toVector match
+                                         case Vector("TRAFFIC_CHARGED", _)                      => ZIO.unit
+                                         case Vector("TRAFFIC_REJECTED", rawLimit, retryMillis) =>
+                                           for
+                                             parsedLimit <- ZIO
+                                                              .attempt(rawLimit.toLong)
+                                                              .mapError(_ => DistributedTrafficQuota.Error.Protocol("invalid traffic limit"))
+                                             parsedRetry <- ZIO
+                                                              .attempt(retryMillis.toLong)
+                                                              .mapError(_ => DistributedTrafficQuota.Error.Protocol("invalid traffic retry delay"))
+                                             _           <- metrics.counter(MetricKeys.TrafficQuotaRejectionsTotal, Map("kind" -> label))
+                                             result      <- ZIO.fail(
+                                                              DistributedTrafficQuota.Error.Rejected(
+                                                                kind,
+                                                                parsedLimit,
+                                                                Duration.fromMillis(math.max(1L, parsedRetry)),
+                                                              )
+                                                            )
+                                           yield result
+                                         case Vector("PROTOCOL", reason)                        => ZIO.fail(DistributedTrafficQuota.Error.Protocol(reason))
+                                         case _                                                 =>
+                                           ZIO.fail(DistributedTrafficQuota.Error.Protocol("unexpected traffic quota response"))
+      yield ()
 
   override def acquireScoped(
     request: DistributedAdmissionRequest
@@ -242,10 +288,17 @@ final class RedisDistributedAdmission private[redis] (
     }
 
   private def execute(action: String, arguments: Chunk[String]): IO[DistributedAdmission.Error, String] =
+    executeWithKeys(action, redisKeys, arguments)
+
+  private def executeWithKeys(
+    action: String,
+    keys: Chunk[String],
+    arguments: Chunk[String],
+  ): IO[DistributedAdmission.Error, String] =
     val args                                     = Chunk(action, config.maximumEvents.toString, config.maximumExpiredLeasesPerPass.toString) ++ arguments
     def run(sha: String): IO[RedisError, String] =
       redis
-        .evalSha[String, String](sha, redisKeys, args)(using Input.StringInput, Input.StringInput)
+        .evalSha[String, String](sha, keys, args)(using Input.StringInput, Input.StringInput)
         .returning[String](using Output.MultiStringOutput)
 
     scriptSha.get
@@ -359,6 +412,11 @@ final class RedisDistributedAdmission private[redis] (
   private def redisError(error: RedisError): DistributedAdmission.Error =
     DistributedAdmission.Error.Unavailable(error.getClass.getSimpleName)
 
+  private def toTrafficError(error: DistributedAdmission.Error): DistributedTrafficQuota.Error = error match
+    case DistributedAdmission.Error.InvalidRequest(reason) => DistributedTrafficQuota.Error.InvalidCharge(reason)
+    case DistributedAdmission.Error.Protocol(reason)       => DistributedTrafficQuota.Error.Protocol(reason)
+    case other                                             => DistributedTrafficQuota.Error.Unavailable(other.getClass.getSimpleName)
+
   private def outcomeOf(error: DistributedAdmission.Error): String = error match
     case _: DistributedAdmission.Error.Rejected       => "rejected"
     case _: DistributedAdmission.Error.TimedOut       => "timed_out"
@@ -387,6 +445,13 @@ object RedisDistributedAdmission:
       s"$slot:policy",
       s"$slot:events",
     )
+
+  private[redis] def trafficKey(
+    config: RedisAdmissionConfig,
+    tenantHash: String,
+    kind: String,
+  ): String =
+    s"${config.keyPrefix}:{${config.cellId.value}}:traffic:$kind:$tenantHash"
 
   private final case class Rejected(
     dimension: AdmissionDimension,
@@ -432,12 +497,18 @@ object RedisDistributedAdmission:
 
   def layer(
     config: RedisAdmissionConfig
-  ): ZLayer[MetricsRegistry, DistributedAdmission.Error, DistributedAdmission & DistributedAdmissionControl] =
+  ): ZLayer[
+    MetricsRegistry,
+    DistributedAdmission.Error,
+    DistributedAdmission & DistributedAdmissionControl & DistributedTrafficQuota,
+  ] =
     ZLayer.scopedEnvironment {
       for
         metrics <- ZIO.service[MetricsRegistry]
         live    <- make(config, metrics)
-      yield ZEnvironment[DistributedAdmission](live).add[DistributedAdmissionControl](live)
+      yield ZEnvironment[DistributedAdmission](live)
+        .add[DistributedAdmissionControl](live)
+        .add[DistributedTrafficQuota](live)
     }
 
   private[redis] def fromRedis(

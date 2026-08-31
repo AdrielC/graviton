@@ -33,13 +33,29 @@ jobs:
           bash -n \
             scripts/benchmark-http.sh \
             scripts/benchmark-tenant-mix.sh \
-            scripts/qualify-rolling-upgrade.sh \
+            scripts/qualify-node-replacement.sh \
             scripts/run-performance-cohort.sh
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" python3 -m py_compile \
             scripts/monitor-performance-telemetry.py \
             scripts/evaluate-performance-gate.py \
-            scripts/test-performance-gate.py
+            scripts/test-performance-gate.py \
+            scripts/validate-observability-bundle.py \
+            scripts/validate-qualification-contract.py \
+            scripts/graviton-operator
+          python3 scripts/validate-observability-bundle.py
+          python3 scripts/validate-qualification-contract.py
           python3 scripts/test-performance-gate.py
+          ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path) }' \
+            deploy/observability-v1/prometheus.yml \
+            deploy/observability-v1/recording-rules.yml \
+            deploy/observability-v1/alerts.yml \
+            deploy/observability-v1/alertmanager.yml \
+            deploy/observability-v1/cloudwatch/otel-collector.yml
+          docker run --rm \
+            -v "$PWD/deploy/observability-v1:/etc/prometheus:ro" \
+            --entrypoint /bin/promtool \
+            prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0 \
+            check config /etc/prometheus/prometheus.yml
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: 1.16.0
