@@ -121,7 +121,7 @@ object TransducerBench extends ZIOSpecDefault:
   }
 
   private def bench1_transducer: ZIO[Any, Nothing, (Long, String, Long)] = ZIO.succeed {
-    val pipeline       = IngestPipeline.countHashRechunk(blockSize)
+    val pipeline       = IngestPipeline.countHashRechunkSummary(blockSize)
     val (summary, out) = pipeline.runChunk(inputChunks)
     (summary.totalBytes, summary.digestHex, summary.blockCount + (if out.nonEmpty && out.last.length < blockSize then 1L else 0L))
   }

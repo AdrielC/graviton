@@ -15,7 +15,7 @@ import zio.blocks.schema.Schema
  * naturally with `>>>` and `&&&`:
  *
  * {{{
- * val casPipeline = IngestPipeline.countHashRechunk(blockSize) >>> CasIngest.blockKeyDeriver()
+ * val casPipeline = IngestPipeline.countHashRechunkSummary(blockSize) >>> CasIngest.blockKeyDeriver()
  * }}}
  *
  * Hot state is tuples of primitives. Records are only constructed at flush.
@@ -96,6 +96,20 @@ object CasIngest:
     def size: Int = payload.length
 
   /**
+   * The v0.7-compatible count + hash + rechunk + block-key pipeline.
+   *
+   * New code should use [[pipelineSummary]], whose terminal summary is an
+   * explicit schema-backed product.
+   */
+  @deprecated("Use pipelineSummary for an explicit schema-backed summary", "0.8.0")
+  def pipeline(
+    blockSize: Int,
+    algo: HashAlgo = HashAlgo.runtimeDefault,
+  ) =
+    (IngestPipeline.countBytes >>> IngestPipeline.hashBytes(algo) >>> IngestPipeline.rechunk(blockSize)) >>>
+      blockKeyDeriver(algo)
+
+  /**
    * The full CAS ingest pipeline: count + hash + rechunk + blockKey.
    *
    * Takes raw `Chunk[Byte]` elements and produces `KeyedBlock`s with
@@ -108,12 +122,12 @@ object CasIngest:
    *   - `rechunkFill`: leftover bytes in rechunk buffer
    *   - `blocksKeyed`: blocks that received CAS keys
    */
-  def pipeline(
+  def pipelineSummary(
     blockSize: Int,
     algo: HashAlgo = HashAlgo.runtimeDefault,
   ): Transducer[Chunk[Byte], KeyedBlock, Summary] =
     val composed =
-      IngestPipeline.countHashRechunk(blockSize, algo) >>>
+      IngestPipeline.countHashRechunkSummary(blockSize, algo) >>>
         blockKeyDeriverWithSummary(algo)(BlocksKeyedSummary.apply)
 
     composed.mapSummary { case (ingest, keyed) =>

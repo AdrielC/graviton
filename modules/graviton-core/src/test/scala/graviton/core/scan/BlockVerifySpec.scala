@@ -80,7 +80,7 @@ object BlockVerifySpec extends ZIOSpecDefault:
         val data = Chunk.fromArray(Array.fill(3072)(0xcc.toByte))
 
         // Ingest: get the keyed blocks
-        val ingest           = CasIngest.pipeline(blockSize = 1024)
+        val ingest           = CasIngest.pipelineSummary(blockSize = 1024)
         val (_, keyedBlocks) = ingest.runChunk(List(data))
 
         // Extract keys in order

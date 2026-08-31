@@ -18,7 +18,7 @@ Graviton's `Transducer` algebra currently uses two state representations:
 
 1. **Hot state** (`type Hot`) — primitives, arrays, and tuples used in the per-element processing loop. This avoids per-step Record construction, but the current `step` contract still returns tuples and output Chunks and is not allocation-free. Examples: `Long`, `(Array[Byte], Int, Long)`, `(Either[String, Hasher], Long)`.
 
-2. **Summary state** (`S`) — individual low-level stages can expose `kyo.Record` fields constructed only at flush boundaries via `toSummary(h: Hot): S`. The public `IngestPipeline.countHashRechunk` and `CasIngest.pipeline` aggregates now project terminal state to explicit schema-backed case classes.
+2. **Summary state** (`S`) — individual low-level stages can expose `kyo.Record` fields constructed only at flush boundaries via `toSummary(h: Hot): S`. The recommended `IngestPipeline.countHashRechunkSummary` and `CasIngest.pipelineSummary` aggregates project terminal state to explicit schema-backed case classes. The published v0.7 names remain binary-compatible Record-shaped shims.
 
 The problems:
 
@@ -240,7 +240,7 @@ TESTCONTAINERS=0 ./sbt scalafmtAll compile test
 Key test suites to verify:
 - `ChunkerSpec` — chunker still produces correct blocks
 - `TransducerSpec` (if exists) or the 257 passing tests — composition still works
-- `IngestPipeline.countHashRechunk` — single-pass semantics preserved
+- `IngestPipeline.countHashRechunkSummary` — single-pass semantics preserved
 - `CasBlobStoreSpec` — end-to-end ingest still works
 
 ## 7. Risks & Mitigations

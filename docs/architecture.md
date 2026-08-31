@@ -96,7 +96,7 @@ The **Transducer algebra** is a separate composable pure-processing library. The
 bytes → countBytes >>> hashBytes >>> rechunk(blockSize) → CanonicalBlock
 ```
 
-Each transducer has a typed summary shape, and composition merges those shapes. `IngestPipeline.countHashRechunk` and `CasIngest.pipeline` map their terminal state to explicit ZIO Blocks schema-backed products, so their public summaries do not rely on dynamic Kyo Record access. Implemented transformations live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)). Compression and aggregate framing remain roadmap work and are not presented as operational features. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`, with the collecting `ZSink` restricted to bounded inputs.
+Each transducer has a typed summary shape, and composition merges those shapes. The recommended `IngestPipeline.countHashRechunkSummary` and `CasIngest.pipelineSummary` entry points map terminal state to explicit ZIO Blocks schema-backed products, so new code does not rely on dynamic Kyo Record access. Their v0.7 names remain as deprecated binary-compatible shims. Implemented transformations live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)). Compression and aggregate framing remain roadmap work and are not presented as operational features. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`, with the collecting `ZSink` restricted to bounded inputs.
 
 See the [Transducer Algebra](./core/transducers.md) page for the full API and implemented-stage boundaries.
 

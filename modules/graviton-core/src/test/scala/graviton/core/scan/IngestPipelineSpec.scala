@@ -97,7 +97,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
 
     suite("countBytes >>> hashBytes >>> rechunk — the full pipeline")(
       test("all summary fields accessible by name") {
-        val pipeline = IngestPipeline.countHashRechunk(blockSize = 1024, algo = algo)
+        val pipeline = IngestPipeline.countHashRechunkSummary(blockSize = 1024, algo = algo)
         val data     = Array.fill(3000)(0xab.toByte)
         val chunks   = List(Chunk.fromArray(data.take(1500)), Chunk.fromArray(data.drop(1500)))
 
@@ -122,7 +122,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
         assertTrue(blocks(2).length == 952)
       },
       test("reassembled output matches input exactly") {
-        val pipeline = IngestPipeline.countHashRechunk(blockSize = 512)
+        val pipeline = IngestPipeline.countHashRechunkSummary(blockSize = 512)
         val data     = Array.tabulate(2048)(i => (i % 256).toByte)
         val chunks   = data.grouped(333).map(Chunk.fromArray).toList // irregular input chunks
 
@@ -132,13 +132,13 @@ object IngestPipelineSpec extends ZIOSpecDefault:
         assertTrue(reassembled == Chunk.fromArray(data))
       },
       test("works with empty input") {
-        val pipeline          = IngestPipeline.countHashRechunk(blockSize = 1024)
+        val pipeline          = IngestPipeline.countHashRechunkSummary(blockSize = 1024)
         val (summary, blocks) = pipeline.runChunk(List.empty)
         assertTrue(summary.totalBytes == 0L) &&
         assertTrue(blocks.isEmpty)
       },
       test("works with single byte") {
-        val pipeline          = IngestPipeline.countHashRechunk(blockSize = 1024)
+        val pipeline          = IngestPipeline.countHashRechunkSummary(blockSize = 1024)
         val (summary, blocks) = pipeline.runChunk(List(Chunk[Byte](42)))
         assertTrue(summary.totalBytes == 1L) &&
         assertTrue(blocks.length == 1) &&
@@ -153,7 +153,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
 
     suite("ZIO Streams end-to-end")(
       test("toPipeline: stream 10KB through count+hash+rechunk") {
-        val pipeline = IngestPipeline.countHashRechunk(blockSize = 1024, algo = algo)
+        val pipeline = IngestPipeline.countHashRechunkSummary(blockSize = 1024, algo = algo)
         val data     = Array.fill(10240)(0xff.toByte)
 
         for blocks <- ZStream
@@ -173,7 +173,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
           assertTrue(totalBytes == 10240L)
       },
       test("toSink: consume stream and get summary with all fields") {
-        val pipeline    = IngestPipeline.countHashRechunk(blockSize = 256)
+        val pipeline    = IngestPipeline.countHashRechunkSummary(blockSize = 256)
         val data        = Array.fill(1000)(0xcd.toByte)
         // Feed as Chunk[Byte] elements (the expected input type)
         val inputChunks = data.grouped(200).map(Chunk.fromArray).toList
@@ -190,7 +190,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
           assertTrue(blocks.map(_.length).sum == 1000)
       },
       test("bounded memory: pipeline processes 1MB with 4KB block size") {
-        val pipeline    = IngestPipeline.countHashRechunk(blockSize = 4096)
+        val pipeline    = IngestPipeline.countHashRechunkSummary(blockSize = 4096)
         // 1 MB of data in 8 KB chunks
         val inputChunks = (0 until 128).map(_ => Chunk.fromArray(Array.fill(8192)(0.toByte))).toList
 

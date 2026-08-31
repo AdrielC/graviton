@@ -14,7 +14,7 @@ Traditional streaming pipelines couple logic with orchestration. Graviton's tran
 `runChunk` and `toSink` return a `Chunk` containing every output. Their retained memory is therefore O(output size), and they are appropriate only for bounded inputs or tests. `toTransducingSink` keeps only transducer state but discards transformed outputs. Production upload uses `toPipeline` for per-block keying.
 
 ::: info Stable aggregate summaries
-Individual low-level stages can expose `kyo.Record` summaries. The public aggregate entry points, `IngestPipeline.countHashRechunk` and `CasIngest.pipeline`, map terminal state to explicit case classes with derived ZIO Blocks schemas. Their named fields are ordinary Scala accessors and their complete suites run on Scala 3.8. Authors of new aggregate APIs should use `mapSummary` to expose an explicit product rather than publishing a mixed-field dynamic Record as a stable contract.
+Individual low-level stages can expose `kyo.Record` summaries. The recommended aggregate entry points, `IngestPipeline.countHashRechunkSummary` and `CasIngest.pipelineSummary`, map terminal state to explicit case classes with derived ZIO Blocks schemas. Their named fields are ordinary Scala accessors and their complete suites run on Scala 3.8. The v0.7 `countHashRechunk` and `pipeline` methods remain as deprecated binary-compatibility shims with their original Record-shaped return types. Authors of new aggregate APIs should use `mapSummary` to expose an explicit product rather than publishing a mixed-field dynamic Record as a stable contract.
 :::
 
 ### Single-pass design
@@ -49,7 +49,7 @@ trait Transducer[-I, +O, S]:
 Chain two transducers so the output of the first feeds the input of the second. Each input element is processed once in sequence with no buffering or re-reads. The generic combinator merges its summary shapes. A public aggregate pipeline can then use `mapSummary` to expose a stable product:
 
 ```scala
-val pipeline = IngestPipeline.countHashRechunk(blockSize)
+val pipeline = IngestPipeline.countHashRechunkSummary(blockSize)
 // Summary: IngestPipeline.Summary
 ```
 
@@ -134,7 +134,7 @@ This bounded example proves composition. It is not the production `CasBlobStore`
 
 ```scala
 val ingestPipeline = 
-  IngestPipeline.countHashRechunk(blockSize)
+  IngestPipeline.countHashRechunkSummary(blockSize)
 
 // Use it:
 val (summary, blocks) = byteStream.run(ingestPipeline.toSink)
@@ -144,10 +144,10 @@ assert(summary.totalBytes >= 0L)
 
 ### Full CAS ingest (library vs `CasBlobStore`)
 
-`CasIngest.pipeline` composes count/hash/rechunk/block-key stages for **library and test** use. **`CasBlobStore.put`** uses a **chunker** (`Chunker` / `FiberRef`) plus **`CasIngest.blockKeyDeriver`** as a `ZPipeline` after chunking, and computes the **blob-level** digest incrementally alongside the stream, so an application's exact `>>>` chain may differ while producing the same CAS semantics.
+`CasIngest.pipelineSummary` composes count/hash/rechunk/block-key stages for **library and test** use. **`CasBlobStore.put`** uses a **chunker** (`Chunker` / `FiberRef`) plus **`CasIngest.blockKeyDeriver`** as a `ZPipeline` after chunking, and computes the **blob-level** digest incrementally alongside the stream, so an application's exact `>>>` chain may differ while producing the same CAS semantics.
 
 ```scala
-val casIngest = CasIngest.pipeline(blockSize, algo)
+val casIngest = CasIngest.pipelineSummary(blockSize, algo)
 val (summary, keyedBlocks) = inputStream.run(casIngest.toSink)
 assert(summary.blocksKeyed == keyedBlocks.length.toLong)
 // The terminal summary is a schema-backed CasIngest.Summary.

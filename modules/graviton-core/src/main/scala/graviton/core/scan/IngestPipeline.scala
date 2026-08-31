@@ -16,8 +16,10 @@ import zio.blocks.schema.Schema
  *
  * All transducers use `Hot` state (primitives) on the hot path and construct
  * summaries only at terminal boundaries. Individual stages expose compact
- * `kyo.Record` summaries. [[countHashRechunk]] maps the aggregate result to the
- * explicit, schema-backed [[Summary]] type, avoiding dynamic Record access.
+ * `kyo.Record` summaries. [[countHashRechunkSummary]] maps the aggregate result
+ * to the explicit, schema-backed [[Summary]] type, avoiding dynamic Record
+ * access. [[countHashRechunk]] retains the v0.7 Record-shaped ABI for existing
+ * binaries.
  * The composed hot state is a tuple of primitives; throughput and allocation
  * claims still require measurement.
  */
@@ -162,6 +164,19 @@ object IngestPipeline:
         ((buf, fill, count), out.result())
 
   /**
+   * The v0.7-compatible count + hash + rechunk pipeline.
+   *
+   * New code should use [[countHashRechunkSummary]], whose terminal summary is
+   * an explicit schema-backed product.
+   */
+  @deprecated("Use countHashRechunkSummary for an explicit schema-backed summary", "0.8.0")
+  def countHashRechunk(
+    blockSize: Int,
+    algo: HashAlgo = HashAlgo.runtimeDefault,
+  ) =
+    countBytes >>> hashBytes(algo) >>> rechunk(blockSize)
+
+  /**
    * **The full CAS ingest pipeline**: count + hash + rechunk via `>>>`.
    *
    * Hot state: `((Long, (Either[String, Hasher], Long)), (Array[Byte], Int, Long))`
@@ -170,7 +185,7 @@ object IngestPipeline:
    * Summary: [[Summary]], constructed once at the terminal boundary and backed
    * by a ZIO Blocks schema. It deliberately avoids dynamic record access.
    */
-  def countHashRechunk(
+  def countHashRechunkSummary(
     blockSize: Int,
     algo: HashAlgo = HashAlgo.runtimeDefault,
   ): Transducer[Chunk[Byte], Chunk[Byte], Summary] =
