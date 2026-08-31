@@ -11,7 +11,7 @@ Graviton enforces ingest limits and exposes observability data through the runti
 
 ## Metrics
 
-Runtime components register metrics through `MetricsRegistry` and publish canonical keys defined in `MetricKeys`. The production registry writes to native ZIO Metrics while retaining a small process snapshot for `/api/stats` and the local Runtime console. `/metrics` is rendered by the current `zio-metrics-connectors-prometheus` publisher and includes ZIO's JVM metrics.
+Runtime components register metrics through `MetricsRegistry` and publish canonical keys defined in `MetricKeys`. The production registry writes to native ZIO Metrics while retaining a small process snapshot for `/api/stats` and the local Operations console. `/metrics` is rendered by the current `zio-metrics-connectors-prometheus` publisher and includes ZIO's JVM metrics.
 
 The implemented counters cover successful ingests, ingested bytes, fresh and duplicate blocks, fresh and duplicate block bytes, HTTP outcomes, and Shardcake upload-locality decisions and failures. HTTP and ingest duration are histograms. The Shardcake adapter also records health outcomes and duration plus readiness, assignment, observed-node, and bounded hot-state gauges. Metric labels are restricted to bounded dimensions such as operation, route, health status, and failure stage; tenant, session, and node IDs are intentionally excluded to prevent unbounded cardinality.
 

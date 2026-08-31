@@ -1,7 +1,7 @@
 package graviton.server.console
 
 import graviton.core.types.FileSize
-import graviton.server.RuntimeHealth
+import graviton.server.operations.Operations
 import graviton.protocol.http.BlobIngest
 import graviton.runtime.catalog.*
 import graviton.runtime.stores.{BlobStore, StoreError, StoreOperation}
@@ -25,7 +25,7 @@ final class ConsoleApi(
   blobStore: BlobStore,
   blobIngest: BlobIngest,
   shardcakeNode: Option[UploadNode],
-  runtimeHealth: RuntimeHealth,
+  operations: Operations,
   version: String,
 ):
   import ConsoleApi.*
@@ -33,8 +33,12 @@ final class ConsoleApi(
   val routes: Routes[Any, Nothing] = Routes(
     Method.GET / "console"                                   -> Handler.fromFunctionZIO[Request](request => guard(request)(page(request))),
     Method.GET / "console" / "library"                       -> Handler.fromFunctionZIO[Request](request => guard(request)(library(request))),
-    Method.GET / "console" / "runtime"                       -> Handler.fromFunctionZIO[Request](request => guard(request)(runtimePage)),
-    Method.GET / "console" / "runtime" / "panel"             -> Handler.fromFunctionZIO[Request](request => guard(request)(runtimePanel(request))),
+    Method.GET / "console" / "operations"                    -> Handler.fromFunctionZIO[Request](request => guard(request)(operationsPage)),
+    Method.GET / "console" / "operations" / "panel"          -> Handler.fromFunctionZIO[Request](request =>
+      guard(request)(operationsPanel(request))
+    ),
+    Method.GET / "console" / "runtime"                       -> Handler.fromFunctionZIO[Request](request => guard(request)(operationsPage)),
+    Method.GET / "console" / "runtime" / "panel"             -> Handler.fromFunctionZIO[Request](request => guard(request)(operationsPanel(request))),
     Method.GET / "console" / "assets" / "datastar-v1.0.2.js" -> Handler.fromFunctionZIO[Request](request => guard(request)(datastarAsset)),
     Method.GET / "console" / "assets" / "graviton-logo.svg"  -> Handler.fromFunctionZIO[Request](request => guard(request)(logoAsset)),
     Method.POST / "console" / "folders"                      -> Handler.fromFunctionZIO[Request](request => guard(request)(createFolder(request))),
@@ -116,17 +120,17 @@ final class ConsoleApi(
       session <- parseSession(request).orElse(Random.nextUUID.map(_.toString))
     yield fragmentResponse(renderWorkspace(listing, session))).catchAll(error => mutationError(request, error))
 
-  private def runtimePage: UIO[Response] =
+  private def operationsPage: UIO[Response] =
     for
       session  <- Random.nextUUID.map(_.toString)
-      snapshot <- runtimeHealth.refresh
-    yield htmlResponse(renderPage(renderRuntime(snapshot, session)))
+      snapshot <- operations.current
+    yield htmlResponse(renderPage(renderOperations(snapshot, session)))
 
-  private def runtimePanel(request: Request): UIO[Response] =
+  private def operationsPanel(request: Request): UIO[Response] =
     for
       session  <- parseSession(request).orElse(Random.nextUUID.map(_.toString))
-      snapshot <- runtimeHealth.refresh
-    yield fragmentResponse(renderRuntime(snapshot, session))
+      snapshot <- operations.current
+    yield fragmentResponse(renderOperations(snapshot, session))
 
   private def createFolder(request: Request): UIO[Response] =
     (for
@@ -410,105 +414,161 @@ final class ConsoleApi(
       )}>${icon("close")}</button></div>
        |</div>""".stripMargin
 
-  private def renderRuntime(snapshot: RuntimeHealth.Snapshot, session: String): String =
-    val refreshUrl = consoleUrl("/console/runtime/panel", None, Some(session))
-    val healthy    = snapshot.ready
-    val stateClass = if healthy then "ready" else "unavailable"
-    val heading    = snapshot.shardcake match
-      case Some(cluster) =>
-        cluster.status match
-          case graviton.integration.shardcake.ShardcakeHealth.Status.Healthy     => "Cluster ready"
-          case graviton.integration.shardcake.ShardcakeHealth.Status.Rebalancing => "Rebalancing"
-          case graviton.integration.shardcake.ShardcakeHealth.Status.Starting    => "Starting"
-          case graviton.integration.shardcake.ShardcakeHealth.Status.Unassigned  => "Node unassigned"
-          case graviton.integration.shardcake.ShardcakeHealth.Status.Unavailable => "Placement unavailable"
-      case None          => if healthy then "Runtime ready" else "Storage unavailable"
-    val detail     = snapshot.shardcake.fold(
-      if healthy then "The blob store passed its operational check." else "The blob store did not pass its operational check."
-    )(_.detail)
-    val placement  = snapshot.shardcake.fold(renderSingleNode(snapshot))(renderPlacement)
-    val process    = snapshot.process
-    val reuse      = Math.round(process.reuseRatio * 100.0)
-    val checked    = java.time.Instant.ofEpochMilli(snapshot.checkedAtMillis).toString
+  private def renderOperations(snapshot: Operations.Snapshot, session: String): String =
+    val refreshUrl = consoleUrl("/console/operations/panel", None, Some(session))
+    val stateClass = snapshot.status.toString.toLowerCase(java.util.Locale.ROOT)
+    val heading    = snapshot.status match
+      case Operations.Status.Ready       => "Ready"
+      case Operations.Status.Degraded    => "Degraded"
+      case Operations.Status.Unavailable => "Unavailable"
+    val traffic    = snapshot.traffic
+    val checked    = java.time.Instant.ofEpochMilli(snapshot.observedAtEpochMillis).toString
 
     s"""<section id="workspace" class="workspace runtime-workspace" data-session="${escape(session)}" data-refresh="${escape(
         refreshUrl
       )}" ${ConsoleDatastar.interval(5000L, s"@get('${js(refreshUrl)}')")}>
        |  <div class="commandbar">
-       |    <div class="command-title">${viewTabs(View.Runtime, session)}<h1>Runtime</h1></div>
+       |    <div class="command-title">${viewTabs(View.Operations, session)}<h1>Operations</h1></div>
        |    <div class="command-actions">
+       |      <a class="text-link" href="/api/ops/v1/snapshot" target="_blank" rel="noreferrer">JSON</a>
        |      <a class="text-link" href="/metrics" target="_blank" rel="noreferrer">Prometheus</a>
        |      <button class="button" type="button" ${ConsoleDatastar.click(
         s"@get('${js(refreshUrl)}')"
-      )} title="Check now" aria-label="Check runtime now">${icon(
-        "refresh"
-      )}</button>
+      )} title="Refresh" aria-label="Refresh operations">${icon("refresh")}</button>
        |    </div>
        |  </div>
        |  <div class="runtime-layout">
        |    <main class="runtime-main">
        |      <section class="health-summary $stateClass" aria-live="polite">
        |        <div class="health-heading"><span class="status-mark" aria-hidden="true"></span><h2>${escape(heading)}</h2></div>
-       |        <p>${escape(detail)}</p>
-       |        <div class="check-time">Checked <time datetime="${escape(checked)}">${escape(checked)}</time></div>
+       |        <p>${escape(snapshot.summary)}</p>
+       |        <div class="check-time">Checked <time datetime="${escape(checked)}">${escape(
+        checked
+      )}</time> · sequence ${snapshot.sequence}</div>
        |      </section>
-       |      $placement
+       |      ${renderChecks(snapshot.checks)}
+       |      ${renderCapacity(snapshot.capacity)}
+       |      ${renderOperationsPlacement(snapshot.placement)}
        |    </main>
        |    <aside class="telemetry" aria-label="Process metrics">
        |      <div class="telemetry-heading"><h2>Since start</h2><span>process lifetime</span></div>
-       |      ${metricRow("Blob ingests", formatCount(process.blobIngests))}
-       |      ${metricRow("Bytes accepted", formatBytes(process.bytesIngested))}
-       |      ${metricRow("Fresh blocks", formatCount(process.freshBlocks))}
-       |      ${metricRow("Duplicate blocks", formatCount(process.duplicateBlocks))}
-       |      ${metricRow("Block reuse", s"$reuse%", "accent")}
-       |      ${metricRow("Local routes", formatCount(process.localRoutes))}
-       |      ${metricRow("Remote routes", formatCount(process.remoteRoutes))}
-       |      ${metricRow("Routing failures", formatCount(process.localityFailures), if process.localityFailures > 0 then "danger" else "")}
+       |      ${metricRow("Blob ingests", formatCount(traffic.blobIngests))}
+       |      ${metricRow("Bytes accepted", formatBytes(traffic.bytesIngested))}
+       |      ${metricRow("Fresh bytes", formatBytes(traffic.freshBytes))}
+       |      ${metricRow("Reused bytes", formatBytes(traffic.duplicateBytes))}
+       |      ${metricRow("Byte reuse", s"${traffic.byteReusePercent}%", "accent")}
+       |      ${metricRow("HTTP requests", formatCount(traffic.httpRequests))}
+       |      ${metricRow("HTTP errors", formatCount(traffic.httpErrors), if traffic.httpErrors > 0 then "danger" else "")}
+       |      ${renderDurability(snapshot.durability)}
+       |      ${renderDependencies(snapshot.dependencies)}
        |    </aside>
        |  </div>
        |</section>""".stripMargin
 
-  private def renderPlacement(snapshot: graviton.integration.shardcake.ShardcakeHealth.Snapshot): String =
-    val assignedPercent = percent(snapshot.assignedShards, snapshot.configuredShards)
-    val localPercent    = percent(snapshot.localAssignedShards, snapshot.configuredShards)
-    s"""<section class="placement">
-       |  <div class="section-heading"><h2>Shard placement</h2><span>${snapshot.assignedShards} / ${snapshot.configuredShards} assigned</span></div>
-       |  <div class="assignment-track" aria-label="$assignedPercent% of shards assigned, $localPercent% owned by this node">
-       |    <i class="assignment-local" style="--width: $localPercent%"></i><i class="assignment-remote" style="--width: ${(assignedPercent - localPercent)
-        .max(0)}%"></i>
-       |  </div>
+  private def renderChecks(checks: List[Operations.Check]): String =
+    val rows = checks.map { check =>
+      val status = check.status.toString.toLowerCase(java.util.Locale.ROOT)
+      s"""<div class="check-row $status">
+         |  <span class="check-indicator" aria-hidden="true"></span>
+         |  <div><strong>${escape(check.label)}</strong><span>${escape(check.detail)}</span></div>
+         |  <em>${escape(status)}</em>
+         |</div>""".stripMargin
+    }.mkString
+    s"""<section class="operations-section">
+       |  <div class="section-heading"><h2>Checks</h2><span>${checks.count(_.status == Operations.CheckStatus.Ready)} ready</span></div>
+       |  <div class="check-list">$rows</div>
+       |</section>""".stripMargin
+
+  private def renderCapacity(capacity: Operations.Capacity): String =
+    val distributed =
+      if !capacity.distributedEnabled then "<div><dt>Cluster admission</dt><dd>Process-local</dd></div>"
+      else
+        s"""<div><dt>Cluster memory</dt><dd>${capacity.serviceBufferedBytes.fold("Unavailable")(formatBytes)} / ${capacity.serviceLimitBytes
+            .fold("Unavailable")(formatBytes)}</dd></div>
+           |<div><dt>Cluster transfers</dt><dd>${formatOptional(capacity.serviceTransfers)} / ${formatOptional(
+            capacity.serviceTransferLimit.map(_.toLong)
+          )}</dd></div>
+           |<div><dt>Backend transfers</dt><dd>${formatOptional(capacity.backendTransfers)} / ${formatOptional(
+            capacity.backendTransferLimit.map(_.toLong)
+          )}</dd></div>
+           |<div><dt>Lease loss</dt><dd>${formatCount(capacity.lostLeases)}</dd></div>""".stripMargin
+    s"""<section class="placement capacity-panel">
+       |  <div class="section-heading"><h2>Transfer capacity</h2><span>${capacity.localUsedPercent}% reserved</span></div>
+       |  <div class="capacity-track" aria-label="${capacity.localUsedPercent}% of local transfer memory reserved"><i style="--width: ${capacity.localUsedPercent}%"></i></div>
        |  <dl class="runtime-facts">
-       |    <div><dt>Node</dt><dd>${escape(snapshot.node.id.value)}</dd></div>
-       |    <div><dt>Local ownership</dt><dd>${snapshot.localAssignedShards} shards</dd></div>
-       |    <div><dt>Observed nodes</dt><dd>${snapshot.observedNodes}</dd></div>
-       |    <div><dt>Tracked sessions</dt><dd>${snapshot.trackedSessions}</dd></div>
-       |    <div><dt>Upload endpoint</dt><dd>${escape(snapshot.node.host.value)}:${snapshot.node.uploadPort.value}</dd></div>
-       |    <div><dt>Control endpoint</dt><dd>${escape(snapshot.node.host.value)}:${snapshot.node.controlPort.value}</dd></div>
+       |    <div><dt>Local available</dt><dd>${formatBytes(capacity.localAvailableBytes)}</dd></div>
+       |    <div><dt>Local limit</dt><dd>${formatBytes(capacity.localLimitBytes)}</dd></div>
+       |    <div><dt>Admitted</dt><dd>${formatCount(capacity.admittedTransfers)}</dd></div>
+       |    <div><dt>Rejected</dt><dd>${formatCount(capacity.rejectedTransfers)}</dd></div>
+       |    $distributed
        |  </dl>
        |</section>""".stripMargin
 
-  private def renderSingleNode(snapshot: RuntimeHealth.Snapshot): String =
-    val storage = if snapshot.storage == RuntimeHealth.StorageStatus.Ready then "Ready" else "Unavailable"
-    s"""<section class="placement single-node">
-       |  <div class="section-heading"><h2>Local topology</h2><span>Shardcake disabled</span></div>
-       |  <dl class="runtime-facts">
-       |    <div><dt>Blob store</dt><dd>$storage</dd></div>
-       |    <div><dt>Routing</dt><dd>Single node</dd></div>
-       |  </dl>
-       |</section>""".stripMargin
+  private def renderOperationsPlacement(snapshot: Operations.Placement): String =
+    if !snapshot.enabled then s"""<section class="placement single-node">
+                                 |  <div class="section-heading"><h2>Placement</h2><span>single node</span></div>
+                                 |  <dl class="runtime-facts">
+                                 |    <div><dt>Routing</dt><dd>Local</dd></div>
+                                 |    <div><dt>Observed nodes</dt><dd>1</dd></div>
+                                 |  </dl>
+                                 |</section>""".stripMargin
+    else
+      val assignedPercent = percent(snapshot.assignedShards, snapshot.configuredShards)
+      val localPercent    = percent(snapshot.localAssignedShards, snapshot.configuredShards)
+      s"""<section class="placement">
+         |  <div class="section-heading"><h2>Shard placement</h2><span>${snapshot.assignedShards} / ${snapshot.configuredShards} assigned</span></div>
+         |  <div class="assignment-track" aria-label="$assignedPercent% of shards assigned, $localPercent% owned by this node">
+         |    <i class="assignment-local" style="--width: $localPercent%"></i><i class="assignment-remote" style="--width: ${(assignedPercent - localPercent)
+          .max(0)}%"></i>
+         |  </div>
+         |  <dl class="runtime-facts">
+         |    <div><dt>Node</dt><dd>${snapshot.nodeId.fold("Unknown")(node => escape(node.value))}</dd></div>
+         |    <div><dt>Local ownership</dt><dd>${snapshot.localAssignedShards} shards</dd></div>
+         |    <div><dt>Observed nodes</dt><dd>${snapshot.observedNodes}</dd></div>
+         |    <div><dt>Tracked sessions</dt><dd>${snapshot.trackedSessions}</dd></div>
+         |    <div><dt>Status</dt><dd>${escape(snapshot.status.code)}</dd></div>
+         |  </dl>
+         |</section>""".stripMargin
+
+  private def renderDurability(value: Operations.Durability): String =
+    if !value.repairConfigured then ""
+    else
+      s"""<section class="telemetry-group">
+         |  <div class="telemetry-heading"><h2>Durability</h2><span>repair</span></div>
+         |  ${metricRow("Healthy targets", formatCount(value.healthyTargets))}
+         |  ${metricRow("Under-protected", formatCount(value.underProtectedBlocks), if value.underProtectedBlocks > 0 then "danger" else "")}
+         |  ${metricRow("Failed blocks", formatCount(value.failedBlocks), if value.failedBlocks > 0 then "danger" else "")}
+         |  ${metricRow("Repaired copies", formatCount(value.repairedCopies))}
+         |</section>""".stripMargin
+
+  private def renderDependencies(values: List[Operations.Dependency]): String =
+    val rows = values
+      .filter(_.observed)
+      .map { dependency =>
+        val connectionDetail = dependency.activeConnections
+          .zip(dependency.maximumConnections)
+          .map { case (active, maximum) => s"$active / $maximum connections" }
+          .getOrElse(s"${dependency.operations} operations")
+        val pressure         = dependency.awaitingConnections.filter(_ > 0L).fold("")(waiting => s" · $waiting waiting")
+        s"<div class=\"dependency-row\"><strong>${escape(dependency.kind.label)}</strong><span>${escape(connectionDetail + pressure)}</span></div>"
+      }
+      .mkString
+    if rows.isEmpty then ""
+    else
+      s"<section class=\"telemetry-group\"><div class=\"telemetry-heading\"><h2>Dependencies</h2><span>observed</span></div>$rows</section>"
 
   private def viewTabs(active: View, session: String): String =
     val libraryClass = if active == View.Library then " active" else ""
-    val runtimeClass = if active == View.Runtime then " active" else ""
+    val runtimeClass = if active == View.Operations then " active" else ""
     val libraryUrl   = consoleUrl("/console/library", None, Some(session))
-    val runtimeUrl   = consoleUrl("/console/runtime/panel", None, Some(session))
+    val runtimeUrl   = consoleUrl("/console/operations/panel", None, Some(session))
     s"""<nav class="view-tabs" aria-label="Console view">
        |  <a class="view-tab$libraryClass" ${navigationAttributes(libraryUrl, "/console")} ${
         if active == View.Library then "aria-current=\"page\"" else ""
       }>Library</a>
-       |  <a class="view-tab$runtimeClass" ${navigationAttributes(runtimeUrl, "/console/runtime")} ${
-        if active == View.Runtime then "aria-current=\"page\"" else ""
-      }>Runtime</a>
+       |  <a class="view-tab$runtimeClass" ${navigationAttributes(runtimeUrl, "/console/operations")} ${
+        if active == View.Operations then "aria-current=\"page\"" else ""
+      }>Operations</a>
        |</nav>""".stripMargin
 
   private def metricRow(label: String, value: String, valueClass: String = ""): String =
@@ -519,6 +579,8 @@ final class ConsoleApi(
 
   private def formatCount(value: Long): String =
     java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(value)
+
+  private def formatOptional(value: Option[Long]): String = value.fold("Unavailable")(formatCount)
 
   private val renderEmpty: String =
     "<div class=\"empty\"><div><strong>Drop files here</strong>or choose Upload files</div></div>"
@@ -615,7 +677,7 @@ object ConsoleApi:
   private val ConsoleTenant = TenantId.applyUnsafe("00000000-0000-4000-8000-000000000001")
 
   private enum View:
-    case Library, Runtime
+    case Library, Operations
 
   final case class UploadResponse(
     fileId: String,

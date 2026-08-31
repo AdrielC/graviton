@@ -41,7 +41,7 @@ Each service has a testable port. Shardcake, zio-http, PostgreSQL, PDF-aware ing
 
 Health checks distinguish startup, healthy, rebalancing, unassigned, and unavailable states. A partial assignment set remains ready when the local node owns shards, so a rolling rebalance does not eject a node that can still route uploads. Placement calls use the configured Shardcake send timeout. Status transitions are logged with `component`, `operation`, and `node_id` annotations; tenant and upload session values appear only in upload log context and never in metric labels.
 
-The adapter records health outcomes, probe duration, readiness, cluster and local assignment counts, observed nodes, and tracked hot-state entries through the shared ZIO Metrics-backed registry. The local console's Runtime view reads the same health service and process counters that feed readiness and Prometheus.
+The adapter records health outcomes, probe duration, readiness, cluster and local assignment counts, observed nodes, and tracked hot-state entries through the shared ZIO Metrics-backed registry. The local console's Operations view reads the same health service and process counters that feed readiness and Prometheus.
 
 ## Security boundaries
 

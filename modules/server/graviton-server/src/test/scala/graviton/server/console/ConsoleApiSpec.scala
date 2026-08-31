@@ -1,7 +1,7 @@
 package graviton.server.console
 
 import graviton.protocol.http.BlobIngest
-import graviton.server.RuntimeHealth
+import graviton.server.operations.Operations
 import graviton.runtime.Graviton
 import graviton.runtime.catalog.{Catalog, InMemoryCatalog}
 import graviton.shared.ApiJson
@@ -22,7 +22,7 @@ object ConsoleApiSpec extends ZIOSpecDefault:
         for
           graviton       <- Graviton.inMemory(chunkSize = 32)
           catalog        <- ZIO.scoped(InMemoryCatalog.layer.build.map(_.get[Catalog]))
-          api             = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testHealth, "test")
+          api             = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testOperations, "test")
           first          <- call(api, "first.txt", bytes)
           firstBody      <- first.body.asString
           firstResult    <- ZIO.fromEither(ApiJson.decode[ConsoleApi.UploadResponse](firstBody)).mapError(new IllegalArgumentException(_))
@@ -54,7 +54,7 @@ object ConsoleApiSpec extends ZIOSpecDefault:
         for
           graviton <- Graviton.inMemory()
           catalog  <- ZIO.scoped(InMemoryCatalog.layer.build.map(_.get[Catalog]))
-          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testHealth, "test")
+          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testOperations, "test")
           url      <- ZIO.fromEither(URL.decode("http://localhost/console"))
           response <- ZIO.scoped(api.app(Request.get(url)))
           body     <- response.body.asString
@@ -74,27 +74,29 @@ object ConsoleApiSpec extends ZIOSpecDefault:
         val click  = ConsoleDatastar.click("@get('/console/library')")
         val link   = ConsoleDatastar.clickPrevent("@get('/console/library')")
         val submit = ConsoleDatastar.submit("@post('/console/folders')")
-        val poll   = ConsoleDatastar.interval(5000L, "@get('/console/runtime/panel')")
+        val poll   = ConsoleDatastar.interval(5000L, "@get('/console/operations/panel')")
         assertTrue(
           click == "data-on:click=\"@get(&#x27;/console/library&#x27;)\"",
           link == "data-on:click__prevent=\"@get(&#x27;/console/library&#x27;)\"",
           submit == "data-on:submit__prevent=\"@post(&#x27;/console/folders&#x27;)\"",
-          poll == "data-on-interval__duration.5000ms=\"@get(&#x27;/console/runtime/panel&#x27;)\"",
+          poll == "data-on-interval__duration.5000ms=\"@get(&#x27;/console/operations/panel&#x27;)\"",
         )
       },
-      test("renders real runtime health as a polling DataStar fragment") {
+      test("renders the real operator snapshot as a polling DataStar fragment") {
         for
           graviton <- Graviton.inMemory()
           catalog  <- ZIO.scoped(InMemoryCatalog.layer.build.map(_.get[Catalog]))
-          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testHealth, "test")
-          url      <- ZIO.fromEither(URL.decode("http://localhost/console/runtime"))
+          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testOperations, "test")
+          url      <- ZIO.fromEither(URL.decode("http://localhost/console/operations"))
           response <- ZIO.scoped(api.app(Request.get(url)))
           body     <- response.body.asString
         yield assertTrue(
           response.status == Status.Ok,
-          body.contains("Runtime ready"),
+          body.contains("All active operational checks are ready"),
           body.contains("data-on-interval__duration.5000ms"),
           body.contains("Since start"),
+          body.contains("Transfer capacity"),
+          body.contains("href=\"/api/ops/v1/snapshot\""),
           body.contains("href=\"/metrics\""),
           body.contains("/console/assets/graviton-logo.svg"),
           !body.contains("Stream the evidence"),
@@ -104,7 +106,7 @@ object ConsoleApiSpec extends ZIOSpecDefault:
         for
           graviton <- Graviton.inMemory()
           catalog  <- ZIO.scoped(InMemoryCatalog.layer.build.map(_.get[Catalog]))
-          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testHealth, "test")
+          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testOperations, "test")
           pageUrl  <- ZIO.fromEither(URL.decode("http://localhost/console"))
           assetUrl <- ZIO.fromEither(URL.decode("http://localhost/console/assets/datastar-v1.0.2.js"))
           rejected <- ZIO.scoped(
@@ -131,7 +133,7 @@ object ConsoleApiSpec extends ZIOSpecDefault:
         for
           graviton <- Graviton.inMemory()
           catalog  <- ZIO.scoped(InMemoryCatalog.layer.build.map(_.get[Catalog]))
-          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testHealth, "test")
+          api       = ConsoleApi(catalog, graviton.blobStore, BlobIngest.make(graviton.blobStore, None), None, testOperations, "test")
           url      <- ZIO.fromEither(
                         URL.decode(
                           "http://localhost/console/folders?name=Research&session=ab573594-abaa-44fa-867a-8c733bf87f6c"
@@ -166,14 +168,20 @@ object ConsoleApiSpec extends ZIOSpecDefault:
       response <- Chunker.locally(Chunker.fixed(UploadChunkSize.applyUnsafe(32)))(ZIO.scoped(api.app(request)))
     yield response
 
-  private val testHealth: RuntimeHealth =
-    new RuntimeHealth:
-      override val refresh: UIO[RuntimeHealth.Snapshot] =
-        ZIO.succeed(
-          RuntimeHealth.Snapshot(
-            storage = RuntimeHealth.StorageStatus.Ready,
-            shardcake = None,
-            process = RuntimeHealth.ProcessMetrics(0L, 0L, 0L, 0L, 0L, 0L, 0L),
-            checkedAtMillis = 0L,
-          )
-        )
+  private val testOperations: Operations = Operations.fixed(
+    Operations.Snapshot(
+      sequence = 1L,
+      observedAtEpochMillis = 0L,
+      status = Operations.Status.Ready,
+      summary = "All active operational checks are ready",
+      checks = List(
+        Operations.Check(Operations.CheckId.Storage, "Storage", Operations.CheckStatus.Ready, "Blob and upload stores responded"),
+        Operations.Check(Operations.CheckId.Placement, "Shard placement", Operations.CheckStatus.Inactive, "Single-node routing"),
+      ),
+      placement = Operations.Placement(false, Operations.PlacementStatus.SingleNode, None, 0, 0, 0, 1, 0),
+      capacity = Operations.Capacity(536870912L, 536870912L, 0, false, None, None, None, None, None, None, None, 0L, 0L, 0L),
+      durability = Operations.Durability(false, false, 0L, 0L, 0L, 0L, 0L, None),
+      dependencies = List.empty,
+      traffic = Operations.Traffic(0L, 0L, 0L, 0L, 0L, 0L, 0, 0L, 0L, 0L, 0L),
+    )
+  )
