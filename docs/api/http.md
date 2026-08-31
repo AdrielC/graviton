@@ -198,11 +198,15 @@ Success returns `204`. Deletion removes the logical manifest. Shared blocks rema
 ```http
 GET /api/health/live
 GET /api/health/ready
+GET /api/ops/v1/snapshot
+GET /api/ops/v1/events
 GET /api/stats
 GET /metrics
 ```
 
-Liveness reports the packaged build version and uptime. Readiness checks active backing services with a five-second timeout. Stats and metrics are process-local observations and are protected by `observability.read` when security is enabled.
+Liveness reports the packaged build version and uptime. Readiness checks active backing services with a five-second timeout. `/api/ops/v1/snapshot` returns the current typed storage, placement, transfer-capacity, durability, dependency, and traffic state. `/api/ops/v1/events` sends complete sequenced snapshots as a bounded server-sent event stream. Operator state, stats, and metrics are process-local observations and are protected by `observability.read` when security is enabled.
+
+The event stream may skip intermediate observations for a slow subscriber. Each event is a complete snapshot, so the next event restores the current state without replaying an unbounded history. See [Operator Control Plane](../ops/control-plane.md).
 
 ## Error envelope
 

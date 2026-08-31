@@ -238,10 +238,12 @@ Do not set `GRAVITON_SECURITY_DEV_SHARED_SECRET` in production. Enable trusted p
 | `GET /api/health/live` | Process is alive and returns the packaged build version |
 | `GET /api/health/ready` | Active block, manifest, resumable-ledger, and staging targets respond within five seconds; a Shardcake node must also have an assigned shard |
 | `GET /api/health` | Compatibility alias for liveness |
+| `GET /api/ops/v1/snapshot` | Current typed storage, placement, transfer-capacity, durability, dependency, and traffic state |
+| `GET /api/ops/v1/events` | Complete sequenced operator snapshots over a bounded server-sent event stream |
 | `GET /api/stats` | JSON process counters |
 | `GET /metrics` | Native ZIO Metrics Prometheus text including JVM, ingest, HTTP, locality, and Shardcake health observations |
 
-Stats and metrics require `observability.read` when security is enabled. Readiness is necessary for traffic admission but is not a substitute for an end-to-end canary or restore drill.
+Operator state, stats, and metrics require `observability.read` when security is enabled. Readiness is necessary for traffic admission but is not a substitute for an end-to-end canary or restore drill.
 
 ## Upgrade sequence
 

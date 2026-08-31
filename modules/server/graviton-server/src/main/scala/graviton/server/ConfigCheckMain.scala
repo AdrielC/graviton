@@ -15,6 +15,7 @@ import graviton.runtime.config.{
 }
 import graviton.security.SecurityConfig
 import graviton.server.console.ConsoleConfig
+import graviton.server.operations.Operations
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
 
@@ -33,6 +34,7 @@ object ConfigCheckMain extends ZIOAppDefault:
       registration <- ZIO.config(ShardcakeRegistrationConfig.config)
       console      <- ZIO.config(ConsoleConfig.config)
       _            <- ZIO.config(RuntimeHealth.Config.config)
+      _            <- ZIO.config(Operations.Config.config)
       security     <- ZIO.config(SecurityConfig.config)
       tenant       <- ZIO.config(TenantDataPlaneConfig.config)
       _            <- ZIO.config(TenantStorageConfig.config)

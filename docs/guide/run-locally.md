@@ -52,7 +52,7 @@ GRAVITON_CONSOLE_ENABLED=true ./sbt "server/run"
 open http://127.0.0.1:8081/console
 ```
 
-The server binds to loopback while the unauthenticated console is enabled. Uploads use raw streaming request bodies, not multipart or base64. The file library exposes real CAS reuse, byte-stream downloads, and mutable folders that reference immutable blob IDs. The Runtime view shows live storage readiness, Shardcake assignment state when enabled, and actual process metrics. Server-rendered actions and the five-second health refresh use the ZIO Blocks DataStar algebra and the official DataStar browser runtime. In filesystem mode, folder and file references are atomically persisted below `GRAVITON_FS_ROOT/catalog/` in a size-bounded ZIO Blocks JSON document and survive restart with the CAS manifests.
+The server binds to loopback while the unauthenticated console is enabled. Uploads use raw streaming request bodies, not multipart or base64. The file library exposes real CAS reuse, byte-stream downloads, and mutable folders that reference immutable blob IDs. The Operations view shows live storage readiness, transfer capacity, Shardcake assignment state when enabled, durability, active dependencies, and actual process metrics. Server-rendered actions and the five-second operator refresh use the ZIO Blocks Datastar algebra and the official Datastar browser runtime. In filesystem mode, folder and file references are atomically persisted below `GRAVITON_FS_ROOT/catalog/` in a size-bounded ZIO Blocks JSON document and survive restart with the CAS manifests.
 
 For the complete shared-storage topology, run:
 

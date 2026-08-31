@@ -117,6 +117,7 @@ export default withMermaid(defineConfig({
         items: [
           { text: 'Run Locally', link: '/guide/run-locally' },
           { text: 'Configuration', link: '/guide/configuration-reference' },
+          { text: 'Control Plane', link: '/ops/control-plane' },
           { text: 'Deployment', link: '/ops/deployment' },
           { text: 'Production Readiness', link: '/ops/production-readiness' }
         ]
@@ -177,6 +178,7 @@ export default withMermaid(defineConfig({
         collapsed: true,
         items: [
           { text: 'Production Readiness', link: '/ops/production-readiness' },
+          { text: 'Operator Control Plane', link: '/ops/control-plane' },
           { text: 'Deployment', link: '/ops/deployment' },
           { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },

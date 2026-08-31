@@ -77,6 +77,7 @@ import graviton.shared.ApiModels.*
 import graviton.shared.ApiJson
 import graviton.server.console.{ConsoleApi, ConsoleConfig}
 import graviton.server.metrics.ZioMetricsRegistry
+import graviton.server.operations.{Operations, OperationsHttpApi}
 import zio.*
 import zio.http.*
 import zio.metrics.connectors.MetricsConfig
@@ -132,6 +133,7 @@ object Main extends ZIOAppDefault:
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
       healthConfig                                 <- ZIO.config(RuntimeHealth.Config.config)
+      operationsConfig                             <- ZIO.config(Operations.Config.config)
       sec                                          <- ZIO.config(SecurityConfig.config)
       rateLimiterRegistry                          <- ZIO.config(RateLimiter.RegistryConfig.config)
       registration                                 <- ZIO.config(ShardcakeRegistrationConfig.config)
@@ -194,6 +196,16 @@ object Main extends ZIOAppDefault:
                                                                                                   metrics,
                                                                                                   healthConfig,
                                                                                                 )
+                                                          operations                         <- Operations.make(
+                                                                                                  runtimeHealth,
+                                                                                                  metrics,
+                                                                                                  transferBudget,
+                                                                                                  transferMemory,
+                                                                                                  distributedAdmission,
+                                                                                                  redisAdmissionConfig,
+                                                                                                  cfg.replication.enabled,
+                                                                                                  operationsConfig,
+                                                                                                )
                                                           _                                  <- resumable.cleanupExpired
                                                                                                   .tapBoth(
                                                                                                     error => ZIO.logErrorCause("Resumable upload cleanup failed", Cause.fail(error)),
@@ -235,6 +247,7 @@ object Main extends ZIOAppDefault:
                                                                                                 )
                                                           localizedUpload                     = shardcakeNode.map(_.locality)
                                                           metricsApi                          = Some(MetricsHttpApi(metrics, policy))
+                                                          operationsApi                       = OperationsHttpApi(operations, policy)
                                                           singleApi                           = HttpApi(
                                                                                                   blobStore = blobStore,
                                                                                                   metrics = metricsApi,
@@ -323,7 +336,7 @@ object Main extends ZIOAppDefault:
                                                                             .flatMap(result => active.recordOutcome("observability.stats.read", resource, result).as(result)),
                                                                       )
                                                               }
-                                                            )
+                                                            ) ++ operationsApi.routes
 
                                                           appRoutes: Routes[Any, Nothing]     =
                                                             verifierOpt match
@@ -353,7 +366,7 @@ object Main extends ZIOAppDefault:
                                                                 blobStore,
                                                                 BlobIngest.make(blobStore, localizedUpload),
                                                                 Option.when(shardcakeNode.isDefined)(shardcake.node),
-                                                                runtimeHealth,
+                                                                operations,
                                                                 _root_.graviton.server.BuildInfo.version,
                                                               ).routes
                                                             else Routes.empty
