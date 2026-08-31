@@ -1,110 +1,110 @@
 {
   "schemaVersion": 1,
   "auditedOn": "2026-08-31",
-  "mainBaseline": "59331d091ad6dc4a9af22f63c7221595e02f6843",
-  "latestRelease": "v0.7.0",
+  "mainBaseline": "12aa27be843715bca7582debfe456037405c6942",
+  "latestRelease": "v0.8.0",
   "claims": [
     {
       "id": "filesystem-cas",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["README.md", "docs/guide/storage-backends.md"],
       "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/CasBlobStore.scala", "contains": "final class CasBlobStore"}],
       "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/CasBlobStoreSpec.scala", "contains": "object CasBlobStoreSpec"}]
     },
     {
       "id": "s3-postgresql",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["docs/modules/backend.md"],
       "implementation": [{"path": "modules/backend/graviton-s3/src/main/scala/graviton/backend/s3/S3BlockStore.scala", "contains": "final class S3BlockStore"}, {"path": "modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgBlobManifestRepo.scala", "contains": "final class PgBlobManifestRepo"}],
       "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/MinioCasRoundTripSpec.scala", "contains": "object MinioCasRoundTripSpec"}]
     },
     {
       "id": "http-sdk",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["docs/api/http.md", "docs/guide/scala-sdk.md"],
       "implementation": [{"path": "modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/HttpApi.scala", "contains": "final case class HttpApi"}, {"path": "modules/protocol/graviton-http/src/main/scala/ai/hylo/graviton/client/GravitonClient.scala", "contains": "final class GravitonClient"}],
       "tests": [{"path": "modules/protocol/graviton-http/src/test/scala/graviton/protocol/http/HttpApiSpec.scala", "contains": "object HttpApiSpec"}, {"path": "modules/protocol/graviton-http/src/test/scala/ai/hylo/graviton/client/GravitonClientSpec.scala", "contains": "object GravitonClientSpec"}]
     },
     {
       "id": "grpc",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["docs/api/grpc.md"],
       "implementation": [{"path": "modules/protocol/graviton-grpc/src/main/scala/graviton/protocol/grpc/GravitonGrpcServer.scala", "contains": "object GravitonGrpcServer"}],
       "tests": [{"path": "modules/protocol/graviton-grpc/src/test/scala/graviton/protocol/grpc/GravitonGrpcIntegrationSpec.scala", "contains": "object GravitonGrpcIntegrationSpec"}]
     },
     {
       "id": "pdf-aware-ingest",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["docs/modules/pdf.md"],
       "implementation": [{"path": "modules/graviton-pdf/src/main/scala/graviton/pdf/PdfAwareChunker.scala", "contains": "object PdfAwareChunker"}],
       "tests": [{"path": "modules/graviton-pdf/src/test/scala/graviton/pdf/PdfAwareChunkerSpec.scala", "contains": "object PdfAwareChunkerSpec"}]
     },
     {
       "id": "shardcake-locality",
-      "status": "optional-released-v0.7.0",
+      "status": "optional-released-v0.8.0",
       "documentation": ["docs/modules/shardcake.md"],
       "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/upload/LocalityAwareUpload.scala", "contains": "trait LocalityAwareUpload"}],
       "tests": [{"path": "modules/integration/graviton-shardcake/src/test/scala/graviton/integration/shardcake/ShardcakeIntegrationSpec.scala", "contains": "object ShardcakeIntegrationSpec"}]
     },
     {
       "id": "transducer-library",
-      "status": "released-v0.7.0",
+      "status": "released-v0.8.0",
       "documentation": ["docs/core/transducers.md"],
       "implementation": [{"path": "modules/graviton-core/src/main/scala/graviton/core/scan/Transducer.scala", "contains": "trait Transducer"}, {"path": "modules/graviton-core/src/main/scala/graviton/core/scan/CasIngest.scala", "contains": "object CasIngest"}],
       "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/TransducerSpec.scala", "contains": "object TransducerSpec"}]
     },
     {
       "id": "aggregate-ingest-summaries",
-      "status": "main-only",
+      "status": "released-v0.8.0",
       "documentation": ["docs/core/transducers.md"],
       "implementation": [{"path": "modules/graviton-core/src/main/scala/graviton/core/scan/IngestPipeline.scala", "contains": "final case class Summary("}, {"path": "modules/graviton-core/src/main/scala/graviton/core/scan/CasIngest.scala", "contains": "final case class Summary("}],
       "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/IngestPipelineSpec.scala", "contains": "all summary fields accessible by name"}, {"path": "modules/graviton-core/src/test/scala/graviton/core/scan/CasIngestSpec.scala", "contains": "count + hash + rechunk + blockKey composes correctly"}]
     },
     {
       "id": "multi-tenant-storage",
-      "status": "optional-main-only",
+      "status": "optional-released-v0.8.0",
       "documentation": ["docs/runtime/multi-tenancy.md"],
       "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/tenant/TenantStorage.scala", "contains": "final class ContextualTenantBlobStore"}],
       "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/tenant/TenantStorageSpec.scala", "contains": "object TenantStorageSpec"}]
     },
     {
       "id": "distributed-admission",
-      "status": "optional-main-only",
+      "status": "optional-released-v0.8.0",
       "documentation": ["docs/modules/distributed-admission.md"],
       "implementation": [{"path": "modules/integration/graviton-admission-redis/src/main/scala/graviton/integration/redis/RedisDistributedAdmission.scala", "contains": "final class RedisDistributedAdmission"}, {"path": "modules/protocol/graviton-grpc/src/main/scala/graviton/protocol/grpc/TrafficQuotaBlobService.scala", "contains": "final class TrafficQuotaBlobService"}],
       "tests": [{"path": "modules/integration/graviton-admission-redis/src/test/scala/graviton/integration/redis/RedisDistributedAdmissionSpec.scala", "contains": "object RedisDistributedAdmissionSpec"}, {"path": "modules/protocol/graviton-grpc/src/test/scala/graviton/protocol/grpc/GravitonGrpcIntegrationSpec.scala", "contains": "charges distributed request and delivered-egress quotas"}]
     },
     {
       "id": "postgres-migrations",
-      "status": "main-only",
+      "status": "released-v0.8.0",
       "documentation": ["docs/ops/postgres-storage.md"],
       "implementation": [{"path": "modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql", "contains": "Graviton migration V001: authoritative byte-substrate schema"}, {"path": "scripts/migrate-postgres.sh", "contains": "graviton_schema_migration"}],
       "tests": [{"path": "scripts/check-postgres-migrations.py", "contains": "EXPECTED_TABLES"}, {"path": ".github/workflows/ci.yml", "contains": "PostgreSQL migration boundary"}]
     },
     {
       "id": "manifest-metadata-integrity",
-      "status": "main-only",
+      "status": "released-v0.8.0",
       "documentation": ["docs/manifests-and-frames.md"],
       "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/BlobMetadataV1.scala", "contains": "final case class BlobMetadataV1"}, {"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/ManifestIntegrity.scala", "contains": "object ManifestIntegrity"}],
       "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/FsBlobManifestRepoSpec.scala", "contains": "object FsBlobManifestRepoSpec"}]
     },
     {
       "id": "tenant-domain-snapshot",
-      "status": "optional-main-only",
+      "status": "optional-released-v0.8.0",
       "documentation": ["docs/runtime/multi-tenancy.md"],
       "implementation": [{"path": "modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgTenantDomainSnapshot.scala", "contains": "final class PgTenantDomainSnapshot"}],
       "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/EmbeddedPgFsCasRoundTripSpec.scala", "contains": "object EmbeddedPgFsCasRoundTripSpec"}]
     },
     {
       "id": "operator-control-plane",
-      "status": "optional-main-only",
+      "status": "optional-released-v0.8.0",
       "documentation": ["docs/ops/control-plane.md"],
       "implementation": [{"path": "modules/server/graviton-server/src/main/scala/graviton/server/operations/Operations.scala", "contains": "object Operations"}],
       "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/operations/OperationsSpec.scala", "contains": "object OperationsSpec"}]
     },
     {
       "id": "production-telemetry-v1",
-      "status": "main-only",
+      "status": "released-v0.8.0",
       "documentation": ["docs/ops/production-readiness.md", "deploy/observability-v1/README.md"],
       "implementation": [{"path": "deploy/observability-v1/grafana/dashboards/graviton-production.json", "contains": "Graviton Production"}, {"path": "deploy/qualification-v1/matrix.json", "contains": "target-required"}],
       "tests": [{"path": "scripts/validate-observability-bundle.py", "contains": "graviton-observability-validation-v1"}, {"path": "scripts/validate-qualification-contract.py", "contains": "REQUIRED_GATES"}]
