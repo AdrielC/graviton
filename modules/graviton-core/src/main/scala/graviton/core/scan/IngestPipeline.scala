@@ -4,6 +4,7 @@ import graviton.core.bytes.*
 import kyo.Record
 import kyo.Record.`~`
 import zio.{Chunk, ChunkBuilder}
+import zio.blocks.schema.Schema
 
 /**
  * Chunk-level transducers for the CAS ingest pipeline.
@@ -13,25 +14,44 @@ import zio.{Chunk, ChunkBuilder}
  * outputs, while `runChunk` and `toSink` intentionally collect them and therefore
  * require an independently bounded input.
  *
- * All transducers use `Hot` state (primitives) on the hot path and only construct
- * `kyo.Record` summaries at flush boundaries. The composed hot state is a tuple
- * of primitives; throughput and allocation claims still require measurement.
- * Aggregate named Record access is currently experimental on Scala 3.8 because
- * Kyo `selectDynamic` can fail for mixed-field summaries. The production CAS
- * path uses these stages only as streaming transformations.
+ * All transducers use `Hot` state (primitives) on the hot path and construct
+ * summaries only at terminal boundaries. Individual stages expose compact
+ * `kyo.Record` summaries. [[countHashRechunk]] maps the aggregate result to the
+ * explicit, schema-backed [[Summary]] type, avoiding dynamic Record access.
+ * The composed hot state is a tuple of primitives; throughput and allocation
+ * claims still require measurement.
  */
 object IngestPipeline:
+
+  /** Stable, schema-backed terminal summary for the composed ingest pipeline. */
+  final case class Summary(
+    totalBytes: Long,
+    digestHex: String,
+    hashBytes: Long,
+    blockCount: Long,
+    rechunkFill: Int,
+  )
+
+  object Summary:
+    given Schema[Summary] = Schema.derived
+
+  private final case class CountSummary(totalBytes: Long)
+  private final case class HashSummary(digestHex: String, hashBytes: Long)
+  private final case class RechunkSummary(blockCount: Long, rechunkFill: Int)
 
   /** Count total bytes. Pass-through. Hot = Long. */
   val countBytes: Transducer[Chunk[Byte], Chunk[Byte], Record["totalBytes" ~ Long]] =
     type S = Record["totalBytes" ~ Long]
+    countBytesWithSummary(h => (Record.empty & ("totalBytes" ~ h)).asInstanceOf[S])
+
+  private def countBytesWithSummary[S](summarize: Long => S): Transducer[Chunk[Byte], Chunk[Byte], S] =
     new Transducer[Chunk[Byte], Chunk[Byte], S]:
       type Hot = Long
       def initHot: Long                                                 = 0L
       def step(h: Long, chunk: Chunk[Byte]): (Long, Chunk[Chunk[Byte]]) =
         (h + chunk.length.toLong, Chunk.single(chunk))
       def flush(h: Long): (Long, Chunk[Chunk[Byte]])                    = (h, Chunk.empty)
-      def toSummary(h: Long): S                                         = (Record.empty & ("totalBytes" ~ h)).asInstanceOf[S]
+      def toSummary(h: Long): S                                         = summarize(h)
       override def stepChunk(h: Long, chunks: Chunk[Chunk[Byte]])       =
         var total = h
         var idx   = 0
@@ -45,6 +65,11 @@ object IngestPipeline:
     algo: HashAlgo = HashAlgo.runtimeDefault
   ): Transducer[Chunk[Byte], Chunk[Byte], Record[("digestHex" ~ String) & ("hashBytes" ~ Long)]] =
     type S = Record[("digestHex" ~ String) & ("hashBytes" ~ Long)]
+    hashBytesWithSummary(algo)((hex, bytes) => (Record.empty & ("digestHex" ~ hex) & ("hashBytes" ~ bytes)).asInstanceOf[S])
+
+  private def hashBytesWithSummary[S](
+    algo: HashAlgo
+  )(summarize: (String, Long) => S): Transducer[Chunk[Byte], Chunk[Byte], S] =
     new Transducer[Chunk[Byte], Chunk[Byte], S]:
       type Hot = (Either[String, Hasher], Long)
       def initHot: Hot                                                = (Hasher.hasher(algo, None), 0L)
@@ -56,7 +81,7 @@ object IngestPipeline:
       def flush(h: Hot): (Hot, Chunk[Chunk[Byte]])                    = (h, Chunk.empty)
       def toSummary(h: Hot): S                                        =
         val hex = h._1.flatMap(_.digest).fold(_ => "", _.hex.value)
-        (Record.empty & ("digestHex" ~ hex) & ("hashBytes" ~ h._2)).asInstanceOf[S]
+        summarize(hex, h._2)
       override def stepChunk(h: Hot, chunks: Chunk[Chunk[Byte]])      =
         var total = h._2
         var idx   = 0
@@ -74,6 +99,11 @@ object IngestPipeline:
     blockSize: Int
   ): Transducer[Chunk[Byte], Chunk[Byte], Record[("blockCount" ~ Long) & ("rechunkFill" ~ Int)]] =
     type S = Record[("blockCount" ~ Long) & ("rechunkFill" ~ Int)]
+    rechunkWithSummary(blockSize)((count, fill) => (Record.empty & ("blockCount" ~ count) & ("rechunkFill" ~ fill)).asInstanceOf[S])
+
+  private def rechunkWithSummary[S](
+    blockSize: Int
+  )(summarize: (Long, Int) => S): Transducer[Chunk[Byte], Chunk[Byte], S] =
     val safeSize = math.max(1, math.min(blockSize, 16 * 1024 * 1024))
     new Transducer[Chunk[Byte], Chunk[Byte], S]:
       type Hot = (Array[Byte], Int, Long) // buf, fill, blockCount
@@ -106,7 +136,7 @@ object IngestPipeline:
         if fill > 0 then ((buf, 0, count), Chunk.single(Chunk.fromArray(java.util.Arrays.copyOf(buf, fill))))
         else (h, Chunk.empty)
       def toSummary(h: Hot): S                                        =
-        (Record.empty & ("blockCount" ~ h._3) & ("rechunkFill" ~ h._2)).asInstanceOf[S]
+        summarize(h._3, h._2)
       override def stepChunk(h: Hot, chunks: Chunk[Chunk[Byte]])      =
         val (buf, fill0, count0) = h
         val out                  = ChunkBuilder.make[Chunk[Byte]]()
@@ -137,14 +167,26 @@ object IngestPipeline:
    * Hot state: `((Long, (Either[String, Hasher], Long)), (Array[Byte], Int, Long))`
    * — all primitives/arrays, '''zero Record allocations in the loop'''.
    *
-   * Summary: `Record[(totalBytes ~ Long) & (digestHex ~ String) & (hashBytes ~ Long) & (blockCount ~ Long) & (rechunkFill ~ Int)]`
-   * The Record is constructed once at flush. Named access to this mixed-field
-   * summary is currently experimental on the supported Scala 3.8 line.
+   * Summary: [[Summary]], constructed once at the terminal boundary and backed
+   * by a ZIO Blocks schema. It deliberately avoids dynamic record access.
    */
   def countHashRechunk(
     blockSize: Int,
     algo: HashAlgo = HashAlgo.runtimeDefault,
-  ) =
-    countBytes >>> hashBytes(algo) >>> rechunk(blockSize)
+  ): Transducer[Chunk[Byte], Chunk[Byte], Summary] =
+    val composed =
+      countBytesWithSummary(CountSummary.apply) >>>
+        hashBytesWithSummary(algo)(HashSummary.apply) >>>
+        rechunkWithSummary(blockSize)(RechunkSummary.apply)
+
+    composed.mapSummary { case ((count, hash), chunks) =>
+      Summary(
+        totalBytes = count.totalBytes,
+        digestHex = hash.digestHex,
+        hashBytes = hash.hashBytes,
+        blockCount = chunks.blockCount,
+        rechunkFill = chunks.rechunkFill,
+      )
+    }
 
 end IngestPipeline

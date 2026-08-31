@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "auditedOn": "2026-08-31",
-  "mainBaseline": "3148f3111f7460864d24d29623e29799398a0d7a",
+  "mainBaseline": "59331d091ad6dc4a9af22f63c7221595e02f6843",
   "latestRelease": "v0.7.0",
   "claims": [
     {
@@ -51,7 +51,14 @@
       "status": "released-v0.7.0",
       "documentation": ["docs/core/transducers.md"],
       "implementation": [{"path": "modules/graviton-core/src/main/scala/graviton/core/scan/Transducer.scala", "contains": "trait Transducer"}, {"path": "modules/graviton-core/src/main/scala/graviton/core/scan/CasIngest.scala", "contains": "object CasIngest"}],
-      "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/TransducerSpec.scala", "contains": "object TransducerSpec"}, {"path": "modules/graviton-core/src/test/scala/graviton/core/scan/IngestPipelineSpec.scala", "contains": ") @@ ignore"}]
+      "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/TransducerSpec.scala", "contains": "object TransducerSpec"}]
+    },
+    {
+      "id": "aggregate-ingest-summaries",
+      "status": "main-only",
+      "documentation": ["docs/core/transducers.md"],
+      "implementation": [{"path": "modules/graviton-core/src/main/scala/graviton/core/scan/IngestPipeline.scala", "contains": "final case class Summary("}, {"path": "modules/graviton-core/src/main/scala/graviton/core/scan/CasIngest.scala", "contains": "final case class Summary("}],
+      "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/IngestPipelineSpec.scala", "contains": "all summary fields accessible by name"}, {"path": "modules/graviton-core/src/test/scala/graviton/core/scan/CasIngestSpec.scala", "contains": "count + hash + rechunk + blockKey composes correctly"}]
     },
     {
       "id": "multi-tenant-storage",
@@ -64,8 +71,15 @@
       "id": "distributed-admission",
       "status": "optional-main-only",
       "documentation": ["docs/modules/distributed-admission.md"],
-      "implementation": [{"path": "modules/integration/graviton-admission-redis/src/main/scala/graviton/integration/redis/RedisDistributedAdmission.scala", "contains": "final class RedisDistributedAdmission"}],
-      "tests": [{"path": "modules/integration/graviton-admission-redis/src/test/scala/graviton/integration/redis/RedisDistributedAdmissionSpec.scala", "contains": "object RedisDistributedAdmissionSpec"}]
+      "implementation": [{"path": "modules/integration/graviton-admission-redis/src/main/scala/graviton/integration/redis/RedisDistributedAdmission.scala", "contains": "final class RedisDistributedAdmission"}, {"path": "modules/protocol/graviton-grpc/src/main/scala/graviton/protocol/grpc/TrafficQuotaBlobService.scala", "contains": "final class TrafficQuotaBlobService"}],
+      "tests": [{"path": "modules/integration/graviton-admission-redis/src/test/scala/graviton/integration/redis/RedisDistributedAdmissionSpec.scala", "contains": "object RedisDistributedAdmissionSpec"}, {"path": "modules/protocol/graviton-grpc/src/test/scala/graviton/protocol/grpc/GravitonGrpcIntegrationSpec.scala", "contains": "charges distributed request and delivered-egress quotas"}]
+    },
+    {
+      "id": "postgres-migrations",
+      "status": "main-only",
+      "documentation": ["docs/ops/postgres-storage.md"],
+      "implementation": [{"path": "modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql", "contains": "Graviton migration V001: authoritative byte-substrate schema"}, {"path": "scripts/migrate-postgres.sh", "contains": "graviton_schema_migration"}],
+      "tests": [{"path": "scripts/check-postgres-migrations.py", "contains": "EXPECTED_TABLES"}, {"path": ".github/workflows/ci.yml", "contains": "PostgreSQL migration boundary"}]
     },
     {
       "id": "manifest-metadata-integrity",

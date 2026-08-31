@@ -4,7 +4,6 @@ import graviton.core.bytes.*
 import zio.*
 import zio.stream.*
 import zio.test.*
-import zio.test.TestAspect.ignore
 
 /**
  * Tests for the composed ingest pipeline:
@@ -22,13 +21,6 @@ import zio.test.TestAspect.ignore
 object IngestPipelineSpec extends ZIOSpecDefault:
 
   private val algo = HashAlgo.runtimeDefault
-
-  // Ignored under Scala 3.8+: `kyo.Record.selectDynamic` throws
-  // `NoSuchElementException` because the macro-emitted `Field(name, typeRepr)`
-  // keys on the read side hash differently than the ones stored on the write
-  // side. The production CAS path uses only the streaming transformation and
-  // does not read these Record summaries. Re-enable this suite only after the
-  // public summary accessors pass on the supported Scala version.
 
   /** Independently hash a byte array for comparison. */
   private def referenceDigest(data: Array[Byte]): Either[String, Digest] =
@@ -215,4 +207,4 @@ object IngestPipelineSpec extends ZIOSpecDefault:
           assertTrue(summary.digestHex.nonEmpty)
       },
     ),
-  ) @@ ignore
+  )

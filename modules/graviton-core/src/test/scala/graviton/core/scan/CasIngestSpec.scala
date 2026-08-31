@@ -2,15 +2,8 @@ package graviton.core.scan
 
 import zio.*
 import zio.test.*
-import zio.test.TestAspect.ignore
 
 object CasIngestSpec extends ZIOSpecDefault:
-
-  // Ignored under Scala 3.8+: mixed-field `kyo.Record.selectDynamic` access
-  // throws `NoSuchElementException`. Production ingest uses
-  // `blockKeyDeriver.toPipeline` and does not read the aggregate summary.
-  // Re-enable this suite only after the public summary accessors pass on the
-  // supported Scala version.
 
   def spec = suite("CasIngest")(
     suite("blockKeyDeriver")(
@@ -113,4 +106,4 @@ object CasIngestSpec extends ZIOSpecDefault:
         )
       },
     ),
-  ) @@ ignore
+  )

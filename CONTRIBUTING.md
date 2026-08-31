@@ -93,7 +93,7 @@ Every capability claim must identify whether it is released, implemented only on
 
 ## PostgreSQL changes
 
-Update `modules/backend/graviton-pg/src/main/resources/ddl.sql`, exercise it against an empty PostgreSQL database, regenerate bindings with `./sbt "dbcodegen/run"`, and commit the DDL and generated sources together. The CI workflow is the canonical least-privilege and RLS setup.
+Add an immutable versioned migration under `modules/backend/graviton-pg/src/main/resources/db/migration`, exercise the complete migration set against an empty PostgreSQL database, regenerate bindings with `./sbt "dbcodegen/run"`, and commit the migration and generated sources together. The CI workflow is the canonical least-privilege and RLS setup.
 
 ## Pull requests
 

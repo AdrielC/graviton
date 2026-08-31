@@ -39,7 +39,9 @@ Cause: Postgres is reachable, but the schema wasn’t applied.
 Fix:
 
 ```bash
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 ### Upload returns 500 on MinIO/S3 mode

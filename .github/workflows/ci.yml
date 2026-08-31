@@ -28,6 +28,8 @@ jobs:
         run: ./scripts/check-product-boundary.sh
       - name: Documentation truthfulness
         run: python3 scripts/check-doc-truth.py
+      - name: PostgreSQL migration boundary
+        run: python3 scripts/check-postgres-migrations.py
       - name: Distributed admission dependency boundary
         run: ./sbt verifyRedisAdmissionDependencyGraph
       - name: Qualification script syntax
@@ -40,6 +42,7 @@ jobs:
           PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" python3 -m py_compile \
             scripts/monitor-performance-telemetry.py \
             scripts/evaluate-performance-gate.py \
+            scripts/check-postgres-migrations.py \
             scripts/test-performance-gate.py \
             scripts/validate-observability-bundle.py \
             scripts/validate-qualification-contract.py \
@@ -124,7 +127,12 @@ jobs:
             fi
             sleep 1
           done
-          PGPASSWORD="postgres" psql -h 127.0.0.1 -U postgres -d postgres -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+          PGPASSWORD="postgres" \
+          GRAVITON_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
+            ./scripts/migrate-postgres.sh
+          PGPASSWORD="postgres" \
+          GRAVITON_DATABASE_URL="postgresql://postgres@127.0.0.1:5432/postgres" \
+            ./scripts/migrate-postgres.sh
           POSTGRES_USER=postgres \
           POSTGRES_DB=postgres \
           PGHOST=127.0.0.1 \

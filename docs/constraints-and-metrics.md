@@ -9,7 +9,7 @@ Graviton has a small set of legacy utility primitives and a separate set of cont
 - PostgreSQL retained-byte accounting is transactionally coupled to tenant manifest publication and deletion.
 - `RateLimiter` provides bounded, sharded, process-local per-principal request, upload-byte, and download-byte token buckets.
 - Optional `RedisDistributedAdmission` atomically coordinates service, tenant, and backend transfer footprints across nodes.
-- The same optional Redis or Valkey provider enforces authenticated HTTP request and delivered-egress tenant ceilings. The current gRPC interceptor does not charge those distributed traffic counters.
+- The same optional Redis or Valkey provider enforces authenticated HTTP and gRPC request and delivered-egress tenant ceilings. Both transports charge delivered bytes immediately before their outbound chunk or frame crosses the transport boundary.
 
 The packaged runtime does not depend on `SpillPolicy`, `SemaphoreLimit`, or the in-memory `Quota` helper for these production contracts. Those small types remain library utilities. `SpillPolicy` currently stores a root path only; it is not a complete spill manager and must not be described as moving arbitrary uploads off heap.
 

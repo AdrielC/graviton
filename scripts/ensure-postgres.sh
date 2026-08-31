@@ -26,7 +26,7 @@ PG_DATABASE="${PG_DATABASE:-postgres}"
 EXTRA_DBS="${PG_DBS:-}"
 PG_USERNAME="${PG_USERNAME:-postgres}"
 PG_PASSWORD="${PG_PASSWORD:-postgres}"
-DDL_PATH="${DDL_PATH:-modules/backend/graviton-pg/src/main/resources/ddl.sql}"
+DDL_PATH="${DDL_PATH:-modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql}"
 DO_DDL=${DO_DDL:-1}
 # If PG is already reachable (external), optionally apply DDL using local psql
 APPLY_EXTERNAL=${APPLY_EXTERNAL:-0}
@@ -145,16 +145,30 @@ ensure_db_and_user_and_schema() {
       ctr_exec -u postgres "$NAME" psql -d postgres -c "GRANT ALL PRIVILEGES ON DATABASE ${_db_trimmed} TO ${PG_USERNAME}" >/dev/null
     done
   fi
-  # 5) Apply DDL if requested and available to primary and extras
+  # 5) Apply the immutable migration set if requested.
   if [[ "${DO_DDL}" == "1" && -f "${DDL_PATH}" ]]; then
-    ctr_cp "${DDL_PATH}" "${NAME}:/ddl.sql"
-    ctr_exec -u postgres "$NAME" psql -d "${PG_DATABASE}" -f /ddl.sql >/dev/null
+    local migrations_dir
+    migrations_dir="$(dirname "${DDL_PATH}")"
+    ctr_exec "${NAME}" mkdir -p /graviton-migrations
+    ctr_cp "${migrations_dir}/." "${NAME}:/graviton-migrations"
+    ctr_cp "scripts/migrate-postgres.sh" "${NAME}:/migrate-postgres.sh"
+
+    run_container_migrations() {
+      local database="$1"
+      ctr_exec -u postgres \
+        -e PGPASSWORD="${PG_PASSWORD}" \
+        -e GRAVITON_DATABASE_URL="postgresql://${PG_USERNAME}@127.0.0.1:5432/${database}" \
+        -e GRAVITON_MIGRATIONS_DIR=/graviton-migrations \
+        "${NAME}" bash /migrate-postgres.sh >/dev/null
+    }
+
+    run_container_migrations "${PG_DATABASE}"
     if [[ -n "${EXTRA_DBS}" ]]; then
       IFS=',' read -r -a _dbs <<< "${EXTRA_DBS}"
       for _db in "${_dbs[@]}"; do
         _db_trimmed="${_db// /}"
         [[ -z "${_db_trimmed}" ]] && continue
-        ctr_exec -u postgres "$NAME" psql -d "${_db_trimmed}" -f /ddl.sql >/dev/null || true
+        run_container_migrations "${_db_trimmed}"
       done
     fi
   fi
@@ -180,11 +194,14 @@ PY
       echo "$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")"
     fi
   }
-  DDL_ABS=$(resolve_abs "${DDL_PATH}")
+  MIGRATIONS_ABS=$(resolve_abs "$(dirname "${DDL_PATH}")")
+  MIGRATION_RUNNER_ABS=$(resolve_abs "scripts/migrate-postgres.sh")
 
   run_psql_local() {
-    export PGPASSWORD="${PG_PASSWORD}"
-    psql -h "${PG_HOST}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d "$1" -f "${DDL_PATH}" >/dev/null
+    PGPASSWORD="${PG_PASSWORD}" \
+    GRAVITON_DATABASE_URL="postgresql://${PG_USERNAME}@${PG_HOST}:${PG_PORT}/$1" \
+    GRAVITON_MIGRATIONS_DIR="${MIGRATIONS_ABS}" \
+      "${MIGRATION_RUNNER_ABS}" >/dev/null
   }
 
   run_psql_docker() {
@@ -192,8 +209,13 @@ PY
     if [[ "${PG_HOST}" == "127.0.0.1" || "${PG_HOST}" == "localhost" ]]; then
       host_for_ctr="host.docker.internal"
     fi
-    docker run --rm -e PGPASSWORD="${PG_PASSWORD}" -v "${DDL_ABS}:/ddl.sql:ro" "postgres:${PG_VERSION}" \
-      psql -h "${host_for_ctr}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d "$1" -f /ddl.sql >/dev/null
+    docker run --rm \
+      -e PGPASSWORD="${PG_PASSWORD}" \
+      -e GRAVITON_DATABASE_URL="postgresql://${PG_USERNAME}@${host_for_ctr}:${PG_PORT}/$1" \
+      -e GRAVITON_MIGRATIONS_DIR=/graviton-migrations \
+      -v "${MIGRATIONS_ABS}:/graviton-migrations:ro" \
+      -v "${MIGRATION_RUNNER_ABS}:/migrate-postgres.sh:ro" \
+      "postgres:${PG_VERSION}" bash /migrate-postgres.sh >/dev/null
   }
 
   run_psql_podman() {
@@ -201,8 +223,13 @@ PY
     if [[ "${PG_HOST}" == "127.0.0.1" || "${PG_HOST}" == "localhost" ]]; then
       host_for_ctr="host.containers.internal"
     fi
-    podman run --rm -e PGPASSWORD="${PG_PASSWORD}" -v "${DDL_ABS}:/ddl.sql:ro" "docker.io/library/postgres:${PG_VERSION}" \
-      psql -h "${host_for_ctr}" -p "${PG_PORT}" -U "${PG_USERNAME}" -d "$1" -f /ddl.sql >/dev/null
+    podman run --rm \
+      -e PGPASSWORD="${PG_PASSWORD}" \
+      -e GRAVITON_DATABASE_URL="postgresql://${PG_USERNAME}@${host_for_ctr}:${PG_PORT}/$1" \
+      -e GRAVITON_MIGRATIONS_DIR=/graviton-migrations \
+      -v "${MIGRATIONS_ABS}:/graviton-migrations:ro" \
+      -v "${MIGRATION_RUNNER_ABS}:/migrate-postgres.sh:ro" \
+      "docker.io/library/postgres:${PG_VERSION}" bash /migrate-postgres.sh >/dev/null
   }
 
   run_psql() {
@@ -419,4 +446,3 @@ export PG_USERNAME=${PG_USERNAME}
 export PG_PASSWORD=${PG_PASSWORD}
 export DATABASE_URL=postgres://${PG_USERNAME}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DATABASE}
 ENV
-

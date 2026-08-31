@@ -29,11 +29,10 @@ import zio.stream.{ZChannel, ZPipeline}
  * relative to a hand-written loop remains workload- and JVM-dependent and must
  * be established with benchmarks rather than inferred from this representation.
  *
- * Current compatibility boundary: on the supported Scala 3.8 line, Kyo's
- * `Record.selectDynamic` can fail for some mixed-field summaries. Streaming
- * transformation through `toPipeline` and summaries that avoid the affected
- * accessor remain usable, but consumers must not depend on aggregate named
- * Record access until the upstream compatibility issue is resolved.
+ * Compatibility boundary: generic `kyo.Record` composition still inherits
+ * Kyo's Scala 3.8 `selectDynamic` behavior. Public aggregate pipelines avoid
+ * that dynamic boundary by mapping their terminal state to explicit,
+ * schema-backed case classes with [[mapSummary]].
  *
  * ==Composition==
  *   - `>>>` (sequential): pipe output of left into input of right
@@ -199,6 +198,17 @@ object Transducer:
     def flush(h: Hot): (Hot, Chunk[O])      = base.flush(h)
     def toSummary(h: Hot): S                = base.toSummary(h)
 
+  private final class SummaryMapped[I, O, S, S2](
+    val base: Transducer[I, O, S],
+    val f: S => S2,
+  ) extends Transducer[I, O, S2]:
+    type Hot = base.Hot
+    def initHot: Hot                                                 = base.initHot
+    def step(h: Hot, i: I): (Hot, Chunk[O])                          = base.step(h, i)
+    override def stepChunk(h: Hot, chunk: Chunk[I]): (Hot, Chunk[O]) = base.stepChunk(h, chunk)
+    def flush(h: Hot): (Hot, Chunk[O])                               = base.flush(h)
+    def toSummary(h: Hot): S2                                        = f(base.toSummary(h))
+
   // ---------------------------------------------------------------------------
   //  Extension methods
   // ---------------------------------------------------------------------------
@@ -223,6 +233,17 @@ object Transducer:
 
     def dimap[I2, O2](pre: I2 => I, post: O => O2): Transducer[I2, O2, S] =
       self.contramap(pre).map(post)
+
+    /**
+     * Project the terminal summary without changing the hot state or streaming
+     * behavior. The function runs once, after the input has completed.
+     */
+    def mapSummary[S2](f: S => S2): Transducer[I, O, S2] =
+      self match
+        case mapped: SummaryMapped[I, O, s0, S] @unchecked =>
+          SummaryMapped(mapped.base, mapped.f.andThen(f))
+        case _                                             =>
+          SummaryMapped(self, f)
 
     /** Post-filter outputs. Fuses adjacent filters. */
     def filter(p: O => Boolean): Transducer[I, O, S] =

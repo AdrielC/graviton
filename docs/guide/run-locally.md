@@ -90,9 +90,9 @@ until PGPASSWORD=postgres psql -h localhost -U postgres -d graviton -c "select 1
   sleep 1
 done
 
-PGPASSWORD=postgres psql \
-  -h localhost -U postgres -d graviton \
-  -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 Start MinIO:

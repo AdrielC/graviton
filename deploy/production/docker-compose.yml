@@ -113,7 +113,7 @@ services:
       GRAVITON_POSTGRES_PASSWORD: ${GRAVITON_POSTGRES_PASSWORD:?Set GRAVITON_POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ../../modules/backend/graviton-pg/src/main/resources/ddl.sql:/docker-entrypoint-initdb.d/10-graviton.sql:ro
+      - ../../modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql:/docker-entrypoint-initdb.d/10-graviton.sql:ro
       - ./init-postgres-app-role.sh:/docker-entrypoint-initdb.d/20-graviton-app-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d graviton"]

@@ -797,7 +797,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
       ).provideShared(blobStoreLayer) @@ TestAspect.sequential
 
   private val ddlRelPath: Path =
-    Path.of("modules/backend/graviton-pg/src/main/resources/ddl.sql")
+    Path.of("modules/backend/graviton-pg/src/main/resources/db/migration/V001__graviton.sql")
 
   private def resolveDdlPath: IO[Throwable, Path] =
     val roots: List[Path] =

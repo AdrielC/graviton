@@ -22,7 +22,15 @@ object GravitonGrpcServer:
     config: GrpcServerConfig = GrpcServerConfig(),
     interceptors: List[ServerInterceptor] = Nil,
   ): ZIO[Scope, Throwable, Server] =
-    scoped(blobStore, UploadIngestor.default(blobStore), config, interceptors)
+    scoped(blobStore, UploadIngestor.default(blobStore), config, interceptors, None)
+
+  def scoped(
+    blobStore: BlobStore,
+    config: GrpcServerConfig,
+    interceptors: List[ServerInterceptor],
+    trafficQuota: Option[TrafficQuotaBlobService.Dependencies],
+  ): ZIO[Scope, Throwable, Server] =
+    scoped(blobStore, UploadIngestor.default(blobStore), config, interceptors, trafficQuota)
 
   def scoped(
     blobStore: BlobStore,
@@ -30,16 +38,29 @@ object GravitonGrpcServer:
     config: GrpcServerConfig,
     interceptors: List[ServerInterceptor],
   ): ZIO[Scope, Throwable, Server] =
-    val builder = NettyServerBuilder
+    scoped(blobStore, uploadIngestor, config, interceptors, None)
+
+  def scoped(
+    blobStore: BlobStore,
+    uploadIngestor: UploadIngestor,
+    config: GrpcServerConfig,
+    interceptors: List[ServerInterceptor],
+    trafficQuota: Option[TrafficQuotaBlobService.Dependencies],
+  ): ZIO[Scope, Throwable, Server] =
+    val builder     = NettyServerBuilder
       .forPort(config.port)
       .maxInboundMessageSize(config.maxInboundMessageBytes)
     interceptors match
       case Nil    => ()
       case values =>
         val _ = builder.intercept(compose(values))
+    val baseService = TrafficQuotaBlobService.contextual(new BlobServiceImpl(blobStore, uploadIngestor))
+    val blobService = trafficQuota.fold(baseService) { dependencies =>
+      new TrafficQuotaBlobService(baseService, dependencies.quota, dependencies.metrics)
+    }
     ScopedServer.fromServices(
       builder,
-      new BlobServiceImpl(blobStore, uploadIngestor),
+      blobService,
       new AdminServiceImpl(blobStore),
     )
 
@@ -51,16 +72,31 @@ object GravitonGrpcServer:
     config: GrpcServerConfig,
     interceptors: List[ServerInterceptor],
   ): ZIO[Scope, Throwable, Server] =
-    val builder = NettyServerBuilder
+    scopedTenants(fallbackStore, provider, tenantContext, ingestorFor, config, interceptors, None)
+
+  def scopedTenants(
+    fallbackStore: BlobStore,
+    provider: TenantStoreProvider,
+    tenantContext: TenantContext,
+    ingestorFor: BlobStore => UploadIngestor,
+    config: GrpcServerConfig,
+    interceptors: List[ServerInterceptor],
+    trafficQuota: Option[TrafficQuotaBlobService.Dependencies],
+  ): ZIO[Scope, Throwable, Server] =
+    val builder     = NettyServerBuilder
       .forPort(config.port)
       .maxInboundMessageSize(config.maxInboundMessageBytes)
     interceptors match
       case Nil    => ()
       case values =>
         val _ = builder.intercept(compose(values))
+    val baseService = new TenantBlobServiceImpl(provider, tenantContext, ingestorFor)
+    val blobService = trafficQuota.fold(baseService: io.graviton.blobstore.v1.blob_service.ZioBlobService.RCBlobService) { dependencies =>
+      new TrafficQuotaBlobService(baseService, dependencies.quota, dependencies.metrics)
+    }
     ScopedServer.fromServices(
       builder,
-      new TenantBlobServiceImpl(provider, tenantContext, ingestorFor),
+      blobService,
       new AdminServiceImpl(fallbackStore),
     )
 

@@ -110,7 +110,9 @@ S3/MinIO mode uses one process-wide HikariCP pool for manifest metadata, tenant 
 **You must also apply the schema**:
 
 ```bash
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 ### Repository maintenance coordination
@@ -389,7 +391,7 @@ Manager configuration:
 | `GRAVITON_SHARDCAKE_MANAGER_REBALANCE_RATE` | `0.02` | Fraction of shards moved per rebalance, greater than zero and at most one. |
 | `GRAVITON_SHARDCAKE_MANAGER_POD_HEALTH_CHECK_INTERVAL` | `1m` | Registered-node health cadence. |
 
-Apply `modules/backend/graviton-pg/src/main/resources/ddl.sql` before starting the manager. It creates `graviton.shardcake_assignment` and `graviton.shardcake_pod`. The manager holds a PostgreSQL session lease for its complete process lifetime, so a second manager fails at startup instead of competing.
+Apply the versioned PostgreSQL migration set with `./scripts/migrate-postgres.sh` before starting the manager. V001 creates `graviton.shardcake_assignment` and `graviton.shardcake_pod`. The manager holds a PostgreSQL session lease for its complete process lifetime, so a second manager fails at startup instead of competing.
 
 ## Security
 
@@ -458,7 +460,9 @@ Symptoms: S3/MinIO server startup or uploads fail, or PostgreSQL reports missing
 Fix:
 
 ```bash
-psql -U postgres -d graviton -f modules/backend/graviton-pg/src/main/resources/ddl.sql
+PGPASSWORD=postgres \
+GRAVITON_DATABASE_URL=postgresql://postgres@localhost:5432/graviton \
+  ./scripts/migrate-postgres.sh
 ```
 
 ### MinIO endpoint selected but credentials missing

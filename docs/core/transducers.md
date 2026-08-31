@@ -13,8 +13,8 @@ Traditional streaming pipelines couple logic with orchestration. Graviton's tran
 
 `runChunk` and `toSink` return a `Chunk` containing every output. Their retained memory is therefore O(output size), and they are appropriate only for bounded inputs or tests. `toTransducingSink` keeps only transducer state but discards transformed outputs. Production upload uses `toPipeline` for per-block keying.
 
-::: danger Aggregate Record access is experimental
-On the supported Scala 3.8 line, the current Kyo `Record.selectDynamic` implementation throws `NoSuchElementException` for some mixed-field summaries, including `digestHex` in the composed ingest summary. The transformation stages and `blockKeyDeriver.toPipeline` work, and the production CAS path does not read those aggregate summaries. Do not build application logic around the named aggregate Record accessors until the compatibility issue is removed and the disabled `IngestPipelineSpec` and `CasIngestSpec` suites are re-enabled.
+::: info Stable aggregate summaries
+Individual low-level stages can expose `kyo.Record` summaries. The public aggregate entry points, `IngestPipeline.countHashRechunk` and `CasIngest.pipeline`, map terminal state to explicit case classes with derived ZIO Blocks schemas. Their named fields are ordinary Scala accessors and their complete suites run on Scala 3.8. Authors of new aggregate APIs should use `mapSummary` to expose an explicit product rather than publishing a mixed-field dynamic Record as a stable contract.
 :::
 
 ### Single-pass design
@@ -40,17 +40,17 @@ trait Transducer[-I, +O, S]:
 |-----------|------|
 | `I` | Input element type (e.g. `Chunk[Byte]`) |
 | `O` | Output element type (e.g. `KeyedBlock` / `VerifyResult`) |
-| `S` | Summary type — typically a `kyo.Record` with named fields (materialized at boundaries from `Hot`) |
+| `S` | Summary type, materialized only at boundaries from `Hot`; aggregate public APIs use explicit schema-backed products |
 
 ## Composition Operators
 
 ### Sequential (`>>>`)
 
-Chain two transducers so the output of the first feeds the input of the second. Each input element is processed once in sequence — no buffering, no re-reads. The summary types merge into a single Record shape. The current runtime limitation above applies to named access:
+Chain two transducers so the output of the first feeds the input of the second. Each input element is processed once in sequence with no buffering or re-reads. The generic combinator merges its summary shapes. A public aggregate pipeline can then use `mapSummary` to expose a stable product:
 
 ```scala
-val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize)
-// Summary: Record[("totalBytes" ~ Long) & ("digestHex" ~ String) & ("blockCount" ~ Long)]
+val pipeline = IngestPipeline.countHashRechunk(blockSize)
+// Summary: IngestPipeline.Summary
 ```
 
 Internally `>>>` calls `self.step` then feeds each output into `that.step`. Hot state is a tuple `(left.Hot, right.Hot)` — primitives only.
@@ -70,7 +70,7 @@ val check = countBytes &&& hashBytes &&& BlockVerify.verifier(expectedBlockKeys)
 
 ### StateMerge
 
-The `StateMerge` typeclass (with `Aux` pattern) merges Record states when composing transducers. Unit states are identity elements; non-unit states become paired Records. This type-level composition does not remove the current Kyo runtime accessor limitation.
+The `StateMerge` typeclass (with `Aux` pattern) merges stage states when composing transducers. Unit states are identity elements, Records union with Records, and other products pair. `mapSummary` projects the resulting terminal state into a stable public type without changing the streaming hot path.
 
 ## Transducers (`IngestPipeline`, `Transducers`, and friends)
 
@@ -134,14 +134,12 @@ This bounded example proves composition. It is not the production `CasBlobStore`
 
 ```scala
 val ingestPipeline = 
-  IngestPipeline.countBytes >>> 
-  IngestPipeline.hashBytes() >>> 
-  IngestPipeline.rechunk(blockSize)
+  IngestPipeline.countHashRechunk(blockSize)
 
 // Use it:
 val (summary, blocks) = byteStream.run(ingestPipeline.toSink)
-// `blocks` and the transformation are usable for bounded experiments.
-// Do not read mixed-field named summary accessors on Scala 3.8 yet.
+assert(summary.totalBytes >= 0L)
+// `toSink` collects every output, so this form is only for bounded inputs.
 ```
 
 ### Full CAS ingest (library vs `CasBlobStore`)
@@ -151,8 +149,8 @@ val (summary, blocks) = byteStream.run(ingestPipeline.toSink)
 ```scala
 val casIngest = CasIngest.pipeline(blockSize, algo)
 val (summary, keyedBlocks) = inputStream.run(casIngest.toSink)
-// The summary type describes totalBytes, digestHex, blockCount, and blocksKeyed.
-// Its mixed-field named accessors remain experimental on Scala 3.8.
+assert(summary.blocksKeyed == keyedBlocks.length.toLong)
+// The terminal summary is a schema-backed CasIngest.Summary.
 ```
 
 ## Verification Pipeline
@@ -235,7 +233,7 @@ The Transducer algebra is the foundation for upcoming pipeline phases:
 
 | Phase | Status | Description |
 |-------|--------|------------|
-| **A** — CAS ingest | **Production path implemented; aggregate summary experimental** | `CasBlobStore` streams through the selected chunker and `blockKeyDeriver`; `CasIngest.pipeline` remains a bounded library composition whose mixed-field Record accessors are not supported on Scala 3.8 |
+| **A** — CAS ingest | **Production path and typed aggregate summary implemented** | `CasBlobStore` streams through the selected chunker and `blockKeyDeriver`; bounded library composition uses schema-backed `IngestPipeline.Summary` and `CasIngest.Summary` products |
 | **B** — Manifest construction | **Partial** | Manifests persisted via `BlobManifestRepo` / batch results; dedicated `manifestBuilder` transducer still roadmap |
 | **C** — Verification & integrity | **Implemented in two layers** | `BlockVerify` supports explicit transducer composition; runtime blob verification is implemented separately by the store and API |
 | **D** — CDC chunker as transducer | Planned | Port FastCDC (and related) to first-class transducer/chunker integration |
