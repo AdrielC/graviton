@@ -142,6 +142,7 @@ export default withMermaid(defineConfig({
           { text: 'Overview', link: '/' },
           { text: 'Quickstart', link: '/guide/getting-started' },
           { text: 'Run Locally', link: '/guide/run-locally' },
+          { text: 'Implementation Status', link: '/implementation-status' },
           { text: 'Install', link: '/guide/installation' },
           { text: 'Configure', link: '/guide/configuration-reference' },
           { text: 'Storage Backends', link: '/guide/storage-backends' },
@@ -216,8 +217,7 @@ export default withMermaid(defineConfig({
           { text: 'Shardcake Locality', link: '/modules/shardcake' },
           { text: 'Distributed Admission', link: '/modules/distributed-admission' },
           { text: 'Protocol', link: '/modules/protocol' },
-          { text: 'Scala.js Frontend', link: '/modules/frontend' },
-          { text: 'Apache Tika', link: '/modules/tika' }
+          { text: 'Scala.js Frontend', link: '/modules/frontend' }
         ]
       },
       {

@@ -46,7 +46,7 @@ Rollback restores the old secret version while its login remains valid. Do not r
 Traffic quotas and distributed transfer leases fail closed when their coordinator is unavailable.
 
 1. Create a second ACL user or provider-supported dual password with only the required command and key-prefix access.
-2. Update Secrets Manager, replace one node, and verify transfer admission plus request and delivered-egress quota charges.
+2. Update Secrets Manager, replace one node, and verify transfer admission plus HTTP request and delivered-egress quota charges.
 3. Exercise one coordinator failover while both credentials are valid.
 4. Complete task replacement, then revoke the old credential.
 5. Confirm lease counts drain, quota counters remain, and no authentication errors appear.

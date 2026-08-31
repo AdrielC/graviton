@@ -20,7 +20,7 @@ The `timeseries` package contains small, immutable data structures used to summa
 - `Rate`: exponential moving average to smooth instantaneous rates.
 - `Windowed`: fixed-size rolling window for recent observations.
 
-These types are pure and can be shared between JVM services and Scala.js visualisations.
+These types are pure JVM utilities in the current build. `graviton-streams` is not cross-published for Scala.js; browser code uses the cross-built `graviton-shared` module instead.
 
 ## Scodec interop
 

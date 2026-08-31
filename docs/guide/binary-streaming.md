@@ -7,7 +7,7 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | Artifact | Description | Defined in |
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
-| **Blob** | Logical object addressable via `BinaryKey`. Its manifest survives block deduplication; confirmed attributes are returned to the caller but are not yet durably stored in the CAS manifest. | `graviton.runtime.stores.BlobStore` |
+| **Blob** | Logical object addressable via `BinaryKey`. Its manifest survives block deduplication. Current `main` persists bounded `BlobMetadataV1` fields such as canonical media type and chunker identity; it does not persist the complete `BinaryAttributes` map. | `graviton.runtime.stores.BlobStore` |
 | **Manifest** | Bounded versioned metadata plus ordered block references (`index`, `offset`, `key`, `size`) and total length. Filesystem storage uses clean-store `GVM4`; PostgreSQL uses relational rows with the same metadata and a transactionally stored proof when enabled. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
 | **Chunker** | A `ZPipeline[Any, Chunker.Err, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
@@ -127,7 +127,7 @@ val confirmed = initial
   .confirmDigest(HashAlgo.Sha256, Tracked.now(blobDigest, Source.Verified))
 ```
 
-The write result returns confirmed attributes. The current CAS manifest repositories persist reconstruction data and ingestion time, not the full attribute map, so callers that need durable domain metadata should store it in their metadata system keyed by the returned blob ID.
+The write result returns confirmed attributes. Current `main` persists the bounded semantic subset defined by `BlobMetadataV1`, including canonical media type, chunker identity, schema identifier, and codec version. The complete provenance-rich `BinaryAttributes` map is not a manifest field, so callers that need durable business or document metadata should store it in a downstream metadata system keyed by the returned blob ID.
 
 Need structured change reports? The [`Schema-driven diffs`](../core/schema.md#schema-driven-diffs) section shows how to hang `zio.schema.Schema` instances off each `BinaryAttributeKey`, convert the advertised/confirmed maps into `DynamicValue.Record`s, and run `zio.schema.diff.Diff` (or even JSON diff tools) without giving up the `Tracked` provenance we rely on during ingest.
 

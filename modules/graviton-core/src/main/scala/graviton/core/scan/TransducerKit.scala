@@ -6,7 +6,7 @@ import kyo.Record.`~`
 import zio.{Chunk, ChunkBuilder}
 
 /**
- * Production-grade composable transducers for Graviton's streaming engine.
+ * Composable transducers for Graviton's streaming library.
  *
  * All transducers use the `Hot` state pattern: primitives in the loop,
  * Record summaries only at boundaries.

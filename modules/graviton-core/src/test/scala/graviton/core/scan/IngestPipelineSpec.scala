@@ -12,7 +12,8 @@ import zio.test.TestAspect.ignore
  *
  * Proves:
  *   1. Types are clean (all summary fields accessible by name)
- *   2. Memory is bounded (O(blockSize), never O(stream))
+ *   2. Streaming transducer state is bounded by block size; collecting runners
+ *      are used only with bounded test fixtures
  *   3. Byte count is exact
  *   4. Hash matches independent computation
  *   5. Rechunked blocks are correct size
@@ -22,6 +23,13 @@ object IngestPipelineSpec extends ZIOSpecDefault:
 
   private val algo = HashAlgo.runtimeDefault
 
+  // Ignored under Scala 3.8+: `kyo.Record.selectDynamic` throws
+  // `NoSuchElementException` because the macro-emitted `Field(name, typeRepr)`
+  // keys on the read side hash differently than the ones stored on the write
+  // side. The production CAS path uses only the streaming transformation and
+  // does not read these Record summaries. Re-enable this suite only after the
+  // public summary accessors pass on the supported Scala version.
+
   /** Independently hash a byte array for comparison. */
   private def referenceDigest(data: Array[Byte]): Either[String, Digest] =
     Hasher.hasher(algo, None).flatMap { h =>
@@ -29,11 +37,6 @@ object IngestPipelineSpec extends ZIOSpecDefault:
       h.digest
     }
 
-  // Ignored under Scala 3.8+: `kyo.Record.selectDynamic` throws
-  // `NoSuchElementException` because the macro-emitted `Field(name, typeRepr)`
-  // keys on the READ side hash differently than the ones stored on the WRITE
-  // side. Production code does not touch this accessor (only tests do), so the
-  // regression is test-only. Reopen once kyo ships a 3.8-compatible release.
   def spec = suite("IngestPipeline")(
     // =========================================================================
     //  Individual components

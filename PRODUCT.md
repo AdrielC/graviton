@@ -12,7 +12,7 @@ Graviton's local console serves developers, infrastructure engineers, and techni
 
 ## Product Purpose
 
-Graviton is the byte substrate: it stores arbitrary-size payloads as streamed, content-addressed blocks and immutable manifests, then returns cryptographically derived identities that higher-level systems can retain. The local console must let an operator upload, organize, inspect, verify, download, and remove logical file references while seeing actual deduplication and upload-locality outcomes from the running system.
+Graviton is the byte substrate: it stores payloads up to the public 1 TiB logical limit as streamed, content-addressed blocks and immutable manifests, then returns cryptographically derived identities that higher-level systems can retain. Configured request, tenant, memory, and backend limits may be lower. The local console must let an operator upload, organize, inspect, verify, download, and remove logical file references while seeing actual deduplication and upload-locality outcomes from the running system.
 
 ## Positioning
 
@@ -20,7 +20,7 @@ The console is a direct operational surface over Graviton's real CAS and Shardca
 
 ## Operating Context
 
-The primary workflow runs locally against a multi-process deployment with PostgreSQL metadata, shared S3-compatible block storage, a Shardcake manager, and multiple Graviton upload nodes. Files may be large, uploads and downloads must remain streaming, and a browser session may navigate folders while transfers continue.
+The default local workflow runs one server with filesystem blocks and manifests. The optional distributed showcase uses PostgreSQL metadata, shared S3-compatible block storage, a Shardcake manager, and multiple Graviton upload nodes. Files may be large, uploads and downloads must remain streaming, and a browser session may navigate folders while transfers continue.
 
 ## Capabilities and Constraints
 

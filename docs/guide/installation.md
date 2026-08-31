@@ -1,6 +1,6 @@
 # Installation
 
-Graviton is a pre-1.0 Scala 3 project. Source builds, tagged GitHub release artifacts, and signed modules under `io.github.adrielc` on Maven Central are supported distribution paths.
+Graviton is a pre-1.0 Scala 3 project. Source builds, tagged GitHub release artifacts, and signed modules under `io.github.adrielc` on Maven Central are supported distribution paths. The latest published release is `v0.7.0`; current `main` contains additional unreleased capabilities. Use the [implementation status ledger](../implementation-status.md) before selecting a module.
 
 ## Requirements
 
@@ -121,7 +121,7 @@ npm run docs:build --prefix docs
 
 ## Artifact availability
 
-Published library coordinates use the `io.github.adrielc` organization. `scripts/verify-external-consumer.sh` publishes the current revision to an isolated local repository, resolves its generated POMs from an unrelated sbt build, runs a real CAS round trip, and fails on dependency metadata conflicts.
+Published v0.7.0 library coordinates use the `io.github.adrielc` organization. The packaged server, CLI, browser applications, and the main-only Redis/Valkey admission module are not v0.7.0 Maven library artifacts. `scripts/verify-external-consumer.sh` publishes the current revision to an isolated local repository, resolves its generated POMs from an unrelated sbt build, runs a real CAS round trip, and fails on dependency metadata conflicts.
 
 Every `v*` tag runs tests and packaged-server proof before creating the JAR, checksum, SPDX SBOM, provenance attestation, GHCR image, and GitHub release. Use only a version shown by the repository's Releases page. Maven Central coordinates become supported only after the release notes confirm a successful signed publication.
 

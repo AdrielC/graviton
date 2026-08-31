@@ -8,11 +8,17 @@ import zio.{Chunk, ChunkBuilder}
 /**
  * Chunk-level transducers for the CAS ingest pipeline.
  *
- * Element type is always `Chunk[Byte]`. Memory is O(blockSize), never O(stream).
+ * Element type is always `Chunk[Byte]`. The transducer state is O(blockSize).
+ * Streaming compilation through `toPipeline` or `toChannel` does not retain all
+ * outputs, while `runChunk` and `toSink` intentionally collect them and therefore
+ * require an independently bounded input.
  *
  * All transducers use `Hot` state (primitives) on the hot path and only construct
- * `kyo.Record` summaries at flush boundaries. This means `>>>` composition is
- * '''zero-overhead''' — the composed hot state is a tuple of primitives.
+ * `kyo.Record` summaries at flush boundaries. The composed hot state is a tuple
+ * of primitives; throughput and allocation claims still require measurement.
+ * Aggregate named Record access is currently experimental on Scala 3.8 because
+ * Kyo `selectDynamic` can fail for mixed-field summaries. The production CAS
+ * path uses these stages only as streaming transformations.
  */
 object IngestPipeline:
 
@@ -132,7 +138,8 @@ object IngestPipeline:
    * — all primitives/arrays, '''zero Record allocations in the loop'''.
    *
    * Summary: `Record[(totalBytes ~ Long) & (digestHex ~ String) & (hashBytes ~ Long) & (blockCount ~ Long) & (rechunkFill ~ Int)]`
-   * — all fields accessible by name, constructed ONCE at flush.
+   * The Record is constructed once at flush. Named access to this mixed-field
+   * summary is currently experimental on the supported Scala 3.8 line.
    */
   def countHashRechunk(
     blockSize: Int,

@@ -12,7 +12,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - **Distributed admission**: optional Redis or Valkey leases for cluster-wide service, tenant, and backend transfer fairness.
 - **Protocol**: shared API models and transport-specific servers (gRPC + HTTP).
 - **Backend adapters**: concrete integrations (PostgreSQL, S3, RocksDB) that satisfy runtime ports.
-- **Frontend**: Scala.js operations console for the live HTTP service.
+- **Frontend**: Scala.js remote console embedded in the documentation site. The packaged server also has a separate server-rendered Datastar console.
 
 ## Quick Links
 
@@ -23,7 +23,6 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 - [Shardcake upload locality](./shardcake.md)
 - [Distributed transfer admission](./distributed-admission.md)
 - [Protocol stack](./protocol.md)
-- [Scala.js frontend](../modules/frontend.md)
-- [Apache Tika module](./tika.md)
+- [Scala.js documentation frontend](../modules/frontend.md)
 
-Each page outlines the responsibilities, current implementation status, and remaining engineering work. See the repository `ROADMAP.md` for current priorities.
+Each page outlines the responsibilities, current implementation status, and remaining engineering work. Apache Tika is deliberately absent from this module list because [it is not shipped](./tika.md). See the [implementation status ledger](../implementation-status.md) before choosing a released artifact or a source-only `main` feature.

@@ -1,6 +1,6 @@
-# Graviton Frontend
+# Graviton Documentation Frontend
 
-The frontend is a Scala.js and Laminar operations console embedded in the VitePress documentation site. Every value in the console comes from the configured Graviton HTTP server. Connection failures remain visible and are never replaced with bundled data.
+This module is the Scala.js and Laminar remote console embedded in the VitePress documentation site. Every value in the console comes from the configured Graviton HTTP server. Connection failures remain visible and are never replaced with bundled data. The packaged server's `/console` is a different, server-rendered Datastar surface.
 
 ## Operational views
 

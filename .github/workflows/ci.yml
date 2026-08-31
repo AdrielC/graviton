@@ -26,6 +26,8 @@ jobs:
         run: ./scripts/check-byte-streaming-hygiene.sh
       - name: Product boundary
         run: ./scripts/check-product-boundary.sh
+      - name: Documentation truthfulness
+        run: python3 scripts/check-doc-truth.py
       - name: Distributed admission dependency boundary
         run: ./sbt verifyRedisAdmissionDependencyGraph
       - name: Qualification script syntax

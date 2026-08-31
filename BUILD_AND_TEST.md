@@ -32,8 +32,11 @@ TESTCONTAINERS=0 ./sbt scalafmtAll test
 ## Executable documentation
 
 ```bash
+python3 scripts/check-doc-truth.py
 ./sbt docs/mdoc checkDocSnippets
 ```
+
+The Python check validates the machine-readable implementation ledger, referenced source symbols, script paths, and selected stale-claim patterns. Mdoc and snippet checks compile the executable Scala examples.
 
 If a checked snippet intentionally changes:
 

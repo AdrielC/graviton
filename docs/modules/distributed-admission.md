@@ -20,6 +20,12 @@ The runtime first reserves hard local process, tenant, and backend permits, then
 
 Per-tenant byte and transfer ceilings stop one organization from taking the complete service pool. `DistributedAdmissionControl` applies a live tenant override and returns the monotonic policy version used by later acquisitions. Clearing an override restores configured defaults.
 
+## Traffic quotas
+
+The same provider also implements a separate `DistributedTrafficQuota` contract. Authenticated HTTP requests charge one tenant request counter per Redis-server-time minute. HTTP download chunks charge delivered bytes per tenant and Redis-server-time hour as the chunks leave the server. These counters are atomic across provider instances and fail closed when enabled but unavailable.
+
+This traffic contract is currently wired to HTTP only. The packaged gRPC interceptor still uses process-local request, upload-byte, and download-byte limits. Do not describe the Redis counters as cross-protocol billing or edge metering until gRPC or an external authenticated edge charges the same contract.
+
 ## Atomic lease protocol
 
 The adapter uses one static Lua program for acquire, renew, release, expiry reaping, snapshot, policy change, and event append. Every key includes the same cell hash tag, so the complete state transition remains in one Redis Cluster slot. Redis server time, rather than node clocks, determines expiry.
@@ -58,6 +64,6 @@ GRAVITON_REDIS_IT=1 ./sbt redisAdmission/test
 ./sbt runtime/test server/test
 ```
 
-The integration suite connects two independent provider instances to one real Redis-compatible server and proves cross-node atomicity, tenant independence, live policy changes, renewal past the original TTL, interruption release, server-time expiry reaping, immediate fencing-loss propagation, and bounded event publication. Runtime tests separately prove that local bytes are reserved before cluster admission and released after provider failure. Resumable-upload tests prove that a rejected tenant-scoped staging reservation does not demand the part body and releases its durable ledger reservation.
+The integration suite connects two independent provider instances to one real Redis-compatible server and proves cross-node atomicity, tenant independence, request and delivered-egress counters, live policy changes, renewal past the original TTL, interruption release, server-time expiry reaping, immediate fencing-loss propagation, and bounded event publication. Runtime tests separately prove that local bytes are reserved before cluster admission and released after provider failure. Resumable-upload tests prove that a rejected tenant-scoped staging reservation does not demand the part body and releases its durable ledger reservation.
 
 See [Configuration Reference](../guide/configuration-reference.md), [Multi-Tenant Storage](../runtime/multi-tenancy.md), and [Performance](../ops/performance.md).

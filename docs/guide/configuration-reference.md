@@ -166,10 +166,12 @@ The optional `graviton-admission-redis` provider adds one atomic service, tenant
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_RETRY_INTERVAL` | `50ms` | no | Interruptible retry cadence after an atomic capacity rejection. |
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EVENTS` | `100000` | no | Approximate maximum length of the bounded Redis Stream decision log. |
 | `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EXPIRED_LEASES_PER_PASS` | `256` | no | Work bound for atomic expiry reaping on one command. |
-| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_REQUESTS_PER_MINUTE` | `60000` | no | Atomic authenticated request contract per tenant and Redis-server-time minute. |
-| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_DELIVERED_EGRESS_BYTES_PER_HOUR` | `1099511627776` | no | Atomic bytes-delivered contract per tenant and Redis-server-time hour. Bytes are charged as response chunks leave the server. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_REQUESTS_PER_MINUTE` | `60000` | no | Atomic authenticated HTTP request contract per tenant and Redis-server-time minute. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_DELIVERED_EGRESS_BYTES_PER_HOUR` | `1099511627776` | no | Atomic HTTP bytes-delivered contract per tenant and Redis-server-time hour. Bytes are charged as response chunks leave the server. |
 
 The acquisition order is process bytes, process tenant and backend permits, then the distributed lease. All are acquired before a source socket, manifest stream, or block fetch is demanded. New work fails closed when the coordinator is unavailable. Lease expiry and fencing recover counters after process failure. A coordinator partition cannot revoke bytes already resident in a healthy process, so the local budget remains the authoritative memory boundary; lease loss is logged and counted while the scoped local permit stays held until that transfer exits.
+
+The two traffic-quota settings are currently enforced by authenticated HTTP routes. gRPC continues to use the process-local security rate limiter and does not charge the distributed request or delivered-egress counters.
 
 ### Manifest authentication
 

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "auditedOn": "2026-08-31",
+  "mainBaseline": "3148f3111f7460864d24d29623e29799398a0d7a",
+  "latestRelease": "v0.7.0",
+  "claims": [
+    {
+      "id": "filesystem-cas",
+      "status": "released-v0.7.0",
+      "documentation": ["README.md", "docs/guide/storage-backends.md"],
+      "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/CasBlobStore.scala", "contains": "final class CasBlobStore"}],
+      "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/CasBlobStoreSpec.scala", "contains": "object CasBlobStoreSpec"}]
+    },
+    {
+      "id": "s3-postgresql",
+      "status": "released-v0.7.0",
+      "documentation": ["docs/modules/backend.md"],
+      "implementation": [{"path": "modules/backend/graviton-s3/src/main/scala/graviton/backend/s3/S3BlockStore.scala", "contains": "final class S3BlockStore"}, {"path": "modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgBlobManifestRepo.scala", "contains": "final class PgBlobManifestRepo"}],
+      "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/MinioCasRoundTripSpec.scala", "contains": "object MinioCasRoundTripSpec"}]
+    },
+    {
+      "id": "http-sdk",
+      "status": "released-v0.7.0",
+      "documentation": ["docs/api/http.md", "docs/guide/scala-sdk.md"],
+      "implementation": [{"path": "modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/HttpApi.scala", "contains": "final case class HttpApi"}, {"path": "modules/protocol/graviton-http/src/main/scala/ai/hylo/graviton/client/GravitonClient.scala", "contains": "final class GravitonClient"}],
+      "tests": [{"path": "modules/protocol/graviton-http/src/test/scala/graviton/protocol/http/HttpApiSpec.scala", "contains": "object HttpApiSpec"}, {"path": "modules/protocol/graviton-http/src/test/scala/ai/hylo/graviton/client/GravitonClientSpec.scala", "contains": "object GravitonClientSpec"}]
+    },
+    {
+      "id": "grpc",
+      "status": "released-v0.7.0",
+      "documentation": ["docs/api/grpc.md"],
+      "implementation": [{"path": "modules/protocol/graviton-grpc/src/main/scala/graviton/protocol/grpc/GravitonGrpcServer.scala", "contains": "object GravitonGrpcServer"}],
+      "tests": [{"path": "modules/protocol/graviton-grpc/src/test/scala/graviton/protocol/grpc/GravitonGrpcIntegrationSpec.scala", "contains": "object GravitonGrpcIntegrationSpec"}]
+    },
+    {
+      "id": "pdf-aware-ingest",
+      "status": "released-v0.7.0",
+      "documentation": ["docs/modules/pdf.md"],
+      "implementation": [{"path": "modules/graviton-pdf/src/main/scala/graviton/pdf/PdfAwareChunker.scala", "contains": "object PdfAwareChunker"}],
+      "tests": [{"path": "modules/graviton-pdf/src/test/scala/graviton/pdf/PdfAwareChunkerSpec.scala", "contains": "object PdfAwareChunkerSpec"}]
+    },
+    {
+      "id": "shardcake-locality",
+      "status": "optional-released-v0.7.0",
+      "documentation": ["docs/modules/shardcake.md"],
+      "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/upload/LocalityAwareUpload.scala", "contains": "trait LocalityAwareUpload"}],
+      "tests": [{"path": "modules/integration/graviton-shardcake/src/test/scala/graviton/integration/shardcake/ShardcakeIntegrationSpec.scala", "contains": "object ShardcakeIntegrationSpec"}]
+    },
+    {
+      "id": "transducer-library",
+      "status": "released-v0.7.0",
+      "documentation": ["docs/core/transducers.md"],
+      "implementation": [{"path": "modules/graviton-core/src/main/scala/graviton/core/scan/Transducer.scala", "contains": "trait Transducer"}, {"path": "modules/graviton-core/src/main/scala/graviton/core/scan/CasIngest.scala", "contains": "object CasIngest"}],
+      "tests": [{"path": "modules/graviton-core/src/test/scala/graviton/core/scan/TransducerSpec.scala", "contains": "object TransducerSpec"}, {"path": "modules/graviton-core/src/test/scala/graviton/core/scan/IngestPipelineSpec.scala", "contains": ") @@ ignore"}]
+    },
+    {
+      "id": "multi-tenant-storage",
+      "status": "optional-main-only",
+      "documentation": ["docs/runtime/multi-tenancy.md"],
+      "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/tenant/TenantStorage.scala", "contains": "final class ContextualTenantBlobStore"}],
+      "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/tenant/TenantStorageSpec.scala", "contains": "object TenantStorageSpec"}]
+    },
+    {
+      "id": "distributed-admission",
+      "status": "optional-main-only",
+      "documentation": ["docs/modules/distributed-admission.md"],
+      "implementation": [{"path": "modules/integration/graviton-admission-redis/src/main/scala/graviton/integration/redis/RedisDistributedAdmission.scala", "contains": "final class RedisDistributedAdmission"}],
+      "tests": [{"path": "modules/integration/graviton-admission-redis/src/test/scala/graviton/integration/redis/RedisDistributedAdmissionSpec.scala", "contains": "object RedisDistributedAdmissionSpec"}]
+    },
+    {
+      "id": "manifest-metadata-integrity",
+      "status": "main-only",
+      "documentation": ["docs/manifests-and-frames.md"],
+      "implementation": [{"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/BlobMetadataV1.scala", "contains": "final case class BlobMetadataV1"}, {"path": "modules/graviton-runtime/src/main/scala/graviton/runtime/stores/ManifestIntegrity.scala", "contains": "object ManifestIntegrity"}],
+      "tests": [{"path": "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/FsBlobManifestRepoSpec.scala", "contains": "object FsBlobManifestRepoSpec"}]
+    },
+    {
+      "id": "tenant-domain-snapshot",
+      "status": "optional-main-only",
+      "documentation": ["docs/runtime/multi-tenancy.md"],
+      "implementation": [{"path": "modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgTenantDomainSnapshot.scala", "contains": "final class PgTenantDomainSnapshot"}],
+      "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/EmbeddedPgFsCasRoundTripSpec.scala", "contains": "object EmbeddedPgFsCasRoundTripSpec"}]
+    },
+    {
+      "id": "operator-control-plane",
+      "status": "optional-main-only",
+      "documentation": ["docs/ops/control-plane.md"],
+      "implementation": [{"path": "modules/server/graviton-server/src/main/scala/graviton/server/operations/Operations.scala", "contains": "object Operations"}],
+      "tests": [{"path": "modules/server/graviton-server/src/test/scala/graviton/server/operations/OperationsSpec.scala", "contains": "object OperationsSpec"}]
+    },
+    {
+      "id": "production-telemetry-v1",
+      "status": "main-only",
+      "documentation": ["docs/ops/production-readiness.md", "deploy/observability-v1/README.md"],
+      "implementation": [{"path": "deploy/observability-v1/grafana/dashboards/graviton-production.json", "contains": "Graviton Production"}, {"path": "deploy/qualification-v1/matrix.json", "contains": "target-required"}],
+      "tests": [{"path": "scripts/validate-observability-bundle.py", "contains": "graviton-observability-validation-v1"}, {"path": "scripts/validate-qualification-contract.py", "contains": "REQUIRED_GATES"}]
+    },
+    {
+      "id": "tika",
+      "status": "not-shipped",
+      "documentation": ["docs/modules/tika.md"],
+      "implementation": [{"path": "build.sbt", "notContains": "graviton-tika"}],
+      "tests": []
+    }
+  ]
+}

@@ -8,31 +8,21 @@ Graviton is a typed, streaming content-addressable storage runtime for Scala 3 a
 
 Graviton's boundary is deliberately narrow: bytes, cryptographic content identity, integrity, and storage. It does not define documents, document versions, business metadata, search, or workflows. Downstream systems consume opaque Graviton content IDs and byte streams without extending the storage runtime's domain. See [Scope and product boundary](docs/scope.md).
 
-This is operational pre-1.0 software. The embedded runtime and single-node filesystem server are ready for controlled use. The shared S3 plus PostgreSQL composition has real integration coverage and backend-wide operation/maintenance coordination, but each operator still owns workload qualification, disaster recovery acceptance, identity-provider configuration, and multi-process rollout testing.
+This is pre-1.0 software. The embedded runtime and single-node filesystem server have executable lifecycle, restart, backup, restore, and integrity proof for controlled use. Shared and distributed deployments still require qualification against the exact identity provider, ingress, database, object store, coordinator, network, workload, and failure model.
 
-| Capability | Status | Executable evidence |
+The documentation tracks current `main`, which is ahead of the latest published release, `v0.7.0`. Features added after that tag are not present in the `v0.7.0` Maven artifacts. See the [implementation status ledger](docs/implementation-status.md) before choosing a dependency or deployment path.
+
+| Capability | Availability | Evidence boundary |
 | --- | --- | --- |
-| In-memory CAS | Operational | Round-trip, property, deduplication, stat, and delete suites |
-| Filesystem blocks and manifests | Operational | Fsync, atomic publication, restart-safe round trips, health checks, and reversible GC tests |
-| Cross-store maintenance atomicity | Operational in built-in compositions | Full-operation shared permits, exclusive GC leases, filesystem locks, PostgreSQL advisory locks, interruption cleanup, and an upload-versus-GC race proof |
-| Typed storage failures | Operational library surface | `StoreError` ADT with operation, backend, retry classification, preserved causes, and no `Throwable` in blob, block, manifest, object, maintenance, or GC ports |
-| Native streaming inventory | Operational | Opaque Iron-refined cursors, bounded pages, filesystem bounded-heap selection, PostgreSQL keyset SQL, S3-native continuation, HTTP pages, and gRPC streaming |
-| Backend conformance kit | Published module | Reusable ZIO Test laws for streaming round trips, idempotency, exact ranges, cursor completeness, deletion, and interruption atomicity |
-| CrashLab and tenant laws | Published module | Deterministic bounded fault injection, filesystem reconstruction, fail-before-publication and lost-ack proofs, default-isolated tenant routing, explicit shared-dedup domains, and concurrent manifest-isolation laws |
-| Multi-tenant storage | Operational packaged data plane | Authenticated HTTP and gRPC organization binding, durable cell-scoped policy, private manifests, isolated-by-default block domains, explicit shared trust groups, cluster-atomic retained-byte quotas, bounded sharded admission and caches, and Shardcake tenant locality |
-| CLI lifecycle | Operational | `ingest`, `stat`, `get`, `verify`, `delete`, `list`, and conservative GC |
-| Versioned HTTP API | Operational | Upload, pagination, metadata, verification, ranges, conditional reads, retrieval, and deletion tests |
-| PDF-aware ingest | Operational | Typed `application/pdf` routing, signature validation, incremental zio-pdf object scanning, bounded fallback, filesystem-CAS probe, and external-consumer proof |
-| Scala streaming SDK | Operational | Typed lifecycle, logical 1 TiB laziness contract, real 32 MiB socket round trip, and clean external-consumer compilation |
-| Authentication and policy | Operational | RS256 OIDC/JWKS verification, dev HS256 proof, capabilities, CORS, TLS policy, size and rate controls, and chained audit events |
-| S3 blocks and PostgreSQL manifests | Integration-tested | Real MinIO and PostgreSQL CI, replica-index persistence, and S3 quarantine/restore coverage |
-| Block replication primitive | Operational library surface | Write quorum, validating read fallback, repair, and quorum-health tests |
-| Three-domain 2+1 erasure | Operational S3-compatible mode | Any-two reconstruction, original CAS verification, bounded shard repair, local-read preference, live SLO dashboard, and destructive target-volume qualification |
-| Packaging and supply chain | Release-ready | Distroless non-root image, pinned CI, SBOM, checksums, artifact attestations, and clean external-consumer proof |
-| Streaming gRPC lifecycle | Operational | Packaged listener, typed SDK, 12 MiB socket lifecycle, bounded frames, public health, authentication, capabilities, rate limiting, and audit |
-| Shardcake upload locality | Operational opt-in integration | Typed tenant/session ownership, one-shot direct ZIO HTTP streams, ZIO Blocks MessagePack control envelopes, authenticated manager and node traffic, durable PostgreSQL assignments, two-node drain/reassignment proof, and a singleton manager lease |
-| Production telemetry | Portable operator contract | Typed health snapshots, real Prometheus metrics, 15-panel Grafana dashboard, SLO recording rules, alert routing, CloudWatch Logs collection, and a validated 16-gate qualification matrix |
-| RocksDB key-value module | Operational in scope | Durable typed key-value storage with close/reopen persistence tests; it is not advertised as a blob backend |
+| Embedded and filesystem CAS | Released in `v0.7.0` | Real lifecycle, restart, fsync, integrity, backup, restore, and GC tests |
+| HTTP v1, JVM SDK, streaming gRPC, PDF-aware ingest | Released in `v0.7.0` | Contract, socket, packaged-process, and external-consumer tests; logical 1 TiB proof is not a physical transfer |
+| S3-compatible blocks plus PostgreSQL manifests | Released in `v0.7.0`, integration-tested | Real MinIO and PostgreSQL CI; provider semantics and capacity remain target work |
+| Replication, fixed 2+1 erasure, Shardcake locality | Released in `v0.7.0`, optional | Library and local failure drills; declared failure domains still require physical acceptance |
+| RocksDB | Released in `v0.7.0` as typed KV | Not a block store or complete CAS backend |
+| Multi-tenant storage and tenant laws | Implemented on `main`, optional | Authenticated isolation, RLS, retained quotas, and shared trust domains; not in `v0.7.0` |
+| Redis or Valkey distributed admission | Implemented on `main`, optional | Atomic transfer limits and HTTP request/delivered-egress quotas; not wired as a distributed gRPC traffic meter |
+| GVM4 metadata, manifest proof, tenant snapshots, cold-block scrub | Implemented on `main` | Clean-store only; no legacy reader or backfill path |
+| Operator control plane and Production Telemetry v1 | Implemented on `main`, optional | Typed snapshots, 15-panel dashboard, 15 recording rules, 16 alerts, and 16 qualification gates; five gates remain target-required |
 
 ## Prove it locally
 
@@ -53,7 +43,7 @@ Those commands prove four separate boundaries:
 
 - durable CLI operations across fresh JVM processes
 - the packaged JAR running the HTTP and gRPC listeners, including open and authenticated HTTP lifecycles
-- published module metadata consumed from an unrelated sbt build
+- locally published module metadata consumed from an unrelated sbt build
 - every public binary artifact contains executable definitions and no unsupported-operation markers
 
 The packaged smoke uploads real bytes over HTTP, compares the retrieved file byte-for-byte, exercises a range and `If-None-Match`, runs server-side verification, confirms anonymous denial, and confirms a read-only token cannot upload. It also runs open and bearer-protected 3 MiB gRPC lifecycles through the assembled JAR, validates every streamed byte, and exercises health, metadata, inventory, inspection, and deletion. The HTTP SDK suite separately proves a lazy logical 1 TiB request contract and a real 32 MiB upload/download/verify lifecycle over a socket.
@@ -189,7 +179,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-The repository now ships durable resumable HTTP uploads, backend-native cursor inventory, bounded manifest inspection, versioned blob metadata, typed storage errors, published backend, crash, maintenance, tenant, and streaming laws, authenticated tenant routing, cluster-atomic retained and traffic quotas, hard process-wide memory admission, Redis or Valkey transfer admission, durable tenant-domain snapshots, unattended cold-block convergence, S3 quarantine inventory and restore, portable SLOs and dashboards, retained workload distributions, and executable node, dependency, sustained-failure, and target-volume-loss qualification. Remaining qualification is environment-specific: physical power loss, disk corruption, real IdP and ingress behavior, Ceph and S3 semantics, Valkey and database failover, zone impairment, and retained capacity envelopes from the exact operator hardware.
+Current `main` implements durable resumable HTTP uploads, backend-native cursor inventory, bounded manifest inspection, versioned blob metadata, typed storage errors, backend and fault-law kits, authenticated tenant routing, retained and traffic quotas, hard process-wide memory admission, durable tenant-domain snapshots, cold-block convergence, S3 quarantine inventory and restore, portable telemetry, and executable local qualification. The additions after `v0.7.0` require a later release before they can be consumed from Maven Central. Physical power loss, disk corruption, real IdP and ingress behavior, Ceph and S3 semantics, Redis or Valkey and database failover, zone impairment, and target capacity remain environment-specific acceptance work.
 
 ## License
 
