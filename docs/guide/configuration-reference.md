@@ -66,6 +66,8 @@ export GRAVITON_S3_REGION="us-east-1"
 | `GRAVITON_HEALTH_CHECK_TIMEOUT` | `5s` | no | Maximum duration of the active storage readiness check. Must be positive. |
 | `GRAVITON_CHUNK_SIZE` | `1048576` | no | Fixed ingest block size in bytes. |
 | `GRAVITON_BLOCK_WRITE_PARALLELISM` | `4` | no | Concurrent bounded block writes per ingest. Must be between `1` and `64`. |
+| `GRAVITON_DOWNLOAD_WINDOW_REFS` | `64` | no | Maximum ordered manifest references buffered ahead of download demand. Must be between `1` and `4096`. |
+| `GRAVITON_DOWNLOAD_MAX_IN_FLIGHT` | `2` | no | Concurrent verified block fetches per download. Must be between `1` and `16`, and no greater than `GRAVITON_DOWNLOAD_WINDOW_REFS`. |
 
 ### Local DataStar console
 
@@ -123,7 +125,37 @@ The namespace separates repositories that share one PostgreSQL database. Filesys
 | `GRAVITON_TRANSFER_ADMISSION_MAXIMUM_RESIDENT_BACKENDS` | `64` | no | Bound for the process-resident backend admission registry. |
 | `GRAVITON_TRANSFER_ADMISSION_ACQUISITION_TIMEOUT` | `30s` | no | Maximum interruptible wait for the complete process, tenant, and backend reservation. |
 
-Each upload composes a named `TransferFootprint` from input and block queues, chunker working memory, ordered persistence, backend request copies, and replica or erasure fan-out. It reserves that total exactly once, in the fixed order process bytes, tenant bytes and concurrency, then backend concurrency. Concurrent transfers wait interruptibly, and every scoped permit is released on success, failure, or interruption. Size these values below JVM and backend capacity after accounting for direct buffers, database drivers, metrics, and other co-located work.
+Each upload composes a named `TransferFootprint` from input and block queues, chunker working memory, ordered persistence, backend request copies, and replica or erasure fan-out. Each resumable staging part reserves a conservative 128 MiB footprint against the authenticated tenant and filesystem or S3 backend before its request body is demanded. Each download reserves a conservative three-block, 48 MiB ordered-output footprint before it opens the manifest stream or fetches a block. The ordered ZIO mapper's result queue is explicitly one slot rather than its larger library default; `GRAVITON_DOWNLOAD_MAX_IN_FLIGHT` controls concurrent fetch work without silently increasing retained output. These operations reserve exactly once, in the fixed order process bytes, tenant bytes and concurrency, then backend concurrency. Concurrent transfers wait interruptibly, and every scoped permit is released on success, failure, early termination, or interruption. Size these values below JVM and backend capacity after accounting for direct buffers, database drivers, metrics, and other co-located work.
+
+### Cluster-wide transfer admission
+
+The optional `graviton-admission-redis` provider adds one atomic service, tenant, and backend lease above the hard process-local transfer budget. It coordinates every node in one cell through Redis or Valkey. It carries only counters, hashed tenant and backend keys, lease metadata, and bounded decision events. Upload and download bytes never pass through it.
+
+| Name | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_ENABLED` | `false` | no | Enable cluster-wide admission. The single-process default has no Redis dependency. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_CELL_ID` | `default` | when enabled | Refined cell identity used as the Redis Cluster hash tag. Must equal `GRAVITON_MULTI_TENANT_CELL_ID` in tenant mode. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_HOST` | `localhost` | when enabled | Redis or Valkey primary endpoint. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_PORT` | `6379` | when enabled | Redis or Valkey port. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_TLS` | `false` | tenant mode | Enable TLS. Tenant mode rejects startup unless this and certificate verification are enabled. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_VERIFY_CERTIFICATE` | `true` | tenant mode | Verify the server certificate. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_USERNAME` | none | no | Optional ACL username. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_PASSWORD` | none | tenant mode | AUTH secret. Supply through a secret manager. The Graviton config value is redacted and never attached to logs or typed errors. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_REQUEST_QUEUE_SIZE` | `4096` | no | Bounded zio-redis command queue, from `16` through `65536`. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_KEY_PREFIX` | `graviton` | no | Alphanumeric, dash, or underscore prefix. Cell-scoped keys remain in one Redis Cluster slot. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_SERVICE_BUFFERED_BYTES` | `4294967296` | no | Cluster-wide sum of admitted transfer footprints. Must be at least one process byte budget. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_CONCURRENT_SERVICE_TRANSFERS` | `256` | no | Cluster-wide active transfer ceiling. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_TENANT_BUFFERED_BYTES` | `536870912` | no | Cluster-wide active bytes for one tenant. Must not exceed the service ceiling. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_CONCURRENT_TENANT_TRANSFERS` | `32` | no | Cluster-wide active transfers for one tenant. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_CONCURRENT_BACKEND_TRANSFERS` | `192` | no | Cluster-wide active transfers directed at one backend kind. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_LEASE_TTL` | `30s` | no | Expiring lease lifetime. Must be at least three seconds. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_RENEWAL_INTERVAL` | `10s` | no | Renewal cadence. Must be no greater than one third of the lease TTL. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_ACQUISITION_TIMEOUT` | `10s` | no | Maximum provider wait. The local transfer-admission timeout must be at least this long. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_RETRY_INTERVAL` | `50ms` | no | Interruptible retry cadence after an atomic capacity rejection. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EVENTS` | `100000` | no | Approximate maximum length of the bounded Redis Stream decision log. |
+| `GRAVITON_DISTRIBUTED_ADMISSION_REDIS_MAXIMUM_EXPIRED_LEASES_PER_PASS` | `256` | no | Work bound for atomic expiry reaping on one command. |
+
+The acquisition order is process bytes, process tenant and backend permits, then the distributed lease. All are acquired before a source socket, manifest stream, or block fetch is demanded. New work fails closed when the coordinator is unavailable. Lease expiry and fencing recover counters after process failure. A coordinator partition cannot revoke bytes already resident in a healthy process, so the local budget remains the authoritative memory boundary; lease loss is logged and counted while the scoped local permit stays held until that transfer exits.
 
 ### Manifest authentication
 
@@ -399,6 +431,7 @@ This is produced on upload by `HttpApi` from the `BinaryKey.Blob`:
 - **PostgreSQL coordination**: `modules/backend/graviton-pg/src/main/scala/graviton/backend/pg/PgMaintenanceCoordinator.scala`
 - **Metrics endpoint**: `modules/protocol/graviton-http/src/main/scala/graviton/protocol/http/MetricsHttpApi.scala`
 - **Shardcake node and manager configuration**: `modules/integration/graviton-shardcake/src/main/scala/graviton/integration/shardcake/`
+- **Distributed admission configuration**: `modules/integration/graviton-admission-redis/src/main/scala/graviton/integration/redis/RedisAdmissionConfig.scala`
 
 ## Common misconfigurations (symptoms → fix)
 

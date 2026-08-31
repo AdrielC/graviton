@@ -164,6 +164,24 @@ object StoreError:
   ) extends StoreError(operation, s"transfer admission $registry registry is saturated at $maximumEntries entries"):
     override val retryable: Boolean = true
 
+  final case class DistributedAdmissionRejected(
+    override val operation: StoreOperation,
+    dimension: graviton.runtime.admission.AdmissionDimension,
+    retryAfter: Duration,
+  ) extends StoreError(operation, s"distributed transfer admission rejected by $dimension; retry after $retryAfter"):
+    override val retryable: Boolean = true
+
+  final case class DistributedAdmissionUnavailable(
+    override val operation: StoreOperation,
+    reason: String,
+  ) extends StoreError(operation, s"distributed transfer admission is unavailable: $reason"):
+    override val retryable: Boolean = true
+
+  final case class DistributedAdmissionLeaseLost(
+    override val operation: StoreOperation
+  ) extends StoreError(operation, "distributed transfer admission lease was lost"):
+    override val retryable: Boolean = true
+
   final case class CorruptData(
     override val operation: StoreOperation,
     reason: String,

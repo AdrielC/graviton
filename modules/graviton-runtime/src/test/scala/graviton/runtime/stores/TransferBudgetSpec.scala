@@ -1,5 +1,14 @@
 package graviton.runtime.stores
 
+import graviton.runtime.admission.{
+  AdmissionFencingToken,
+  AdmissionLeaseId,
+  AdmissionOccupancy,
+  AdmissionPolicyVersion,
+  DistributedAdmission,
+  DistributedAdmissionLease,
+  DistributedAdmissionRequest,
+}
 import graviton.runtime.config.{
   BackendTransferConcurrency,
   TenantTransferConcurrency,
@@ -59,6 +68,17 @@ object TransferBudgetSpec extends ZIOSpecDefault:
         budget <- TransferBudget.make(TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(Capacity)))
         exit   <- ZIO.scoped(budget.reserveScoped(Capacity + 1L)).exit
       yield assertTrue(exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.CapacityExceeded]))
+    },
+    test("attributes download admission failures to the read operation") {
+      for
+        budget <- TransferBudget.make(TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(Capacity)))
+        exit   <- ZIO.scoped(budget.reserveScoped(StoreOperation.GetBlob, Capacity + 1L)).exit
+      yield assertTrue(
+        exit.causeOption.flatMap(_.failureOption).exists {
+          case error: StoreError.CapacityExceeded => error.operation == StoreOperation.GetBlob
+          case _                                  => false
+        }
+      )
     },
     test("composes named transfer owners and rejects arithmetic overflow") {
       val input    = TransferFootprint.single(TransferComponent.applyUnsafe("input"), 4L * 1024L * 1024L)
@@ -172,7 +192,89 @@ object TransferBudgetSpec extends ZIOSpecDefault:
         exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.TransferAdmissionSaturated])
       )
     },
+    test("holds hard local permits before requesting cluster admission and releases both with the scope") {
+      val tenant = TenantId.applyUnsafe("00000000-0000-4000-8000-000000000001")
+      val scope  = TransferScope(Some(tenant), StoreBackend.S3)
+      for
+        requested    <- Promise.make[Nothing, DistributedAdmissionRequest]
+        allow        <- Promise.make[Nothing, Unit]
+        released     <- Ref.make(0)
+        distributed   = recordingAdmission(requested, allow, released)
+        budget       <- TransferBudget.make(
+                          TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(Capacity)),
+                          admission(tenantBytes = Capacity),
+                          distributed,
+                          graviton.runtime.metrics.MetricsRegistry.noop,
+                        )
+        footprint    <- ZIO.fromEither(TransferFootprint.single(TransferComponent.applyUnsafe("test"), 4L * 1024L * 1024L))
+        holder       <- ZIO.scoped(budget.reserveScoped(scope, StoreOperation.GetBlob, footprint)).fork
+        request      <- requested.await
+        during       <- budget.availableBytes
+        _            <- allow.succeed(())
+        _            <- holder.join
+        after        <- budget.availableBytes
+        releaseCount <- released.get
+      yield assertTrue(
+        request.scope == scope,
+        request.operation == StoreOperation.GetBlob,
+        request.footprint == footprint,
+        during == Capacity - footprint.totalBytes,
+        after == Capacity,
+        releaseCount == 1,
+      )
+    },
+    test("maps cluster admission failure to a typed store error and releases local permits") {
+      val distributed = new DistributedAdmission:
+        override def acquireScoped(
+          request: DistributedAdmissionRequest
+        ): ZIO[Scope, DistributedAdmission.Error, DistributedAdmissionLease] =
+          val _ = request
+          ZIO.fail(DistributedAdmission.Error.Unavailable("coordinator unreachable"))
+
+        override def snapshot(scope: TransferScope) =
+          val _ = scope
+          ZIO.dieMessage("not used")
+
+      for
+        budget    <- TransferBudget.make(
+                       TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(Capacity)),
+                       admission(),
+                       distributed,
+                       graviton.runtime.metrics.MetricsRegistry.noop,
+                     )
+        footprint <- ZIO.fromEither(TransferFootprint.single(TransferComponent.applyUnsafe("test"), 1024L))
+        exit      <- ZIO
+                       .scoped(budget.reserveScoped(TransferScope.backend(StoreBackend.S3), StoreOperation.PutBlob, footprint))
+                       .exit
+        after     <- budget.availableBytes
+      yield assertTrue(
+        exit.causeOption.flatMap(_.failureOption).exists(_.isInstanceOf[StoreError.DistributedAdmissionUnavailable]),
+        after == Capacity,
+      )
+    },
   )
+
+  private def recordingAdmission(
+    requested: Promise[Nothing, DistributedAdmissionRequest],
+    allow: Promise[Nothing, Unit],
+    released: Ref[Int],
+  ): DistributedAdmission = new DistributedAdmission:
+    override def acquireScoped(
+      request: DistributedAdmissionRequest
+    ): ZIO[Scope, DistributedAdmission.Error, DistributedAdmissionLease] =
+      requested.succeed(request).ignore *>
+        allow.await *>
+        ZIO.addFinalizer(released.update(_ + 1)) *>
+        ZIO.succeed(new DistributedAdmissionLease:
+          override val id                   = AdmissionLeaseId.applyUnsafe("test-lease")
+          override val fencingToken         = AdmissionFencingToken.applyUnsafe(1L)
+          override val policyVersion        = AdmissionPolicyVersion.Initial
+          override val occupancyAtAdmission = AdmissionOccupancy(1024L, 1L, Some(1024L), Some(1L), 1L)
+          override val revoked              = ZIO.never)
+
+    override def snapshot(scope: TransferScope) =
+      val _ = scope
+      ZIO.dieMessage("not used")
 
   private def admission(
     tenantBytes: Long = Capacity,

@@ -2,9 +2,10 @@ package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
 import graviton.core.types.*
-import graviton.runtime.config.BlockPersistenceConfig
+import graviton.runtime.config.{BlockPersistenceConfig, TransferMemoryConfig, TransferMemoryLimit}
 import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
 import graviton.runtime.model.{BlobWritePlan, BlockWritePlan, CanonicalBlock, IngestProgram, StoredBlock}
+import graviton.runtime.streaming.BlobStreamer
 import graviton.streams.Chunker
 import zio.*
 import zio.stream.{ZPipeline, ZStream}
@@ -280,6 +281,34 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
           bytes == data.slice(start.toInt, (start + length).toInt),
           requested.length == 1,
           requested.head == lastKey,
+        )
+      },
+      test("interrupted downloads release their complete prefetch reservation") {
+        val capacity = 64L * 1024L * 1024L
+        val data     = Chunk.fill(1024)(1.toByte)
+
+        for
+          delegate <- InMemoryBlockStore.make
+          repo     <- InMemoryBlobManifestRepo.make
+          writer    = new CasBlobStore(delegate, repo)
+          result   <- Chunker.locally(Chunker.fixed(UploadChunkSize(1024)))(ZStream.fromChunk(data).run(writer.put()))
+          entered  <- Promise.make[Nothing, Unit]
+          gate     <- Promise.make[Nothing, Unit]
+          blocking  = new BlockStore:
+                        override def putBlocks(plan: BlockWritePlan)                 = delegate.putBlocks(plan)
+                        override def exists(key: graviton.core.keys.BinaryKey.Block) = delegate.exists(key)
+                        override def get(key: graviton.core.keys.BinaryKey.Block)    =
+                          ZStream.fromZIO(entered.succeed(()) *> gate.await).drain ++ delegate.get(key)
+          budget   <- TransferBudget.make(TransferMemoryConfig(TransferMemoryLimit.applyUnsafe(capacity)))
+          reader    = new CasBlobStore(blocking, repo, transferBudget = budget)
+          fiber    <- reader.get(result.key).runDrain.fork
+          _        <- entered.await
+          during   <- budget.availableBytes
+          _        <- fiber.interrupt
+          after    <- budget.availableBytes
+        yield assertTrue(
+          during == capacity - BlobStreamer.Config().maximumPrefetchedBytes,
+          after == capacity,
         )
       },
       test("fails when a chunker violates its declared block ceiling") {

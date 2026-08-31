@@ -5,7 +5,15 @@ import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.core.types.FileSize
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import graviton.runtime.stores.MutableObjectStore
+import graviton.runtime.stores.{
+  MutableObjectStore,
+  StoreBackend,
+  StoreError,
+  StoreOperation,
+  TransferBudget,
+  TransferFootprint,
+  TransferScope,
+}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
@@ -227,6 +235,28 @@ object UploadStagingTarget:
     val normalized = prefix.trim.stripPrefix("/").stripSuffix("/")
     BlobLocator.from(scheme, bucket, s"$normalized/probe").map(_ => UploadStagingTarget(scheme, bucket, normalized))
 
+/** Provider-neutral admission boundary for one streamed staging part. */
+trait ResumablePartAdmission:
+  def reserveScoped(key: UploadSessionKey): ZIO[Scope, StoreError, Unit]
+
+object ResumablePartAdmission:
+  val disabled: ResumablePartAdmission = new ResumablePartAdmission:
+    override def reserveScoped(key: UploadSessionKey): ZIO[Scope, StoreError, Unit] =
+      val _ = key
+      ZIO.unit
+
+  def transferBudget(
+    budget: TransferBudget,
+    backend: StoreBackend,
+    footprint: TransferFootprint,
+  ): ResumablePartAdmission = new ResumablePartAdmission:
+    override def reserveScoped(key: UploadSessionKey): ZIO[Scope, StoreError, Unit] =
+      budget.reserveScoped(
+        TransferScope(Some(key.tenantId), backend),
+        StoreOperation.PutBlob,
+        footprint,
+      )
+
 /** Streaming resumable-upload orchestration independent of HTTP and storage vendors. */
 final class ResumableUploadService(
   repository: ResumableUploadRepository,
@@ -234,7 +264,17 @@ final class ResumableUploadService(
   target: UploadStagingTarget,
   config: ResumableUploadConfig = ResumableUploadConfig.Default,
   metrics: MetricsRegistry = MetricsRegistry.noop,
+  partAdmission: ResumablePartAdmission = ResumablePartAdmission.disabled,
 ):
+  /** Binary-compatible constructor retained for clients compiled against 0.6.x. */
+  def this(
+    repository: ResumableUploadRepository,
+    staging: MutableObjectStore,
+    target: UploadStagingTarget,
+    config: ResumableUploadConfig,
+    metrics: MetricsRegistry,
+  ) = this(repository, staging, target, config, metrics, ResumablePartAdmission.disabled)
+
   import ResumableUploadRepository.Error as RepositoryError
   import ResumableUploadService.*
 
@@ -306,7 +346,12 @@ final class ResumableUploadService(
                                 UploadByteStream.enforceMaximumSizeTyped(source.bytes, config.maxPartBytes),
                                 expectedPartSize,
                               )
-                            restore(writePart(reservation, streamed))
+                            restore(
+                              ZIO.scoped(
+                                partAdmission.reserveScoped(key).mapError(Error.Admission.apply) *>
+                                  writePart(reservation, streamed)
+                              )
+                            )
                               .onExit {
                                 case Exit.Success(_) => ZIO.unit
                                 case _               =>
@@ -502,6 +547,7 @@ object ResumableUploadService:
     final case class Repository(underlying: ResumableUploadRepository.Error) extends Error(underlying.getMessage, underlying)
     final case class Staging(operation: String, underlying: Throwable)
         extends Error(s"resumable upload staging $operation failed", underlying)
+    final case class Admission(underlying: StoreError)                       extends Error("resumable upload admission failed", underlying)
     final case class Source(underlying: UploadSourceError)                   extends Error(underlying.getMessage, underlying)
     final case class InvalidPart(underlying: UploadByteStream.Error)         extends Error(underlying.getMessage, underlying)
     final case class EmptyOrInvalidPart(detail: String)                      extends Error(s"resumable upload part is invalid: $detail")

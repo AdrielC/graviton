@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DDL_FILE="${REPO_ROOT}/modules/backend/graviton-pg/src/main/resources/ddl.sql"
+DDL_FILE="${GRAVITON_DDL_FILE:-${REPO_ROOT}/modules/backend/graviton-pg/src/main/resources/ddl.sql}"
 DATABASE_URL="${GRAVITON_DATABASE_URL:-}"
 
 if [[ -z "${DATABASE_URL}" ]]; then
@@ -10,6 +10,7 @@ if [[ -z "${DATABASE_URL}" ]]; then
   exit 2
 fi
 command -v psql >/dev/null || { echo "psql is required" >&2; exit 2; }
+[[ -f "${DDL_FILE}" ]] || { echo "DDL file not found: ${DDL_FILE}" >&2; exit 2; }
 
 if command -v sha256sum >/dev/null; then
   CHECKSUM="$(sha256sum "${DDL_FILE}" | awk '{print $1}')"

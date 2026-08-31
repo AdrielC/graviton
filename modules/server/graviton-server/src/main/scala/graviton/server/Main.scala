@@ -11,6 +11,7 @@ import graviton.backend.pg.{
   PgTenantPolicyCatalog,
 }
 import graviton.backend.s3.{
+  S3BlobStore,
   S3BlockStore,
   S3BlockStoreConfig,
   S3ClientLayer,
@@ -20,6 +21,7 @@ import graviton.backend.s3.{
   S3ObjectStoreConfig,
 }
 import graviton.integration.shardcake.{ShardcakeNode, ShardcakeRegistrationConfig, ShardcakeUploadConfig}
+import graviton.integration.redis.{RedisAdmissionConfig, RedisDistributedAdmission}
 import graviton.pdf.PdfUploadSupport
 import graviton.protocol.http.{AuthMiddleware, BlobIngest, DevAuthRoutes, HttpApi, HttpSecurityPolicy, MetricsHttpApi, TenantHttpApi}
 import graviton.protocol.grpc.{AuthInterceptor, CapabilityInterceptor, GravitonGrpcServer, GrpcServerConfig, RateLimitInterceptor}
@@ -36,6 +38,7 @@ import graviton.runtime.config.{
   TransferMemoryConfig,
 }
 import graviton.runtime.metrics.MetricsRegistry
+import graviton.runtime.admission.DistributedAdmission
 import graviton.runtime.stores.{
   BlobManifestRepo,
   BlobStore,
@@ -59,12 +62,15 @@ import graviton.runtime.stores.{
   FsRepairJournal,
   StoreBackend,
   TransferBudget,
+  TransferComponent,
+  TransferFootprint,
   TransferScope,
 }
-import graviton.runtime.upload.{FsResumableUploadRepository, ResumableUploadService, UploadStagingTarget}
+import graviton.runtime.upload.{FsResumableUploadRepository, ResumablePartAdmission, ResumableUploadService, UploadStagingTarget}
 import graviton.runtime.tenant.*
 import graviton.core.types.{RepositoryNamespace, UploadChunkSize}
 import graviton.streams.Chunker
+import graviton.runtime.streaming.BlobStreamer
 import graviton.security.*
 import graviton.security.jwt.{HmacJwtVerifier, OidcJwtVerifier}
 import graviton.shared.ApiModels.*
@@ -75,6 +81,7 @@ import zio.*
 import zio.http.*
 import zio.metrics.connectors.MetricsConfig
 import zio.metrics.connectors.prometheus
+import zio.metrics.connectors.prometheus.PrometheusPublisher
 import zio.metrics.jvm.DefaultJvmMetrics
 import zio.json.EncoderOps
 import zio.json.ast.Json
@@ -94,12 +101,33 @@ object Main extends ZIOAppDefault:
       cfg                                          <- ZIO.config(GravitonConfig.config)
       maintenance                                  <- ZIO.config(MaintenanceConfig.config)
       blockPersistence                             <- ZIO.config(BlockPersistenceConfig.config)
+      downloadStreaming                            <- ZIO.config(BlobStreamer.Config.config)
       transferMemory                               <- ZIO.config(TransferMemoryConfig.config)
       transferAdmission                            <- ZIO.config(TransferAdmissionConfig.config)
-      transferBudget                               <- TransferBudget.make(transferMemory, transferAdmission)
+      tenantDataPlaneConfig                        <- ZIO.config(TenantDataPlaneConfig.config)
+      redisAdmissionConfig                         <- ZIO.config(RedisAdmissionConfig.config)
+      _                                            <- validateDistributedAdmission(
+                                                        redisAdmissionConfig,
+                                                        transferMemory,
+                                                        transferAdmission,
+                                                        tenantDataPlaneConfig,
+                                                      )
+      metricsPublisher                             <- PrometheusPublisher.make
+      metrics                                      <- ZIO
+                                                        .service[MetricsRegistry]
+                                                        .provideLayer(ZLayer.succeed(metricsPublisher) >>> ZioMetricsRegistry.layer)
+      distributedAdmission                         <- (
+                                                        if redisAdmissionConfig.enabled then RedisDistributedAdmission.make(redisAdmissionConfig, metrics)
+                                                        else ZIO.succeed(DistributedAdmission.disabled)
+                                                      )
+      transferBudget                               <- TransferBudget.make(
+                                                        transferMemory,
+                                                        transferAdmission,
+                                                        distributedAdmission,
+                                                        metrics,
+                                                      )
       manifestIntegrityConfig                      <- ZIO.config(ManifestIntegrityConfig.config)
       manifestIntegrity                            <- manifestIntegrityConfig.build.mapError(new IllegalArgumentException(_))
-      tenantDataPlaneConfig                        <- ZIO.config(TenantDataPlaneConfig.config)
       tenantStorageConfig                          <- ZIO.config(TenantStorageConfig.config)
       shardcake                                    <- ZIO.config(ShardcakeUploadConfig.config)
       console                                      <- ZIO.config(ConsoleConfig.config)
@@ -143,6 +171,7 @@ object Main extends ZIOAppDefault:
                                                                                                       cfg,
                                                                                                       maintenance,
                                                                                                       blockPersistence,
+                                                                                                      downloadStreaming,
                                                                                                       transferBudget,
                                                                                                       tenantDataPlaneConfig,
                                                                                                       tenantStorageConfig,
@@ -357,16 +386,16 @@ object Main extends ZIOAppDefault:
                       if console.enabled && !console.allowRemoteBinding then streaming.binding("127.0.0.1", port)
                       else streaming.port(port)
                     },
-                    blobLayer(cfg, maintenance, blockPersistence, transferBudget, primaryDataSource, manifestIntegrity),
+                    blobLayer(cfg, maintenance, blockPersistence, downloadStreaming, transferBudget, primaryDataSource, manifestIntegrity),
                     resumableUploadLayer(cfg, transferBudget, primaryDataSource),
                     catalogLayer(cfg, primaryDataSource),
                     auditLayer,
                     capabilityLayer(sec, primaryDataSource),
                     ZLayer.succeed(sec) >>> RateLimiter.configured(rateLimiterRegistry),
                     ZLayer.succeed(MetricsConfig(5.seconds)),
-                    prometheus.publisherLayer,
+                    ZLayer.succeed(metricsPublisher),
                     prometheus.prometheusLayer,
-                    ZioMetricsRegistry.layer,
+                    ZLayer.succeed(metrics),
                   )
                 }
     yield ()
@@ -385,6 +414,9 @@ object Main extends ZIOAppDefault:
         with ConfigurationError
     final case class InvalidTenantDataPlane(reason: String)
         extends Exception(s"invalid multi-tenant data plane configuration: $reason")
+        with ConfigurationError
+    final case class InvalidDistributedAdmission(reason: String)
+        extends Exception(s"invalid distributed admission configuration: $reason")
         with ConfigurationError
 
   private[server] def validateShardcakeTopology(
@@ -432,6 +464,42 @@ object Main extends ZIOAppDefault:
       yield ()
       ZIO.fromEither(checks).mapError(ConfigurationError.InvalidTenantDataPlane.apply)
 
+  private[server] def validateDistributedAdmission(
+    config: RedisAdmissionConfig,
+    process: TransferMemoryConfig,
+    localAdmission: TransferAdmissionConfig,
+    tenant: TenantDataPlaneConfig,
+  ): IO[ConfigurationError, Unit] =
+    if !config.enabled then ZIO.unit
+    else
+      val checks = for
+        _ <- config.validate
+        _ <- Either.cond(
+               config.limits.maximumServiceBufferedBytes.value >= process.maximumBufferedBytes.value,
+               (),
+               "service byte capacity must be no smaller than one process byte capacity",
+             )
+        _ <- Either.cond(
+               localAdmission.acquisitionTimeout >= config.acquisitionTimeout,
+               (),
+               "local acquisition-timeout must be no shorter than redis acquisition-timeout",
+             )
+        _ <- Either.cond(
+               !tenant.enabled || config.cellId == tenant.cellId,
+               (),
+               "redis admission cell-id must match the multi-tenant data-plane cell-id",
+             )
+        _ <- Either.cond(!tenant.enabled || config.tls, (), "multi-tenant distributed admission requires TLS")
+        _ <- Either.cond(
+               !tenant.enabled || config.verifyCertificate,
+               (),
+               "multi-tenant distributed admission requires certificate verification",
+             )
+        _ <-
+          Either.cond(!tenant.enabled || config.password.nonEmpty, (), "multi-tenant distributed admission requires Redis authentication")
+      yield ()
+      ZIO.fromEither(checks).mapError(ConfigurationError.InvalidDistributedAdmission.apply)
+
   private final case class TenantDataPlane(
     provider: TenantStoreProvider,
     context: TenantContext,
@@ -451,6 +519,7 @@ object Main extends ZIOAppDefault:
     config: GravitonConfig,
     maintenance: MaintenanceConfig,
     persistence: BlockPersistenceConfig,
+    downloadStreaming: BlobStreamer.Config,
     transferBudget: TransferBudget,
     tenantConfig: TenantDataPlaneConfig,
     storageConfig: TenantStorageConfig,
@@ -487,6 +556,7 @@ object Main extends ZIOAppDefault:
                          val cas          = new CasBlobStore(
                            blocks,
                            manifests,
+                           streamerConfig = downloadStreaming,
                            metrics = metrics,
                            persistenceConfig = persistence,
                            transferBudget = scopedBudget,
@@ -595,6 +665,7 @@ object Main extends ZIOAppDefault:
     cfg: GravitonConfig,
     maintenance: MaintenanceConfig,
     blockPersistence: BlockPersistenceConfig,
+    downloadStreaming: BlobStreamer.Config,
     transferBudget: TransferBudget,
     dataSource: Option[DataSource],
     manifestIntegrity: Option[ManifestIntegrity] = None,
@@ -638,7 +709,27 @@ object Main extends ZIOAppDefault:
     val scopedBudget = transferBudget.bind(TransferScope.backend(configuredTransferBackend(cfg)))
     val casLayer     =
       (storageLayer ++ ZLayer.service[MetricsRegistry] ++ ZLayer.succeed(blockPersistence) ++ ZLayer.succeed(scopedBudget)) >>>
-        CasBlobStore.coordinatedLayerWithMetricsAndPersistence
+        ZLayer.fromFunction(
+          (
+            blocks: BlockStore,
+            manifests: BlobManifestRepo,
+            coordinator: MaintenanceCoordinator,
+            metrics: MetricsRegistry,
+            persistence: BlockPersistenceConfig,
+            budget: TransferBudget,
+          ) =>
+            new CoordinatedBlobStore(
+              new CasBlobStore(
+                blocks,
+                manifests,
+                streamerConfig = downloadStreaming,
+                metrics = metrics,
+                persistenceConfig = persistence,
+                transferBudget = budget,
+              ),
+              coordinator,
+            ): BlobStore
+        )
 
     (casLayer ++ ZLayer.service[MetricsRegistry]) >>> MetricsBlobStore.layer
 
@@ -767,43 +858,65 @@ object Main extends ZIOAppDefault:
   ): ZLayer[MetricsRegistry, Throwable, ResumableUploadService] =
     ZLayer.scoped {
       for
-        metrics <- ZIO.service[MetricsRegistry]
-        service <- cfg.blobBackend.toLowerCase match
-                     case "fs"           =>
-                       val root    = Path.of(cfg.fs.root)
-                       val target  = UploadStagingTarget
-                         .from("file", "graviton-staging")
-                         .fold(message => throw new IllegalStateException(message), identity)
-                       val ledger  = new FsResumableUploadRepository(root)
-                       val staging = new FsMutableObjectStore(root)
-                       ZIO.succeed(new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics))
-                     case "s3" | "minio" =>
-                       for
-                         dataSource <- requiredDataSource(dataSource)
-                         storageCfg <- ZIO
-                                         .fromEither(S3Config.fromEnvironment(cfg.s3.tmpBucket, "resumable"))
-                                         .mapError(message => new IllegalArgumentException(message))
-                         client     <-
-                           ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
-                         target     <- ZIO
-                                         .fromEither(UploadStagingTarget.from("s3", cfg.s3.tmpBucket))
-                                         .mapError(message => new IllegalArgumentException(message))
-                         ledger      = new PgResumableUploadRepository(dataSource)
-                         staging     = new S3MutableObjectStore(client, S3ObjectStoreConfig(storageCfg), transferBudget)
-                       yield new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics)
-                     case other          =>
-                       ZIO.fail(
-                         new IllegalArgumentException(
-                           s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
-                         )
-                       )
+        metrics       <- ZIO.service[MetricsRegistry]
+        partFootprint <- ZIO
+                           .fromEither(
+                             TransferFootprint.single(
+                               TransferComponent.applyUnsafe("resumable-staging-part"),
+                               S3BlobStore.MaxBufferedPartBytes.toLong,
+                             )
+                           )
+                           .mapError(error => new IllegalArgumentException(error.getMessage))
+        service       <- cfg.blobBackend.toLowerCase match
+                           case "fs"           =>
+                             val root      = Path.of(cfg.fs.root)
+                             val target    = UploadStagingTarget
+                               .from("file", "graviton-staging")
+                               .fold(message => throw new IllegalStateException(message), identity)
+                             val ledger    = new FsResumableUploadRepository(root)
+                             val staging   = new FsMutableObjectStore(root)
+                             val admission = ResumablePartAdmission.transferBudget(
+                               transferBudget,
+                               StoreBackend.Filesystem,
+                               partFootprint,
+                             )
+                             ZIO.succeed(new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics, admission))
+                           case "s3" | "minio" =>
+                             for
+                               dataSource <- requiredDataSource(dataSource)
+                               storageCfg <- ZIO
+                                               .fromEither(S3Config.fromEnvironment(cfg.s3.tmpBucket, "resumable"))
+                                               .mapError(message => new IllegalArgumentException(message))
+                               client     <-
+                                 ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
+                               target     <- ZIO
+                                               .fromEither(UploadStagingTarget.from("s3", cfg.s3.tmpBucket))
+                                               .mapError(message => new IllegalArgumentException(message))
+                               ledger      = new PgResumableUploadRepository(dataSource)
+                               staging     = new S3MutableObjectStore(client, S3ObjectStoreConfig(storageCfg), TransferBudget.unbounded)
+                               admission   = ResumablePartAdmission.transferBudget(transferBudget, StoreBackend.S3, partFootprint)
+                             yield new ResumableUploadService(ledger, staging, target, cfg.resumableUploads, metrics, admission)
+                           case other          =>
+                             ZIO.fail(
+                               new IllegalArgumentException(
+                                 s"Unsupported GRAVITON_BLOB_BACKEND='$other' (expected 's3', 'minio', or 'fs')"
+                               )
+                             )
       yield service
     }
 
   /** Compatibility entrypoint for embedded tests and callers using defaults. */
   private[server] def blobLayer(cfg: GravitonConfig): ZLayer[MetricsRegistry, Throwable, BlobStore] =
     ZLayer.fromZIO(TransferBudget.make(TransferMemoryConfig.Default)).flatMap { budget =>
-      blobLayer(cfg, MaintenanceConfig.Default, BlockPersistenceConfig.default, budget.get[TransferBudget], None, None)
+      blobLayer(
+        cfg,
+        MaintenanceConfig.Default,
+        BlockPersistenceConfig.default,
+        BlobStreamer.Config(),
+        budget.get[TransferBudget],
+        None,
+        None,
+      )
     }
 
   private def validateSecurityOrFail(sec: SecurityConfig): Task[Unit] =

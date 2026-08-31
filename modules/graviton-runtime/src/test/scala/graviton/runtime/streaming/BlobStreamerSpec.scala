@@ -54,7 +54,14 @@ object BlobStreamerSpec extends ZIOSpecDefault:
                          }
 
           bytes   <- BlobStreamer
-                       .streamBlob(refs, delayedStore, BlobStreamer.Config(windowRefs = 2, maxInFlight = 2))
+                       .streamBlob(
+                         refs,
+                         delayedStore,
+                         BlobStreamer.Config(
+                           windowRefs = BlobStreamer.ReferenceWindow.applyUnsafe(2),
+                           maxInFlight = BlobStreamer.FetchParallelism.applyUnsafe(2),
+                         ),
+                       )
                        .runCollect
           expected = b0.bytes ++ b1.bytes ++ b2.bytes ++ b3.bytes
           s0       = bytes.take(b0.bytes.length)
@@ -88,6 +95,27 @@ object BlobStreamerSpec extends ZIOSpecDefault:
         yield assertTrue(
           exit.isFailure,
           count == 0L,
+        )
+      },
+      test("configuration rejects unsafe prefetch bounds") {
+        val zeroWindow   = ConfigProvider.fromMap(Map("graviton.download.window-refs" -> "0"))
+        val tooParallel  = ConfigProvider.fromMap(
+          Map("graviton.download.window-refs" -> "1", "graviton.download.max-in-flight" -> "2")
+        )
+        val aboveCeiling = ConfigProvider.fromMap(Map("graviton.download.max-in-flight" -> "17"))
+        val defaults     = ConfigProvider.fromMap(Map.empty)
+
+        for
+          zeroExit     <- ZIO.withConfigProvider(zeroWindow)(ZIO.config(BlobStreamer.Config.config)).exit
+          relationExit <- ZIO.withConfigProvider(tooParallel)(ZIO.config(BlobStreamer.Config.config)).exit
+          ceilingExit  <- ZIO.withConfigProvider(aboveCeiling)(ZIO.config(BlobStreamer.Config.config)).exit
+          configured   <- ZIO.withConfigProvider(defaults)(ZIO.config(BlobStreamer.Config.config))
+        yield assertTrue(
+          zeroExit.isFailure,
+          relationExit.isFailure,
+          ceilingExit.isFailure,
+          configured == BlobStreamer.Config(),
+          configured.maximumPrefetchedBytes == 48L * 1024L * 1024L,
         )
       },
     )

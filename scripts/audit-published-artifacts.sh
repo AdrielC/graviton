@@ -13,6 +13,7 @@ projects=(
   backendLaws
   pdf
   shardcakeIntegration
+  redisAdmission
   proto
   security
   grpc
@@ -37,6 +38,7 @@ directories=(
   "modules/graviton-backend-laws"
   "modules/graviton-pdf"
   "modules/integration/graviton-shardcake"
+  "modules/integration/graviton-admission-redis"
   "modules/protocol/graviton-proto"
   "modules/security/graviton-security"
   "modules/protocol/graviton-grpc"

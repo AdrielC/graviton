@@ -263,6 +263,10 @@ final case class HttpApi(
             error(Status.TooManyRequests, "rate_limited", "Rate limit exceeded")
           case _                                =>
             error(Status.Forbidden, "forbidden", "Request denied")
+      case ResumableUploadService.Error.Admission(underlying)                                                            =>
+        tenantStorageResponse(underlying).getOrElse(
+          error(Status.ServiceUnavailable, "transfer_admission_unavailable", "Transfer admission is temporarily unavailable")
+        )
       case _                                                                                                             => error(Status.InternalServerError, "resumable_upload_failure", "Resumable upload failed")
 
   private val createResumableUploadHandler: Handler[Any, Nothing, Request, Response] =
@@ -528,14 +532,19 @@ final case class HttpApi(
       .takeWhile(_.nonEmpty)
       .flatten
       .collectFirst {
-        case _: StoreError.TenantStorageQuotaExceeded =>
+        case _: StoreError.TenantStorageQuotaExceeded                                                  =>
           error(Status.InsufficientStorage, "tenant_storage_quota_exceeded", "Tenant storage quota exceeded")
-        case _: StoreError.CapacityExceeded           =>
+        case _: StoreError.CapacityExceeded                                                            =>
           error(Status.RequestEntityTooLarge, "tenant_object_limit_exceeded", "Tenant object size limit exceeded")
-        case _: StoreError.TenantConcurrencyExceeded  =>
+        case _: StoreError.TenantConcurrencyExceeded                                                   =>
           error(Status.TooManyRequests, "tenant_concurrency_exceeded", "Tenant concurrent operation limit exceeded")
-        case _: StoreError.TenantAdmissionUnavailable =>
+        case _: StoreError.TenantAdmissionUnavailable                                                  =>
           error(Status.ServiceUnavailable, "tenant_admission_unavailable", "Tenant admission is temporarily unavailable")
+        case _: StoreError.TenantTransferCapacityExceeded | _: StoreError.DistributedAdmissionRejected =>
+          error(Status.TooManyRequests, "transfer_admission_limited", "Transfer admission limit exceeded")
+        case _: StoreError.TransferAdmissionTimedOut | _: StoreError.TransferAdmissionSaturated |
+            _: StoreError.DistributedAdmissionUnavailable | _: StoreError.DistributedAdmissionLeaseLost =>
+          error(Status.ServiceUnavailable, "transfer_admission_unavailable", "Transfer admission is temporarily unavailable")
       }
 
   private val listBlobsHandler: Handler[Any, Nothing, Request, Response] =

@@ -143,9 +143,19 @@ The opt-in MinIO integration gate uploads the same 32 MiB stream twice with 1 Mi
 
 ## Range reads
 
+Full and range downloads use ordered bounded prefetch. `GRAVITON_DOWNLOAD_WINDOW_REFS` limits lightweight manifest lookahead and `GRAVITON_DOWNLOAD_MAX_IN_FLIGHT` limits concurrent block fetches. Completed fetches remain in manifest order, and each block is fully length- and digest-verified before any byte from that block is emitted. Graviton overrides ZIO Streams' larger default ordered-result buffer with one slot. Accounting for that slot, the element being awaited or emitted, and one producer blocked on the queue, every active download reserves a conservative `3 * 16 MiB = 48 MiB` retained-output ceiling. That ceiling is reserved through the same process, tenant, and backend `TransferBudget` used by uploads before manifest or block demand begins, then released on success, failure, early termination, or interruption.
+
+Increasing fetch parallelism can hide object-store latency, but it multiplies retained heap and consumes backend admission. Treat it as a measured deployment knob, not a throughput promise. The configuration rejects values above 16 or above the reference window.
+
 HTTP range requests select intersecting manifest entries before block retrieval. PostgreSQL applies the byte-span predicate in the manifest query; filesystem manifests scan only their lightweight entry records. The CAS then fetches and verifies only selected bounded blocks. A request near the end of a large blob therefore avoids object-store reads, digest work, and network transfer for every preceding block.
 
-Selected blocks are still verified in full before any requested bytes from that block are emitted. Range efficiency does not weaken the content-addressed integrity check, and peak ordered-prefetch memory remains bounded by `maxInFlight * 16 MiB`.
+Selected blocks are still verified in full before any requested bytes from that block are emitted. Range efficiency does not weaken the content-addressed integrity check, and peak ordered-prefetch memory remains covered by the conservative 48 MiB reservation.
+
+## Cluster admission telemetry
+
+When `graviton-admission-redis` is enabled, every process retains its hard byte-weighted budget and also acquires one renewable cluster lease. The atomic coordinator reports service bytes, service transfers, tenant bytes, tenant transfers, backend transfers, rejection dimension, policy version, and server time. Prometheus exposes admission outcome and wait histograms plus service and backend occupancy without tenant labels. The bounded Redis Stream preserves admitted, queued, timed-out, completed, interrupted, failed, expired, and policy-change decisions for an external controller or capacity analysis.
+
+Those events are control signals, not a throughput forecast by themselves. Retain them with request latency, S3 latency and retries, PostgreSQL pool wait, JVM heap and direct memory, and the payload distribution. Change tenant overrides only through a controller with explicit floors, ceilings, expiry or rollback policy, and operator-visible audit.
 
 ## Inline CAS versus resumable staging
 
@@ -155,7 +165,7 @@ The implemented `/api/v1/uploads` protocol changes that cost shape to obtain dur
 
 The advantage is operational rather than computational: acknowledged offsets survive process restart, repeated part IDs are idempotent, transient SDK retries replay only one Iron-bounded part, commit is leased and content-idempotent, and expiry cleans orphans. The response is not a temporary content ID. Only successful commit returns the final immutable blob key.
 
-The current S3 staging adapter stores each client-defined part as one generic object and internally switches to adaptive multipart upload under its existing Iron-bounded buffer and abort finalizer. Staging and final CAS ingest share the server's process-wide transfer budget, so their conservative reservations cannot multiply past the configured ceiling. Graviton CAS blocks remain bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are still the appropriate CAS default rather than multipart upload per block.
+The current S3 staging adapter stores each client-defined part as one generic object and internally switches to adaptive multipart upload under its existing Iron-bounded buffer and abort finalizer. Before the packaged server demands a part body, it reserves the adapter's conservative 128 MiB ceiling through the process, authenticated tenant, physical backend, and optional distributed admission hierarchy. The low-level adapter's nested process reservation is disabled only in this composition, so one part is accounted exactly once; standalone adapters keep their own hard reservation. Staging and final CAS ingest share the server's process-wide transfer budget, so their conservative reservations cannot multiply past the configured ceiling. Graviton CAS blocks remain bounded to at most 16 MiB and default to 1 MiB, so bounded concurrent single-object block writes are still the appropriate CAS default rather than multipart upload per block.
 
 ## Comparing revisions
 

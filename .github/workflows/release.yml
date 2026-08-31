@@ -173,6 +173,7 @@ jobs:
             graviton-backend-laws_3
             graviton-pdf_3
             graviton-shardcake_3
+            graviton-admission-redis_3
             graviton-proto_3
             graviton-security_3
             graviton-grpc_3
