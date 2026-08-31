@@ -102,11 +102,19 @@ object ApiModels {
 
     final case class BlobDetails(
       summary: BlobSummary,
-      metadata: Option[BlobMetadata],
       blocks: List[BlobBlock],
+      metadata: Option[BlobMetadata],
       nextCursor: Option[String],
-    )
+    ):
+      def this(summary: BlobSummary, blocks: List[BlobBlock]) = this(summary, blocks, None, None)
+
+      def copy(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+        BlobDetails(summary, blocks, metadata, nextCursor)
+
     object BlobDetails:
+      def apply(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+        new BlobDetails(summary, blocks, None, None)
+
       given BlocksSchema[BlobDetails] = BlocksSchema.derived
 
     final case class BlobListResponse(blobs: List[BlobSummary], nextCursor: Option[String])
@@ -262,14 +270,22 @@ object ApiModels {
     blocks: List[BlobBlock],
     metadata: Option[BlobMetadata] = None,
     nextCursor: Option[String] = None,
-  ) derives JsonCodec
+  ) derives JsonCodec:
+    def this(summary: BlobSummary, blocks: List[BlobBlock]) = this(summary, blocks, None, None)
+
+    def copy(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+      BlobDetails(summary, blocks, metadata, nextCursor)
+
   object BlobDetails:
+    def apply(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+      new BlobDetails(summary, blocks, None, None)
+
     given ApiJsonCodec[BlobDetails] =
       ApiJsonCodec.mapped[BlobDetails, Wire.BlobDetails](value =>
         Wire.BlobDetails(
           summaryToWire(value.summary),
-          value.metadata.map(meta => Wire.BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
           value.blocks.map(blockToWire),
+          value.metadata.map(meta => Wire.BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
           value.nextCursor,
         )
       )(value =>

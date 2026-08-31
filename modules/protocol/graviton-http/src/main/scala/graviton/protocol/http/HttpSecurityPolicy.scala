@@ -21,6 +21,13 @@ final class HttpSecurityPolicy(
   metrics: MetricsRegistry,
 ):
 
+  def this(
+    config: SecurityConfig,
+    capabilities: CapabilityCheck,
+    rateLimiter: RateLimiter,
+    audit: AuditSink,
+  ) = this(config, capabilities, rateLimiter, audit, DistributedTrafficQuota.disabled, MetricsRegistry.noop)
+
   private val corsAllowedRequestHeaders = Set(
     "authorization",
     "content-type",
@@ -259,3 +266,11 @@ object HttpSecurityPolicy:
     metrics: MetricsRegistry = MetricsRegistry.noop,
   ): HttpSecurityPolicy =
     new HttpSecurityPolicy(config, capabilities, rateLimiter, audit, trafficQuota, metrics)
+
+  def make(
+    config: SecurityConfig,
+    capabilities: CapabilityCheck,
+    rateLimiter: RateLimiter,
+    audit: AuditSink,
+  ): HttpSecurityPolicy =
+    new HttpSecurityPolicy(config, capabilities, rateLimiter, audit)
