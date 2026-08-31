@@ -222,13 +222,16 @@ final class HttpSecurityPolicy(
     kind: DistributedTrafficQuota.Kind,
     amount: Long,
   ): IO[SecurityError, Unit] =
-    trafficQuota
-      .charge(TenantId.applyUnsafe(caller.orgId.toString), kind, amount)
-      .mapError {
-        case rejected: DistributedTrafficQuota.Error.Rejected => SecurityError.RateLimited(rejected.getMessage)
-        case other                                            =>
-          SecurityError.MisconfiguredSecurity("distributed traffic quota is unavailable", Some(other))
-      }
+    for
+      tenant <- ZIO
+                  .fromEither(TenantId.fromUuid(caller.orgId))
+                  .mapError(_ => SecurityError.Unauthenticated("authenticated organization is not a canonical UUID"))
+      _      <- trafficQuota.charge(tenant, kind, amount).mapError {
+                  case rejected: DistributedTrafficQuota.Error.Rejected => SecurityError.RateLimited(rejected.getMessage)
+                  case other                                            =>
+                    SecurityError.MisconfiguredSecurity("distributed traffic quota is unavailable", Some(other))
+                }
+    yield ()
 
   private def toResponse(error: SecurityError): Response =
     val (status, code, message) = error match

@@ -139,16 +139,20 @@ final case class HttpApi(
   private def requestTenant(request: Request): IO[Response, TenantId] =
     CallerContext.current.flatMap {
       case Some(caller) =>
-        val tenant = TenantId.applyUnsafe(caller.orgId.toString)
-        request.headers.get(UploadHttpHeaders.TenantId) match
-          case None      => ZIO.succeed(tenant)
-          case Some(raw) =>
-            ZIO
-              .fromEither(TenantId.either(raw))
-              .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
-              .filterOrFail(_ == tenant)(
-                error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization")
-              )
+        ZIO
+          .fromEither(TenantId.fromUuid(caller.orgId))
+          .mapError(_ => error(Status.Unauthorized, "invalid_identity", "Authenticated organization is not a canonical UUID"))
+          .flatMap { tenant =>
+            request.headers.get(UploadHttpHeaders.TenantId) match
+              case None      => ZIO.succeed(tenant)
+              case Some(raw) =>
+                ZIO
+                  .fromEither(TenantId.either(raw))
+                  .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
+                  .filterOrFail(_ == tenant)(
+                    error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization")
+                  )
+          }
       case None         =>
         if security.nonEmpty then ZIO.fail(error(Status.Unauthorized, "unauthenticated", "Authentication required"))
         else

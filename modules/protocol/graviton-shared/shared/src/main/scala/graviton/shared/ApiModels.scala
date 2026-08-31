@@ -47,7 +47,7 @@ object ApiModels {
 
   /** Canonical UUID identifying one resumable upload session. */
   type UploadId = UploadId.T
-  object UploadId extends RefinedSubtype[String, Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]]:
+  object UploadId extends RefinedSubtype[String, Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]]:
     given JsonCodec[UploadId] = summon[JsonCodec[String]].transformOrFail(either, _.value)
 
   /** Durable byte offset, including zero and the completed 1 TiB boundary. */

@@ -10,12 +10,15 @@ import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
 import zio.Chunk
 
+import java.util.UUID
+
 /** Canonical lowercase UUID text used at upload protocol boundaries. */
 type CanonicalUuidConstraint =
-  Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]
+  Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]
 
 type TenantId = TenantId.T
-object TenantId extends RefinedTypeExt[String, CanonicalUuidConstraint]
+object TenantId extends RefinedTypeExt[String, CanonicalUuidConstraint]:
+  def fromUuid(value: UUID): Either[String, TenantId] = either(value.toString)
 
 type UploadSessionId = UploadSessionId.T
 object UploadSessionId extends RefinedTypeExt[String, CanonicalUuidConstraint]
