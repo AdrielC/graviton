@@ -90,13 +90,13 @@ Graviton owns the lower three boxes. A downstream system may retain a Graviton c
 
 ## Transducer Algebra
 
-The **Transducer algebra** is the composable pipeline engine that sits between the pure core and the effectful runtime. Transducers compose via `>>>` (sequential) and `&&&` (fanout) with automatic Record-state merging:
+The **Transducer algebra** is a separate composable pure-processing library. The production runtime reuses its block-key transformation but keeps orchestration in ZIO Streams. Transducers compose via `>>>` (sequential) and `&&&` (fanout) with Record-state merging:
 
 ```
 bytes → countBytes >>> hashBytes >>> rechunk(blockSize) → CanonicalBlock
 ```
 
-Each transducer produces a typed Record summary. After composition, the summary contains **all** named fields from **all** stages, accessible by name rather than by index. Implemented stages live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)). Compression and aggregate framing remain roadmap work and are not presented as operational features. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`.
+Each transducer has a typed summary shape, and composition merges those shapes. Mixed-field Kyo Record access is currently experimental on Scala 3.8 because some named lookups fail at runtime; production CAS does not read those aggregate summaries. Implemented transformations live in `IngestPipeline`, `Transducers`, `CasIngest`, `BombGuard`, `ThroughputMonitor`, and `BlockVerify` (see [Transducer Algebra](./core/transducers.md)). Compression and aggregate framing remain roadmap work and are not presented as operational features. Transducers compile to `ZSink`, `ZPipeline`, or `ZChannel`, with the collecting `ZSink` restricted to bounded inputs.
 
 See the [Transducer Algebra](./core/transducers.md) page for the full API and implemented-stage boundaries.
 
@@ -109,7 +109,7 @@ See the [Transducer Algebra](./core/transducers.md) page for the full API and im
 - Locator abstractions (`BlobLocator`, `LocatorStrategy`).
 - Range utilities (`Bound`, `Interval`, `Span`, `RangeSet`).
 - Manifest encoders and decoders.
-- A small `UnionFind` helper (`graviton.core.uf`); **replica placement** that uses it across the runtime is **planned**, not wired through ingest today.
+- A small `UnionFind` helper (`graviton.core.uf`). Runtime replica placement is a separate implemented rendezvous service and does not depend on `UnionFind`.
 
 ## Streams
 

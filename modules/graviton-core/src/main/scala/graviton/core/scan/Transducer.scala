@@ -6,13 +6,15 @@ import zio.{Chunk, ChunkBuilder}
 import zio.stream.{ZChannel, ZPipeline}
 
 /**
- * Composable stateful stream transducer with zero-overhead composition.
+ * Composable stateful stream transducer with explicit hot state and summary
+ * construction at execution boundaries.
  *
  * ==Design: Hot State vs Summary==
  *
  * Every transducer has two state representations:
- *   - `Hot`: the fast internal state used in the processing loop. Typically
- *     primitives, arrays, or tuples. '''Zero allocations per step.'''
+ *   - `Hot`: the internal state used in the processing loop. Typically
+ *     primitives, arrays, or tuples. This avoids Record construction per step,
+ *     but `step` still returns tuples and output Chunks and is not allocation-free.
  *   - `S` (Summary): the user-facing state, typically a `kyo.Record` with
  *     named fields. '''Only constructed when the user asks for it''' (via
  *     `runChunk`, `toSink`, `summarize`, or `flush`).
@@ -23,8 +25,15 @@ import zio.stream.{ZChannel, ZPipeline}
  * constructs Records — only tuples of primitives. Records are materialized
  * once at the end when `toSummary` is called.
  *
- * This means `countBytes >>> hashBytes >>> rechunk` composed via `>>>`
- * runs at the '''same speed as hand-written imperative code'''.
+ * This avoids constructing Records in the element-processing loop. Performance
+ * relative to a hand-written loop remains workload- and JVM-dependent and must
+ * be established with benchmarks rather than inferred from this representation.
+ *
+ * Current compatibility boundary: on the supported Scala 3.8 line, Kyo's
+ * `Record.selectDynamic` can fail for some mixed-field summaries. Streaming
+ * transformation through `toPipeline` and summaries that avoid the affected
+ * accessor remain usable, but consumers must not depend on aggregate named
+ * Record access until the upstream compatibility issue is resolved.
  *
  * ==Composition==
  *   - `>>>` (sequential): pipe output of left into input of right
@@ -33,7 +42,8 @@ import zio.stream.{ZChannel, ZPipeline}
  *
  * ==Compilation targets==
  *   - `runChunk(inputs)`: pure in-memory, returns `(S, Chunk[O])`
- *   - `toSink`: `ZSink` that yields `(S, Chunk[O])` as summary
+ *   - `toSink`: `ZSink` that yields `(S, Chunk[O])` and therefore materializes
+ *     all outputs; use only when the output is independently bounded
  *   - `toPipeline`: `ZPipeline` (summary discarded)
  *   - `toChannel`: `ZChannel` that yields `S` as terminal value
  *   - `toTransducingSink`: `ZSink` for `stream.transduce` pattern
@@ -44,7 +54,7 @@ import zio.stream.{ZChannel, ZPipeline}
  */
 trait Transducer[-I, +O, S]:
 
-  /** Fast internal state type. Primitives/tuples for zero-alloc hot path. */
+  /** Internal state type, normally primitives, arrays, or tuples. */
   type Hot
 
   /** Create fresh hot state for a new run. */
@@ -346,6 +356,12 @@ object Transducer:
     def toPipeline: ZPipeline[Any, Nothing, I, O] =
       ZPipeline.fromChannel(self.toChannel.mapOut(identity).unit)
 
+    /**
+     * Compile to a sink that returns the summary and every output.
+     *
+     * This sink retains O(total output) memory. It is intended for bounded
+     * inputs and tests, not arbitrary-size data-plane streams.
+     */
     def toSink: zio.stream.ZSink[Any, Nothing, I, Nothing, (S, Chunk[O])] =
       zio.stream.ZSink
         .foldLeftChunks[I, (self.Hot, ChunkBuilder[O])]((self.initHot, ChunkBuilder.make[O]())) { (acc, chunk) =>

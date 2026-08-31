@@ -1,22 +1,36 @@
 # Constraints and Metrics
 
-Graviton enforces ingest limits and exposes observability data through the runtime module.
+Graviton has a small set of legacy utility primitives and a separate set of controls that the packaged server actually wires. This page keeps those categories distinct.
 
-## Constraints
+## Enforced server controls
 
-- **Spill policy** – keeps large uploads off-heap by writing intermediary bytes to disk. Policies track the lifetime of spill directories and cleaning semantics.
-- **Semaphore limits** – coordinate concurrency per tenant and per upload via `zio.Semaphore`.
-- **Throttles** – token bucket implementation to enforce byte-per-second limits across actors.
-- **Quotas** – track aggregate usage per tenant; the initial implementation uses counters and optimistic updates.
+- `TransferBudget` reserves named process, tenant, and backend byte footprints before a source, manifest, or block stream is demanded. Permits are scoped and released on success, failure, early termination, or interruption.
+- `TenantAdmission` bounds concurrent logical operations per tenant in multi-tenant mode.
+- PostgreSQL retained-byte accounting is transactionally coupled to tenant manifest publication and deletion.
+- `RateLimiter` provides bounded, sharded, process-local per-principal request, upload-byte, and download-byte token buckets.
+- Optional `RedisDistributedAdmission` atomically coordinates service, tenant, and backend transfer footprints across nodes.
+- The same optional Redis or Valkey provider enforces authenticated HTTP request and delivered-egress tenant ceilings. The current gRPC interceptor does not charge those distributed traffic counters.
+
+The packaged runtime does not depend on `SpillPolicy`, `SemaphoreLimit`, or the in-memory `Quota` helper for these production contracts. Those small types remain library utilities. `SpillPolicy` currently stores a root path only; it is not a complete spill manager and must not be described as moving arbitrary uploads off heap.
 
 ## Metrics
 
-Runtime components register metrics through `MetricsRegistry` and publish canonical keys defined in `MetricKeys`. The production registry writes to native ZIO Metrics while retaining a small process snapshot for `/api/stats` and the local Operations console. `/metrics` is rendered by the current `zio-metrics-connectors-prometheus` publisher and includes ZIO's JVM metrics.
+Runtime components publish through `MetricsRegistry` and the bounded names in `MetricKeys`. The packaged registry writes native ZIO Metrics while retaining a process snapshot for `/api/stats`, the typed operator API, and the local console. `/metrics` is rendered by the Prometheus connector and includes JVM metrics.
 
-The implemented counters cover successful ingests, ingested bytes, fresh and duplicate blocks, fresh and duplicate block bytes, HTTP outcomes, and Shardcake upload-locality decisions and failures. HTTP and ingest duration are histograms. The Shardcake adapter also records health outcomes and duration plus readiness, assignment, observed-node, and bounded hot-state gauges. Metric labels are restricted to bounded dimensions such as operation, route, health status, and failure stage; tenant, session, and node IDs are intentionally excluded to prevent unbounded cardinality.
+Implemented observations include:
 
-`graviton_duplicate_block_bytes_total / (graviton_fresh_block_bytes_total + graviton_duplicate_block_bytes_total)` is the byte-weighted share of logical ingest that found an existing CAS block. `/api/stats` exposes this as `deduplicationRatio`. Per-file console percentages are explicitly labeled as block reuse because the catalog currently persists block counts, not byte-weighted history.
+- blob operation outcomes, failures, duration, bytes, fresh blocks, duplicate blocks, and byte-weighted reuse;
+- HTTP requests, errors, latency, and delivered egress;
+- Shardcake health, assignments, observed nodes, locality decisions, failures, and reassignments;
+- resumable upload creation, parts, retries, commits, staging bytes, commit duration, and cleanup duration;
+- replica and erasure placement, reads, writes, reconstruction, health, repair cycles, cursor, backlog, and dead letters;
+- local and distributed admission outcomes, waits, occupancy, lease loss, and traffic-quota rejection;
+- PostgreSQL pool occupancy and waiters;
+- S3 API calls, duration, and retries;
+- backend operation outcomes, duration, transferred bytes, and maintenance cycles.
 
-This ratio measures Graviton writes avoided at the CAS boundary. It is not physical disk savings. Replication, erasure coding, compression, object-store metadata, allocator overhead, and backend-native deduplication all affect physical utilization. Measure those at the storage backend as a separate capacity signal.
+Metric labels use bounded dimensions such as cell, node, backend, operation, outcome, route, and failure stage. Tenant IDs, principals, session IDs, object names, filenames, digests, and payload values are excluded.
 
-Process metrics reset when the server restarts. Backend latency histograms, durable aggregation, physical-capacity measurements, RocksDB compaction gauges, and S3-compatible backend health measurements remain roadmap work.
+`graviton_duplicate_block_bytes_total / (graviton_fresh_block_bytes_total + graviton_duplicate_block_bytes_total)` is the byte-weighted share of logical ingest that found an existing CAS block. It measures avoided CAS block writes, not physical disk savings. Replication, erasure coding, allocator and object metadata, compression, and backend-native behavior must be measured separately.
+
+Process metrics reset when the server restarts. The repository supplies Prometheus remote-write configuration and Grafana dashboards, but durable retention is provided by the configured external telemetry system. Physical-capacity measurements and RocksDB compaction metrics are not implemented.

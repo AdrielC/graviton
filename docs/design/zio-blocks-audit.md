@@ -4,6 +4,10 @@ Audit date: 2026-08-26
 
 Graviton baseline: `fc0fee41923c44295f834367175d3df4941b6b3b`
 
+::: warning Historical baseline
+This audit records the code state at the baseline above. The dependency decision remains current, but several gaps identified here were closed after `v0.7.0`. The disposition table below is updated for current `main`; use the [implementation status ledger](../implementation-status.md) for release availability.
+:::
+
 Official release: [ZIO Blocks v0.0.51](https://github.com/zio/zio-blocks/releases/tag/v0.0.51)
 
 ## Decision
@@ -50,7 +54,7 @@ In 0.0.51, `MediaType.fullType` contains only `mainType/subType`; it drops param
 - parameter-preserving HTTP and gRPC rendering;
 - an explicitly exported and round-trip-tested ZIO Blocks Schema for bounded media-type metadata values.
 
-The remaining media-type gap is durability. Current manifests do not persist blob attributes, so later downloads still fall back to `application/octet-stream`. That requires a versioned `BlobMetadataV1` manifest extension, not another string field at the transport edge.
+At the audited baseline, manifests did not persist media type. Current `main` closes that gap with bounded `BlobMetadataV1` values in GVM4 filesystem manifests and PostgreSQL rows. This postdates `v0.7.0`, so consumers of the released jars must not infer that current-main metadata behavior is already in that release.
 
 ## Released module disposition
 
@@ -109,29 +113,28 @@ There is no released module, class, or format named `BIF`. The real abstractions
 - Made bounded Int and Long arithmetic detect machine overflow before refinement, including the case where a wrapped product would otherwise land inside the accepted range.
 - Corrected docs that presented an experimental register benchmark as an operational flat pipeline.
 
-### Production gaps still open
+### Disposition of audited gaps on current main
 
-| Priority | Gap | Required shape |
-| --- | --- | --- |
-| P1 | Backend-wide shared/exclusive maintenance coordination and native cursor inventory are implemented for built-in filesystem and PostgreSQL compositions. Raw `CasBlobStore` construction remains an uncoordinated compatibility escape hatch. Interrupted uploads can leave unreferenced blocks until the next sweep. | Require coordinated composition and the published backend laws from third-party production adapters, add a coordinated backup snapshot protocol, and operationally size the temporary workspace. |
-| P0 | Per-blob inspection loads the full manifest and copies every block reference into HTTP/gRPC response models | `streamBlockRefs` or cursor/page inspection with a refined page limit. Keep full-manifest materialization out of server control paths. |
-| P0 | Blob metadata, including media type, is not durably persisted | Versioned bounded `BlobMetadataV1` with schema ID, codec version, canonical media type, chunker identity, and migration tests. |
-| P1 | `BlockStore.putBlocks` accumulates a complete batch result | Streaming acknowledgements or an Iron-refined maximum batch size. |
-| P1 | Several derived legacy schemas bypass key, digest, frame, and transform smart constructors | Validated schemas plus invalid-state round-trip tests before any new binary format adoption. |
-| P1 | The legacy `Integral` instance for positive bounded refinements cannot satisfy ordinary numeric laws because zero is outside the domain | Deprecate it in favor of `Ordering` and explicit checked bounded operations, then remove it at the next declared API boundary. |
-| P1 | Browser JSON/error bodies and downloads use Fetch `text()` or `blob()` | Limit control bodies and expose a browser `ReadableStream`, native navigation, or File System Access writer for data-plane downloads. |
-| P1 | Replica read memory scales with replica count and repair uses detached fibers | Refined replica/concurrency limits, first-valid short circuit, and scoped repair fibers. |
-| P2 | `DynamicRecordCodec` cannot losslessly reconstruct binary, numeric widths, sets, tuples, or `None` | Replace schema-agnostic storage with schema-aware bounded metadata JSON. Reject arbitrary binary in control JSON. |
-| P2 | Orphan `modules/core`, `modules/db`, and `modules/pg` trees look operational but are not built | Remove, quarantine, or declare and validate them. |
+| Audited gap | Current disposition |
+| --- | --- |
+| Backend-wide maintenance and inventory | Built-in filesystem and PostgreSQL compositions coordinate complete operation streams and expose native cursor inventory. Raw third-party composition remains a compatibility escape hatch and must run the published laws. |
+| Materialized per-blob inspection | Built-in stores override streaming block descriptions and exact cursor pages. The public compatibility default can still materialize an old third-party backend's `inspect` result. |
+| Durable media type and chunker metadata | Closed on `main` by `BlobMetadataV1`, GVM4, PostgreSQL persistence, schema contracts, and manifest-integrity binding. Not present in `v0.7.0`. |
+| Batch block result accumulation | The production CAS path writes one bounded block through `putBlock`. The lower-level compatibility `putBlocks` API still returns a materialized `BlockBatchResult` and must be used only with a bounded batch. |
+| Schema smart-constructor bypass | Key transport paths use validated wire records, but legacy derived schemas still require review before defining a new persisted format. |
+| Positive refined `Integral` lawfulness | Still open. Prefer ordering and explicit checked arithmetic for new code. |
+| Browser control and payload collection | The content lab streams file analysis with named bounds. The Laminar remote console still uses browser Fetch conveniences, so it is not the proof surface for arbitrary-size browser downloads. |
+| Replica read and repair memory | Reads use bounded candidates and ordered validation; repair work is scoped. Deployment sizing still depends on configured replica and transfer admission limits. |
+| Schema-agnostic dynamic records | Still open. `DynamicRecordCodec` is not an arbitrary lossless metadata store. |
+| Unbuilt source trees | Still open. `modules/core`, `modules/db`, and `modules/pg` are not SBT projects and must not be described as shipped modules. |
 
 ## Recommended next increments
 
-1. Add `BlobMetadataV1` and persist it in filesystem and PostgreSQL manifests. Return the canonical media type from stat, HTTP, and gRPC.
-2. Add paged per-blob inspection and prove first-page latency and fixed-heap behavior on a million-reference fixture. Repository inventory already uses backend-native cursor pagination.
-3. Replace schema-agnostic dynamic JSON with a bounded schema descriptor plus migration registry.
-4. Pilot `zio-blocks-sql` in a separate metadata-index module. Generate parameterized JSONB fragments from validated dynamic optics and test them against live PostgreSQL.
-5. Revisit direct Iron schema derivation only after an official release containing the external opaque-wrapper fix. Remove the wire workaround only when JVM and Scala.js regression vectors pass.
-6. Keep the register pipeline experimental until flat composition is implemented and benchmarked against tuples on the production ingest path.
+1. Replace schema-agnostic dynamic JSON only when a concrete bounded metadata contract requires it.
+2. Pilot `zio-blocks-sql` in a separate metadata-index module with live PostgreSQL evidence before replacing current repositories.
+3. Revisit direct Iron schema derivation only after an official release containing the external opaque-wrapper fix passes the JVM and Scala.js vectors.
+4. Keep the register pipeline experimental until flat composition is implemented and benchmarked against the production ZIO Stream ingest path.
+5. Remove or quarantine unbuilt source trees so repository layout cannot be mistaken for the SBT module graph.
 
 ## Required proof
 

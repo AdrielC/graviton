@@ -36,4 +36,4 @@ val verification =
   BlockVerify.verifier(expectedBlocks)
 ```
 
-See [Transducer Algebra](./core/transducers.md) for the executable JVM implementation and tests.
+See [Transducer Algebra](./core/transducers.md) for the JVM implementation, the streaming-versus-collecting boundary, and the current Scala 3.8 aggregate-summary limitation.

@@ -1,6 +1,6 @@
-# Scala.js Operations Console
+# Documentation-site Scala.js Console
 
-`modules/frontend` delivers the Laminar application mounted on the `/demo` page. It consumes shared protocol models and operates the same HTTP API used by command-line clients. The CAS Playground uses separate `graviton-content-lab` and `graviton-pdf-lab` Scala.js modules and does not depend on the Laminar console.
+`modules/frontend` delivers the Laminar remote console mounted on the documentation site's `/demo` page. It consumes shared protocol models and calls an operator-supplied Graviton HTTP endpoint. It is distinct from the packaged server's `/console` surface, which is server-rendered and refreshed with ZIO Blocks Datastar. The CAS Playground uses separate `graviton-content-lab` and `graviton-pdf-lab` Scala.js modules and does not depend on either console.
 
 ## Build and run
 

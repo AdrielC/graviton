@@ -1,70 +1,57 @@
 # Roadmap
 
-Graviton is an operational pre-1.0 content-addressable storage runtime. This roadmap separates repository-complete functionality from deployment-specific qualification and future product work.
+Graviton is a pre-1.0 content-addressed byte-storage runtime. The [implementation status ledger](docs/implementation-status.md) is the source of truth for what is released, what exists only on `main`, and what still requires target qualification.
 
-## 0.6 release boundary
+## Release the current main line
 
-- Typed, bounded streaming APIs across HTTP, gRPC, filesystem, PostgreSQL, and S3-compatible storage
-- Canonical `/api/v1/blobs` upload, inventory, metadata, verification, retrieval, range, precondition, and delete lifecycle
-- Packaged gRPC listener with client-streaming upload, server-streaming download and inspection, stat, list, delete, and public backend health
-- Typed Scala SDKs using ZIO Streams, ZIO Blocks media types, Iron-refined byte limits, and transparent stream-scoped transport state
-- Operational PostgreSQL key-value and chunked object stores with transactional commit, rollback, copy, list, range tracking, and streaming reads
-- Operational S3 content-addressed and generic object adapters with bounded multipart buffering, retry-safe publication, and explicit multipart abort finalizers
-- Durable RocksDB typed key-value adapter with close-and-reopen persistence coverage
-- Filesystem CAS with fsync, atomic publication, restart-safe manifests, conservative garbage collection, quarantine, and restore
-- Backend-wide shared/exclusive maintenance coordination for complete blob-operation stream lifetimes and garbage collection, implemented with filesystem locks and PostgreSQL advisory locks
-- RS256 OIDC/JWKS verification, capability authorization, trusted-proxy TLS policy, exact CORS origins, request and byte limits, gRPC interceptors, and hash-chained audit events
-- Clean external-consumer resolution for every published module plus a JAR-content gate that rejects empty or unsupported-operation artifacts
-- Packaged JAR smoke proof, non-root container, Kubernetes and on-prem examples, backup/restore tooling, SPDX SBOM, checksums, attestations, and signed Maven Central publication
-- Shardcake upload locality with typed ZIO Blocks wire codecs, stable session ownership, real two-node reassignment proof, and native ZIO Metrics health observations
-- Crash-safe resumable HTTP sessions with durable filesystem or PostgreSQL ledgers, streamed filesystem or S3 staging, idempotent bounded parts, expiry cleanup, and a typed JVM SDK
-- Deterministic rendezvous block placement across declared failure domains, safe-by-default write quorum, validating reads, atomic corrupt-replica replacement, and supervised bounded repair cycles
-- Independently addressed S3 or Ceph RGW targets, locality-aware reads, fixed 2+1 erasure coding, original-key verification, destructive single-target volume-loss qualification, and live Prometheus and Grafana SLO surfaces
-- PDF-aware chunker selection through bounded media sniffing and scoped ZIO services, with the reusable `graviton-pdf` adapter consuming `zio-pdf`
-- Operator console backed by live storage and Shardcake state, using ZIO Blocks DataStar actions and the official local browser runtime
-- Hardened two-node Compose bundle with strict config validation, immutable images, coordinated backup, isolated restore, 90-day retained benchmark distributions, rolling upgrade and rollback proof, sustained backend failure drills, container SBOM, provenance, and keyless image signing
-- Backend-native opaque cursor pagination and complete streaming inventory for filesystem, PostgreSQL, S3, HTTP, gRPC, CLI, and the Scala SDK
-- Typed `StoreError` channels across blob, block, manifest, locator-object, maintenance, and garbage-collection ports
-- Process-wide weighted transfer-memory admission plus interruption-safe release tests
-- Filesystem and PostgreSQL repair journals with durable cursors, attempt counts, resolution, and streamed dead letters
-- Published `graviton-backend-laws` ZIO Test contract, self-applied to in-memory and filesystem CAS implementations
-- Published deterministic CrashLab and tenant-storage laws, default-isolated FiberRef routing, explicit shared-dedup policy, and domain-wide streaming GC marks
+`v0.7.0` is the latest Maven Central and GitHub release. Current `main` adds multi-tenant hardening, distributed Redis or Valkey admission, GVM4 metadata and manifest authentication, tenant-domain snapshots, operator APIs, and Production Qualification and Telemetry v1. Those additions need a later tag and successful release workflow before downstream builds can consume them from Maven Central.
 
-## Operator acceptance
+Before that release:
 
-These items depend on the deployment and cannot be completed once for every user inside this repository.
+- keep source and binary compatibility checks green against `v0.7.0`;
+- run the clean external consumer and published-JAR audit;
+- run packaged HTTP and gRPC smoke tests;
+- retain filesystem backup and restore proof;
+- confirm every machine-readable qualification and observability contract;
+- state the clean-store GVM4 boundary in the release notes.
 
-- Validate OIDC claims, capabilities, JWKS reachability, proxy headers, TLS termination, CORS, and gRPC ingress against the real identity provider and network
-- Run the restore drill from real backups and record recovery time and recovery point objectives
-- Run `scripts/benchmark-suite.sh` and `scripts/soak-http.sh` with representative objects, concurrency, backends, and retention settings; repository-generated corpus results are regression evidence, not target capacity
-- Run `scripts/qualify-local-shardcake.sh`, `scripts/qualify-rolling-upgrade.sh`, `scripts/qualify-long-failure.sh`, and `scripts/qualify-three-domain.sh`, then repeat storage throttling, credential rotation, target loss, and rollback against the exact target images and infrastructure
-- For shared S3 plus PostgreSQL, retain the exact version-pair rolling record before claiming high availability
+## Code gaps
 
-## Next product work
+These are implementation gaps, not shipped capabilities:
 
-### Protocols and clients
+- Extend the Redis or Valkey request-count and delivered-egress contract to authenticated gRPC, or explicitly keep it as an HTTP-only edge contract.
+- Split the combined PostgreSQL bootstrap DDL so the Graviton migration set contains only the byte substrate.
+- Add a complete RocksDB `BlockStore` only if an embedded CAS use case justifies it. `graviton-rocks` currently provides typed key-value storage only.
+- Add page extraction, semantic PDF chunking, malware policy, or content enrichment only as separate, bounded integrations. Current PDF-aware ingest validates the signature and chooses structural block boundaries.
+- Remove or quarantine the unbuilt `modules/core`, `modules/db`, and `modules/pg` source trees after confirming that no still-useful experiment is lost.
+- Replace the compatibility fallback implementations of manifest inspection and quarantine inventory before advertising a third-party backend as production supported.
+- Replace the Kyo Record summary boundary or consume an upstream fix, then re-enable the Scala 3.8 `IngestPipelineSpec` and `CasIngestSpec` aggregate-summary suites. Production CAS does not depend on those accessors.
 
-- Add optional gRPC range reads and server-side verification if production consumers need parity with those HTTP extensions
-- Define an explicit idempotency-key contract for non-content-derived operations
-- Retain target-scale multi-tenant HTTP and gRPC envelopes across tenant cardinality, payload distributions, and noisy-neighbor workloads
-- Add scheduled domain-wide replica scrubbing and shared-domain membership snapshots to the packaged multi-tenant service
-- Add contractual request-count and delivered-egress limiting at the authenticated edge; Graviton's optional Redis or Valkey coordinator already governs active transfer bytes and concurrency while process-local controls remain hard load shedding
+## Target qualification
 
-### Storage and reliability
+These results cannot be completed once for every operator inside repository CI:
 
-- Add long-duration power-loss and partial-write fault injection for filesystem, PostgreSQL, and S3
-- Add operator-facing inventory and restore commands for S3 quarantine records
-- Add durable tenant-catalog snapshots so shared-domain maintenance can prove the complete manifest set across processes
-- Evaluate compression and authenticated encryption only with complete encode/decode, key-provider, migration, and content-identity semantics
-- Add a RocksDB `BlockStore` only when a real embedded blob-backend use case requires it; the published RocksDB module currently promises durable typed key-value storage
+- validate the exact OIDC claims, capabilities, JWKS behavior, TLS termination, trusted-proxy headers, and CORS origins;
+- retain load and 60-minute-or-longer soak results for representative objects, concurrency, tenant mix, and deduplication distribution;
+- exercise Redis or Valkey failover and partitions, database failover, S3 throttling and timeouts, zone impairment, and provider backup restore;
+- inject abrupt termination, physical power loss, disk corruption, full disk, read-only filesystem, and expired credentials;
+- qualify Ceph RGW or each selected S3 provider rather than extrapolating from MinIO;
+- record recovery time, recovery point, latency, throughput, memory high-water, fairness, and repair backlog for the exact image and infrastructure.
 
-### Operations
+Use these existing entry points:
 
-- Publish portable benchmark envelopes only after multiple controlled operator environments produce retained raw samples
-- Add backend-specific latency distributions and durable long-term dashboard retention
-- Add signed migration sequencing beyond the initial schema ledger
-- Retain more exact release-pair upgrade records as storage formats and dependencies evolve
+```bash
+./scripts/graviton-operator doctor
+./scripts/graviton-operator qualify
+./scripts/qualify-node-replacement.sh
+./scripts/qualify-long-failure.sh
+./scripts/qualify-three-domain.sh
+./scripts/benchmark-suite.sh
+./scripts/soak-http.sh
+```
 
-## Compatibility stance
+The qualification matrix in `deploy/qualification-v1/matrix.json` distinguishes repository-verified, scheduled, and target-required gates. A local pass must never be rewritten as an AWS, Ceph, RDS, Valkey, IdP, ingress, or zone result.
 
-The 0.x line may make intentional breaking changes in minor releases. The runnable server exposes only the canonical `/api/v1/blobs` contract, with no legacy HTTP aliases or legacy product modules. Public Scala APIs are checked against the previous release with `sbt-version-policy`; content-key or committed-frame changes require an explicit new format contract before implementation.
+## Deliberate non-goals
+
+Graviton remains the bytes, identity, integrity, and storage layer. Document identity, document versions, business metadata, search, extraction, embeddings, workflows, and case-management state belong in downstream systems. Tika, a schema registry, a search engine, and a general document model are not current Graviton modules.

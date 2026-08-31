@@ -1,169 +1,28 @@
 # Design Documents
 
-This section contains detailed design documents for major Graviton features and architectural decisions.
+Design pages explain implemented internals or clearly labeled proposals. They are not capability announcements. For the released-versus-main boundary, use the [implementation status ledger](../implementation-status.md).
 
-## Active Designs
+## Implemented designs
 
-### Core System
+| Area | Current implementation | Detail |
+| --- | --- | --- |
+| Byte and product boundary | Graviton owns streamed bytes, content identity, integrity, and storage, not document semantics | [Scope and product boundary](../scope.md) |
+| Content identity and schemas | Refined content keys, bounded wire records, GVM4 metadata on current `main`, and explicit codec limits | [Schema and types](../core/schema.md), [Manifests and frames](../manifests-and-frames.md) |
+| Stream processing | ZIO Stream production path plus the separate pure Scan and Transducer libraries | [Scans and events](../core/scans.md), [Transducer algebra](../core/transducers.md) |
+| Chunking | Fixed, delimiter, FastCDC, BuzHash, Rabin, and PDF-aware structural chunkers with hard block ceilings | [Chunking strategies](../ingest/chunking.md) |
+| Storage | Filesystem CAS, S3-compatible blocks, PostgreSQL manifests and object primitives, plus RocksDB typed KV | [Runtime backends](../runtime/backends.md) |
+| Durability | Rendezvous replication, fixed 2+1 erasure, durable repair cursors, and scheduled convergence | [Failure-domain durability](../runtime/replication.md) |
+| Security and tenancy | OIDC/JWKS, capabilities, audit, default-isolated tenants, explicit shared trust domains, and quotas | [Multi-tenant storage](../runtime/multi-tenancy.md), [Secure API quickstart](../guide/secure-api-quickstart.md) |
+| Operations | Typed health snapshots, Prometheus metrics, SLO rules, alerts, Grafana, qualification contracts, backup, and restore tooling | [Production readiness](../ops/production-readiness.md), [Operator control plane](../ops/control-plane.md) |
+| Browser comparison | Local streamed file analysis, exact block overlap, and bounded PDF edit comparison | [CAS Playground design contract](./cas-playground.md) |
 
-- **Scan Composition Model** — Event-driven stream processing (see [Scans & Events](../core/scans.md))
-- **Range Algebra** — Byte range operations and tracking (see [Ranges & Boundaries](../core/ranges.md))
-- **Content-Defined Chunking** — Operational FastCDC and PDF-aware structural chunking, with generic anchored strategies remaining design work (see [Chunking Strategies](../ingest/chunking.md))
-- **Replication Model** — Replica index + roadmap (see [Replication & Replica Index](../runtime/replication.md))
+## Accepted boundaries, not implementations
 
-### Product boundary
+- Compression and encryption are not executable CAS transform plans. They require paired streaming read and write paths, identity semantics, key-provider boundaries, and compatibility vectors.
+- Tiered storage, geo-replication, query, search, extraction, embeddings, and document workflows are not current Graviton features.
+- Apache Tika is not a module. See [the explicit Tika boundary](../modules/tika.md).
+- The ZIO Blocks register document is a performance proposal for an experimental pure pipeline. It is not the production upload orchestrator. See [the register plan](./zio-blocks-register-plan.md).
 
-- **Bytes, identity, and storage** — the public Graviton surface and its deliberate exclusion of document semantics (see [Scope & Boundary](../scope.md))
-- **CAS Playground** — the local byte-atlas workflow, browser memory contract, and canonical PDF edit comparison (see [CAS Playground design contract](./cas-playground.md))
+## Design acceptance rule
 
-### Schema & Types
-
-- **Schema Evolution** — Forward-compatible manifest format (planned)
-- **Binary Attributes** — Advertised vs confirmed metadata (see [Schema & Types](../core/schema.md))
-- **Hashing Strategy** — Multi-algorithm support and key derivation (planned)
-
-### Storage & Performance
-
-- **Hybrid Backend Architecture** — PostgreSQL + S3 design (see [Backends](../runtime/backends.md))
-- **Tiered Storage** — Hot/warm/cold data management (planned)
-- **Deduplication Index** — Block-level dedup tracking (planned)
-- **Compression Strategy** — When and how to compress (planned)
-
-### Operations
-
-- **Metrics Architecture** — Prometheus integration and key metrics (see [Constraints & Metrics](../constraints-and-metrics.md))
-- **Rate Limiting** — Token bucket implementation (planned)
-- **Authentication Model** — JWT, API keys, and signed URLs (planned)
-- **Multi-tenancy** — Isolation and quota management (planned)
-
-## Future Designs
-
-### Phase 2 (Post v0.1.0)
-
-- **Anchored Ingest Pipeline** — Format-aware chunking with DFA tokenization
-- **Self-Describing Frame Format** — Versioned frame encoding
-- **CDC Base Blocks** — Dedup via rolling hash index
-- **Format-Aware Views** — PDF/ZIP structural access
-
-### Phase 3 (Future)
-
-- **[2+1 Erasure Coding](../runtime/replication.md#fixed-21-erasure-mode)** — Three-domain lower-overhead durability
-- **Geo-Replication** — Cross-region strategies
-- **Query Engine** — Content search and indexing
-- **Streaming Analytics** — Real-time metrics on ingest
-
-## Design Template
-
-Use this template for new designs:
-
-```markdown
-# Feature Name
-
-## Status
-
-**Status:** Proposed | Draft | Accepted | Implemented  
-**Author:** @username  
-**Created:** 2025-10-30  
-**Updated:** 2025-10-30
-
-## Summary
-
-One-paragraph overview of the feature.
-
-## Motivation
-
-Why do we need this? What problem does it solve?
-
-## Design
-
-### Architecture
-
-Describe the high-level design.
-
-### API
-
-Show interfaces and examples.
-
-### Data Model
-
-Describe any new types or schemas.
-
-### Implementation
-
-Key implementation details.
-
-## Alternatives Considered
-
-What other approaches were considered and why were they rejected?
-
-## Testing Plan
-
-How will this be tested?
-
-## Performance Impact
-
-Expected performance characteristics.
-
-## Migration Path
-
-How do we migrate from the current state?
-
-## Open Questions
-
-What's still TBD?
-
-## References
-
-Links to related designs, issues, or documentation.
-```
-
-## Review Process
-
-1. **Propose**: Create draft in `/docs/design/`
-2. **Discussion**: Share in GitHub Discussions or PR
-3. **Iterate**: Address feedback
-4. **Accept**: Mark as "Accepted" when consensus reached
-5. **Implement**: Reference design in implementation PRs
-6. **Update**: Keep design docs in sync with implementation
-
-## Design Principles
-
-### Modularity
-
-- Pure domain logic separate from effects
-- Backends implement abstract ports
-- Protocols independent of core logic
-
-### Type Safety
-
-- Use opaque types for domain primitives
-- Leverage zio-schema for serialization
-- Prefer compile-time over runtime checks
-
-### Performance
-
-- Streaming by default
-- Lazy evaluation where appropriate
-- Minimize allocations in hot paths
-
-### Observability
-
-- Structured logging with correlation IDs
-- Prometheus metrics for all operations
-- Tracing for distributed operations
-
-### Testability
-
-- Pure functions where possible
-- Dependency injection via ZLayer
-- Property-based testing for algorithms
-
-## See Also
-
-- **[Architecture](../architecture.md)** — System overview
-- **[Contributing](../dev/contributing.md)** — Development process
-- **[API Reference](../api.md)** — Current API surface
-
-::: tip
-When in doubt, write a design doc before implementing a major feature!
-:::
+A design moves to implemented only when the public or internal service exists, its resource and error boundaries are explicit, executable tests cover success and failure, and operational documentation states the remaining deployment limits. The machine-readable claim map in `docs/status/implementation-evidence.json` keeps major public claims attached to source and test symbols.

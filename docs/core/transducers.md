@@ -1,6 +1,6 @@
 # Transducer Algebra
 
-Graviton's **Transducer algebra** is the typed, composable pipeline engine that powers CAS ingest, verification, and retrieval. Every stage in the pipeline is a `Transducer` with typed input, output, and a Record-based summary — and stages compose via `>>>` (sequential) and `&&&` (fanout) with automatic state merging.
+Graviton's **Transducer algebra** is a typed, composable library for pure chunk processing and explicit verification pipelines. The production CAS upload path reuses `CasIngest.blockKeyDeriver`, but keeps orchestration, chunker selection, hashing, bounded queues, manifest spooling, and backend effects in `CasBlobStore`. Retrieval uses `BlobStreamer`, not a transducer pipeline.
 
 ## Why Transducers?
 
@@ -8,8 +8,14 @@ Traditional streaming pipelines couple logic with orchestration. Graviton's tran
 
 - **Testable in isolation** — each transducer can be tested with `runChunk` without ZIO
 - **Composable** — `>>>` chains stages sequentially, `&&&` fans out the same input
-- **Typed summaries** — every transducer produces a named `Record` summary accessible by field name
-- **Bounded memory** — buffers at most one block; total memory is O(blockSize), never O(stream)
+- **Typed summary shape** — transducers describe summary fields in their result type
+- **Streaming compilation** — `toPipeline` and `toChannel` can process a stream without collecting all outputs
+
+`runChunk` and `toSink` return a `Chunk` containing every output. Their retained memory is therefore O(output size), and they are appropriate only for bounded inputs or tests. `toTransducingSink` keeps only transducer state but discards transformed outputs. Production upload uses `toPipeline` for per-block keying.
+
+::: danger Aggregate Record access is experimental
+On the supported Scala 3.8 line, the current Kyo `Record.selectDynamic` implementation throws `NoSuchElementException` for some mixed-field summaries, including `digestHex` in the composed ingest summary. The transformation stages and `blockKeyDeriver.toPipeline` work, and the production CAS path does not read those aggregate summaries. Do not build application logic around the named aggregate Record accessors until the compatibility issue is removed and the disabled `IngestPipelineSpec` and `CasIngestSpec` suites are re-enabled.
+:::
 
 ### Single-pass design
 
@@ -40,7 +46,7 @@ trait Transducer[-I, +O, S]:
 
 ### Sequential (`>>>`)
 
-Chain two transducers so the output of the first feeds the input of the second. Each input element is processed once in sequence — no buffering, no re-reads. The summary merges both states into a single Record:
+Chain two transducers so the output of the first feeds the input of the second. Each input element is processed once in sequence — no buffering, no re-reads. The summary types merge into a single Record shape. The current runtime limitation above applies to named access:
 
 ```scala
 val pipeline = countBytes >>> hashBytes >>> rechunk(blockSize)
@@ -64,7 +70,7 @@ val check = countBytes &&& hashBytes &&& BlockVerify.verifier(expectedBlockKeys)
 
 ### StateMerge
 
-The `StateMerge` typeclass (with `Aux` pattern) automatically merges Record states when composing transducers. Unit states are identity elements; non-unit states become paired Records.
+The `StateMerge` typeclass (with `Aux` pattern) merges Record states when composing transducers. Unit states are identity elements; non-unit states become paired Records. This type-level composition does not remove the current Kyo runtime accessor limitation.
 
 ## Transducers (`IngestPipeline`, `Transducers`, and friends)
 
@@ -110,21 +116,21 @@ A transducer can be compiled to multiple ZIO abstractions:
 val transducer = countBytes >>> hashBytes >>> rechunk(blockSize)
 
 // Compile to different targets
-val sink: ZSink[Any, Nothing, Chunk[Byte], Nothing, Summary] = transducer.toSink
+val sink: ZSink[Any, Nothing, Chunk[Byte], Nothing, (Summary, Chunk[Chunk[Byte]])] = transducer.toSink
 val pipeline: ZPipeline[Any, Nothing, Chunk[Byte], Chunk[Byte]]  = transducer.toPipeline
 val channel: ZChannel[...]                                         = transducer.toChannel
 ```
 
 | Target | Use Case |
 |--------|---------|
-| `toSink` | Final consumption — run a stream, get the summary |
+| `toSink` | Bounded input or tests; returns the summary and materializes every output |
 | `toPipeline` | Mid-stream transformation — pass through to next stage |
-| `toTransducingSink` | Combined: transform AND summarize |
+| `toTransducingSink` | Summarize while discarding transformed outputs |
 | `toChannel` | Low-level: direct ZChannel integration |
 
-## The Ingest Pipeline
+## The library ingest pipeline
 
-The critical composition proof — the CAS ingest pipeline:
+This bounded example proves composition. It is not the production `CasBlobStore` orchestrator:
 
 ```scala
 val ingestPipeline = 
@@ -134,9 +140,8 @@ val ingestPipeline =
 
 // Use it:
 val (summary, blocks) = byteStream.run(ingestPipeline.toSink)
-summary.totalBytes   // Long — named field access
-summary.digestHex    // String
-summary.blockCount   // Long
+// `blocks` and the transformation are usable for bounded experiments.
+// Do not read mixed-field named summary accessors on Scala 3.8 yet.
 ```
 
 ### Full CAS ingest (library vs `CasBlobStore`)
@@ -146,7 +151,8 @@ summary.blockCount   // Long
 ```scala
 val casIngest = CasIngest.pipeline(blockSize, algo)
 val (summary, keyedBlocks) = inputStream.run(casIngest.toSink)
-// summary includes totalBytes, digestHex, blockCount, blocksKeyed — named fields
+// The summary type describes totalBytes, digestHex, blockCount, and blocksKeyed.
+// Its mixed-field named accessors remain experimental on Scala 3.8.
 ```
 
 ## Verification Pipeline
@@ -166,7 +172,7 @@ val check = IngestPipeline.countBytes &&& IngestPipeline.hashBytes() &&& BlockVe
 // Summary: totalBytes, digestHex, verified, failed
 ```
 
-## Architecture Diagram
+## Architecture diagram
 
 ```
                      ┌─────────────────────────────────────────────┐
@@ -181,25 +187,26 @@ val check = IngestPipeline.countBytes &&& IngestPipeline.hashBytes() &&& BlockVe
  ┌────────▼──────────┐  ┌────────▼──────────┐  ┌────────▼──────────┐
  │   Ingest Path     │  │  Retrieval Path   │  │  Verify Path      │
  │                   │  │                   │  │                   │
- │ countBytes        │  │ readFrames        │  │ rechunk           │
- │ >>> hashBytes     │  │ >>> decompress    │  │ >>> rehash        │
- │ >>> CDC/rechunk   │  │ >>> reassemble    │  │ >>> compare       │
- │ >>> blockKey      │  │                   │  │                   │
- │ >>> compress      │  │ Summary:          │  │ Summary:          │
- │ >>> frame         │  │  blocksRead       │  │  verified         │
+ │ countBytes        │  │ BlobStreamer      │  │ rechunk           │
+ │ >>> hashBytes     │  │ ordered blocks    │  │ >>> rehash        │
+ │ >>> rechunk       │  │                   │  │ >>> compare       │
+ │ >>> blockKey      │  │ not transducers   │  │                   │
+ │                   │  │                   │  │ Summary:          │
+ │ Summary:          │  │                   │  │  verified         │
  │                   │  │  bytesRead        │  │  failed           │
  │ Summary:          │  │                   │  │  totalBytes       │
  │  totalBytes       │  └────────┬──────────┘  └────────┬──────────┘
  │  digestHex        │           │                       │
  │  blockCount       │           │                       │
- │  compressedBytes  │           │                       │
- │  frameCount       │           ▼                       ▼
+ │                   │           │                       │
+ │                   │           ▼                       ▼
  └────────┬──────────┘     ZStream[Byte]           VerifyResult
           │
           ▼
  ┌────────────────────┐     ┌─────────────────────┐
  │    BlockStore      │     │  BlobManifestRepo   │
- │  (S3/FS/Rocks)     │     │  (Postgres)         │
+ │ (filesystem/S3/    │     │ (filesystem or      │
+ │ replica/erasure)   │     │  PostgreSQL)         │
  └────────────────────┘     └─────────────────────┘
 ```
 
@@ -228,14 +235,14 @@ The Transducer algebra is the foundation for upcoming pipeline phases:
 
 | Phase | Status | Description |
 |-------|--------|------------|
-| **A** — CAS ingest | **In progress** | Per-block keying transducer wired in `CasBlobStore`; optional `CasIngest.pipeline` for all-in-one experiments |
+| **A** — CAS ingest | **Production path implemented; aggregate summary experimental** | `CasBlobStore` streams through the selected chunker and `blockKeyDeriver`; `CasIngest.pipeline` remains a bounded library composition whose mixed-field Record accessors are not supported on Scala 3.8 |
 | **B** — Manifest construction | **Partial** | Manifests persisted via `BlobManifestRepo` / batch results; dedicated `manifestBuilder` transducer still roadmap |
-| **C** — Verification & integrity | **Partial** | `BlockVerify` transducers implemented; full operational verification tooling still evolving |
+| **C** — Verification & integrity | **Implemented in two layers** | `BlockVerify` supports explicit transducer composition; runtime blob verification is implemented separately by the store and API |
 | **D** — CDC chunker as transducer | Planned | Port FastCDC (and related) to first-class transducer/chunker integration |
-| **E** — Deduplication | **Partial** | Block dedup at `BlockStore`; cross-blob / rolling-hash index roadmap |
+| **E** — Deduplication | **Implemented in storage** | Content-addressed block keys provide cross-blob reuse; there is no separate rolling-hash index |
 | **F** — Compression & encryption | Not exposed | Requires paired streaming encode/decode and key-provider implementations before entering the public plan algebra |
 | **G** — Retrieval & streaming | **Partial** | Block reassembly via `BlobStreamer`; decompression-as-transducer for reads roadmap |
-| **H** — Operational excellence | **Partial** | `BombGuard`, `ThroughputMonitor`, metrics decorators; rate limiting and hardening roadmap |
+| **H** — Operational integration | **Separated by design** | `BombGuard` and `ThroughputMonitor` are library transducers. Runtime admission, rate limits, metrics, and security live outside the pure transducer algebra. |
 
 ## See Also
 

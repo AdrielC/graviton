@@ -1,42 +1,27 @@
 # Engineering Backlog
 
-## Release candidate complete
+This file lists current work only. Completed capability and release state lives in the [implementation status ledger](docs/implementation-status.md); priorities and qualification boundaries live in [ROADMAP.md](ROADMAP.md).
 
-- [x] Verify locally published artifacts from a clean external consumer project
-- [x] Add source and binary compatibility policy tooling
-- [x] Version the HTTP routes and preserve deprecated aliases
-- [x] Implement OIDC/JWKS verification, capability enforcement, audit recording, CORS, TLS policy, and request controls
-- [x] Add range reads, conditional requests, cursor pagination, and stable error envelopes
-- [x] Add backend readiness checks and packaged-server smoke proof
-- [x] Add transactional PostgreSQL replica-index persistence
-- [x] Add write-quorum replication, validating fallback reads, and repair
-- [x] Add conservative garbage collection with dry-run and quarantine
-- [x] Add migration, backup, restore-drill, measurement, and soak scripts
-- [x] Add release artifacts, checksums, SBOM, attestations, container publishing, and GitHub release automation
-- [x] Add pinned CI, dependency review, dependency submission, CodeQL workflow analysis, and Dependabot configuration
+## Before the next release
 
-## Must remain green
+- [ ] Run `./scripts/verify-version-compatibility.sh` against `v0.7.0`.
+- [ ] Run `./scripts/verify-external-consumer.sh` and `./scripts/audit-published-artifacts.sh` from a clean checkout.
+- [ ] Run the packaged HTTP and gRPC smoke plus filesystem backup and restore proof.
+- [ ] Confirm the release notes say that GVM4 is a clean-store format with no legacy reader or backfill path.
+- [ ] Tag only the exact commit that passed CI. The release workflow requires Maven Central and PGP credentials and fails closed when they are missing or invalid.
 
-- [x] `TESTCONTAINERS=0 ./sbt scalafmtCheckAll test`
-- [x] `GRAVITON_IT=1 ./sbt "server/testOnly graviton.server.EmbeddedPgFsCasRoundTripSpec"`
-- [x] `./scripts/verify-external-consumer.sh`
-- [x] `./sbt server/assembly && ./scripts/smoke-packaged-server.sh`
-- [x] `./sbt docs/mdoc checkDocSnippets buildDocsAssets`
-- [x] `npm run docs:build --prefix docs`
+## Code
 
-## Next implementation work
+- [ ] Decide whether authenticated gRPC needs the Redis or Valkey request and delivered-egress quota contract that HTTP currently uses.
+- [ ] Extract a Graviton-only PostgreSQL migration set from the combined bootstrap DDL.
+- [ ] Remove or quarantine unbuilt source trees after preserving any useful experiments.
+- [ ] Add a RocksDB block backend only with the published backend laws and real restart, interruption, corruption, and concurrency proof.
+- [ ] Keep broad document parsing, extraction, search, and indexing outside the core byte runtime.
+- [ ] Remove the Scala 3.8 Kyo Record accessor waiver and re-enable the aggregate ingest-summary suites before presenting named mixed-field summaries as supported API.
 
-- [ ] Wire a runnable authenticated gRPC server with HTTP lifecycle parity
-- [ ] Complete the RocksDB CAS block backend
-- [ ] Add resumable and multipart upload acceptance tests
-- [ ] Add scheduled replica scrubbing and repair orchestration
-- [ ] Add S3 quarantine inventory and restore commands for operators
-- [ ] Add long-duration crash, outage, and rolling-upgrade acceptance suites
-- [ ] Publish retained benchmark samples only after representative environment qualification
+## Target acceptance
 
-## External repository setup
-
-- [ ] Configure Sonatype credentials and PGP signing secrets before claiming Maven Central availability
-- [ ] Configure the actual OIDC issuer, audience, and JWKS URI in deployment secrets
-- [ ] Protect `main` with the final CI job names after the release-candidate PR merges
-- [ ] Enable dependency graph, vulnerability alerts, automated security updates, and code scanning in repository settings
+- [ ] Run every `target-required` gate in `deploy/qualification-v1/matrix.json` against the intended deployment.
+- [ ] Retain capacity, soak, failure, and restore evidence for the exact image digest and infrastructure.
+- [ ] Validate the real IdP, ingress, TLS, CORS, database, object store, Redis or Valkey, and alert routing.
+- [ ] Record explicit capacity and recovery envelopes instead of claiming a universal customer count.

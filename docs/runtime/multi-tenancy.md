@@ -57,17 +57,18 @@ For a trust group, replace `isolated` with `shared:research-consortium` and expl
 
 ## Quotas and noisy-neighbor controls
 
-The stock server enforces five bounded controls:
+The stock server enforces six bounded controls:
 
 1. process-wide `TransferBudget` limits aggregate live byte buffers;
 2. per-tenant admission limits concurrent logical operations;
 3. per-principal request, upload-byte, and download-byte token buckets bound one process;
 4. PostgreSQL serializes retained-byte accounting with manifest publication and deletion.
 5. Optional Redis or Valkey leases atomically cap active bytes and transfers across the complete service, each tenant, and each backend.
+6. Optional Redis or Valkey counters enforce authenticated HTTP request and delivered-egress ceilings per tenant using Redis server time.
 
 The retained-byte row is locked in the same transaction that publishes a manifest. Concurrent writers on different nodes cannot collectively exceed the tenant limit. Re-uploading the exact same tenant blob is idempotent and does not consume the quota twice. Deleting a tenant manifest releases its logical bytes. HTTP reports `507 tenant_storage_quota_exceeded`; gRPC reports `RESOURCE_EXHAUSTED`.
 
-Request token buckets remain local load-shedding, so their effective aggregate request and egress rate grows with the number of nodes. The distributed transfer coordinator is cluster-atomic for admitted transfer footprints and concurrency, but it is not a request-count or delivered-egress billing meter. Enforce contractual request and delivered-byte rates at the authenticated edge. The retained storage quota is separately cluster-atomic and does not have either multiplication behavior.
+Per-principal token buckets remain process-local load shedding. When Redis or Valkey admission is enabled, authenticated HTTP requests also charge a cluster-atomic tenant request counter, and response chunks charge a cluster-atomic tenant delivered-egress counter as they leave the server. The current gRPC interceptor uses the process-local request, upload-byte, and download-byte limiter and does not charge those distributed traffic counters. Put contractual cross-protocol traffic accounting at the authenticated edge until gRPC parity is implemented. The retained storage quota is separately cluster-atomic.
 
 The optional coordinator prevents a busy organization from consuming the entire shared transfer pool by applying its tenant byte and concurrency ceilings in the same atomic state transition as service and backend ceilings. `DistributedAdmissionControl` can tighten or relax one tenant without restarting data nodes. Every admission, release, expiry, queue, timeout, and policy change appends a bounded decision event with occupancy and policy version, so an external scheduled or predictive controller can propose and apply reviewed overrides. Tenant identifiers are SHA-256 keyed in Redis and never used as metric labels.
 
@@ -113,4 +114,4 @@ Before quarantining or purging a shared domain:
 
 Implemented and exercised in the repository: authenticated HTTP and gRPC tenant binding, durable PostgreSQL policy, cell filtering, private manifests, isolated or explicit shared block domains, cluster-atomic retained quotas, bounded sharded local admission, optional cluster-wide Redis or Valkey transfer admission, Shardcake tenant routing, full-quorum replicated writes, and typed protocol failures.
 
-Not established by repository tests alone: a universal customer count, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide erasure repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads repair damage on demand, and the scheduled snapshot-backed domain scrub converges cold blocks. Atomic request and delivered-egress contracts require the Redis or Valkey provider and must be sized and failover-qualified in the target cell.
+Not established by repository tests alone: a universal customer count, billing, customer-managed key integration, physical database or object-store service levels, real IdP and ingress acceptance, or a production Ceph capacity envelope. Multi-tenant erasure coding is rejected at startup until domain-wide erasure repair inventory exists. Multi-tenant replication requires every configured target in both placement and write quorum; reads repair damage on demand, and the scheduled snapshot-backed domain scrub converges cold blocks. Atomic HTTP request and delivered-egress contracts require the Redis or Valkey provider and must be sized and failover-qualified in the target cell. gRPC traffic remains process-limited rather than cluster-metered.
