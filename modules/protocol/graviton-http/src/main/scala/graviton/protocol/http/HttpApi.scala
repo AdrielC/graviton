@@ -3,7 +3,7 @@ package graviton.protocol.http
 import graviton.core.bytes.Hasher
 import graviton.runtime.metrics.MetricKeys
 import graviton.runtime.model.{InventoryCursor, InventoryPageSize}
-import graviton.runtime.stores.{BlobStore, StoreError}
+import graviton.runtime.stores.{BlobMetadataV1, BlobStore, StoreError}
 import graviton.runtime.upload.{
   LocalityAwareUpload,
   ResumableUploadPhase,
@@ -139,16 +139,20 @@ final case class HttpApi(
   private def requestTenant(request: Request): IO[Response, TenantId] =
     CallerContext.current.flatMap {
       case Some(caller) =>
-        val tenant = TenantId.applyUnsafe(caller.orgId.toString)
-        request.headers.get(UploadHttpHeaders.TenantId) match
-          case None      => ZIO.succeed(tenant)
-          case Some(raw) =>
-            ZIO
-              .fromEither(TenantId.either(raw))
-              .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
-              .filterOrFail(_ == tenant)(
-                error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization")
-              )
+        ZIO
+          .fromEither(TenantId.fromUuid(caller.orgId))
+          .mapError(_ => error(Status.Unauthorized, "invalid_identity", "Authenticated organization is not a canonical UUID"))
+          .flatMap { tenant =>
+            request.headers.get(UploadHttpHeaders.TenantId) match
+              case None      => ZIO.succeed(tenant)
+              case Some(raw) =>
+                ZIO
+                  .fromEither(TenantId.either(raw))
+                  .mapError(message => error(Status.BadRequest, "invalid_tenant", message))
+                  .filterOrFail(_ == tenant)(
+                    error(Status.Forbidden, "tenant_mismatch", "Upload tenant must match the authenticated organization")
+                  )
+          }
       case None         =>
         if security.nonEmpty then ZIO.fail(error(Status.Unauthorized, "unauthenticated", "Authentication required"))
         else
@@ -425,10 +429,10 @@ final case class HttpApi(
                   )
     yield response
 
-  private def blobHeaders(key: BinaryKey.Blob, stat: graviton.runtime.model.BlobStat): Headers =
+  private def blobHeaders(key: BinaryKey.Blob, stat: graviton.runtime.model.BlobStat, contentType: String): Headers =
     val lastModified = DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.ofInstant(stat.lastModified, ZoneOffset.UTC))
     Headers(
-      Header.ContentType(MediaType.application.`octet-stream`),
+      Header.Custom("Content-Type", contentType),
       Header.Custom("Content-Length", stat.size.value.toString),
       Header.Custom("ETag", s"\"${key.bits.render}\""),
       Header.Custom("Last-Modified", lastModified),
@@ -584,13 +588,34 @@ final case class HttpApi(
           ZIO.succeed(error(Status.BadRequest, "invalid_blob_id", message))
         case Right(key)    =>
           secured(req, "blob.metadata.read", Capability.BlobRead, ResourceRef.blob(key.bits.render)) {
-            blobStore
-              .inspect(key)
-              .map {
-                case None              => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
-                case Some(description) => Response.json(ApiJson.encode(toDetails(description)))
-              }
-              .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "storage_failure", "Blob manifest lookup failed")))
+            val parameters = for
+              limit  <- req.url.queryParam("limit") match
+                          case None      => Right(InventoryPageSize.Default)
+                          case Some(raw) =>
+                            raw.toIntOption
+                              .toRight("limit must be a decimal integer")
+                              .flatMap(InventoryPageSize.either)
+              cursor <- req.url.queryParam("cursor") match
+                          case None        => Right(None)
+                          case Some(value) => InventoryCursor.either(value).map(Some(_))
+            yield limit -> cursor
+
+            parameters match
+              case Left(message)          => ZIO.succeed(error(Status.BadRequest, "invalid_pagination", message))
+              case Right((limit, cursor)) =>
+                blobStore
+                  .inspectPage(key, cursor, limit)
+                  .zipPar(blobStore.metadata(key))
+                  .map {
+                    case (None, _)                  => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
+                    case (Some(page), blobMetadata) => Response.json(ApiJson.encode(toDetails(page, blobMetadata)))
+                  }
+                  .catchAll {
+                    case invalid: StoreError.InvalidInput =>
+                      ZIO.succeed(error(Status.BadRequest, "invalid_pagination", invalid.reason))
+                    case _                                =>
+                      ZIO.succeed(error(Status.InternalServerError, "storage_failure", "Blob manifest lookup failed"))
+                  }
           }
     }
 
@@ -628,11 +653,22 @@ final case class HttpApi(
         ZIO.succeed(error(Status.BadRequest, "invalid_blob_id", message))
       case Right(key)    =>
         secured(request, "blob.read", Capability.BlobRead, ResourceRef.blob(key.bits.render)) {
-          (CallerContext.current zip blobStore.stat(key))
+          (for
+            caller       <- CallerContext.current
+            stat         <- blobStore.stat(key)
+            blobMetadata <- blobStore.metadata(key)
+          yield (caller, stat, blobMetadata))
             .map {
-              case (_, None)            => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
-              case (caller, Some(stat)) =>
-                conditionalResponse(key, stat, request, includeBody, caller)
+              case (_, None, _)                       => error(Status.NotFound, "blob_not_found", s"Blob not found: ${key.bits.render}")
+              case (caller, Some(stat), blobMetadata) =>
+                conditionalResponse(
+                  key,
+                  stat,
+                  request,
+                  includeBody,
+                  caller,
+                  blobMetadata.fold(BlobMetadataV1.DefaultMediaType)(_.canonicalMediaType),
+                )
             }
             .catchAll(_ => ZIO.succeed(error(Status.InternalServerError, "storage_failure", "Blob metadata lookup failed")))
         }
@@ -643,6 +679,7 @@ final case class HttpApi(
     request: Request,
     includeBody: Boolean,
     caller: Option[CallerContext],
+    contentType: String,
   ): Response =
     val etag            = s"\"${key.bits.render}\""
     val lastModified    = stat.lastModified.truncatedTo(ChronoUnit.SECONDS)
@@ -652,13 +689,13 @@ final case class HttpApi(
     val unmodifiedSince = request.headers.get("If-Unmodified-Since").flatMap(parseHttpDate)
 
     if ifMatch.exists(value => value != "*" && !etagListContains(value, etag, allowWeak = false)) then
-      Response(status = Status.PreconditionFailed, headers = blobHeaders(key, stat))
+      Response(status = Status.PreconditionFailed, headers = blobHeaders(key, stat, contentType))
     else if unmodifiedSince.exists(instant => lastModified.isAfter(instant)) then
-      Response(status = Status.PreconditionFailed, headers = blobHeaders(key, stat))
+      Response(status = Status.PreconditionFailed, headers = blobHeaders(key, stat, contentType))
     else if ifNoneMatch.exists(value => value == "*" || etagListContains(value, etag, allowWeak = true)) then
-      Response(status = Status.NotModified, headers = withoutHeader(blobHeaders(key, stat), "Content-Length"))
+      Response(status = Status.NotModified, headers = withoutHeader(blobHeaders(key, stat, contentType), "Content-Length"))
     else if ifNoneMatch.isEmpty && modifiedSince.exists(instant => !lastModified.isAfter(instant)) then
-      Response(status = Status.NotModified, headers = withoutHeader(blobHeaders(key, stat), "Content-Length"))
+      Response(status = Status.NotModified, headers = withoutHeader(blobHeaders(key, stat, contentType), "Content-Length"))
     else
       val rangeAllowed =
         request.headers.get("If-Range").forall(value => value == etag || parseHttpDate(value).exists(!lastModified.isAfter(_)))
@@ -669,7 +706,7 @@ final case class HttpApi(
             .addHeader(Header.Custom("Content-Range", s"bytes */${stat.size.value}"))
         case Some(Right(range))  =>
           val length  = range.endInclusive - range.start + 1L
-          val headers = withoutHeader(blobHeaders(key, stat), "Content-Length") ++ Headers(
+          val headers = withoutHeader(blobHeaders(key, stat, contentType), "Content-Length") ++ Headers(
             Header.Custom("Content-Length", length.toString),
             Header.Custom("Content-Range", s"bytes ${range.start}-${range.endInclusive}/${stat.size.value}"),
             Header.Custom("Accept-Ranges", "bytes"),
@@ -692,7 +729,7 @@ final case class HttpApi(
         case None                =>
           Response(
             status = Status.Ok,
-            headers = blobHeaders(key, stat) ++ Headers(Header.Custom("Accept-Ranges", "bytes")),
+            headers = blobHeaders(key, stat, contentType) ++ Headers(Header.Custom("Accept-Ranges", "bytes")),
             body = if includeBody then Body.fromStream(checkedDownload(blobStore.get(key), caller), stat.size.value) else Body.empty,
           )
 
@@ -809,7 +846,10 @@ final case class HttpApi(
       blockCount = Count.applyUnsafe(listing.blockCount.toLong),
     )
 
-  private def toDetails(description: graviton.runtime.model.BlobDescription): BlobDetails =
+  private def toDetails(
+    description: graviton.runtime.model.BlobInspectionPage,
+    metadata: Option[BlobMetadataV1],
+  ): BlobDetails =
     BlobDetails(
       summary = toSummary(description.listing),
       blocks = description.blocks.map { block =>
@@ -820,6 +860,15 @@ final case class HttpApi(
           size = SizeBytes.applyUnsafe(block.size),
         )
       }.toList,
+      metadata = metadata.map(value =>
+        BlobMetadata(
+          schemaVersion = BlobMetadataV1.SchemaVersion,
+          codecVersion = BlobMetadataV1.CodecVersion,
+          mediaType = value.canonicalMediaType,
+          chunker = value.chunker.value,
+        )
+      ),
+      nextCursor = description.next.map(_.value),
     )
 
   private def verify(key: BinaryKey.Blob): Task[Boolean] =

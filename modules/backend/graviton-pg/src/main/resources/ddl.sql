@@ -163,6 +163,29 @@ CREATE TABLE IF NOT EXISTS graviton.tenant_storage_usage (
   updated_at timestamptz NOT NULL DEFAULT core.now_utc()
 );
 
+-- Immutable, transactionally captured membership used by domain-wide scrub
+-- and GC. A maintenance cycle is tied to one snapshot so policy changes cannot
+-- silently add or remove manifest repositories midway through the mark phase.
+CREATE TABLE IF NOT EXISTS graviton.tenant_domain_snapshot (
+  snapshot_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  cell_id varchar(120) NOT NULL CHECK (cell_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$'),
+  captured_at timestamptz NOT NULL DEFAULT core.now_utc(),
+  member_count bigint NOT NULL CHECK (member_count >= 0),
+  membership_sha256 bytea NOT NULL CHECK (octet_length(membership_sha256) = 32)
+);
+CREATE INDEX IF NOT EXISTS tenant_domain_snapshot_cell_idx
+  ON graviton.tenant_domain_snapshot (cell_id, captured_at DESC, snapshot_id DESC);
+
+CREATE TABLE IF NOT EXISTS graviton.tenant_domain_snapshot_member (
+  snapshot_id uuid NOT NULL REFERENCES graviton.tenant_domain_snapshot(snapshot_id) ON DELETE CASCADE,
+  storage_domain_id varchar(128) NOT NULL CHECK (storage_domain_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'),
+  tenant_id uuid NOT NULL,
+  policy_revision bigint NOT NULL CHECK (policy_revision >= 0),
+  PRIMARY KEY (snapshot_id, storage_domain_id, tenant_id)
+);
+CREATE INDEX IF NOT EXISTS tenant_domain_snapshot_member_domain_idx
+  ON graviton.tenant_domain_snapshot_member (snapshot_id, storage_domain_id, tenant_id);
+
 -- Library-level replica catalog. This complements physical block_location
 -- topology and also supports logical blob replicas exposed by ReplicaIndex.
 CREATE TABLE IF NOT EXISTS graviton.replica_index (
@@ -182,6 +205,15 @@ CREATE INDEX IF NOT EXISTS replica_index_key_idx
 CREATE TABLE IF NOT EXISTS graviton.repair_state (
   namespace text PRIMARY KEY CHECK (length(namespace) BETWEEN 1 AND 128),
   next_offset bigint NOT NULL DEFAULT 0 CHECK (next_offset >= 0),
+  updated_at timestamptz NOT NULL DEFAULT core.now_utc()
+);
+
+-- A stable repair namespace is reusable across maintenance cycles. When its
+-- immutable tenant-membership digest changes, PgTenantDomainSnapshot resets
+-- the cursor and stale dead letters in the same transaction before scanning.
+CREATE TABLE IF NOT EXISTS graviton.tenant_domain_repair_epoch (
+  namespace text PRIMARY KEY CHECK (length(namespace) BETWEEN 1 AND 128),
+  membership_sha256 bytea NOT NULL CHECK (octet_length(membership_sha256) = 32),
   updated_at timestamptz NOT NULL DEFAULT core.now_utc()
 );
 
@@ -429,6 +461,7 @@ CREATE TABLE graviton.tenant_blob (
   byte_length core.byte_size NOT NULL,
   created_at timestamptz NOT NULL DEFAULT core.now_utc(),
   block_count int NOT NULL CHECK (block_count >= 0),
+  metadata jsonb NOT NULL,
   manifest_proof_version smallint NULL,
   manifest_chunker varchar(120) NULL,
   manifest_key_id varchar(120) NULL,
@@ -436,12 +469,17 @@ CREATE TABLE graviton.tenant_blob (
   manifest_signature bytea NULL,
   PRIMARY KEY (tenant_id, storage_domain_id, alg, hash_bytes, byte_length),
   CONSTRAINT tenant_blob_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
+  CONSTRAINT tenant_blob_metadata_valid CHECK (
+    jsonb_typeof(metadata) = 'object'
+    AND metadata @> '{"schemaId":"graviton.blob-metadata","schemaVersion":1,"codecVersion":1}'::jsonb
+    AND octet_length(metadata::text) <= 1024
+  ),
   CONSTRAINT tenant_blob_policy_fk FOREIGN KEY (tenant_id) REFERENCES graviton.tenant_storage_policy(tenant_id),
   CONSTRAINT tenant_blob_manifest_proof_complete CHECK (
     (manifest_proof_version IS NULL AND manifest_chunker IS NULL AND manifest_key_id IS NULL
       AND manifest_digest IS NULL AND manifest_signature IS NULL)
     OR
-    (manifest_proof_version = 1 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
+    (manifest_proof_version = 2 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
       AND octet_length(manifest_digest) = 32 AND octet_length(manifest_signature) = 32)
   )
 );
@@ -598,6 +636,7 @@ CREATE TABLE graviton.blob (
   block_count int NOT NULL,
   chunker     jsonb NOT NULL DEFAULT '{}'::jsonb,
   attrs       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  metadata    jsonb NOT NULL,
   manifest_proof_version smallint NULL,
   manifest_chunker varchar(120) NULL,
   manifest_key_id varchar(120) NULL,
@@ -608,11 +647,16 @@ CREATE TABLE graviton.blob (
   CONSTRAINT blob_block_count_nonneg CHECK (block_count >= 0),
   CONSTRAINT chunker_is_object CHECK (jsonb_typeof(chunker) = 'object'),
   CONSTRAINT attrs_is_object CHECK (jsonb_typeof(attrs) = 'object'),
+  CONSTRAINT blob_metadata_valid CHECK (
+    jsonb_typeof(metadata) = 'object'
+    AND metadata @> '{"schemaId":"graviton.blob-metadata","schemaVersion":1,"codecVersion":1}'::jsonb
+    AND octet_length(metadata::text) <= 1024
+  ),
   CONSTRAINT blob_manifest_proof_complete CHECK (
     (manifest_proof_version IS NULL AND manifest_chunker IS NULL AND manifest_key_id IS NULL
       AND manifest_digest IS NULL AND manifest_signature IS NULL)
     OR
-    (manifest_proof_version = 1 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
+    (manifest_proof_version = 2 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
       AND octet_length(manifest_digest) = 32 AND octet_length(manifest_signature) = 32)
   )
 );

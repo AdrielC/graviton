@@ -20,14 +20,17 @@ import java.nio.file.{Files, Path, StandardOpenOption}
  */
 private[stores] object StreamingManifestFile:
 
-  private val MagicV2: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '2'.toByte)
-  private val MagicV3: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '3'.toByte)
+  private val MagicV4: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '4'.toByte)
   private val MaxKeyBytes          = 512
   private val MaxIdentityBytes     = 120
   private val ReadBatchEntries     = 256
 
   final case class Header(totalSize: FileSize, blockCount: Int)
-  final case class EnvelopeHeader(header: Header, authentication: Option[StoredManifestAuthentication])
+  final case class EnvelopeHeader(
+    header: Header,
+    metadata: BlobMetadataV1,
+    authentication: Option[StoredManifestAuthentication],
+  )
 
   def readHeader(path: Path): Task[Header] =
     readEnvelopeHeader(path).map(_.header)
@@ -115,25 +118,38 @@ private[stores] object StreamingManifestFile:
 
   object Writer:
     def open(path: Path, header: Header): Writer =
-      open(path, header, None)
+      val chunker = ManifestChunkerId.applyUnsafe("legacy-unspecified")
+      open(path, header, BlobMetadataV1.default(chunker), None)
 
     def open(
       path: Path,
       header: Header,
       authentication: Option[StoredManifestAuthentication],
     ): Writer =
+      val chunker = authentication.fold(ManifestChunkerId.applyUnsafe("legacy-unspecified"))(_.chunker)
+      open(path, header, BlobMetadataV1.default(chunker), authentication)
+
+    def open(
+      path: Path,
+      header: Header,
+      metadata: BlobMetadataV1,
+      authentication: Option[StoredManifestAuthentication],
+    ): Writer =
       validateHeader(header)
+      authentication.foreach { value =>
+        if value.chunker != metadata.chunker then
+          throw new IllegalArgumentException("manifest authentication and metadata chunker identities differ")
+      }
       val output = new DataOutputStream(
         new BufferedOutputStream(
           Files.newOutputStream(path, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
         )
       )
       try
-        authentication match
-          case None                 => output.write(MagicV2)
-          case Some(authentication) =>
-            output.write(MagicV3)
-            writeAuthentication(output, authentication)
+        output.write(MagicV4)
+        writeMetadata(output, metadata)
+        output.writeBoolean(authentication.nonEmpty)
+        authentication.foreach(writeAuthentication(output, _))
         output.writeLong(header.totalSize.value)
         output.writeInt(header.blockCount)
         new Writer(output, header)
@@ -222,18 +238,17 @@ private[stores] object StreamingManifestFile:
     new DataInputStream(new BufferedInputStream(Files.newInputStream(path, StandardOpenOption.READ)))
 
   private def readHeaderFrom(input: DataInputStream): EnvelopeHeader =
-    val magic          = input.readNBytes(MagicV2.length)
-    val authentication =
-      if java.util.Arrays.equals(magic, MagicV2) then None
-      else if java.util.Arrays.equals(magic, MagicV3) then Some(readAuthentication(input))
-      else throw new IllegalArgumentException("Not a Graviton streaming manifest")
+    val magic          = input.readNBytes(MagicV4.length)
+    if !java.util.Arrays.equals(magic, MagicV4) then throw new IllegalArgumentException("Not a Graviton GVM4 streaming manifest")
+    val metadata       = readMetadata(input)
+    val authentication = Option.when(input.readBoolean())(readAuthentication(input))
     val totalSize      = FileSize
       .either(input.readLong())
       .fold(message => throw new IllegalArgumentException(message), identity)
     val blockCount     = input.readInt()
     val header         = Header(totalSize, blockCount)
     validateHeader(header)
-    EnvelopeHeader(header, authentication)
+    EnvelopeHeader(header, metadata, authentication)
 
   private def validateHeader(header: Header): Unit =
     if header.blockCount <= 0 || header.blockCount > BlobManifestRepo.MaxEntries then
@@ -249,6 +264,25 @@ private[stores] object StreamingManifestFile:
     output.write(authentication.proof.canonicalDigest.toArray)
     output.writeInt(authentication.proof.signature.length)
     output.write(authentication.proof.signature.toArray)
+
+  private def writeMetadata(output: DataOutputStream, metadata: BlobMetadataV1): Unit =
+    val bytes = BlobMetadataV1
+      .encode(metadata)
+      .fold(message => throw new IllegalArgumentException(message), value => value)
+    output.writeInt(bytes.length)
+    output.write(bytes.toArray)
+
+  private def readMetadata(input: DataInputStream): BlobMetadataV1 =
+    val length = input.readInt()
+    if length <= 0 || length > BlobMetadataV1.MaxEncodedBytes then
+      throw new IllegalArgumentException(
+        s"blob metadata length $length is outside 1..${BlobMetadataV1.MaxEncodedBytes} bytes"
+      )
+    val bytes  = input.readNBytes(length)
+    if bytes.length != length then throw new EOFException("Unexpected end of blob metadata")
+    BlobMetadataV1
+      .decode(Chunk.fromArray(bytes))
+      .fold(message => throw new IllegalArgumentException(message), identity)
 
   private def readAuthentication(input: DataInputStream): StoredManifestAuthentication =
     val chunker   = ManifestChunkerId

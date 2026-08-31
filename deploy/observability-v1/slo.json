@@ -1,0 +1,42 @@
+{
+  "$schema": "./slo.schema.json",
+  "schema": "graviton-production-slo-v1",
+  "service": "graviton",
+  "windowDays": 30,
+  "objectives": [
+    {
+      "id": "http-availability",
+      "description": "Authorized data-plane requests complete without a 5xx response.",
+      "target": 0.999,
+      "indicator": "graviton:slo:http_success_ratio_30d",
+      "pageBurnRate": 14.4,
+      "ticketBurnRate": 6.0
+    },
+    {
+      "id": "http-latency",
+      "description": "Successful data-plane requests complete within 500 ms at p99.",
+      "target": 0.99,
+      "thresholdSeconds": 0.5,
+      "indicator": "graviton:slo:http_p99_seconds_5m",
+      "pageBurnRate": 14.4,
+      "ticketBurnRate": 6.0
+    },
+    {
+      "id": "durability-convergence",
+      "description": "Referenced blocks converge to the configured durability policy within ten minutes.",
+      "target": 0.9999,
+      "thresholdSeconds": 600,
+      "indicator": "graviton:slo:repair_backlog",
+      "pageBurnRate": 14.4,
+      "ticketBurnRate": 6.0
+    }
+  ],
+  "qualification": {
+    "maximumP99RegressionRatio": 1.15,
+    "maximumErrorRatio": 0.001,
+    "maximumHeapGrowthBytesPerHour": 67108864,
+    "maximumDirectMemoryGrowthBytesPerHour": 67108864,
+    "minimumDeduplicationRatio": 1.0,
+    "minimumSoakMinutes": 60
+  }
+}

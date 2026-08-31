@@ -73,6 +73,11 @@ object S3ClientLayer:
       val operation  = collection.metricValues(CoreMetric.OPERATION_NAME).asScala.lastOption.getOrElse("unknown")
       val successful = collection.metricValues(CoreMetric.API_CALL_SUCCESSFUL).asScala.lastOption
       val retries    = collection.metricValues(CoreMetric.RETRY_COUNT).asScala.map(_.toLong).sum
+      val duration   = collection
+        .metricValues(CoreMetric.API_CALL_DURATION)
+        .asScala
+        .lastOption
+        .map(value => value.toNanos.toDouble / 1e9)
       val tags       = Map(
         "operation" -> operation,
         "outcome"   -> successful.fold("unknown")(if _ then "success" else "failure"),
@@ -82,7 +87,8 @@ object S3ClientLayer:
           Runtime.default.unsafe
             .run(
               metrics.counter(MetricKeys.S3ApiCallsTotal, tags) *>
-                metrics.counterBy(MetricKeys.S3RetriesTotal, retries, tags)
+                metrics.counterBy(MetricKeys.S3RetriesTotal, retries, tags) *>
+                ZIO.foreachDiscard(duration)(metrics.histogram(MetricKeys.S3ApiCallDuration, _, tags))
             )
             .getOrThrowFiberFailure()
         }

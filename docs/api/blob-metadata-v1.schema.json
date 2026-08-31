@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graviton.dev/schema/blob-metadata-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "codecVersion", "mediaType", "chunker"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "codecVersion": {"const": 1},
+    "mediaType": {"type": "string", "minLength": 1, "maxLength": 255},
+    "chunker": {"type": "string", "minLength": 1, "maxLength": 120}
+  }
+}

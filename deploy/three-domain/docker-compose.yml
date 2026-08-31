@@ -130,6 +130,8 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./slo-rules.yml:/etc/prometheus/slo-rules.yml:ro
+      - ../observability-v1/recording-rules.yml:/etc/prometheus/graviton-recording-rules.yml:ro
+      - ../observability-v1/alerts.yml:/etc/prometheus/graviton-alerts.yml:ro
       - prometheus-data:/prometheus
     depends_on:
       graviton: {condition: service_healthy}
@@ -148,6 +150,7 @@ services:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../observability-v1/grafana/dashboards/graviton-production.json:/var/lib/grafana/dashboards/graviton-production.json:ro
     depends_on: [prometheus]
     ports: ["127.0.0.1:59300:3000"]
     restart: unless-stopped

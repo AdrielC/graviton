@@ -7,7 +7,7 @@ import zio.*
 /** Bounded, fair background scrub of every block referenced by a manifest. */
 final class ReplicaRepairService private (
   store: ConvergentBlockStore,
-  manifests: BlobManifestRepo,
+  references: ManifestReferenceSource,
   config: ReplicationConfig,
   journal: RepairJournal,
   metrics: MetricsRegistry,
@@ -17,52 +17,54 @@ final class ReplicaRepairService private (
   def runCycle: IO[StoreError, CycleReport] =
     ZIO.logAnnotate("component", "replica-repair") {
       for
-        started <- Clock.nanoTime
-        offset  <- journal.loadCursor
-        report  <- referencedBlocks.zipWithIndex
-                     .dropWhile { case (_, index) => index < offset }
-                     .map(_._1)
-                     .take(config.repairBatchSize.value.toLong)
-                     .mapZIO { key =>
-                       store.converge(key).either.flatMap {
-                         case Right(current) => journal.resolve(key).as(Right(current))
-                         case Left(error)    => Clock.instant.flatMap(now => journal.recordFailure(key, error, now)).as(Left(error))
-                       }
-                     }
-                     .runFold(CycleAcc.empty) {
-                       case (acc, Right(current)) => acc.record(current)
-                       case (acc, Left(_))        => acc.failedBlock
-                     }
-        next     =
+        started     <- Clock.nanoTime
+        offset      <- journal.loadCursor
+        report      <- references.referencedBlocks.zipWithIndex
+                         .dropWhile { case (_, index) => index < offset }
+                         .map(_._1)
+                         .take(config.repairBatchSize.value.toLong)
+                         .mapZIO { key =>
+                           store.converge(key).either.flatMap {
+                             case Right(current) => journal.resolve(key).as(Right(current))
+                             case Left(error)    => Clock.instant.flatMap(now => journal.recordFailure(key, error, now)).as(Left(error))
+                           }
+                         }
+                         .runFold(CycleAcc.empty) {
+                           case (acc, Right(current)) => acc.record(current)
+                           case (acc, Left(_))        => acc.failedBlock
+                         }
+        next         =
           if report.processed < config.repairBatchSize.value.toLong || offset > Long.MaxValue - report.processed then 0L
           else offset + report.processed
-        _       <- journal.checkpoint(next)
-        ended   <- Clock.nanoTime
-        duration = (ended - started).max(0L).toDouble / 1_000_000_000.0
-        result   = CycleReport(
-                     processedBlocks = report.processed,
-                     repairedReplicas = report.repaired,
-                     failedReplicas = report.failedReplicas,
-                     failedBlocks = report.failedBlocks,
-                     nextOffset = next,
-                     duration = duration,
-                   )
-        _       <- metrics.counter(
-                     MetricKeys.ReplicaRepairCyclesTotal,
-                     Map("outcome" -> (if result.failedBlocks == 0L then "succeeded" else "degraded")),
-                   )
-        _       <- metrics.histogram(MetricKeys.ReplicaRepairCycleDuration, duration, Map.empty)
-        _       <- metrics.gauge(MetricKeys.ReplicaRepairFailedBlocks, result.failedBlocks.toDouble, Map.empty)
-        _       <- metrics.gauge(MetricKeys.ReplicaUnderProtectedBlocks, result.failedBlocks.toDouble, Map.empty)
-        _       <- metrics.gauge(MetricKeys.ReplicaRepairCursor, result.nextOffset.toDouble, Map.empty)
-        now     <- Clock.instant
-        _       <- metrics
-                     .gauge(MetricKeys.ReplicaRepairLastSuccess, now.getEpochSecond.toDouble, Map.empty)
-                     .when(result.failedBlocks == 0L)
-        _       <- ZIO.logInfo(
-                     s"Replica repair cycle processed=${result.processedBlocks} repaired=${result.repairedReplicas} " +
-                       s"failed_blocks=${result.failedBlocks} next_offset=${result.nextOffset}"
-                   )
+        _           <- journal.checkpoint(next)
+        ended       <- Clock.nanoTime
+        duration     = (ended - started).max(0L).toDouble / 1_000_000_000.0
+        result       = CycleReport(
+                         processedBlocks = report.processed,
+                         repairedReplicas = report.repaired,
+                         failedReplicas = report.failedReplicas,
+                         failedBlocks = report.failedBlocks,
+                         nextOffset = next,
+                         duration = duration,
+                       )
+        _           <- metrics.counter(
+                         MetricKeys.ReplicaRepairCyclesTotal,
+                         Map("outcome" -> (if result.failedBlocks == 0L then "succeeded" else "degraded")),
+                       )
+        _           <- metrics.histogram(MetricKeys.ReplicaRepairCycleDuration, duration, Map.empty)
+        _           <- metrics.gauge(MetricKeys.ReplicaRepairFailedBlocks, result.failedBlocks.toDouble, Map.empty)
+        _           <- metrics.gauge(MetricKeys.ReplicaUnderProtectedBlocks, result.failedBlocks.toDouble, Map.empty)
+        _           <- metrics.gauge(MetricKeys.ReplicaRepairCursor, result.nextOffset.toDouble, Map.empty)
+        deadLetters <- journal.deadLetters.runCount
+        _           <- metrics.gauge(MetricKeys.ReplicaRepairDeadLetters, deadLetters.toDouble, Map.empty)
+        now         <- Clock.instant
+        _           <- metrics
+                         .gauge(MetricKeys.ReplicaRepairLastSuccess, now.getEpochSecond.toDouble, Map.empty)
+                         .when(result.failedBlocks == 0L)
+        _           <- ZIO.logInfo(
+                         s"Replica repair cycle processed=${result.processedBlocks} repaired=${result.repairedReplicas} " +
+                           s"failed_blocks=${result.failedBlocks} next_offset=${result.nextOffset}"
+                       )
       yield result
     }
 
@@ -73,11 +75,6 @@ final class ReplicaRepairService private (
       .repeat(Schedule.spaced(config.repairInterval))
       .forkScoped
       .unit
-
-  private def referencedBlocks =
-    manifests.streamSummaries.flatMap { case (blob, _) =>
-      manifests.streamBlockRefs(blob).map(_.key)
-    }
 
 object ReplicaRepairService:
   final case class CycleReport(
@@ -104,7 +101,15 @@ object ReplicaRepairService:
     config: ReplicationConfig,
     metrics: MetricsRegistry,
   ): UIO[ReplicaRepairService] =
-    RepairJournal.inMemory.map(new ReplicaRepairService(store, manifests, config, _, metrics))
+    make(store, ManifestReferenceSource.repository(manifests), config, metrics)
+
+  def make(
+    store: ConvergentBlockStore,
+    references: ManifestReferenceSource,
+    config: ReplicationConfig,
+    metrics: MetricsRegistry,
+  ): UIO[ReplicaRepairService] =
+    RepairJournal.inMemory.map(new ReplicaRepairService(store, references, config, _, metrics))
 
   def make(
     store: ConvergentBlockStore,
@@ -113,7 +118,16 @@ object ReplicaRepairService:
     journal: RepairJournal,
     metrics: MetricsRegistry,
   ): UIO[ReplicaRepairService] =
-    ZIO.succeed(new ReplicaRepairService(store, manifests, config, journal, metrics))
+    make(store, ManifestReferenceSource.repository(manifests), config, journal, metrics)
+
+  def make(
+    store: ConvergentBlockStore,
+    references: ManifestReferenceSource,
+    config: ReplicationConfig,
+    journal: RepairJournal,
+    metrics: MetricsRegistry,
+  ): UIO[ReplicaRepairService] =
+    ZIO.succeed(new ReplicaRepairService(store, references, config, journal, metrics))
 
   private final case class CycleAcc(
     processed: Long,

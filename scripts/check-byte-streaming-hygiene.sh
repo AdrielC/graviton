@@ -33,7 +33,7 @@ record_unexpected \
 record_unexpected \
   "Every production runCollect requires an explicit non-byte or bounded helper classification" \
   '\.runCollect' \
-  'graviton-streams/.*/BoundedByteStream\.scala|graviton-content-lab/.*/BoundedBrowserBytes\.scala|graviton-pdf-lab/.*/BoundedPdfOutput\.scala|GarbageCollector\.scala|S3BlobStore\.scala'
+  'graviton-streams/.*/BoundedByteStream\.scala|graviton-content-lab/.*/BoundedBrowserBytes\.scala|graviton-pdf-lab/.*/BoundedPdfOutput\.scala|GarbageCollector\.scala|S3BlobStore\.scala|CasBlobStore\.scala'
 
 record_unexpected \
   "HTTP request payloads must be constructed from streams" \

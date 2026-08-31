@@ -54,8 +54,10 @@ final class PgTenantBlobManifestRepo private (
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
+    val identity = ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified"))
     putStreamInternal(
-      ManifestIdentity(blob, totalSize, blockCount, ManifestChunkerId.applyUnsafe("legacy-unspecified")),
+      identity,
+      BlobMetadataV1.default(identity.chunker),
       entries,
       ingestedAt,
     )
@@ -65,10 +67,19 @@ final class PgTenantBlobManifestRepo private (
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
-    putStreamInternal(identity, entries, ingestedAt)
+    putStreamInternal(identity, BlobMetadataV1.default(identity.chunker), entries, ingestedAt)
+
+  override def putVersionedStream(
+    identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
+    entries: ZStream[Any, StoreError, ManifestEntry],
+    ingestedAt: Instant,
+  ): IO[StoreError, Unit] =
+    putStreamInternal(identity, metadata, entries, ingestedAt)
 
   private def putStreamInternal(
     identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
     entries: ZStream[Any, StoreError, ManifestEntry],
     ingestedAt: Instant,
   ): IO[StoreError, Unit] =
@@ -78,11 +89,14 @@ final class PgTenantBlobManifestRepo private (
     ZIO
       .fromEither(BlobManifestRepo.validateStreamArguments(blob, totalSize, blockCount))
       .mapError(StoreError.InvalidInput(StoreOperation.PutManifest, _)) *>
+      ZIO
+        .fail(StoreError.InvalidInput(StoreOperation.PutManifest, "blob metadata chunker does not match manifest identity"))
+        .unless(metadata.chunker == identity.chunker) *>
       transaction(StoreOperation.PutManifest) { connection =>
         for
-          accumulator  <- ZIO.foreach(integrity)(_.accumulator(identity))
+          accumulator  <- ZIO.foreach(integrity)(_.accumulator(identity, metadata))
           _            <- reserveUsage(connection, blob, totalSize)
-          _            <- upsertBlob(connection, blob, blockCount, ingestedAt)
+          _            <- upsertBlob(connection, blob, blockCount, ingestedAt, metadata)
           _            <- deleteEntries(connection, blob)
           authenticated = accumulator.fold(entries)(value => entries.tap(value.update))
           state        <- writeEntries(connection, blob, authenticated)
@@ -190,6 +204,35 @@ final class PgTenantBlobManifestRepo private (
                    }
     yield result
 
+  override def getMetadata(blob: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
+    for
+      algorithm <- algorithm(blob, StoreOperation.GetManifest)
+      result    <- blocking(StoreOperation.GetManifest) { connection =>
+                     val statement = connection.prepareStatement(
+                       """SELECT metadata::text
+                         |FROM graviton.tenant_blob
+                         |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
+                         |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
+                     )
+                     try
+                       bindScope(statement, 1)
+                       statement.setString(3, algorithm)
+                       statement.setBytes(4, blob.bits.digest.bytes)
+                       statement.setLong(5, blob.bits.size)
+                       val rows = statement.executeQuery()
+                       try
+                         if !rows.next() then None
+                         else
+                           Some(
+                             BlobMetadataV1
+                               .decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                               .fold(message => throw new IllegalArgumentException(message), identity)
+                           )
+                       finally rows.close()
+                     finally statement.close()
+                   }
+    yield result
+
   override def inventoryPage(
     after: Option[InventoryCursor],
     limit: InventoryPageSize,
@@ -268,14 +311,14 @@ final class PgTenantBlobManifestRepo private (
 
   private def verifyManifest(blob: BinaryKey.Blob, service: ManifestIntegrity): IO[StoreError, Unit] =
     for
-      stored           <- readStoredAuthentication(blob)
-      authentication   <- ZIO
-                            .fromOption(stored)
-                            .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
-      (identity, proof) = authentication
-      accumulator      <- service.verificationAccumulator(identity)
-      _                <- rawManifestEntries(blob).runForeach(accumulator.update)
-      _                <- accumulator.verify(proof)
+      stored                     <- readStoredAuthentication(blob)
+      authentication             <- ZIO
+                                      .fromOption(stored)
+                                      .orElseFail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest authentication proof is missing"))
+      (identity, metadata, proof) = authentication
+      accumulator                <- service.verificationAccumulator(identity, metadata)
+      _                          <- rawManifestEntries(blob).runForeach(accumulator.update)
+      _                          <- accumulator.verify(proof)
     yield ()
 
   private def rawManifestEntries(blob: BinaryKey.Blob): ZStream[Any, StoreError, ManifestEntry] =
@@ -288,12 +331,14 @@ final class PgTenantBlobManifestRepo private (
     cursorStream(StoreOperation.GetManifest, sql, blob, None)
       .mapZIO(result => readManifestEntry(result).mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql)))
 
-  private def readStoredAuthentication(blob: BinaryKey.Blob): IO[StoreError, Option[(ManifestIdentity, ManifestProof)]] =
+  private def readStoredAuthentication(
+    blob: BinaryKey.Blob
+  ): IO[StoreError, Option[(ManifestIdentity, BlobMetadataV1, ManifestProof)]] =
     algorithm(blob, StoreOperation.GetManifest).flatMap { algorithm =>
       blocking(StoreOperation.GetManifest) { connection =>
         val statement = connection.prepareStatement(
           """SELECT byte_length, block_count, manifest_proof_version, manifest_chunker,
-            |       manifest_key_id, manifest_digest, manifest_signature
+            |       manifest_key_id, manifest_digest, manifest_signature, metadata::text
             |FROM graviton.tenant_blob
             |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
             |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
@@ -307,14 +352,17 @@ final class PgTenantBlobManifestRepo private (
           try
             if !rows.next() || rows.getObject(3) == null then None
             else
-              val size    = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
-              val chunker =
+              val size     = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
+              val chunker  =
                 ManifestChunkerId.either(rows.getString(4)).fold(message => throw new IllegalArgumentException(message), identity)
-              val keyId   = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
-              val proof   = ManifestProof
+              val keyId    = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
+              val proof    = ManifestProof
                 .make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7)))
                 .fold(message => throw new IllegalArgumentException(message), identity)
-              Some(ManifestIdentity(blob, size, rows.getInt(2), chunker) -> proof)
+              val metadata = BlobMetadataV1
+                .decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .fold(message => throw new IllegalArgumentException(message), identity)
+              Some((ManifestIdentity(blob, size, rows.getInt(2), chunker), metadata, proof))
           finally rows.close()
         finally statement.close()
       }
@@ -384,20 +432,30 @@ final class PgTenantBlobManifestRepo private (
       finally statement.close()
     }
 
-  private def upsertBlob(connection: Connection, blob: BinaryKey.Blob, blockCount: Int, ingestedAt: Instant): Task[Unit] =
+  private def upsertBlob(
+    connection: Connection,
+    blob: BinaryKey.Blob,
+    blockCount: Int,
+    ingestedAt: Instant,
+    metadata: BlobMetadataV1,
+  ): Task[Unit] =
     for
       _         <- ZIO
                      .fail(new IllegalArgumentException(s"manifest block count must be within 1..${BlobManifestRepo.MaxEntries}"))
                      .unless(blockCount >= 1 && blockCount <= BlobManifestRepo.MaxEntries)
       algorithm <- ZIO.fromEither(toDbAlgorithm(blob.bits.algo)).mapError(new IllegalArgumentException(_))
+      encoded   <- ZIO
+                     .fromEither(BlobMetadataV1.encode(metadata))
+                     .mapError(message => new IllegalArgumentException(message))
       _         <- ZIO.attemptBlocking {
                      val statement = connection.prepareStatement(
                        """INSERT INTO graviton.tenant_blob (
-                         |  tenant_id, storage_domain_id, alg, hash_bytes, byte_length, block_count, created_at
-                         |) VALUES (?::uuid, ?, ?::core.hash_alg, ?, ?, ?, ?)
+                         |  tenant_id, storage_domain_id, alg, hash_bytes, byte_length, block_count, created_at, metadata
+                         |) VALUES (?::uuid, ?, ?::core.hash_alg, ?, ?, ?, ?, ?::jsonb)
                          |ON CONFLICT (tenant_id, storage_domain_id, alg, hash_bytes, byte_length) DO UPDATE SET
                          |  block_count = EXCLUDED.block_count,
-                         |  created_at = EXCLUDED.created_at""".stripMargin
+                         |  created_at = EXCLUDED.created_at,
+                         |  metadata = EXCLUDED.metadata""".stripMargin
                      )
                      try
                        bindScope(statement, 1)
@@ -406,6 +464,7 @@ final class PgTenantBlobManifestRepo private (
                        statement.setLong(5, blob.bits.size)
                        statement.setInt(6, blockCount)
                        statement.setTimestamp(7, java.sql.Timestamp.from(ingestedAt))
+                       statement.setString(8, new String(encoded.toArray, java.nio.charset.StandardCharsets.UTF_8))
                        statement.executeUpdate()
                        ()
                      finally statement.close()

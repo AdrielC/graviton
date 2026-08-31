@@ -47,7 +47,7 @@ object ApiModels {
 
   /** Canonical UUID identifying one resumable upload session. */
   type UploadId = UploadId.T
-  object UploadId extends RefinedSubtype[String, Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]]:
+  object UploadId extends RefinedSubtype[String, Match["[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"]]:
     given JsonCodec[UploadId] = summon[JsonCodec[String]].transformOrFail(either, _.value)
 
   /** Durable byte offset, including zero and the completed 1 TiB boundary. */
@@ -91,8 +91,30 @@ object ApiModels {
     object BlobBlock:
       given BlocksSchema[BlobBlock] = BlocksSchema.derived
 
-    final case class BlobDetails(summary: BlobSummary, blocks: List[BlobBlock])
+    final case class BlobMetadata(
+      schemaVersion: Int,
+      codecVersion: Int,
+      mediaType: String,
+      chunker: String,
+    )
+    object BlobMetadata:
+      given BlocksSchema[BlobMetadata] = BlocksSchema.derived
+
+    final case class BlobDetails(
+      summary: BlobSummary,
+      blocks: List[BlobBlock],
+      metadata: Option[BlobMetadata],
+      nextCursor: Option[String],
+    ):
+      def this(summary: BlobSummary, blocks: List[BlobBlock]) = this(summary, blocks, None, None)
+
+      def copy(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+        BlobDetails(summary, blocks, metadata, nextCursor)
+
     object BlobDetails:
+      def apply(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+        new BlobDetails(summary, blocks, None, None)
+
       given BlocksSchema[BlobDetails] = BlocksSchema.derived
 
     final case class BlobListResponse(blobs: List[BlobSummary], nextCursor: Option[String])
@@ -232,19 +254,50 @@ object ApiModels {
       ApiJsonCodec.mapped[BlobBlock, Wire.BlobBlock](blockToWire)(blockFromWire)
 
   /** Persisted blob metadata and block layout. */
+  final case class BlobMetadata(
+    schemaVersion: Int,
+    codecVersion: Int,
+    mediaType: String,
+    chunker: String,
+  ) derives JsonCodec
+  object BlobMetadata:
+    private given BlocksSchema[BlobMetadata] = BlocksSchema.derived
+    given ApiJsonCodec[BlobMetadata]         = ApiJsonCodec.derived
+
+  /** One bounded page from a persisted manifest. */
   final case class BlobDetails(
     summary: BlobSummary,
     blocks: List[BlobBlock],
-  ) derives JsonCodec
+    metadata: Option[BlobMetadata] = None,
+    nextCursor: Option[String] = None,
+  ) derives JsonCodec:
+    def this(summary: BlobSummary, blocks: List[BlobBlock]) = this(summary, blocks, None, None)
+
+    def copy(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+      BlobDetails(summary, blocks, metadata, nextCursor)
+
   object BlobDetails:
+    def apply(summary: BlobSummary, blocks: List[BlobBlock]): BlobDetails =
+      new BlobDetails(summary, blocks, None, None)
+
     given ApiJsonCodec[BlobDetails] =
       ApiJsonCodec.mapped[BlobDetails, Wire.BlobDetails](value =>
-        Wire.BlobDetails(summaryToWire(value.summary), value.blocks.map(blockToWire))
+        Wire.BlobDetails(
+          summaryToWire(value.summary),
+          value.blocks.map(blockToWire),
+          value.metadata.map(meta => Wire.BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
+          value.nextCursor,
+        )
       )(value =>
         for
           summary <- summaryFromWire(value.summary)
           blocks  <- traverse(value.blocks)(blockFromWire)
-        yield BlobDetails(summary, blocks)
+        yield BlobDetails(
+          summary,
+          blocks,
+          value.metadata.map(meta => BlobMetadata(meta.schemaVersion, meta.codecVersion, meta.mediaType, meta.chunker)),
+          value.nextCursor,
+        )
       )
 
   /** Current durable blob inventory. */

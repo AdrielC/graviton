@@ -36,7 +36,7 @@ final case class ManifestProof private (
 )
 
 object ManifestProof:
-  val CurrentVersion = 1
+  val CurrentVersion = 2
   val DigestBytes    = 32
   val SignatureBytes = 32
 
@@ -116,22 +116,35 @@ object ManifestKeyService:
 /** Streaming canonicalization and proof verification. */
 final class ManifestIntegrity private (keys: ManifestKeyService):
   def accumulator(identity: ManifestIdentity): IO[StoreError, ManifestIntegrity.Accumulator] =
+    accumulator(identity, BlobMetadataV1.default(identity.chunker))
+
+  def accumulator(
+    identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
+  ): IO[StoreError, ManifestIntegrity.Accumulator] =
     ZIO
-      .attempt(new ManifestIntegrity.Accumulator(identity, keys, verification = false))
+      .attempt(new ManifestIntegrity.Accumulator(identity, metadata, keys, verification = false))
       .mapError(StoreError.fromThrowable(StoreOperation.PutManifest))
 
   def verificationAccumulator(identity: ManifestIdentity): IO[StoreError, ManifestIntegrity.Accumulator] =
+    verificationAccumulator(identity, BlobMetadataV1.default(identity.chunker))
+
+  def verificationAccumulator(
+    identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
+  ): IO[StoreError, ManifestIntegrity.Accumulator] =
     ZIO
-      .attempt(new ManifestIntegrity.Accumulator(identity, keys, verification = true))
+      .attempt(new ManifestIntegrity.Accumulator(identity, metadata, keys, verification = true))
       .mapError(error => StoreError.CorruptData(StoreOperation.GetManifest, error.getMessage, error))
 
 object ManifestIntegrity:
-  private val Domain = "graviton-manifest-proof-v1".getBytes(StandardCharsets.US_ASCII)
+  private val Domain = "graviton-manifest-proof-v2".getBytes(StandardCharsets.US_ASCII)
 
   def apply(keys: ManifestKeyService): ManifestIntegrity = new ManifestIntegrity(keys)
 
   final class Accumulator private[stores] (
     identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
     keys: ManifestKeyService,
     verification: Boolean,
   ):
@@ -212,6 +225,11 @@ object ManifestIntegrity:
       putLong(identity.totalSize.value)
       putInt(identity.blockCount)
       putText(identity.chunker.value)
+      val encodedMetadata = BlobMetadataV1
+        .encode(metadata)
+        .fold(message => throw new IllegalArgumentException(message), value => value)
+      putInt(encodedMetadata.length)
+      digest.update(encodedMetadata.toArray)
 
     private def putText(value: String): Unit =
       val bytes = value.getBytes(StandardCharsets.UTF_8)

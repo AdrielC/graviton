@@ -130,10 +130,12 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
             entry       <- s3.inventory.filter(_.key == blockKey).runHead.someOrFail(new NoSuchElementException("block not inventoried"))
             quarantined <- s3.quarantine(entry)
             absent      <- s3.exists(blockKey)
+            inventoried <- s3.quarantineInventory.filter(_.token == quarantined.token).runHead
             _           <- s3.restore(quarantined)
             present     <- s3.exists(blockKey)
+            cleared     <- s3.quarantineInventory.filter(_.token == quarantined.token).runHead
             readBack    <- store.get(written.key).runCollect
-          yield assertTrue(!absent, present, readBack == data)
+          yield assertTrue(!absent, inventoried.exists(_.key == blockKey), present, cleared.isEmpty, readBack == data)
         },
         test("S3 object backend performs real multipart put/get/list/copy/delete") {
           val bucket = sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks")

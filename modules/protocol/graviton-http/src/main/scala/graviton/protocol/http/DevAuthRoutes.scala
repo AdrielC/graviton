@@ -21,6 +21,9 @@ import java.nio.charset.StandardCharsets
  */
 object DevAuthRoutes:
 
+  private val DefaultOrgId       = UUID.fromString("00000000-0000-4000-8000-000000000001")
+  private val DefaultPrincipalId = UUID.fromString("00000000-0000-4000-8000-000000000002")
+
   final case class MintRequest(
     org_id: Option[String] = None,
     principal_id: Option[String] = None,
@@ -58,29 +61,45 @@ object DevAuthRoutes:
                 case Left(err)   =>
                   ZIO.succeed(Response.text(s"invalid JSON: $err").copy(status = Status.BadRequest))
                 case Right(body) =>
-                  val orgId = body.org_id.flatMap(tryUuid).getOrElse(new UUID(0L, 1L))
-                  val pid   = body.principal_id.flatMap(tryUuid).getOrElse(new UUID(0L, 2L))
-                  val caps  = body.caps.getOrElse(defaultCaps)
-                  val ttl   = body.ttl_seconds.getOrElse(3600L).max(60L).min(86400L)
-                  ZIO.clockWith(_.instant).map { now =>
-                    val token = HmacJwtVerifier.mint(
-                      secret = secret,
-                      orgId = orgId,
-                      principalId = pid,
-                      capabilities = caps,
-                      ttlSeconds = ttl,
-                      issuer = issuer,
-                      audience = audience,
-                      nowEpochSeconds = now.getEpochSecond,
-                    )
-                    Response.json(MintResponse(token, ttl).toJson)
-                  }
+                  val identities = for
+                    orgId <- standardUuid(body.org_id, DefaultOrgId, "org_id")
+                    pid   <- standardUuid(body.principal_id, DefaultPrincipalId, "principal_id")
+                  yield (orgId, pid)
+                  identities match
+                    case Left(message)       => ZIO.succeed(Response.text(message).copy(status = Status.BadRequest))
+                    case Right((orgId, pid)) =>
+                      val caps = body.caps.getOrElse(defaultCaps)
+                      val ttl  = body.ttl_seconds.getOrElse(3600L).max(60L).min(86400L)
+                      ZIO.clockWith(_.instant).map { now =>
+                        val token = HmacJwtVerifier.mint(
+                          secret = secret,
+                          orgId = orgId,
+                          principalId = pid,
+                          capabilities = caps,
+                          ttlSeconds = ttl,
+                          issuer = issuer,
+                          audience = audience,
+                          nowEpochSeconds = now.getEpochSecond,
+                        )
+                        Response.json(MintResponse(token, ttl).toJson)
+                      }
             }
         }
     )
 
-  private def tryUuid(raw: String): Option[UUID] =
-    scala.util.Try(UUID.fromString(raw)).toOption
+  private def standardUuid(raw: Option[String], default: UUID, field: String): Either[String, UUID] =
+    raw match
+      case None        => Right(default)
+      case Some(value) =>
+        scala.util
+          .Try(UUID.fromString(value))
+          .toEither
+          .left
+          .map(_ => s"$field must be a canonical UUID")
+          .filterOrElse(
+            uuid => uuid.toString == value && uuid.variant == 2 && uuid.version >= 1 && uuid.version <= 8,
+            s"$field must be a canonical UUID",
+          )
 
   /** Default capability bundle granted to dev tokens when `caps` is unset. */
   private val defaultCaps: Long =

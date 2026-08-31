@@ -28,7 +28,7 @@ final class TenantHttpApi(
       Handler.fromFunctionZIO[(Path, Request)] { case (_, request) =>
         val response = for
           caller  <- CallerContext.required.mapError(_ => authenticationError)
-          tenant   = TenantId.applyUnsafe(caller.orgId.toString)
+          tenant  <- ZIO.fromEither(TenantId.fromUuid(caller.orgId)).mapError(_ => invalidTenantIdentity)
           binding <- provider.resolve(tenant).mapError(routingError)
           // The tenant provider owns the only bounded store cache. Keeping a
           // second HttpApi cache here is both unnecessary and dangerous: each
@@ -49,6 +49,11 @@ final class TenantHttpApi(
 
   private def authenticationError: Response =
     Response.json("""{"error":"unauthenticated","message":"Authentication required"}""").copy(status = Status.Unauthorized)
+
+  private def invalidTenantIdentity: Response =
+    Response
+      .json("""{"error":"invalid_identity","message":"Authenticated organization is not a canonical UUID"}""")
+      .copy(status = Status.Unauthorized)
 
   private def routingError(error: TenantRoutingError): Response = error match
     case _: TenantRoutingError.UnknownTenant | _: TenantRoutingError.SuspendedTenant   =>

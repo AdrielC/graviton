@@ -164,6 +164,17 @@ object HttpSecurityPolicySpec extends ZIOSpecDefault:
         second  <- callAs(fixture.api, caller, request)
       yield assertTrue(first.status == Status.Ok, second.status == Status.TooManyRequests)
     },
+    test("rejects a non-standard organization UUID without throwing") {
+      val invalid = context(Capability.BlobRead).copy(orgId = new UUID(0L, 1L))
+      for
+        fixture  <- makeFixture(SecurityConfig.Default.copy(enabled = true))
+        response <- callAs(
+                      fixture.api,
+                      invalid,
+                      Request.get(URL.decode("http://localhost/api/v1/blobs").toOption.get),
+                    )
+      yield assertTrue(response.status == Status.Unauthorized)
+    },
     test("accepts only literal forwarded IP addresses for audit metadata") {
       val request = Request
         .get(URL.decode("http://localhost/api/v1/blobs").toOption.get)

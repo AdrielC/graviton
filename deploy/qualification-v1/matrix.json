@@ -1,0 +1,23 @@
+{
+  "$schema": "./matrix.schema.json",
+  "schema": "graviton-production-qualification-matrix-v1",
+  "minimumSoakMinutes": 60,
+  "gates": [
+    {"id": "streaming-laws", "class": "repository", "evidence": "modules/graviton-backend-laws/src/main/scala/graviton/backend/laws/BlobStoreLaws.scala", "status": "repository-verified"},
+    {"id": "crash-consistency", "class": "repository", "evidence": "modules/graviton-backend-laws/src/test/scala/graviton/backend/laws/CrashConsistencyLawsSpec.scala", "status": "repository-verified"},
+    {"id": "tenant-noisy-neighbor", "class": "scheduled", "evidence": "scripts/qualify-multitenant.sh", "status": "scheduled"},
+    {"id": "manager-node-replacement", "class": "scheduled", "evidence": "scripts/qualify-node-replacement.sh", "status": "scheduled"},
+    {"id": "resumable-replacement", "class": "scheduled", "evidence": "scripts/qualify-long-failure.sh", "status": "scheduled"},
+    {"id": "object-manifest-outage", "class": "scheduled", "evidence": "scripts/qualify-long-failure.sh", "status": "scheduled"},
+    {"id": "valkey-atomic-contracts", "class": "repository", "evidence": "modules/integration/graviton-admission-redis/src/test/scala/graviton/integration/redis/RedisDistributedAdmissionSpec.scala", "status": "repository-verified"},
+    {"id": "backup-isolated-restore", "class": "repository", "evidence": "scripts/verify-backup-restore.sh", "status": "repository-verified"},
+    {"id": "gc-maintenance-lock", "class": "repository", "evidence": "modules/graviton-runtime/src/test/scala/graviton/runtime/stores/GarbageCollectorSpec.scala", "status": "repository-verified"},
+    {"id": "sustained-soak", "class": "scheduled", "evidence": "scripts/qualify-long-failure.sh", "status": "scheduled"},
+    {"id": "heap-direct-memory-latency-retry-dedup", "class": "scheduled", "evidence": "scripts/monitor-performance-telemetry.py scripts/evaluate-performance-gate.py", "status": "scheduled"},
+    {"id": "valkey-failover-partition", "class": "target", "evidence": "deploy/aws-cell-v1/README.md", "status": "target-required"},
+    {"id": "rds-failover", "class": "target", "evidence": "deploy/aws-cell-v1/README.md", "status": "target-required"},
+    {"id": "zone-impairment", "class": "target", "evidence": "deploy/aws-cell-v1/README.md", "status": "target-required"},
+    {"id": "s3-throttling-timeouts", "class": "target", "evidence": "deploy/aws-cell-v1/README.md", "status": "target-required"},
+    {"id": "provider-backup-restore", "class": "target", "evidence": "deploy/aws-cell-v1/README.md", "status": "target-required"}
+  ]
+}

@@ -1,0 +1,30 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: info
+  group_by: [service, alertname, cell]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: [severity="page"]
+      receiver: page
+      repeat_interval: 30m
+    - matchers: [severity="ticket"]
+      receiver: ticket
+      repeat_interval: 12h
+
+receivers:
+  - name: page
+    webhook_configs:
+      - url: 'http://alert-router:8080/v1/alerts/page'
+        send_resolved: true
+  - name: ticket
+    webhook_configs:
+      - url: 'http://alert-router:8080/v1/alerts/ticket'
+        send_resolved: true
+  - name: info
+    webhook_configs:
+      - url: 'http://alert-router:8080/v1/alerts/info'
+        send_resolved: true

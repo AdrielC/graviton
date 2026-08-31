@@ -386,6 +386,23 @@ final class AdmittedTenantBlobStore(
   override def inspect(key: graviton.core.keys.BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     admittedEffect(StoreOperation.InspectBlob)(underlying.inspect(key))
 
+  override def streamBlockDescriptions(
+    key: graviton.core.keys.BinaryKey.Blob
+  ): ZStream[Any, StoreError, graviton.runtime.model.BlobBlockDescription] =
+    admittedStream(StoreOperation.InspectBlob)(underlying.streamBlockDescriptions(key))
+
+  override def inspectPage(
+    key: graviton.core.keys.BinaryKey.Blob,
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, Option[graviton.runtime.model.BlobInspectionPage]] =
+    admittedEffect(StoreOperation.InspectBlob)(underlying.inspectPage(key, after, limit))
+
+  override def metadata(
+    key: graviton.core.keys.BinaryKey.Blob
+  ): IO[StoreError, Option[graviton.runtime.stores.BlobMetadataV1]] =
+    admittedEffect(StoreOperation.StatBlob)(underlying.metadata(key))
+
   override def delete(key: graviton.core.keys.BinaryKey.Blob): IO[StoreError, Unit] =
     admittedEffect(StoreOperation.DeleteBlob)(underlying.delete(key))
 
@@ -395,7 +412,7 @@ final class AdmittedTenantBlobStore(
   private def admittedEffect[A](operation: StoreOperation)(effect: IO[StoreError, A]): IO[StoreError, A] =
     ZIO.scoped(admission.acquireScoped(policy).mapError(toStoreError(operation)) *> effect)
 
-  private def admittedStream(operation: StoreOperation)(stream: ZStream[Any, StoreError, Byte]): ZStream[Any, StoreError, Byte] =
+  private def admittedStream[A](operation: StoreOperation)(stream: ZStream[Any, StoreError, A]): ZStream[Any, StoreError, A] =
     ZStream.unwrapScoped[Any](admission.acquireScoped(policy).mapError(toStoreError(operation)).as(stream))
 
   private def toStoreError(operation: StoreOperation)(error: TenantAdmission.Error): StoreError = error match

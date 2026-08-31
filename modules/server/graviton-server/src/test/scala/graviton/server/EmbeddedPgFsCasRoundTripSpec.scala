@@ -9,6 +9,7 @@ import graviton.backend.pg.{
   PgMutableObjectStore,
   PgReplicaIndex,
   PgResumableUploadRepository,
+  PgTenantDomainSnapshot,
   PgTenantBlobManifestRepo,
   PgTenantPolicyCatalog,
 }
@@ -604,6 +605,43 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             )
           }
         },
+        test("tenant domain snapshots are durable, deterministic, and streamed by domain") {
+          val cell     = TenantCellId.applyUnsafe("snapshot-cell")
+          val isolated = TenantId.applyUnsafe("70000000-0000-4000-8000-000000000001")
+          val sharedA  = TenantId.applyUnsafe("70000000-0000-4000-8000-000000000002")
+          val sharedB  = TenantId.applyUnsafe("70000000-0000-4000-8000-000000000003")
+          for
+            ds       <- ZIO.service[javax.sql.DataSource]
+            _        <- insertTenantPolicy(ds, isolated, None, cell.value)
+            _        <- insertTenantPolicy(ds, sharedA, Some("snapshot-shared"), cell.value)
+            _        <- insertTenantPolicy(ds, sharedB, Some("snapshot-shared"), cell.value)
+            snapshots = new PgTenantDomainSnapshot(ds)
+            first    <- snapshots.capture(cell)
+            domains  <- snapshots.streamDomains(first.snapshotId).runCollect
+            epochA   <- snapshots.beginRepairEpoch("snapshot-domain-test", first.membershipSha256)
+            epochB   <- snapshots.beginRepairEpoch("snapshot-domain-test", first.membershipSha256)
+            second   <- snapshots.capture(cell)
+            _        <- writeRepairCursor(ds, "snapshot-domain-test", 42L)
+            _        <- bumpTenantRevision(ds, sharedA)
+            changed  <- snapshots.capture(cell)
+            epochC   <- snapshots.beginRepairEpoch("snapshot-domain-test", changed.membershipSha256)
+            cursor   <- readRepairCursor(ds, "snapshot-domain-test")
+            latest   <- snapshots.latest(cell)
+            removed  <- snapshots.retainLatest(cell, 1)
+          yield assertTrue(
+            first.memberCount == 3L,
+            first.membershipSha256.length == 64,
+            second.membershipSha256 == first.membershipSha256,
+            epochA,
+            !epochB,
+            changed.membershipSha256 != first.membershipSha256,
+            epochC,
+            cursor.isEmpty,
+            domains.map(_.value).toSet == Set(s"tenant:${isolated.value}", "shared:snapshot-shared"),
+            latest.exists(_.snapshotId == changed.snapshotId),
+            removed == 2L,
+          )
+        },
         test("retained-byte quota is idempotent, released on delete, and atomic across writers") {
           val tenant = TenantId.applyUnsafe("40000000-0000-4000-8000-000000000004")
           val first  = Chunk.fromArray("aaaaaaaa".getBytes(StandardCharsets.UTF_8))
@@ -867,6 +905,52 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
           statement.setLong(4, maxRetainedBytes)
           statement.executeUpdate()
           ()
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def bumpTenantRevision(dataSource: javax.sql.DataSource, tenantId: TenantId): Task[Unit] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          "UPDATE graviton.tenant_storage_policy SET revision = revision + 1 WHERE tenant_id = ?::uuid"
+        )
+        try
+          statement.setString(1, tenantId.value)
+          if statement.executeUpdate() != 1 then throw new IllegalStateException("tenant policy was not updated")
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def writeRepairCursor(dataSource: javax.sql.DataSource, namespace: String, offset: Long): Task[Unit] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          "INSERT INTO graviton.repair_state(namespace, next_offset) VALUES (?, ?)"
+        )
+        try
+          statement.setString(1, namespace)
+          statement.setLong(2, offset)
+          statement.executeUpdate()
+          ()
+        finally statement.close()
+      finally connection.close()
+    }
+
+  private def readRepairCursor(dataSource: javax.sql.DataSource, namespace: String): Task[Option[Long]] =
+    ZIO.attemptBlocking {
+      val connection = dataSource.getConnection
+      try
+        val statement = connection.prepareStatement(
+          "SELECT next_offset FROM graviton.repair_state WHERE namespace = ?"
+        )
+        try
+          statement.setString(1, namespace)
+          val result = statement.executeQuery()
+          try if result.next() then Some(result.getLong(1)) else None
+          finally result.close()
         finally statement.close()
       finally connection.close()
     }

@@ -20,9 +20,17 @@ object ManifestReferenceSource:
    * traversed sequentially so tenant count does not multiply open cursors.
    */
   def repositories(manifests: NonEmptyChunk[BlobManifestRepo]): ManifestReferenceSource =
+    streaming(ZStream.fromChunk(manifests.toChunk))
+
+  /**
+   * Build a domain-wide mark source when the repository set itself is durable
+   * and streamed. At most one manifest cursor is open at a time, regardless of
+   * tenant count.
+   */
+  def streaming(manifests: ZStream[Any, StoreError, BlobManifestRepo]): ManifestReferenceSource =
     new ManifestReferenceSource:
       override val referencedBlocks: ZStream[Any, StoreError, BinaryKey.Block] =
-        ZStream.fromChunk(manifests.toChunk).flatMap { repository =>
+        manifests.flatMap { repository =>
           repository.streamSummaries.flatMap { case (blob, _) =>
             repository.streamBlockRefs(blob).map(_.key)
           }

@@ -1,6 +1,9 @@
 package graviton.protocol.http
 
 import graviton.runtime.upload.{UploadHttpHeaders, UploadSource, UploadSourceError}
+import graviton.runtime.upload.TenantId
+import graviton.runtime.admission.DistributedTrafficQuota
+import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.security.*
 import zio.*
 import zio.http.*
@@ -14,7 +17,16 @@ final class HttpSecurityPolicy(
   capabilities: CapabilityCheck,
   rateLimiter: RateLimiter,
   audit: AuditSink,
+  trafficQuota: DistributedTrafficQuota,
+  metrics: MetricsRegistry,
 ):
+
+  def this(
+    config: SecurityConfig,
+    capabilities: CapabilityCheck,
+    rateLimiter: RateLimiter,
+    audit: AuditSink,
+  ) = this(config, capabilities, rateLimiter, audit, DistributedTrafficQuota.disabled, MetricsRegistry.noop)
 
   private val corsAllowedRequestHeaders = Set(
     "authorization",
@@ -42,6 +54,7 @@ final class HttpSecurityPolicy(
       enforceTls(request) *>
         enforceOrigin(request) *>
         rateLimiter.check(RateLimiter.Kind.Request, 1L) *>
+        chargeCurrent(DistributedTrafficQuota.Kind.Request, 1L) *>
         capabilities.require(capability, resource)
 
     check
@@ -115,8 +128,9 @@ final class HttpSecurityPolicy(
    */
   def checkedDownload(stream: ZStream[Any, Throwable, Byte]): ZStream[Any, Throwable, Byte] =
     stream.mapChunksZIO { chunk =>
-      rateLimiter
-        .check(RateLimiter.Kind.DownloadBytes, chunk.length.toLong)
+      (rateLimiter.check(RateLimiter.Kind.DownloadBytes, chunk.length.toLong) *>
+        chargeCurrent(DistributedTrafficQuota.Kind.DeliveredEgress, chunk.length.toLong) *>
+        metrics.counterBy(MetricKeys.DeliveredEgressBytesTotal, chunk.length.toLong, Map("protocol" -> "http")))
         .mapError(HttpSecurityPolicy.BodyRejected.apply)
         .as(chunk)
     }
@@ -128,7 +142,11 @@ final class HttpSecurityPolicy(
   ): ZStream[Any, Throwable, Byte] =
     stream.mapChunksZIO { chunk =>
       CallerContext
-        .scopedWith(caller)(rateLimiter.check(RateLimiter.Kind.DownloadBytes, chunk.length.toLong))
+        .scopedWith(caller)(
+          rateLimiter.check(RateLimiter.Kind.DownloadBytes, chunk.length.toLong) *>
+            charge(caller, DistributedTrafficQuota.Kind.DeliveredEgress, chunk.length.toLong) *>
+            metrics.counterBy(MetricKeys.DeliveredEgressBytesTotal, chunk.length.toLong, Map("protocol" -> "http"))
+        )
         .mapError(HttpSecurityPolicy.BodyRejected.apply)
         .as(chunk)
     }
@@ -203,6 +221,25 @@ final class HttpSecurityPolicy(
         if config.corsAllowedOrigins.contains(origin) then ZIO.unit
         else ZIO.fail(SecurityError.Forbidden("origin is not allowed"))
 
+  private def chargeCurrent(kind: DistributedTrafficQuota.Kind, amount: Long): IO[SecurityError, Unit] =
+    CallerContext.required.flatMap(charge(_, kind, amount))
+
+  private def charge(
+    caller: CallerContext,
+    kind: DistributedTrafficQuota.Kind,
+    amount: Long,
+  ): IO[SecurityError, Unit] =
+    for
+      tenant <- ZIO
+                  .fromEither(TenantId.fromUuid(caller.orgId))
+                  .mapError(_ => SecurityError.Unauthenticated("authenticated organization is not a canonical UUID"))
+      _      <- trafficQuota.charge(tenant, kind, amount).mapError {
+                  case rejected: DistributedTrafficQuota.Error.Rejected => SecurityError.RateLimited(rejected.getMessage)
+                  case other                                            =>
+                    SecurityError.MisconfiguredSecurity("distributed traffic quota is unavailable", Some(other))
+                }
+    yield ()
+
   private def toResponse(error: SecurityError): Response =
     val (status, code, message) = error match
       case SecurityError.Unauthenticated(_, _)       => (Status.Unauthorized, "unauthenticated", "Authentication required")
@@ -219,6 +256,16 @@ final class HttpSecurityPolicy(
 
 object HttpSecurityPolicy:
   final case class BodyRejected(error: SecurityError) extends RuntimeException(error.message)
+
+  def make(
+    config: SecurityConfig,
+    capabilities: CapabilityCheck,
+    rateLimiter: RateLimiter,
+    audit: AuditSink,
+    trafficQuota: DistributedTrafficQuota = DistributedTrafficQuota.disabled,
+    metrics: MetricsRegistry = MetricsRegistry.noop,
+  ): HttpSecurityPolicy =
+    new HttpSecurityPolicy(config, capabilities, rateLimiter, audit, trafficQuota, metrics)
 
   def make(
     config: SecurityConfig,

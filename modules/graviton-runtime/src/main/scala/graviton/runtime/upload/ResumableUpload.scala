@@ -400,7 +400,7 @@ final class ResumableUploadService(
   )(
     finalize: (UploadIntent, UploadSource) => IO[E, BinaryKey.Blob]
   ): IO[Error | E, CommitResult] =
-    ZIO.uninterruptibleMask { restore =>
+    val effect = ZIO.uninterruptibleMask { restore =>
       for
         now          <- Clock.instant
         leaseId      <- randomLeaseId
@@ -435,6 +435,19 @@ final class ResumableUploadService(
       yield result
     }
 
+    for
+      started <- Clock.nanoTime
+      result  <- effect.tapBoth(
+                   _ => recordDuration(MetricKeys.ResumableCommitDuration, started, "failure"),
+                   value =>
+                     recordDuration(
+                       MetricKeys.ResumableCommitDuration,
+                       started,
+                       if value.replayed then "replayed" else "committed",
+                     ),
+                 )
+    yield result
+
   def cancel(key: UploadSessionKey): IO[Error, Unit] =
     for
       now <- Clock.instant
@@ -447,24 +460,30 @@ final class ResumableUploadService(
   /** Delete expired session objects and ledger rows without retaining inventory. */
   def cleanupExpired: IO[Error, Long] =
     for
-      now   <- Clock.instant
-      _     <- repository.cleanupPending
-                 .mapZIO(cleanupCommitted)
-                 .runDrain
-                 .mapError {
-                   case value: Error           => value
-                   case value: RepositoryError => Error.Repository(value)
-                 }
-      count <- repository
-                 .expired(now)
-                 .mapZIO(key => cleanupParts(key) *> repository.delete(key).mapError(Error.Repository.apply).as(1L))
-                 .runSum
-                 .mapError {
-                   case value: Error           => value
-                   case value: RepositoryError => Error.Repository(value)
-                 }
-      _     <- metrics.counterBy(MetricKeys.ResumableUploadsExpiredTotal, count, Map.empty)
-    yield count
+      started <- Clock.nanoTime
+      result  <- (for
+                   now   <- Clock.instant
+                   _     <- repository.cleanupPending
+                              .mapZIO(cleanupCommitted)
+                              .runDrain
+                              .mapError {
+                                case value: Error           => value
+                                case value: RepositoryError => Error.Repository(value)
+                              }
+                   count <- repository
+                              .expired(now)
+                              .mapZIO(key => cleanupParts(key) *> repository.delete(key).mapError(Error.Repository.apply).as(1L))
+                              .runSum
+                              .mapError {
+                                case value: Error           => value
+                                case value: RepositoryError => Error.Repository(value)
+                              }
+                   _     <- metrics.counterBy(MetricKeys.ResumableUploadsExpiredTotal, count, Map.empty)
+                 yield count).tapBoth(
+                   _ => recordDuration(MetricKeys.ResumableCleanupDuration, started, "failure"),
+                   _ => recordDuration(MetricKeys.ResumableCleanupDuration, started, "success"),
+                 )
+    yield result
 
   private def writePart(
     reservation: UploadPartReservation,
@@ -526,6 +545,9 @@ final class ResumableUploadService(
     ZIO
       .attempt(instant.plusNanos(duration.toNanos))
       .mapError(error => Error.ClockOverflow(error))
+
+  private def recordDuration(metric: String, started: Long, outcome: String): UIO[Unit] =
+    Clock.nanoTime.flatMap(finished => metrics.histogram(metric, (finished - started).toDouble / 1e9, Map("outcome" -> outcome)))
 
 object ResumableUploadService:
   final case class AppendResult(

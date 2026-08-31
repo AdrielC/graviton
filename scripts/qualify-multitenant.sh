@@ -14,6 +14,7 @@ GRAVITON_IT=1 ./sbt -batch -no-colors \
   'backendLaws/testOnly graviton.backend.laws.TenantStorageLawsSpec' \
   'runtime/testOnly graviton.runtime.constraints.ThrottleSpec graviton.runtime.upload.ResumableUploadServiceSpec graviton.runtime.tenant.TenantPolicySpec graviton.runtime.tenant.TenantStorageSpec' \
   'pg/testOnly graviton.backend.pg.PgDataSourceSpec' \
+  'redisAdmission/testOnly graviton.integration.redis.RedisDistributedAdmissionSpec' \
   'security/testOnly graviton.security.AuditSinkSpec graviton.security.RateLimiterSpec graviton.security.SecurityConfigSpec' \
   'shardcakeIntegration/testOnly graviton.integration.shardcake.ShardcakeIntegrationSpec' \
   'http/testOnly graviton.protocol.http.TenantHttpApiSpec graviton.protocol.http.HttpApiSpec graviton.protocol.http.HttpSecurityPolicySpec' \

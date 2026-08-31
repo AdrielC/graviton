@@ -8,7 +8,7 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
 | **Blob** | Logical object addressable via `BinaryKey`. Its manifest survives block deduplication; confirmed attributes are returned to the caller but are not yet durably stored in the CAS manifest. | `graviton.runtime.stores.BlobStore` |
-| **Manifest** | Ordered block references (`index`, `offset`, `key`, `size`) plus total length. Filesystem storage uses `GVM2` compatibility or authenticated `GVM3`; PostgreSQL uses relational rows and a transactionally stored proof when enabled. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
+| **Manifest** | Bounded versioned metadata plus ordered block references (`index`, `offset`, `key`, `size`) and total length. Filesystem storage uses clean-store `GVM4`; PostgreSQL uses relational rows with the same metadata and a transactionally stored proof when enabled. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
 | **Chunker** | A `ZPipeline[Any, Chunker.Err, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
@@ -108,7 +108,7 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 
 That is 2.25 MiB with a 1 MiB fixed chunker. Add the selected chunker's documented working set, one upstream chunk owned by the caller, and backend-local I/O buffers when sizing a deployment. Queue capacity never depends on how a transport happened to group bytes.
 
-The manifest does not grow in heap with the upload. Filesystem ingest stages entries in a scoped temporary file, then writes `GVM2` or authenticated `GVM3` incrementally. PostgreSQL writes 512 entries per JDBC batch inside one transaction. Both backends support up to 1,048,576 entries, which covers the 1 TiB `FileSize` ceiling at 1 MiB blocks. The published law kit exercises that logical boundary without allocating it. This remains a structural bound, not a claim that CI physically transfers 1 TiB.
+The manifest does not grow in heap with the upload. Filesystem ingest stages entries in a scoped temporary file, then writes `GVM4` incrementally. PostgreSQL writes 512 entries per JDBC batch inside one transaction. Both backends support up to 1,048,576 entries, which covers the 1 TiB `FileSize` ceiling at 1 MiB blocks. The published law kit exercises that logical boundary without allocating it. This remains a structural bound, not a claim that CI physically transfers 1 TiB.
 
 ## Attribute lifecycle
 

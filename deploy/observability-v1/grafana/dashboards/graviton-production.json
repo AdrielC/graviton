@@ -1,0 +1,32 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {"id": 1, "type": "stat", "title": "Availability, 30d", "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}, "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0.99, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 0.999}]}}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:slo:http_success_ratio_30d"}]},
+    {"id": 2, "type": "stat", "title": "HTTP p99, 5m", "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0}, "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.5}]}}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:slo:http_p99_seconds_5m"}]},
+    {"id": 3, "type": "stat", "title": "Deduplication, 5m", "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0}, "fieldConfig": {"defaults": {"unit": "none", "min": 1}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:slo:deduplication_ratio_5m"}]},
+    {"id": 4, "type": "stat", "title": "Under-protected blocks", "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0}, "fieldConfig": {"defaults": {"min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:slo:repair_backlog"}]},
+    {"id": 5, "type": "timeseries", "title": "Request latency", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:slo:http_p50_seconds_5m", "legendFormat": "p50"}, {"refId": "B", "expr": "graviton:slo:http_p95_seconds_5m", "legendFormat": "p95"}, {"refId": "C", "expr": "graviton:slo:http_p99_seconds_5m", "legendFormat": "p99"}]},
+    {"id": 6, "type": "timeseries", "title": "Request rate and failures", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}, "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}, "targets": [{"refId": "A", "expr": "sum(rate(graviton_http_requests_total[5m]))", "legendFormat": "requests"}, {"refId": "B", "expr": "sum(rate(graviton_http_errors_total[5m]))", "legendFormat": "errors"}]},
+    {"id": 7, "type": "timeseries", "title": "S3 duration and retries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(graviton_s3_api_call_duration_seconds_bucket[5m])))", "legendFormat": "{{operation}} p95"}, {"refId": "B", "expr": "sum(rate(graviton_s3_retries_total[5m]))", "legendFormat": "retries/s"}]},
+    {"id": 8, "type": "timeseries", "title": "PostgreSQL pool", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13}, "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}, "targets": [{"refId": "A", "expr": "max by (pool) (graviton_postgres_pool_connections{state=\"active\"})", "legendFormat": "{{pool}} active"}, {"refId": "B", "expr": "max by (pool) (graviton_postgres_pool_awaiting_connections)", "legendFormat": "{{pool}} waiting"}]},
+    {"id": 9, "type": "timeseries", "title": "Resumable commits", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(graviton_resumable_commit_duration_seconds_bucket[5m])))", "legendFormat": "{{outcome}} p95"}, {"refId": "B", "expr": "sum(rate(graviton_resumable_part_retries_total[5m]))", "legendFormat": "part retries/s"}]},
+    {"id": 10, "type": "timeseries", "title": "Shard ownership", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21}, "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}, "targets": [{"refId": "A", "expr": "sum(graviton_shardcake_assigned_shards)", "legendFormat": "assigned"}, {"refId": "B", "expr": "sum(graviton_shardcake_local_assigned_shards)", "legendFormat": "local"}, {"refId": "C", "expr": "sum(rate(graviton_shardcake_reassignments_total[5m]))", "legendFormat": "reassignments/s"}]},
+    {"id": 11, "type": "timeseries", "title": "JVM memory", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 29}, "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}, "targets": [{"refId": "A", "expr": "sum by (node) (jvm_memory_bytes_used{area=\"heap\"})", "legendFormat": "{{node}} heap"}, {"refId": "B", "expr": "sum by (node) (jvm_buffer_pool_used_bytes)", "legendFormat": "{{node}} direct"}]},
+    {"id": 12, "type": "timeseries", "title": "Repair convergence", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 29}, "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}, "targets": [{"refId": "A", "expr": "max(graviton_replica_under_protected_blocks)", "legendFormat": "backlog"}, {"refId": "B", "expr": "sum(rate(graviton_replica_repairs_total[5m]))", "legendFormat": "repairs/s"}, {"refId": "C", "expr": "max(graviton_replica_repair_failed_blocks)", "legendFormat": "failed"}, {"refId": "D", "expr": "max(graviton_replica_repair_dead_letters)", "legendFormat": "dead letters"}]},
+    {"id": 13, "type": "timeseries", "title": "Delivered egress", "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37}, "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:traffic:delivered_egress_bytes_per_second_5m", "legendFormat": "delivered"}]},
+    {"id": 14, "type": "timeseries", "title": "Traffic quota pressure", "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37}, "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}, "targets": [{"refId": "A", "expr": "graviton:traffic:quota_rejections_per_second_5m", "legendFormat": "{{kind}}"}]},
+    {"id": 15, "type": "timeseries", "title": "Tenant maintenance", "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, task) (rate(graviton_maintenance_cycle_duration_seconds_bucket[15m])))", "legendFormat": "{{task}} p95"}, {"refId": "B", "expr": "graviton:maintenance:failure_ratio_15m", "legendFormat": "failure ratio"}]}
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["graviton", "cas", "production", "slo"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Graviton Production",
+  "uid": "graviton-production-v1",
+  "version": 1
+}

@@ -118,6 +118,7 @@ export default withMermaid(defineConfig({
           { text: 'Run Locally', link: '/guide/run-locally' },
           { text: 'Configuration', link: '/guide/configuration-reference' },
           { text: 'Control Plane', link: '/ops/control-plane' },
+          { text: 'Operator Kit', link: '/ops/operator-kit' },
           { text: 'Deployment', link: '/ops/deployment' },
           { text: 'Production Readiness', link: '/ops/production-readiness' }
         ]
@@ -180,7 +181,9 @@ export default withMermaid(defineConfig({
           { text: 'Production Readiness', link: '/ops/production-readiness' },
           { text: 'Operator Control Plane', link: '/ops/control-plane' },
           { text: 'Deployment', link: '/ops/deployment' },
+          { text: 'Operator Kit', link: '/ops/operator-kit' },
           { text: 'Backup, Restore & GC', link: '/ops/backup-restore' },
+          { text: 'Credential Rotation', link: '/ops/credential-rotation' },
           { text: 'Constraints & Metrics', link: '/constraints-and-metrics' },
           { text: 'Performance', link: '/ops/performance' },
           { text: 'Multi-Tenant Storage', link: '/runtime/multi-tenancy' },

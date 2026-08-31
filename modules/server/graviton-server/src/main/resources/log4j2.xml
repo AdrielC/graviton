@@ -2,7 +2,7 @@
 <Configuration status="WARN">
   <Appenders>
     <Console name="Console" target="SYSTEM_OUT">
-      <PatternLayout pattern="%d{ISO8601} %-5p [%t] %c{1.} - %m%n%throwable" />
+      <PatternLayout pattern="{&quot;timestamp&quot;:&quot;%d{ISO8601}&quot;,&quot;level&quot;:&quot;%p&quot;,&quot;thread&quot;:&quot;%enc{%t}{JSON}&quot;,&quot;logger&quot;:&quot;%enc{%c{1.}}{JSON}&quot;,&quot;message&quot;:&quot;%enc{%m}{JSON}&quot;,&quot;exception&quot;:&quot;%enc{%throwable}{JSON}&quot;}%n" />
     </Console>
   </Appenders>
 
@@ -12,4 +12,3 @@
     </Root>
   </Loggers>
 </Configuration>
-

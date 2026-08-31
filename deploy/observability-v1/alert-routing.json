@@ -1,0 +1,13 @@
+{
+  "schema": "graviton-alert-routing-v1",
+  "requiredLabels": ["alertname", "service", "severity", "runbook"],
+  "severities": {
+    "page": {"acknowledgeMinutes": 5, "resolveOrEscalateMinutes": 30},
+    "ticket": {"acknowledgeMinutes": 240, "resolveOrEscalateMinutes": 1440},
+    "info": {"acknowledgeMinutes": 1440, "resolveOrEscalateMinutes": 10080}
+  },
+  "privacy": {
+    "forbiddenLabels": ["tenant", "org", "blob", "digest", "filename", "principal", "token"],
+    "payloadBytesAllowed": false
+  }
+}

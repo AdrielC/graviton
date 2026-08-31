@@ -111,7 +111,7 @@ object GravitonClientSpec extends ZIOSpecDefault:
           Client.default,
           Server.defaultWith(_.onAnyOpenPort.enableRequestStreaming),
         )
-      } @@ TestAspect.timeout(90.seconds),
+      } @@ TestAspect.withLiveClock @@ TestAspect.timeout(90.seconds),
       test("high-level resumable SDK streams bounded parts through a real socket") {
         val chunk       = Chunk.fromArray(Array.tabulate[Byte](64 * 1024)(index => ((index * 17) % 251).toByte))
         val repetitions = 96
@@ -159,7 +159,7 @@ object GravitonClientSpec extends ZIOSpecDefault:
           Client.default,
           Server.defaultWith(_.onAnyOpenPort.enableRequestStreaming),
         )
-      } @@ TestAspect.timeout(90.seconds),
+      } @@ TestAspect.withLiveClock @@ TestAspect.timeout(90.seconds),
     ) @@ TestAspect.sequential
 
   private def temporaryDirectory: ZIO[Scope, Throwable, Path] =

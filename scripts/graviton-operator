@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""Stable, secret-safe operator entrypoint for Graviton cells."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+
+def emit(value: dict[str, object], output: pathlib.Path | None = None) -> None:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    if output is None:
+        sys.stdout.write(encoded)
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(encoded, encoding="utf-8")
+
+
+def fetch(url: str, timeout: float = 5.0) -> tuple[int, str]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            return response.status, response.read(1024 * 1024).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as error:
+        return error.code, error.read(64 * 1024).decode("utf-8", errors="replace")
+    except OSError as error:
+        return 0, str(error)
+
+
+def run(command: list[str], log: pathlib.Path | None = None, env: dict[str, str] | None = None) -> None:
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.PIPE if log else None,
+        stderr=subprocess.STDOUT if log else None,
+        text=True,
+        check=False,
+    )
+    if log is not None:
+        log.write_text(completed.stdout or "", encoding="utf-8")
+    if completed.returncode != 0:
+        raise SystemExit(f"command failed with exit {completed.returncode}: {' '.join(command)}")
+
+
+def doctor(args: argparse.Namespace) -> None:
+    required = ["git", "java", "python3"]
+    optional = ["aws", "curl", "docker", "jq", "promtool", "terraform"]
+    tools = {name: shutil.which(name) is not None for name in required + optional}
+    checks: dict[str, object] = {
+        "tools": tools,
+        "repository": (ROOT / "build.sbt").is_file(),
+        "observabilityBundle": (ROOT / "deploy/observability-v1/slo.json").is_file(),
+        "qualificationContract": (ROOT / "deploy/qualification-v1/matrix.json").is_file(),
+    }
+    healthy = all(tools[name] for name in required) and bool(checks["repository"])
+    if args.endpoint:
+        endpoint = args.endpoint.rstrip("/")
+        ready_status, ready_body = fetch(endpoint + "/api/health/ready")
+        metrics_status, metrics_body = fetch(endpoint + "/metrics")
+        checks["endpoint"] = {
+            "readyStatus": ready_status,
+            "metricsStatus": metrics_status,
+            "buildMetricPresent": "graviton_build_info" in metrics_body,
+            "readyBodyIsJson": ready_body.lstrip().startswith("{"),
+        }
+        healthy = healthy and ready_status == 200 and metrics_status == 200
+    emit({"schema": "graviton-operator-doctor-v1", "status": "passed" if healthy else "failed", "checks": checks})
+    if not healthy:
+        raise SystemExit(1)
+
+
+def plan(args: argparse.Namespace) -> None:
+    backend = os.environ.get("GRAVITON_BLOB_BACKEND", "fs").strip().lower()
+    required_names = {
+        "local": [],
+        "aws": ["AWS_REGION", "GRAVITON_PG_JDBC_URL", "GRAVITON_S3_BUCKET", "GRAVITON_S3_TMP_BUCKET"],
+    }[args.profile]
+    present = {name: bool(os.environ.get(name, "").strip()) for name in required_names}
+    tools = {name: shutil.which(name) is not None for name in (["docker"] if args.profile == "local" else ["aws", "terraform"])}
+    actions = (
+        ["validate configuration", "start local dependencies", "start Graviton", "run lifecycle qualification"]
+        if args.profile == "local"
+        else ["validate AWS caller and region", "terraform init", "terraform plan", "review estimated cost", "explicitly approve terraform apply", "run retained qualification"]
+    )
+    ready = all(present.values()) and all(tools.values())
+    emit({
+        "schema": "graviton-operator-plan-v1",
+        "profile": args.profile,
+        "backend": backend,
+        "ready": ready,
+        "requiredConfigurationPresent": present,
+        "tools": tools,
+        "actions": actions,
+        "mutatesExternalState": False,
+        "secretsRendered": False,
+    })
+
+
+def qualify(args: argparse.Namespace) -> None:
+    dirty = subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=ROOT, text=True
+    ).strip()
+    if dirty:
+        raise SystemExit("qualification requires a clean source tree so the commit identifies the exact executable input")
+    evidence = pathlib.Path(args.evidence).resolve()
+    evidence.mkdir(parents=True, exist_ok=True)
+    started = dt.datetime.now(dt.timezone.utc).isoformat()
+    run([str(ROOT / "scripts/validate-observability-bundle.py")], evidence / "observability.log")
+    run([str(ROOT / "scripts/validate-qualification-contract.py")], evidence / "qualification-contract.json")
+    shutil.copyfile(ROOT / "deploy/qualification-v1/matrix.json", evidence / "qualification-matrix.json")
+    endpoint = args.endpoint.rstrip("/")
+    ready_status, ready_body = fetch(endpoint + "/api/health/ready", timeout=10)
+    metrics_status, metrics_body = fetch(endpoint + "/metrics", timeout=10)
+    (evidence / "ready.json").write_text(ready_body, encoding="utf-8")
+    (evidence / "metrics.prom").write_text(metrics_body, encoding="utf-8")
+    if ready_status != 200 or metrics_status != 200:
+        raise SystemExit("qualification endpoint is not ready or does not expose metrics")
+    lifecycle_env = os.environ.copy()
+    lifecycle_env["GRAVITON_API_URL"] = endpoint
+    run([str(ROOT / "scripts/verify-http-lifecycle.sh")], evidence / "http-lifecycle.log", lifecycle_env)
+    completed = dt.datetime.now(dt.timezone.utc).isoformat()
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    result = {
+        "schema": "graviton-production-qualification-v1",
+        "status": "passed",
+        "commit": commit,
+        "workingTreeClean": True,
+        "endpoint": endpoint,
+        "startedAt": started,
+        "completedAt": completed,
+        "evidence": [
+            "observability.log",
+            "qualification-contract.json",
+            "qualification-matrix.json",
+            "ready.json",
+            "metrics.prom",
+            "http-lifecycle.log",
+        ],
+    }
+    emit(result, evidence / "qualification.json")
+    emit(result)
+
+
+def restore_verify(args: argparse.Namespace) -> None:
+    command = (
+        [str(ROOT / "scripts/restore-drill.sh"), str(pathlib.Path(args.archive).resolve())]
+        if args.archive
+        else [str(ROOT / "scripts/verify-backup-restore.sh")]
+    )
+    run(command)
+    emit({
+        "schema": "graviton-restore-verification-v1",
+        "status": "passed",
+        "source": "provided-archive" if args.archive else "generated-local-fixture",
+        "restoreIsolation": "temporary-directory",
+    })
+
+
+def aws_json(arguments: list[str]) -> dict[str, object]:
+    if shutil.which("aws") is None:
+        raise SystemExit("aws CLI is required")
+    completed = subprocess.run(
+        ["aws", *arguments, "--output", "json"],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(f"AWS command failed with exit {completed.returncode}; credentials and identifiers were not rendered")
+    return json.loads(completed.stdout)
+
+
+def quarantine_prefix(prefix: str) -> str:
+    normalized = prefix.strip().strip("/")
+    return f"{normalized + '/' if normalized else ''}.graviton-quarantine/"
+
+
+def quarantine_inventory(args: argparse.Namespace) -> None:
+    prefix = quarantine_prefix(args.prefix)
+    output = pathlib.Path(args.output).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    token: str | None = None
+    objects = 0
+    bytes_seen = 0
+    with output.open("w", encoding="utf-8") as stream:
+        while True:
+            command = [
+                "s3api", "list-objects-v2", "--bucket", args.bucket, "--prefix", prefix, "--max-keys", "1000"
+            ]
+            if token:
+                command.extend(["--continuation-token", token])
+            page = aws_json(command)
+            for item in page.get("Contents", []):
+                if not isinstance(item, dict):
+                    continue
+                key = str(item.get("Key", ""))
+                if not key.startswith(prefix):
+                    raise SystemExit("AWS returned an object outside the configured quarantine prefix")
+                size = int(item.get("Size", 0))
+                stream.write(json.dumps({
+                    "schema": "graviton-s3-quarantine-object-v1",
+                    "token": key,
+                    "size": size,
+                    "lastModified": item.get("LastModified"),
+                }, sort_keys=True, separators=(",", ":")) + "\n")
+                objects += 1
+                bytes_seen += size
+            next_token = page.get("NextContinuationToken")
+            if not next_token:
+                break
+            token = str(next_token)
+    emit({
+        "schema": "graviton-s3-quarantine-inventory-v1",
+        "status": "passed",
+        "bucket": args.bucket,
+        "prefix": prefix,
+        "objects": objects,
+        "bytes": bytes_seen,
+        "inventory": str(output),
+        "mutatesExternalState": False,
+    })
+
+
+def quarantine_restore(args: argparse.Namespace) -> None:
+    prefix = quarantine_prefix(args.prefix)
+    token = args.token.strip()
+    if not token.startswith(prefix) or ".." in token or "*" in token:
+        raise SystemExit("quarantine token is outside the exact configured prefix")
+    suffix = token[len(prefix):].split("/", 1)
+    if len(suffix) != 2 or not suffix[0] or not suffix[1]:
+        raise SystemExit("quarantine token must contain a receipt id and canonical block path")
+    base = args.prefix.strip().strip("/")
+    destination = f"{base + '/' if base else ''}{suffix[1]}"
+    plan = {
+        "schema": "graviton-s3-quarantine-restore-v1",
+        "bucket": args.bucket,
+        "source": token,
+        "destination": destination,
+        "apply": bool(args.apply),
+        "mutatesExternalState": bool(args.apply),
+    }
+    if not args.apply:
+        emit(plan | {"status": "planned"})
+        return
+    source = aws_json(["s3api", "head-object", "--bucket", args.bucket, "--key", token])
+    aws_json([
+        "s3api", "copy-object", "--bucket", args.bucket, "--key", destination,
+        "--copy-source", urllib.parse.quote(f"{args.bucket}/{token}", safe="/"),
+    ])
+    restored = aws_json(["s3api", "head-object", "--bucket", args.bucket, "--key", destination])
+    if int(source.get("ContentLength", -1)) != int(restored.get("ContentLength", -2)):
+        raise SystemExit("restored object length did not match quarantine source; source was retained")
+    aws_json(["s3api", "delete-object", "--bucket", args.bucket, "--key", token])
+    emit(plan | {"status": "restored", "verifiedLength": int(restored.get("ContentLength", 0))})
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(prog="graviton-operator")
+    commands = result.add_subparsers(dest="command", required=True)
+
+    doctor_command = commands.add_parser("doctor", help="check tools and an optional live cell")
+    doctor_command.add_argument("--endpoint")
+    doctor_command.set_defaults(run=doctor)
+
+    plan_command = commands.add_parser("plan", help="render a secret-safe deployment plan")
+    plan_command.add_argument("--profile", choices=("local", "aws"), default="local")
+    plan_command.set_defaults(run=plan)
+
+    qualify_command = commands.add_parser("qualify", help="retain live lifecycle and telemetry evidence")
+    qualify_command.add_argument("--endpoint", default="http://127.0.0.1:8081")
+    qualify_command.add_argument("--evidence", required=True)
+    qualify_command.set_defaults(run=qualify)
+
+    restore_command = commands.add_parser("restore-verify", help="restore only into an isolated temporary directory")
+    restore_command.add_argument("--archive")
+    restore_command.set_defaults(run=restore_verify)
+
+    inventory_command = commands.add_parser("quarantine-inventory", help="stream an S3 quarantine inventory to JSON Lines")
+    inventory_command.add_argument("--bucket", required=True)
+    inventory_command.add_argument("--prefix", default="cas/blocks")
+    inventory_command.add_argument("--output", required=True)
+    inventory_command.set_defaults(run=quarantine_inventory)
+
+    quarantine_restore_command = commands.add_parser("quarantine-restore", help="plan or restore one exact S3 quarantine token")
+    quarantine_restore_command.add_argument("--bucket", required=True)
+    quarantine_restore_command.add_argument("--prefix", default="cas/blocks")
+    quarantine_restore_command.add_argument("--token", required=True)
+    quarantine_restore_command.add_argument("--apply", action="store_true")
+    quarantine_restore_command.set_defaults(run=quarantine_restore)
+    return result
+
+
+def main() -> None:
+    args = parser().parse_args()
+    args.run(args)
+
+
+if __name__ == "__main__":
+    main()

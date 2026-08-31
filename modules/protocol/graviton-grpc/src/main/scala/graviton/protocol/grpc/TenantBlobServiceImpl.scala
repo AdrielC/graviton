@@ -46,15 +46,19 @@ final class TenantBlobServiceImpl(
     capturedCaller match
       case None         => ZIO.fail(Status.UNAUTHENTICATED.withDescription("missing caller context").asException())
       case Some(caller) =>
-        val tenant = TenantId.applyUnsafe(caller.orgId.toString)
-        CallerContext.scopedWith(caller) {
-          tenantContext.locally(tenant) {
-            provider
-              .resolve(tenant)
-              .mapError(toStatus)
-              .map(binding => new BlobServiceImpl(binding.store, ingestorFor(binding.store)))
+        ZIO
+          .fromEither(TenantId.fromUuid(caller.orgId))
+          .mapError(_ => Status.UNAUTHENTICATED.withDescription("organization claim is not a canonical UUID").asException())
+          .flatMap { tenant =>
+            CallerContext.scopedWith(caller) {
+              tenantContext.locally(tenant) {
+                provider
+                  .resolve(tenant)
+                  .mapError(toStatus)
+                  .map(binding => new BlobServiceImpl(binding.store, ingestorFor(binding.store)))
+              }
+            }
           }
-        }
 
   private def toStatus(error: TenantRoutingError): StatusException = error match
     case _: TenantRoutingError.UnknownTenant | _: TenantRoutingError.SuspendedTenant   =>

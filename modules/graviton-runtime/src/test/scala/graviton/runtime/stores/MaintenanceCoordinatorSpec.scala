@@ -162,7 +162,9 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
                            pollInterval = 25.millis,
                          )
           coordinator <- FileMaintenanceCoordinator.make(root, config)
-          exit        <- ZIO.scoped(coordinator.operationPermit).exit
+          waiting     <- ZIO.scoped(coordinator.operationPermit).fork
+          _           <- TestClock.adjust(config.acquisitionTimeout + config.pollInterval)
+          exit        <- waiting.await
           typedTimeout = exit match
                            case Exit.Failure(cause) =>
                              cause.failureOption.exists(_.isInstanceOf[MaintenanceError.AcquisitionTimedOut])
@@ -170,7 +172,7 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
           _            = held
         yield assertTrue(typedTimeout)
       }
-    } @@ TestAspect.withLiveClock @@ TestAspect.timeout(5.seconds),
+    },
     test("ZIO Config refines namespaces and rejects invalid timing") {
       val invalidNamespace = ConfigProvider.fromMap(Map("graviton.maintenance.namespace" -> "bad namespace"))
       val invalidTiming    = ConfigProvider.fromMap(
@@ -185,7 +187,7 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
         timingExit    <- ZIO.withConfigProvider(invalidTiming)(ZIO.config(MaintenanceConfig.config)).exit
       yield assertTrue(namespaceExit.isFailure, timingExit.isFailure)
     },
-  ) @@ TestAspect.sequential @@ TestAspect.withLiveClock
+  ) @@ TestAspect.sequential
 
   /**
    * TestClock.adjust waits for supervised fibers to become suspended before it

@@ -12,6 +12,7 @@ OPEN_PID=""
 SECURE_PID=""
 
 cleanup() {
+  local exit_code="$?"
   if [[ -n "${OPEN_PID}" ]]; then
     kill "${OPEN_PID}" 2>/dev/null || true
     wait "${OPEN_PID}" 2>/dev/null || true
@@ -20,7 +21,16 @@ cleanup() {
     kill "${SECURE_PID}" 2>/dev/null || true
     wait "${SECURE_PID}" 2>/dev/null || true
   fi
+  if [[ "${exit_code}" -ne 0 ]]; then
+    for server_log in "${SMOKE_DIR}/open/server.log" "${SMOKE_DIR}/secure/server.log"; do
+      if [[ -f "${server_log}" ]]; then
+        echo "packaged-server failure log: ${server_log#"${SMOKE_DIR}/"}" >&2
+        tail -n 120 "${server_log}" >&2
+      fi
+    done
+  fi
   find "${SMOKE_DIR}" -depth -delete
+  return "${exit_code}"
 }
 trap cleanup EXIT INT TERM
 

@@ -1,0 +1,43 @@
+receivers:
+  filelog/graviton:
+    include: [/var/log/graviton/*.json]
+    start_at: end
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.000Z0700"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  resource/graviton:
+    attributes:
+      - key: service.name
+        value: graviton
+        action: upsert
+      - key: deployment.environment
+        value: '${env:GRAVITON_ENVIRONMENT}'
+        action: upsert
+      - key: graviton.cell
+        value: '${env:GRAVITON_CELL_ID}'
+        action: upsert
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  awscloudwatchlogs:
+    log_group_name: '${env:GRAVITON_CLOUDWATCH_LOG_GROUP}'
+    log_stream_name: '${env:GRAVITON_NODE_ID}'
+    region: '${env:AWS_REGION}'
+    retention: 30
+
+service:
+  pipelines:
+    logs:
+      receivers: [filelog/graviton]
+      processors: [memory_limiter, resource/graviton, batch]
+      exporters: [awscloudwatchlogs]

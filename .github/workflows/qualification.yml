@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       baseline_ref:
-        description: Git ref to qualify as the rolling-upgrade baseline (defaults to the newest reachable release tag)
+        description: Git ref used only for the clean-state performance comparison (defaults to the newest reachable release tag)
         required: false
         type: string
   schedule:
@@ -17,6 +17,19 @@ jobs:
   two-node-fault-and-performance:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      GRAVITON_REDIS_IT: '1'
+      GRAVITON_REDIS_IT_PORT: '6379'
+    services:
+      redis:
+        image: redis:8.10.1-alpine@sha256:becdda6c7f4b3fb42e42fd7f120bbf5c54c4caaaf16f26da24e4563d2c1f0576
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,12 +46,25 @@ jobs:
           mkdir -p "$evidence"
           ./sbt \
             'backendLaws/testOnly graviton.backend.laws.CrashConsistencyLawsSpec' \
-            'runtime/testOnly graviton.runtime.stores.GarbageCollectorSpec' \
+            'backendLaws/testOnly graviton.backend.laws.BlobStoreLawsSpec' \
+            'runtime/testOnly graviton.runtime.stores.GarbageCollectorSpec graviton.runtime.stores.MaintenanceCoordinatorSpec' \
             2>&1 | tee "$evidence/crashlab.log"
+          ./scripts/verify-backup-restore.sh > "$evidence/backup-restore.log"
           ./scripts/qualify-multitenant.sh "$evidence/multi-tenant" \
             > "$evidence/multi-tenant.json"
           printf '{"schema":"graviton-crashlab-v1","commit":"%s","status":"passed"}\n' \
             "$(git rev-parse HEAD)" > "$evidence/crashlab.json"
+      - name: Validate and retain the portable observability contract
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/graviton-qualification/observability"
+          mkdir -p "$evidence"
+          ./scripts/validate-observability-bundle.py > "$evidence/validation.json"
+          ./scripts/validate-qualification-contract.py > "$evidence/qualification-contract.json"
+          cp deploy/observability-v1/slo.json "$evidence/slo.json"
+          cp deploy/observability-v1/alert-routing.json "$evidence/alert-routing.json"
+          cp deploy/observability-v1/grafana/dashboards/graviton-production.json "$evidence/dashboard.json"
+          cp deploy/qualification-v1/matrix.json "$evidence/qualification-matrix.json"
       - name: Build exact baseline and candidate images
         env:
           REQUESTED_BASELINE_REF: ${{ inputs.baseline_ref }}
@@ -141,47 +167,24 @@ jobs:
             "$evidence/performance-baseline/telemetry.json" \
             "$evidence/performance-candidate/telemetry.json" \
             "$evidence/performance-gate.json"
-      - name: Start clean dependencies for rolling qualification
-        run: docker compose -f deploy/local-shardcake/docker-compose.yml up -d postgres minio minio-init
-      - name: Qualify mixed-version storage compatibility
-        env:
-          # v0.7.0 predates authenticated manifests. Strict mode must reject its
-          # unsigned rows, so this isolated compatibility proof runs without it.
-          GRAVITON_MANIFEST_INTEGRITY_REQUIRED: 'false'
-        run: |
-          ./scripts/qualify-rolling-upgrade.sh \
-            graviton-qualification:baseline \
-            graviton-qualification:candidate \
-            baseline \
-            candidate \
-            > "$RUNNER_TEMP/graviton-qualification/rolling-upgrade.json"
-      - name: Reset to a strict authenticated candidate cohort
+      - name: Reset to a clean strict candidate store
         run: |
           set -euo pipefail
           compose='deploy/local-shardcake/docker-compose.yml'
           docker compose -f "$compose" down --volumes --remove-orphans
-          GRAVITON_MANAGER_IMAGE=graviton-qualification:candidate \
-          GRAVITON_NODE_1_IMAGE=graviton-qualification:candidate \
-          GRAVITON_NODE_2_IMAGE=graviton-qualification:candidate \
-            docker compose -f "$compose" up -d --no-build
-          for _ in $(seq 1 120); do
-            if curl --fail --silent http://127.0.0.1:58081/api/health/ready >/dev/null \
-              && curl --fail --silent http://127.0.0.1:58082/api/health/ready >/dev/null; then
-              jq -n \
-                --arg schema graviton-manifest-authentication-boundary-v1 \
-                --arg baseline "$(jq -r '.baselineRef' "$RUNNER_TEMP/graviton-qualification/rolling-images.json")" \
-                --arg candidate "$(git rev-parse HEAD)" \
-                '{schema: $schema, baseline: $baseline, candidate: $candidate, mixedVersionMode: "unsigned-compatibility", transitionalStateDestroyed: true, strictCandidateRequired: true}' \
-                > "$RUNNER_TEMP/graviton-qualification/manifest-authentication-boundary.json"
-              exit 0
-            fi
-            sleep 1
-          done
-          docker compose -f "$compose" ps -a
-          exit 1
+          docker compose -f "$compose" up -d postgres minio minio-init
+          jq -n \
+            --arg schema graviton-clean-store-boundary-v1 \
+            --arg candidate "$(git rev-parse HEAD)" \
+            '{schema: $schema, candidate: $candidate, cleanStore: true, manifestFormat: "GVM4", proofVersion: 2, legacyBackfillRequired: false}' \
+            > "$RUNNER_TEMP/graviton-qualification/clean-store-boundary.json"
+      - name: Qualify same-version manager and node replacement
+        run: |
+          ./scripts/qualify-node-replacement.sh graviton-qualification:candidate "$(git rev-parse --short HEAD)" \
+            > "$RUNNER_TEMP/graviton-qualification/node-replacement.json"
       - name: Run sustained resumable workload through repeated faults
         run: |
-          ./scripts/qualify-long-failure.sh 600 4194304 \
+          ./scripts/qualify-long-failure.sh 3600 4194304 \
             > "$RUNNER_TEMP/graviton-qualification/long-failure.json"
       - name: Capture topology logs
         if: always()
@@ -219,18 +222,20 @@ jobs:
           ./scripts/qualify-three-domain.sh > "$RUNNER_TEMP/graviton-three-domain/failure-proof.json"
           curl --fail --silent http://127.0.0.1:58181/metrics > "$RUNNER_TEMP/graviton-three-domain/metrics.prom"
           curl --fail --silent http://127.0.0.1:59090/api/v1/rules > "$RUNNER_TEMP/graviton-three-domain/prometheus-rules.json"
-          curl --fail --silent http://127.0.0.1:59300/api/dashboards/uid/graviton-slo > "$RUNNER_TEMP/graviton-three-domain/grafana-dashboard-live.json"
+          curl --fail --silent http://127.0.0.1:59300/api/dashboards/uid/graviton-production-v1 > "$RUNNER_TEMP/graviton-three-domain/grafana-dashboard-live.json"
       - name: Capture retained topology evidence
         if: always()
         run: |
           mkdir -p "$RUNNER_TEMP/graviton-three-domain"
           curl --fail --silent http://127.0.0.1:58181/metrics > "$RUNNER_TEMP/graviton-three-domain/metrics.prom" || true
           curl --fail --silent http://127.0.0.1:59090/api/v1/rules > "$RUNNER_TEMP/graviton-three-domain/prometheus-rules.json" || true
-          curl --fail --silent http://127.0.0.1:59300/api/dashboards/uid/graviton-slo > "$RUNNER_TEMP/graviton-three-domain/grafana-dashboard-live.json" || true
+          curl --fail --silent http://127.0.0.1:59300/api/dashboards/uid/graviton-production-v1 > "$RUNNER_TEMP/graviton-three-domain/grafana-dashboard-live.json" || true
           docker compose -f deploy/three-domain/docker-compose.yml ps -a > "$RUNNER_TEMP/graviton-three-domain/compose-status.txt"
           docker compose -f deploy/three-domain/docker-compose.yml logs --no-color > "$RUNNER_TEMP/graviton-three-domain/compose.log"
-          cp deploy/three-domain/grafana/dashboards/graviton-slo.json "$RUNNER_TEMP/graviton-three-domain/dashboard.json"
-          cp deploy/three-domain/slo-rules.yml "$RUNNER_TEMP/graviton-three-domain/slo-rules.yml"
+          cp deploy/observability-v1/grafana/dashboards/graviton-production.json "$RUNNER_TEMP/graviton-three-domain/dashboard.json"
+          cp deploy/observability-v1/recording-rules.yml "$RUNNER_TEMP/graviton-three-domain/recording-rules.yml"
+          cp deploy/observability-v1/alerts.yml "$RUNNER_TEMP/graviton-three-domain/alerts.yml"
+          cp deploy/observability-v1/slo.json "$RUNNER_TEMP/graviton-three-domain/slo.json"
       - name: Upload three-domain qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -327,6 +327,23 @@ final class ContextualTenantBlobStore(
   override def inspect(key: graviton.core.keys.BinaryKey.Blob): IO[StoreError, Option[BlobDescription]] =
     resolve(StoreOperation.InspectBlob).flatMap(_.inspect(key))
 
+  override def streamBlockDescriptions(
+    key: graviton.core.keys.BinaryKey.Blob
+  ): ZStream[Any, StoreError, graviton.runtime.model.BlobBlockDescription] =
+    ZStream.unwrap(resolve(StoreOperation.InspectBlob).map(_.streamBlockDescriptions(key)))
+
+  override def inspectPage(
+    key: graviton.core.keys.BinaryKey.Blob,
+    after: Option[InventoryCursor],
+    limit: InventoryPageSize,
+  ): IO[StoreError, Option[graviton.runtime.model.BlobInspectionPage]] =
+    resolve(StoreOperation.InspectBlob).flatMap(_.inspectPage(key, after, limit))
+
+  override def metadata(
+    key: graviton.core.keys.BinaryKey.Blob
+  ): IO[StoreError, Option[graviton.runtime.stores.BlobMetadataV1]] =
+    resolve(StoreOperation.StatBlob).flatMap(_.metadata(key))
+
   override def delete(key: graviton.core.keys.BinaryKey.Blob): IO[StoreError, Unit] =
     resolve(StoreOperation.DeleteBlob).flatMap(_.delete(key))
 
