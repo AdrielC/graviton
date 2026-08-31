@@ -5,7 +5,7 @@ Audit date: 2026-08-26
 Graviton baseline: `fc0fee41923c44295f834367175d3df4941b6b3b`
 
 ::: warning Historical baseline
-This audit records the code state at the baseline above. The dependency decision remains current, but several gaps identified here were closed after `v0.7.0`. The disposition table below is updated for current `main`; use the [implementation status ledger](../implementation-status.md) for release availability.
+This audit records the code state at the baseline above. The dependency decision remains current, and the gaps marked closed below are included in `v0.8.0`. Use the [implementation status ledger](../implementation-status.md) for the current release boundary.
 :::
 
 Official release: [ZIO Blocks v0.0.51](https://github.com/zio/zio-blocks/releases/tag/v0.0.51)
@@ -54,7 +54,7 @@ In 0.0.51, `MediaType.fullType` contains only `mainType/subType`; it drops param
 - parameter-preserving HTTP and gRPC rendering;
 - an explicitly exported and round-trip-tested ZIO Blocks Schema for bounded media-type metadata values.
 
-At the audited baseline, manifests did not persist media type. Current `main` closes that gap with bounded `BlobMetadataV1` values in GVM4 filesystem manifests and PostgreSQL rows. This postdates `v0.7.0`, so consumers of the released jars must not infer that current-main metadata behavior is already in that release.
+At the audited baseline, manifests did not persist media type. Release `v0.8.0` closes that gap with bounded `BlobMetadataV1` values in GVM4 filesystem manifests and PostgreSQL rows.
 
 ## Released module disposition
 
@@ -119,7 +119,7 @@ There is no released module, class, or format named `BIF`. The real abstractions
 | --- | --- |
 | Backend-wide maintenance and inventory | Built-in filesystem and PostgreSQL compositions coordinate complete operation streams and expose native cursor inventory. Raw third-party composition remains a compatibility escape hatch and must run the published laws. |
 | Materialized per-blob inspection | Built-in stores override streaming block descriptions and exact cursor pages. The public compatibility default can still materialize an old third-party backend's `inspect` result. |
-| Durable media type and chunker metadata | Closed on `main` by `BlobMetadataV1`, GVM4, PostgreSQL persistence, schema contracts, and manifest-integrity binding. Not present in `v0.7.0`. |
+| Durable media type and chunker metadata | Closed in `v0.8.0` by `BlobMetadataV1`, GVM4, PostgreSQL persistence, schema contracts, and manifest-integrity binding. |
 | Batch block result accumulation | The production CAS path writes one bounded block through `putBlock`. The lower-level compatibility `putBlocks` API still returns a materialized `BlockBatchResult` and must be used only with a bounded batch. |
 | Schema smart-constructor bypass | Key transport paths use validated wire records, but legacy derived schemas still require review before defining a new persisted format. |
 | Positive refined `Integral` lawfulness | Still open. Prefer ordering and explicit checked arithmetic for new code. |

@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs/status/implementation-evidence.json"
 ALLOWED_STATUSES = {
-    "released-v0.7.0",
-    "optional-released-v0.7.0",
+    "released-v0.8.0",
+    "optional-released-v0.8.0",
     "main-only",
     "optional-main-only",
     "target-required",
@@ -37,8 +37,8 @@ FORBIDDEN_CURRENT_TEXT = {
     "MetricKeys.TikaRejected": "no Tika metrics or module ship",
     "MetricKeys.TikaLatency": "no Tika metrics or module ship",
     "Wire a runnable authenticated gRPC server": "authenticated gRPC is already implemented",
-    "## 0.6 release boundary": "the latest release is v0.7.0",
-    "Configure Sonatype credentials and PGP signing secrets before claiming Maven Central availability": "v0.7.0 is published on Maven Central",
+    "## 0.6 release boundary": "the latest release is v0.8.0",
+    "Configure Sonatype credentials and PGP signing secrets before claiming Maven Central availability": "v0.8.0 is published on Maven Central",
     "replica placement that uses it across the runtime is **planned**": "rendezvous replica placement is wired",
     "confirmed attributes are returned to the caller but are not yet durably stored": "BlobMetadataV1 persists bounded semantic metadata",
     "runs at the '''same speed as hand-written imperative code'''": "performance requires measurement",

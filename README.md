@@ -10,19 +10,19 @@ Graviton's boundary is deliberately narrow: bytes, cryptographic content identit
 
 This is pre-1.0 software. The embedded runtime and single-node filesystem server have executable lifecycle, restart, backup, restore, and integrity proof for controlled use. Shared and distributed deployments still require qualification against the exact identity provider, ingress, database, object store, coordinator, network, workload, and failure model.
 
-The documentation tracks current `main`, which is ahead of the latest published release, `v0.7.0`. Features added after that tag are not present in the `v0.7.0` Maven artifacts. See the [implementation status ledger](docs/implementation-status.md) before choosing a dependency or deployment path.
+The latest published release is [`v0.8.0`](https://github.com/AdrielC/graviton/releases/tag/v0.8.0). The documentation tracks the tagged code on `main`; see the [implementation status ledger](docs/implementation-status.md) to distinguish released libraries, optional runtime modes, and deployment-specific qualification.
 
 | Capability | Availability | Evidence boundary |
 | --- | --- | --- |
-| Embedded and filesystem CAS | Released in `v0.7.0` | Real lifecycle, restart, fsync, integrity, backup, restore, and GC tests |
-| HTTP v1, JVM SDK, streaming gRPC, PDF-aware ingest | Released in `v0.7.0` | Contract, socket, packaged-process, and external-consumer tests; logical 1 TiB proof is not a physical transfer |
-| S3-compatible blocks plus PostgreSQL manifests | Released in `v0.7.0`, integration-tested | Real MinIO and PostgreSQL CI; provider semantics and capacity remain target work |
-| Replication, fixed 2+1 erasure, Shardcake locality | Released in `v0.7.0`, optional | Library and local failure drills; declared failure domains still require physical acceptance |
-| RocksDB | Released in `v0.7.0` as typed KV | Not a block store or complete CAS backend |
-| Multi-tenant storage and tenant laws | Implemented on `main`, optional | Authenticated isolation, RLS, retained quotas, and shared trust domains; not in `v0.7.0` |
-| Redis or Valkey distributed admission | Implemented on `main`, optional | Atomic transfer limits and HTTP request/delivered-egress quotas; not wired as a distributed gRPC traffic meter |
-| GVM4 metadata, manifest proof, tenant snapshots, cold-block scrub | Implemented on `main` | Clean-store only; no legacy reader or backfill path |
-| Operator control plane and Production Telemetry v1 | Implemented on `main`, optional | Typed snapshots, 15-panel dashboard, 15 recording rules, 16 alerts, and 16 qualification gates; five gates remain target-required |
+| Embedded and filesystem CAS | Released in `v0.8.0` | Real lifecycle, restart, fsync, integrity, backup, restore, and GC tests |
+| HTTP v1, JVM SDK, streaming gRPC, PDF-aware ingest | Released in `v0.8.0` | Contract, socket, packaged-process, and external-consumer tests; logical 1 TiB proof is not a physical transfer |
+| S3-compatible blocks plus PostgreSQL manifests | Released in `v0.8.0`, integration-tested | Real MinIO and PostgreSQL CI; provider semantics and capacity remain target work |
+| Replication, fixed 2+1 erasure, Shardcake locality | Released in `v0.8.0`, optional | Library and local failure drills; declared failure domains still require physical acceptance |
+| RocksDB | Released in `v0.8.0` as typed KV | Not a block store or complete CAS backend |
+| Multi-tenant storage and tenant laws | Released in `v0.8.0`, optional | Authenticated isolation, RLS, retained quotas, and shared trust domains |
+| Redis or Valkey distributed admission | Released in `v0.8.0`, optional | Atomic transfer limits plus authenticated HTTP and gRPC request and delivered-egress quotas |
+| GVM4 metadata, manifest proof, tenant snapshots, cold-block scrub | Released in `v0.8.0` | Clean-store only; no legacy reader or backfill path |
+| Operator control plane and Production Telemetry v1 | Released in `v0.8.0`, optional | Typed snapshots, 15-panel dashboard, 15 recording rules, 16 alerts, and 16 qualification gates; five gates remain target-required |
 
 ## Prove it locally
 
@@ -179,7 +179,7 @@ A `v*` tag builds the tested JAR, checksums, SPDX SBOM, provenance attestations,
 
 ## Remaining boundaries
 
-Current `main` implements durable resumable HTTP uploads, backend-native cursor inventory, bounded manifest inspection, versioned blob metadata, typed storage errors, backend and fault-law kits, authenticated tenant routing, retained and traffic quotas, hard process-wide memory admission, durable tenant-domain snapshots, cold-block convergence, S3 quarantine inventory and restore, portable telemetry, and executable local qualification. The additions after `v0.7.0` require a later release before they can be consumed from Maven Central. Physical power loss, disk corruption, real IdP and ingress behavior, Ceph and S3 semantics, Redis or Valkey and database failover, zone impairment, and target capacity remain environment-specific acceptance work.
+Release `v0.8.0` includes durable resumable HTTP uploads, backend-native cursor inventory, bounded manifest inspection, versioned blob metadata, typed storage errors, backend and fault-law kits, authenticated tenant routing, retained and traffic quotas, hard process-wide memory admission, durable tenant-domain snapshots, cold-block convergence, S3 quarantine inventory and restore, portable telemetry, and executable local qualification. Physical power loss, disk corruption, real IdP and ingress behavior, Ceph and S3 semantics, Redis or Valkey and database failover, zone impairment, and target capacity remain environment-specific acceptance work.
 
 ## License
 
