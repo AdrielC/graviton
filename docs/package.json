@@ -10,9 +10,9 @@
     "docs:build-full": "cd .. && npm ci --prefix docs && ./sbt buildDocsAssets && npm run docs:build --prefix docs"
   },
   "devDependencies": {
-    "@noble/hashes": "^1.8.0",
-    "mermaid": "^11.17.0",
-    "pako": "^2.1.0",
+    "@noble/hashes": "^2.4.0",
+    "mermaid": "^11.17.2",
+    "pako": "^3.0.1",
     "vitepress": "^1.2.2",
     "vitepress-plugin-mermaid": "^2.0.16"
   },
