@@ -150,7 +150,7 @@ services:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - ../observability-v1/grafana/dashboards/graviton-production.json:/var/lib/grafana/dashboards/graviton-production.json:ro
+      - ../observability-v1/grafana/dashboards:/var/lib/grafana/production-dashboards:ro
     depends_on: [prometheus]
     ports: ["127.0.0.1:59300:3000"]
     restart: unless-stopped
