@@ -163,7 +163,7 @@ final class PgRepairJournal(
     RepairDeadLetter(key, result.getLong(4), result.getString(5), result.getTimestamp(6).toInstant)
 
   private def blocking[A](operation: StoreOperation)(effect: => A): IO[StoreError, A] =
-    ZIO.attemptBlocking(effect).mapError(StoreError.fromThrowable(operation, StoreBackend.PostgreSql, retryUnknown = true))
+    ZIO.attemptBlocking(effect).mapError(PgStoreError.fromThrowable(operation, retryUnknown = true))
 
   private def toDbAlgorithm(algorithm: HashAlgo): Either[String, String] =
     algorithm match

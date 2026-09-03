@@ -17,7 +17,16 @@ import graviton.runtime.model.{
   InventoryPageSize,
 }
 import graviton.runtime.config.TransferMemoryConfig
-import graviton.runtime.stores.{BlobMetadataV1, BlobStore, ManifestChunkerId, StoreBackend, StoreError, StoreOperation, TransferBudget}
+import graviton.runtime.stores.{
+  BackendInitError,
+  BlobMetadataV1,
+  BlobStore,
+  ManifestChunkerId,
+  StoreBackend,
+  StoreError,
+  StoreOperation,
+  TransferBudget,
+}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import software.amazon.awssdk.core.sync.RequestBody
@@ -202,9 +211,7 @@ final class S3BlobStore(
     yield BlobListing(key, BlobStat(size, key.bits.digest, entry.lastModified()), blockCount = 1)
 
   private def storeError(operation: StoreOperation, key: Option[BinaryKey] = None)(error: Throwable): StoreError =
-    error match
-      case s3: S3Exception if S3BlobStore.isNotFound(s3) && key.nonEmpty => StoreError.NotFound(operation, key.get)
-      case other                                                         => StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(other)
+    S3StoreError.fromThrowable(operation, key)(error)
 
   private def objectKeyFor(key: BinaryKey.Blob): String =
     val base   = s"${S3BlobStore.algoPathSegment(key.bits.algo)}/${key.bits.digest.hex.value}-${key.bits.size}"
@@ -433,21 +440,24 @@ object S3BlobStore:
    * - GRAVITON_S3_TMP_BUCKET (defaults to graviton-tmp)
    * - GRAVITON_S3_REGION (defaults to us-east-1)
    */
-  val layerFromEnv: ZLayer[Any, Throwable, BlobStore] =
-    ZLayer.fromZIO {
+  val layerFromEnvTyped: ZLayer[Any, BackendInitError, BlobStore] =
+    ZLayer.scoped {
       for
         blobBucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blobs"))
         tmpBucket  <- ZIO.succeed(sys.env.get("GRAVITON_S3_TMP_BUCKET").filter(_.nonEmpty).getOrElse("graviton-tmp"))
         base       <- ZIO
                         .fromEither(S3Config.fromEnvironment(bucket = blobBucket))
-                        .mapError(msg => new IllegalArgumentException(msg))
+                        .mapError(BackendInitError.InvalidConfiguration(StoreBackend.S3, _))
         tmp        <- ZIO
                         .fromEither(S3Config.fromEnvironment(bucket = tmpBucket))
-                        .mapError(msg => new IllegalArgumentException(msg))
-        client     <- S3ClientLayer.make(base)
+                        .mapError(BackendInitError.InvalidConfiguration(StoreBackend.S3, _))
+        client     <- S3ClientLayer.scoped(base)
         budget     <- TransferBudget.make(TransferMemoryConfig.Default)
       yield new S3BlobStore(client, S3BlobStoreConfig(blobs = base, tmp = tmp), budget)
     }
+
+  @deprecated("Use layerFromEnvTyped to preserve the backend initialization error ADT", "0.9.0")
+  val layerFromEnv: ZLayer[Any, Throwable, BlobStore] = layerFromEnvTyped
 
 private final case class PutState(
   hasher: Hasher,

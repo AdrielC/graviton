@@ -2,7 +2,8 @@ package graviton.backend.pg
 
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
-import zio.{Scope, Task, UIO, ZIO, ZLayer}
+import graviton.runtime.stores.{BackendInitError, StoreBackend}
+import zio.{IO, Scope, Task, UIO, ZIO, ZLayer}
 import zio.{Duration, Schedule}
 
 import javax.sql.DataSource
@@ -65,36 +66,50 @@ object PgDataSource:
     userEnv: String = "PG_USERNAME",
     passEnv: String = "PG_PASSWORD",
   ): Either[String, DataSource] =
-    val url  = sys.env.get(urlEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$urlEnv'")
-    val user = sys.env.get(userEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$userEnv'")
-    val pass = sys.env.get(passEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$passEnv'")
+    connectionConfigFromEnv(urlEnv, userEnv, passEnv).flatMap { case (jdbcUrl, username, password, pool) =>
+      Try(build(jdbcUrl, username, password, pool)).toEither.left.map(error =>
+        Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
+      )
+    }
 
+  def makeTyped(
+    jdbcUrl: String,
+    username: String,
+    password: String,
+    pool: PoolConfig = PoolConfig.Default,
+  ): IO[BackendInitError, DataSource] =
+    ZIO
+      .fromEither(pool.validate)
+      .mapError(BackendInitError.InvalidConfiguration(StoreBackend.PostgreSql, _)) *>
+      ZIO
+        .attempt(build(jdbcUrl, username, password, pool))
+        .mapError(BackendInitError.fromThrowable(StoreBackend.PostgreSql))
+
+  def scopedFromEnvTyped: ZIO[Scope, BackendInitError, DataSource] =
     for
-      jdbcUrl    <- url
-      username   <- user
-      password   <- pass
-      pool       <- poolConfigFromEnvironment
-      dataSource <- Try(build(jdbcUrl, username, password, pool)).toEither.left.map(error =>
-                      Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
-                    )
+      config     <- ZIO
+                      .fromEither(connectionConfigFromEnv("PG_JDBC_URL", "PG_USERNAME", "PG_PASSWORD"))
+                      .mapError(BackendInitError.InvalidConfiguration(StoreBackend.PostgreSql, _))
+      dataSource <- ZIO.acquireRelease(makeTyped(config._1, config._2, config._3, config._4))(close)
     yield dataSource
 
+  val layerFromEnvTyped: ZLayer[Any, BackendInitError, DataSource] =
+    ZLayer.scoped(scopedFromEnvTyped)
+
+  @deprecated("Use makeTyped to preserve the backend initialization error ADT", "0.9.0")
   def make(
     jdbcUrl: String,
     username: String,
     password: String,
     pool: PoolConfig = PoolConfig.Default,
   ): Task[DataSource] =
-    ZIO.fromEither(pool.validate).mapError(new IllegalArgumentException(_)) *>
-      ZIO.attempt(build(jdbcUrl, username, password, pool))
+    makeTyped(jdbcUrl, username, password, pool)
 
-  def scopedFromEnv: ZIO[Scope, Throwable, DataSource] =
-    ZIO.acquireRelease(
-      ZIO.fromEither(fromEnv()).mapError(message => new IllegalArgumentException(message))
-    )(close)
+  @deprecated("Use scopedFromEnvTyped to preserve the backend initialization error ADT", "0.9.0")
+  def scopedFromEnv: ZIO[Scope, Throwable, DataSource] = scopedFromEnvTyped
 
-  val layerFromEnv: ZLayer[Any, Throwable, DataSource] =
-    ZLayer.scoped(scopedFromEnv)
+  @deprecated("Use layerFromEnvTyped to preserve the backend initialization error ADT", "0.9.0")
+  val layerFromEnv: ZLayer[Any, Throwable, DataSource] = layerFromEnvTyped
 
   def validatePoolEnvironment: Either[String, Unit] = poolConfigFromEnvironment.map(_ => ())
 
@@ -117,6 +132,18 @@ object PgDataSource:
                              keepalive,
                            ).validate
     yield config
+
+  private def connectionConfigFromEnv(
+    urlEnv: String,
+    userEnv: String,
+    passEnv: String,
+  ): Either[String, (String, String, String, PoolConfig)] =
+    for
+      jdbcUrl  <- sys.env.get(urlEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$urlEnv'")
+      username <- sys.env.get(userEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$userEnv'")
+      password <- sys.env.get(passEnv).map(_.trim).filter(_.nonEmpty).toRight(s"Missing env '$passEnv'")
+      pool     <- poolConfigFromEnvironment
+    yield (jdbcUrl, username, password, pool)
 
   private def integerEnv(name: String, default: Int): Either[String, Int] =
     sys.env.get(name).map(_.trim).filter(_.nonEmpty) match

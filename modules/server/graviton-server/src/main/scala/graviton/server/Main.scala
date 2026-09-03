@@ -164,7 +164,7 @@ object Main extends ZIOAppDefault:
       _                                            <- validateConsoleSecurity(sec, console)
       _                                            <- validateTenantDataPlane(cfg, tenantDataPlaneConfig, sec)
       primaryDataSource                            <- ZIO.when(requiresPrimaryPostgres(cfg, tenantDataPlaneConfig, sec))(
-                                                        PgDataSource.scopedFromEnv
+                                                        PgDataSource.scopedFromEnvTyped
                                                       )
       _                                            <- logSecurityPosture(sec)
       port                                          = cfg.httpPort
@@ -744,7 +744,7 @@ object Main extends ZIOAppDefault:
         base   <- ZIO
                     .fromEither(S3Config.fromEnvironment(config.s3.blockBucket, config.s3.blockPrefix))
                     .mapError(new IllegalArgumentException(_))
-        client <- ZIO.acquireRelease(S3ClientLayer.make(base, metrics))(current => ZIO.attempt(current.close()).orDie)
+        client <- S3ClientLayer.scoped(base, metrics)
       yield new TenantBlockStoreFactory:
         override def make(domain: StorageDomainId): Task[BlockStore] =
           val scoped = base.copy(prefix = domainPrefix(base.prefix, domain))
@@ -761,7 +761,7 @@ object Main extends ZIOAppDefault:
                                        )
                                      )
                                      .mapError(new IllegalArgumentException(_))
-                         client <- ZIO.acquireRelease(S3ClientLayer.make(base, metrics))(current => ZIO.attempt(current.close()).orDie)
+                         client <- S3ClientLayer.scoped(base, metrics)
                        yield TenantReplicaTarget(target.name.value, target.failureDomain.value, base, client)
                      }
       yield new TenantBlockStoreFactory:
@@ -938,7 +938,7 @@ object Main extends ZIOAppDefault:
           storageCfg <- ZIO
                           .fromEither(S3Config.fromEnvironment(cfg.s3.blockBucket, cfg.s3.blockPrefix))
                           .mapError(new IllegalArgumentException(_))
-          client     <- ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
+          client     <- S3ClientLayer.scoped(storageCfg, metrics)
         yield new S3BlockStore(client, S3BlockStoreConfig(storageCfg)): BlockStore
       }
     else
@@ -958,8 +958,7 @@ object Main extends ZIOAppDefault:
                                              )
                                            )
                                            .mapError(new IllegalArgumentException(_))
-                           client     <-
-                             ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
+                           client     <- S3ClientLayer.scoped(storageCfg, metrics)
                          yield (target, storageCfg, client)
                        }
           store     <- cfg.replication.mode match
@@ -1041,8 +1040,7 @@ object Main extends ZIOAppDefault:
                                storageCfg <- ZIO
                                                .fromEither(S3Config.fromEnvironment(cfg.s3.tmpBucket, "resumable"))
                                                .mapError(message => new IllegalArgumentException(message))
-                               client     <-
-                                 ZIO.acquireRelease(S3ClientLayer.make(storageCfg, metrics))(current => ZIO.attempt(current.close()).orDie)
+                               client     <- S3ClientLayer.scoped(storageCfg, metrics)
                                target     <- ZIO
                                                .fromEither(UploadStagingTarget.from("s3", cfg.s3.tmpBucket))
                                                .mapError(message => new IllegalArgumentException(message))

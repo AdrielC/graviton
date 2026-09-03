@@ -70,7 +70,7 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
         for
           ddl <- resolveDdlPath
           ds  <- ZIO.acquireRelease(
-                   PgDataSource.make(
+                   PgDataSource.makeTyped(
                      pg.getJdbcUrl("postgres", "postgres"),
                      "postgres",
                      "",

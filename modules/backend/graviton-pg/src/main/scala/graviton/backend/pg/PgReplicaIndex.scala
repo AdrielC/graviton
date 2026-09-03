@@ -3,7 +3,7 @@ package graviton.backend.pg
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
 import graviton.runtime.indexes.ReplicaIndex
-import graviton.runtime.stores.{StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{StoreError, StoreOperation}
 import zio.{IO, Task, ZIO, ZLayer}
 
 import java.net.URI
@@ -31,7 +31,7 @@ final class PgReplicaIndex(private val dataSource: DataSource) extends ReplicaIn
           finally statement.close()
         finally connection.close()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.ReadReplicas, StoreBackend.PostgreSql, retryUnknown = true))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.ReadReplicas, retryUnknown = true))
 
   override def update(key: BinaryKey, locators: Set[BlobLocator]): IO[StoreError, Unit] =
     transaction { connection =>
@@ -57,7 +57,7 @@ final class PgReplicaIndex(private val dataSource: DataSource) extends ReplicaIn
             val _ = insert.executeBatch()
         finally insert.close()
       }
-    }.mapError(StoreError.fromThrowable(StoreOperation.UpdateReplicas, StoreBackend.PostgreSql, retryUnknown = true))
+    }.mapError(PgStoreError.fromThrowable(StoreOperation.UpdateReplicas, retryUnknown = true))
 
   private def transaction(effect: Connection => Task[Unit]): Task[Unit] =
     ZIO.scoped {

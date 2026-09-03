@@ -1,7 +1,7 @@
 package graviton.backend.pg
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.{ImmutableObjectStore, StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{ImmutableObjectStore, StoreError, StoreOperation}
 import zio.stream.ZStream
 import zio.{Chunk, IO, Task, UIO, ZIO}
 
@@ -61,7 +61,7 @@ class PgImmutableObjectStore protected[pg] (protected val dataSource: DataSource
       .mapError(storeError(StoreOperation.GetObject))
 
   protected final def storeError(operation: StoreOperation)(error: Throwable): StoreError =
-    StoreError.fromThrowable(operation, StoreBackend.PostgreSql, retryUnknown = true)(error)
+    PgStoreError.fromThrowable(operation, retryUnknown = true)(error)
 
   private def openLocatorCursor(prefix: String): Task[PgObjectCursor] =
     openCursor(

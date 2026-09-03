@@ -2,6 +2,8 @@
 
 Graviton keeps storage contracts in `graviton-runtime` and vendor code in backend modules. This table distinguishes an operational server composition from reusable storage adapters.
 
+Storage operations fail with `StoreError`. Backend construction fails separately with `BackendInitError`, distinguishing invalid configuration from resource acquisition failure. `PgDataSource.layerFromEnvTyped`, `S3ClientLayer.typedLayer`, `S3BlockStore.layerFromEnvTyped`, and `S3BlobStore.layerFromEnvTyped` are scoped layers: closing their `Scope` closes the owned connection pool or S3 client. The 0.8 names remain as deprecated, binary-compatible `Throwable` wrappers; new integrations should use the typed APIs. Low-level unscoped constructors remain available for integrations that own and close those resources themselves.
+
 | Module | Current capability | Status |
 | --- | --- | --- |
 | `graviton-runtime` | In-memory CAS plus filesystem blocks and versioned filesystem manifests | Operational and covered by restart tests |
