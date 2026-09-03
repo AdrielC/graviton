@@ -44,7 +44,9 @@ private[stores] object StreamingManifestFile:
 
   def streamEntries(path: Path): ZStream[Any, Throwable, ManifestEntry] =
     ZStream
-      .acquireReleaseWith(ZIO.attemptBlocking(Reader.open(path)))(reader => ZIO.attemptBlocking(reader.close()).orDie)
+      .acquireReleaseWith(ZIO.attemptBlocking(Reader.open(path)))(reader =>
+        graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("streaming manifest reader")(reader.close())
+      )
       .flatMap(reader =>
         ZStream.unfoldChunkZIO(reader) { current =>
           ZIO.attemptBlocking(current.readBatch()).map(_.map(chunk => chunk -> current))

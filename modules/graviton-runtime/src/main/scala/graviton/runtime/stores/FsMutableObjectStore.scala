@@ -21,7 +21,9 @@ final class FsMutableObjectStore(
     ZSink.unwrapScoped {
       (for
         destination <- pathFor(locator)
-        writer      <- ZIO.acquireRelease(FsMutableObjectStore.Writer.open(destination))(_.closeAndDelete.orDie)
+        writer      <- ZIO.acquireRelease(FsMutableObjectStore.Writer.open(destination))(writer =>
+                         graviton.runtime.lifecycle.ResourceFinalizer.run("filesystem mutable-object writer")(writer.closeAndDelete)
+                       )
       yield ZSink
         .foldLeftChunksZIO[Any, Throwable, Byte, FsMutableObjectStore.Writer](writer)((current, chunk) => current.write(chunk).as(current))
         .mapZIO(_.commit)
@@ -81,7 +83,7 @@ final class FsMutableObjectStore(
         ZStream
           .acquireReleaseWith(
             ZIO.attemptBlocking(Channels.newInputStream(Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)))
-          )(stream => ZIO.attemptBlocking(stream.close()).orDie)
+          )(stream => graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("filesystem object stream")(stream.close()))
           .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
       }
       .mapError(storeError(StoreOperation.GetObject))

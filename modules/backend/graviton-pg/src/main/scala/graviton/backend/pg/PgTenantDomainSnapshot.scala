@@ -335,14 +335,14 @@ final class PgTenantDomainSnapshot(dataSource: DataSource):
     }
 
   private def closeCursor(cursor: Cursor): UIO[Unit] =
-    ZIO.attemptBlocking {
+    graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("PostgreSQL tenant snapshot cursor") {
       try cursor.result.close()
       finally
         try cursor.statement.close()
         finally
           try cursor.connection.rollback()
           finally cursor.connection.close()
-    }.orDie
+    }
 
   private def blocking[A](effect: => A): IO[StoreError, A] =
     ZIO.attemptBlocking(effect).mapError(PgStoreError.fromThrowable(StoreOperation.Repair, retryUnknown = true))

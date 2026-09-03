@@ -1,6 +1,7 @@
 package graviton.backend.pg
 
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.stores.{BackendInitError, StoreBackend}
 import zio.{IO, Scope, Task, UIO, ZIO, ZLayer}
@@ -157,7 +158,7 @@ object PgDataSource:
 
   private def close(dataSource: DataSource): ZIO[Any, Nothing, Unit] =
     dataSource match
-      case pool: HikariDataSource => ZIO.attempt(pool.close()).orDie
+      case pool: HikariDataSource => ResourceFinalizer.closeBlocking("PostgreSQL connection pool")(pool.close())
       case _                      => ZIO.unit
 
   def closeScoped(dataSource: DataSource): UIO[Unit] = close(dataSource)

@@ -261,7 +261,7 @@ final class FsBlobManifestRepo(
       .scoped {
         for
           writer <- ZIO.acquireRelease(ZIO.attemptBlocking(StreamingManifestFile.Writer.open(path, header, metadata, authentication)))(
-                      current => ZIO.attemptBlocking(current.close()).orDie
+                      current => graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("filesystem manifest writer")(current.close())
                     )
           _      <- entries
                       .rechunk(FsBlobManifestRepo.WriteBatchEntries)
@@ -416,7 +416,7 @@ object FsBlobManifestRepo:
                   val paths = Files.walk(root)
                   new FileWalker(paths, paths.iterator(), include)
                 }
-              )(walker => ZIO.attemptBlocking(walker.close()).orDie)
+              )(walker => graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("filesystem manifest walk")(walker.close()))
               .flatMap(walker => ZStream.unfoldZIO(walker)(current => ZIO.attemptBlocking(current.next().map(_ -> current))))
         }
     }

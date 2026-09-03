@@ -243,7 +243,9 @@ final class FsResumableUploadRepository(root: Path) extends ResumableUploadRepos
         case false => ZStream.empty
         case true  =>
           ZStream
-            .acquireReleaseWith(ZIO.attemptBlocking(Files.walk(base)))(paths => ZIO.attemptBlocking(paths.close()).orDie)
+            .acquireReleaseWith(ZIO.attemptBlocking(Files.walk(base)))(paths =>
+              graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("resumable-upload filesystem walk")(paths.close())
+            )
             .flatMap(paths => ZStream.fromIterator(paths.iterator().asScala))
             .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) && path.getFileName.toString.endsWith(".json"))
       }

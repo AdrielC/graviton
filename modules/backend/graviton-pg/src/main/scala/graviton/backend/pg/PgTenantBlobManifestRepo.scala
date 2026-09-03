@@ -5,6 +5,7 @@ import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.ranges.Span
 import graviton.core.types.{BlobOffset, FileSize}
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.model.{InventoryCursor, InventoryNamespace, InventoryPage, InventoryPageSize}
 import graviton.runtime.stores.*
 import graviton.runtime.streaming.BlobStreamer
@@ -595,7 +596,7 @@ final class PgTenantBlobManifestRepo private (
         blobAlgorithm <- ZIO.fromEither(toDbAlgorithm(blob.bits.algo)).mapError(new IllegalArgumentException(_))
         statements    <- ZIO.acquireRelease(
                            ZIO.attemptBlocking(Statements(connection.prepareStatement(blockSql), connection.prepareStatement(entrySql)))
-                         )(value => ZIO.attemptBlocking(value.close()).orDie)
+                         )(value => ResourceFinalizer.closeBlocking("PostgreSQL tenant manifest statements")(value.close()))
         state         <- entries
                            .rechunk(256)
                            .chunks
@@ -715,14 +716,14 @@ final class PgTenantBlobManifestRepo private (
     }
 
   private def closeCursor(cursor: Cursor): UIO[Unit] =
-    ZIO.attemptBlocking {
+    ResourceFinalizer.closeBlocking("PostgreSQL tenant manifest cursor") {
       try cursor.result.close()
       finally
         try cursor.statement.close()
         finally
           try cursor.connection.rollback()
           finally cursor.connection.close()
-    }.orDie
+    }
 
   private def readBlockRef(result: ResultSet): Task[BlobStreamer.BlockRef] =
     for
@@ -791,7 +792,9 @@ final class PgTenantBlobManifestRepo private (
     ZIO
       .scoped {
         ZIO
-          .acquireRelease(ZIO.attemptBlocking(dataSource.getConnection()))(connection => ZIO.attemptBlocking(connection.close()).orDie)
+          .acquireRelease(ZIO.attemptBlocking(dataSource.getConnection()))(connection =>
+            ResourceFinalizer.closeBlocking("PostgreSQL tenant connection")(connection.close())
+          )
           .flatMap { connection =>
             ZIO.attemptBlocking {
               connection.setAutoCommit(false)
