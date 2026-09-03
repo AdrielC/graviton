@@ -28,6 +28,7 @@ if [[ -z "${CONSUMER_REPOSITORY}" ]]; then
   PUBLISH_SETTING="set ThisBuild / publishTo := Some(Resolver.file(\"graviton-consumer-proof\", file(\"${LOCAL_REPO}\"))(Resolver.mavenStylePatterns))"
   ./sbt -batch \
     "${PUBLISH_SETTING}" \
+    'bytesJVM/publish' \
     'core/publish' \
     'streams/publish' \
     'sharedProtocolJVM/publish' \

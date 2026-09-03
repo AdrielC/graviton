@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 projects=(
+  bytesJVM
+  bytesJS
+  bytesNative
   core
   streams
   sharedProtocolJVM
@@ -30,6 +33,9 @@ done
 ./sbt -batch "${commands[@]}"
 
 directories=(
+  "modules/graviton-bytes/jvm"
+  "modules/graviton-bytes/js"
+  "modules/graviton-bytes/native"
   "modules/graviton-core"
   "modules/graviton-streams"
   "modules/protocol/graviton-shared/jvm"
@@ -59,9 +65,9 @@ for index in "${!projects[@]}"; do
     continue
   fi
 
-  payload_count="$(jar tf "${jar_path}" | awk '/\.(class|sjsir)$/ { count += 1 } END { print count + 0 }')"
+  payload_count="$(jar tf "${jar_path}" | awk '/\.(class|sjsir|nir)$/ { count += 1 } END { print count + 0 }')"
   if [[ "${payload_count}" -eq 0 ]]; then
-    echo "${project}: package contains no JVM classes or Scala.js IR (${jar_path})" >&2
+    echo "${project}: package contains no JVM classes, Scala.js IR, or Scala Native IR (${jar_path})" >&2
     failed=1
     continue
   fi
