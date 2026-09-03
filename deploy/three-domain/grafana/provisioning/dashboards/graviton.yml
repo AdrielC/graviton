@@ -6,3 +6,11 @@ providers:
     editable: false
     options:
       path: /var/lib/grafana/dashboards
+  - name: Graviton production
+    orgId: 1
+    folder: Graviton
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/production-dashboards
