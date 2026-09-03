@@ -121,9 +121,10 @@ ThisBuild / scmInfo := Some(
     "scm:git:https://github.com/AdrielC/graviton.git",
   )
 )
-// v0.7.0 established the typed storage and streaming-inventory boundary.
-// Patch releases must preserve that public binary contract.
-ThisBuild / versionPolicyIntention := Compatibility.BinaryCompatible
+// The next pre-1.0 minor release intentionally removes mutable digest arrays,
+// replaces the flat manifest proof, and tightens typed key construction. Do not
+// preserve those unsafe 0.8.x signatures through compatibility shims.
+ThisBuild / versionPolicyIntention := Compatibility.None
 ThisBuild / versionPolicyIgnoredInternalDependencyVersions := Some("^\\d+\\.\\d+\\.\\d+\\+\\d+.*".r)
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / developers := List(
