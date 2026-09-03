@@ -35,7 +35,7 @@ final class PgBlobManifestRepo private (
           finally statement.close()
         finally conn.close()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.HealthCheck))
 
   override def put(blob: BinaryKey.Blob, manifest: Manifest, ingestedAt: Instant): IO[StoreError, Unit] =
     ZIO
@@ -112,7 +112,7 @@ final class PgBlobManifestRepo private (
           proof        <- ZIO.foreach(accumulator)(_.prove)
           _            <- writeManifestProof(conn, blob, identity.chunker, proof)
         yield ()
-      }.mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.PostgreSql))
+      }.mapError(PgStoreError.fromThrowable(StoreOperation.PutManifest))
 
   override def get(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifest]] =
     ZIO
@@ -181,27 +181,10 @@ final class PgBlobManifestRepo private (
                         val offset      = blockRs.getLong(4)
                         val length      = blockRs.getLong(5)
 
-                        val blockAlg = parseDbAlg(blockAlgStr).getOrElse(
-                          throw new IllegalArgumentException(s"Unsupported hash algorithm '$blockAlgStr'")
-                        )
-                        val digest   = Digest
-                          .fromBytes(blockHash)
-                          .fold(
-                            msg => throw new IllegalArgumentException(msg),
-                            identity,
-                          )
-                        val bits     = KeyBits
-                          .create(blockAlg, digest, blockLen)
-                          .fold(
-                            msg => throw new IllegalArgumentException(msg),
-                            identity,
-                          )
-                        val key      = BinaryKey
-                          .block(bits)
-                          .fold(
-                            msg => throw new IllegalArgumentException(msg),
-                            identity,
-                          )
+                        val blockAlg = PgStoreError.corruptOption("block hash algorithm", parseDbAlg(blockAlgStr))
+                        val digest   = PgStoreError.corruptValue("block digest", Digest.fromBytes(blockHash))
+                        val bits     = PgStoreError.corruptValue("block key bits", KeyBits.create(blockAlg, digest, blockLen))
+                        val key      = PgStoreError.corruptValue("block key", BinaryKey.block(bits))
 
                         val start = BlobOffset.unsafe(offset)
                         val end   = BlobOffset.unsafe(offset + length - 1L)
@@ -225,7 +208,7 @@ final class PgBlobManifestRepo private (
                 )
           }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   override def getSummary(blob: BinaryKey.Blob): IO[StoreError, Option[StoredManifestSummary]] =
     ZIO
@@ -248,9 +231,7 @@ final class PgBlobManifestRepo private (
               try
                 if !rs.next() then None
                 else
-                  val size = FileSize
-                    .either(rs.getLong(1))
-                    .fold(message => throw new IllegalArgumentException(message), identity)
+                  val size = PgStoreError.corruptValue("manifest byte length", FileSize.either(rs.getLong(1)))
                   Some(
                     StoredManifestSummary(
                       totalSize = size,
@@ -263,7 +244,7 @@ final class PgBlobManifestRepo private (
           finally conn.close()
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   override def getMetadata(blob: BinaryKey.Blob): IO[StoreError, Option[BlobMetadataV1]] =
     ZIO
@@ -286,16 +267,17 @@ final class PgBlobManifestRepo private (
                 if !rows.next() then None
                 else
                   Some(
-                    BlobMetadataV1
-                      .decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                      .fold(message => throw new IllegalArgumentException(message), identity)
+                    PgStoreError.corruptValue(
+                      "blob metadata",
+                      BlobMetadataV1.decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+                    )
                   )
               finally rows.close()
             finally statement.close()
           finally connection.close()
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   override def inventoryPage(
     after: Option[InventoryCursor],
@@ -321,7 +303,7 @@ final class PgBlobManifestRepo private (
         case message: String                 => StoreError.InvalidInput(StoreOperation.Inventory, message)
         case error: StoreError               => error
         case error: IllegalArgumentException => StoreError.InvalidInput(StoreOperation.Inventory, error.getMessage)
-        case error: Throwable                => StoreError.fromThrowable(StoreOperation.Inventory, StoreBackend.PostgreSql)(error)
+        case error: Throwable                => PgStoreError.fromThrowable(StoreOperation.Inventory)(error)
       }
 
   override def delete(blob: BinaryKey.Blob): IO[StoreError, Boolean] =
@@ -335,7 +317,7 @@ final class PgBlobManifestRepo private (
             deleteRows(conn, "graviton.blob", blobAlg, blob).map(_ > 0)
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.DeleteManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.DeleteManifest))
 
   override def streamBlockRefs(blob: BinaryKey.Blob): ZStream[Any, StoreError, BlobStreamer.BlockRef] =
     integrity match
@@ -367,7 +349,7 @@ final class PgBlobManifestRepo private (
           }
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   override def streamBlockRefsRange(
     blob: BinaryKey.Blob,
@@ -401,7 +383,7 @@ final class PgBlobManifestRepo private (
           }
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetRange, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetRange))
     integrity match
       case None          => raw
       case Some(service) => ZStream.unwrap(verifyManifest(blob, service).as(raw))
@@ -435,7 +417,7 @@ final class PgBlobManifestRepo private (
           }
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   private def readStoredAuthentication(
     blob: BinaryKey.Blob
@@ -462,23 +444,24 @@ final class PgBlobManifestRepo private (
                 if !rows.next() then None
                 else if rows.getObject(3) == null then None
                 else
-                  val size     = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val chunker  =
-                    ManifestChunkerId.either(rows.getString(4)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val keyId    = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
-                  val proof    = ManifestProof
-                    .make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7)))
-                    .fold(message => throw new IllegalArgumentException(message), identity)
-                  val metadata = BlobMetadataV1
-                    .decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                    .fold(message => throw new IllegalArgumentException(message), identity)
+                  val size     = PgStoreError.corruptValue("manifest byte length", FileSize.either(rows.getLong(1)))
+                  val chunker  = PgStoreError.corruptValue("manifest chunker", ManifestChunkerId.either(rows.getString(4)))
+                  val keyId    = PgStoreError.corruptValue("manifest key id", ManifestKeyId.either(rows.getString(5)))
+                  val proof    = PgStoreError.corruptValue(
+                    "manifest proof",
+                    ManifestProof.make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7))),
+                  )
+                  val metadata = PgStoreError.corruptValue(
+                    "blob metadata",
+                    BlobMetadataV1.decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+                  )
                   Some((ManifestIdentity(blob, size, rows.getInt(2), chunker), metadata, proof))
               finally rows.close()
             finally statement.close()
           finally connection.close()
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest))
 
   private def writeManifestProof(
     connection: Connection,
@@ -666,17 +649,17 @@ final class PgBlobManifestRepo private (
       blockLen    <- ZIO.attempt(rs.getLong(4))
       blockAlg    <- ZIO
                        .fromOption(parseDbAlg(blockAlgStr))
-                       .mapError(_ => new IllegalArgumentException(s"Unsupported hash algorithm '$blockAlgStr'"))
-      digest      <- ZIO.fromEither(Digest.fromBytes(blockHash)).mapError(msg => new IllegalArgumentException(msg))
-      bits        <- ZIO.fromEither(KeyBits.create(blockAlg, digest, blockLen)).mapError(msg => new IllegalArgumentException(msg))
-      key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
+                       .mapError(_ => PgStoreError.CorruptStoredData(s"unsupported stored block hash algorithm '$blockAlgStr'"))
+      digest      <- ZIO.fromEither(Digest.fromBytes(blockHash)).mapError(PgStoreError.CorruptStoredData(_))
+      bits        <- ZIO.fromEither(KeyBits.create(blockAlg, digest, blockLen)).mapError(PgStoreError.CorruptStoredData(_))
+      key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.BlockRef(ordinal, key)
 
   private def readRangedBlockRef(rs: ResultSet): Task[BlobStreamer.RangedBlockRef] =
     for
       ref       <- readBlockRef(rs)
       rawOffset <- ZIO.attempt(rs.getLong(5))
-      offset    <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(msg => new IllegalArgumentException(msg))
+      offset    <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.RangedBlockRef(ref.idx, ref.key, offset)
 
   private def readManifestEntry(rs: ResultSet): Task[ManifestEntry] =
@@ -684,11 +667,11 @@ final class PgBlobManifestRepo private (
       ref       <- readBlockRef(rs)
       rawOffset <- ZIO.attempt(rs.getLong(5))
       rawLength <- ZIO.attempt(rs.getLong(6))
-      start     <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(new IllegalArgumentException(_))
+      start     <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(PgStoreError.CorruptStoredData(_))
       end       <- ZIO
                      .fromEither(BlobOffset.either(java.lang.Math.addExact(rawOffset, rawLength) - 1L))
-                     .mapError(new IllegalArgumentException(_))
-      span      <- ZIO.fromEither(graviton.core.ranges.Span.make(start, end)).mapError(new IllegalArgumentException(_))
+                     .mapError(PgStoreError.CorruptStoredData(_))
+      span      <- ZIO.fromEither(graviton.core.ranges.Span.make(start, end)).mapError(PgStoreError.CorruptStoredData(_))
     yield ManifestEntry(ref.key, span, Map.empty)
 
   private def readSummaryUnsafe(rs: ResultSet): (BinaryKey.Blob, StoredManifestSummary) =
@@ -697,15 +680,13 @@ final class PgBlobManifestRepo private (
     val byteLength    = rs.getLong(3)
     val blockCount    = rs.getInt(4)
     val createdAt     = Option(rs.getTimestamp(5)).map(_.toInstant).getOrElse(Instant.EPOCH)
-    val algorithm     = parseDbAlg(algorithmText).getOrElse(
-      throw new IllegalArgumentException(s"Unsupported hash algorithm '$algorithmText'")
-    )
-    val digest        = Digest.fromBytes(digestBytes).fold(message => throw new IllegalArgumentException(message), identity)
-    val size          = FileSize.either(byteLength).fold(message => throw new IllegalArgumentException(message), identity)
-    val bits          = KeyBits.create(algorithm, digest, size.value).fold(message => throw new IllegalArgumentException(message), identity)
-    val blob          = BinaryKey.blob(bits).fold(message => throw new IllegalArgumentException(message), identity)
+    val algorithm     = PgStoreError.corruptOption("blob hash algorithm", parseDbAlg(algorithmText))
+    val digest        = PgStoreError.corruptValue("blob digest", Digest.fromBytes(digestBytes))
+    val size          = PgStoreError.corruptValue("blob byte length", FileSize.either(byteLength))
+    val bits          = PgStoreError.corruptValue("blob key bits", KeyBits.create(algorithm, digest, size.value))
+    val blob          = PgStoreError.corruptValue("blob key", BinaryKey.blob(bits))
     if blockCount < 1 || blockCount > BlobManifestRepo.MaxEntries then
-      throw new IllegalArgumentException(s"Manifest block count $blockCount is outside 1..${BlobManifestRepo.MaxEntries}")
+      throw PgStoreError.CorruptStoredData(s"manifest block count $blockCount is outside 1..${BlobManifestRepo.MaxEntries}")
     blob -> StoredManifestSummary(size, blockCount, createdAt)
 
   private def upsertBlobSummary(

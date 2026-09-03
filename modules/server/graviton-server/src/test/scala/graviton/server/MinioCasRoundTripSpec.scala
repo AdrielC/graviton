@@ -31,14 +31,14 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
     sys.env.get("GRAVITON_MINIO_IT").exists(v => v.trim == "1" || v.trim.equalsIgnoreCase("true"))
 
   private val s3StoreLayer: ZLayer[Any, Throwable, S3BlockStore & BlockStore] =
-    ZLayer.fromZIO(S3BlockStore.fromEnvironment).flatMap { environment =>
+    ZLayer.scoped(S3BlockStore.scopedFromEnvironment).flatMap { environment =>
       val store = environment.get[S3BlockStore]
       ZLayer.succeed[S3BlockStore](store) ++ ZLayer.succeed[BlockStore](store)
     }
 
   private val blobLayer: ZLayer[Any, Throwable, BlobStore & S3BlockStore] =
     ZLayer.make[BlobStore & S3BlockStore](
-      PgDataSource.layerFromEnv,
+      PgDataSource.layerFromEnvTyped,
       PgBlobManifestRepo.layer,
       s3StoreLayer,
       ZLayer.fromFunction((blocks: BlockStore, manifests: BlobManifestRepo) =>
@@ -55,7 +55,7 @@ object MinioCasRoundTripSpec extends ZIOSpecDefault:
       for
         bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
         config <- ZIO.fromEither(S3Config.fromEnvironment(bucket)).mapError(new IllegalArgumentException(_))
-        client <- ZIO.acquireRelease(S3ClientLayer.make(config))(value => ZIO.attemptBlocking(value.close()).orDie)
+        client <- ZIO.acquireRelease(S3ClientLayer.makeTyped(config))(value => ZIO.attemptBlocking(value.close()).orDie)
       yield client
     }
 

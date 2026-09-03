@@ -37,7 +37,7 @@ final class S3BlockStore(
   ): IO[StoreError, StoredBlock] =
     storeBlock(block)
       .map(status => StoredBlock(block.key, block.size, status))
-      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.PutBlock))
 
   override def putBlocks(plan: BlockWritePlan = BlockWritePlan()): BlockSink =
     ZSink
@@ -51,7 +51,7 @@ final class S3BlockStore(
         yield next
       }
       .mapZIO(_.toResult)
-      .mapError(StoreError.fromThrowable(StoreOperation.PutBlock, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.PutBlock))
       .ignoreLeftover
 
   override def get(key: BinaryKey.Block): ZStream[Any, StoreError, Byte] =
@@ -69,7 +69,7 @@ final class S3BlockStore(
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
       .mapError {
         case error: S3Exception if isNotFound(error) => StoreError.NotFound(StoreOperation.GetBlock, key)
-        case error                                   => StoreError.fromThrowable(StoreOperation.GetBlock, StoreBackend.S3, retryUnknown = true)(error)
+        case error                                   => storeError(StoreOperation.GetBlock)(error)
       }
 
   override def exists(key: BinaryKey.Block): IO[StoreError, Boolean] =
@@ -88,7 +88,7 @@ final class S3BlockStore(
         case error: S3Exception if error.statusCode() == 404 || Option(error.awsErrorDetails()).exists(_.errorCode() == "NoSuchKey") =>
           ZIO.succeed(false)
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.ExistsBlock, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.ExistsBlock))
 
   override def repairBlock(block: CanonicalBlock): IO[StoreError, Unit] =
     (for
@@ -111,7 +111,7 @@ final class S3BlockStore(
                     .build()
       _        <- ZIO.attemptBlocking(client.putObject(request, RequestBody.fromBytes(payload))).unit
       _        <- verifyExisting(block, checksum)
-    yield ()).mapError(StoreError.fromThrowable(StoreOperation.Repair, StoreBackend.S3, retryUnknown = true))
+    yield ()).mapError(storeError(StoreOperation.Repair))
 
   override def healthCheck: IO[StoreError, Unit] =
     ZIO
@@ -120,7 +120,7 @@ final class S3BlockStore(
         client.headBucket(request)
         ()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.HealthCheck, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.HealthCheck))
 
   override def inventory: ZStream[Any, StoreError, BlockInventoryEntry] =
     ZStream
@@ -151,7 +151,7 @@ final class S3BlockStore(
           (entries, Option(response.nextContinuationToken()).filter(_ => response.isTruncated))
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.InventoryBlocks))
 
   override def quarantine(entry: BlockInventoryEntry): IO[StoreError, QuarantinedBlock] =
     (for
@@ -160,7 +160,7 @@ final class S3BlockStore(
       _             <- copyObject(objectKeyFor(entry.key), token)
       _             <- deleteObject(objectKeyFor(entry.key))
     yield QuarantinedBlock(entry.key, token, entry.size, quarantinedAt))
-      .mapError(StoreError.fromThrowable(StoreOperation.Quarantine, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.Quarantine))
 
   override def quarantineInventory: ZStream[Any, StoreError, QuarantinedBlock] =
     ZStream
@@ -194,16 +194,16 @@ final class S3BlockStore(
           entries -> Option(response.nextContinuationToken()).filter(_ => response.isTruncated)
         }
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.InventoryBlocks, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.InventoryBlocks))
 
   override def restore(block: QuarantinedBlock): IO[StoreError, Unit] =
     (validateQuarantineToken(block.token) *>
       copyObject(block.token, objectKeyFor(block.key)) *>
-      deleteObject(block.token)).mapError(StoreError.fromThrowable(StoreOperation.Restore, StoreBackend.S3, retryUnknown = true))
+      deleteObject(block.token)).mapError(storeError(StoreOperation.Restore))
 
   override def purge(block: QuarantinedBlock): IO[StoreError, Unit] =
     (validateQuarantineToken(block.token) *> deleteObject(block.token))
-      .mapError(StoreError.fromThrowable(StoreOperation.Purge, StoreBackend.S3, retryUnknown = true))
+      .mapError(storeError(StoreOperation.Purge))
 
   private def storeBlock(block: CanonicalBlock): IO[Throwable, BlockStoredStatus] =
     for
@@ -357,6 +357,9 @@ final class S3BlockStore(
       )
       .unit
 
+  private def storeError(operation: StoreOperation)(error: Throwable): StoreError =
+    S3StoreError.fromThrowable(operation)(error)
+
   private def algoPathSegment(algo: HashAlgo): String =
     algo match
       case HashAlgo.Sha256 => "sha256"
@@ -386,18 +389,34 @@ object S3BlockStore:
    * - GRAVITON_S3_BLOCK_PREFIX (defaults to cas/blocks)
    * - GRAVITON_S3_REGION (defaults to us-east-1)
    */
-  def fromEnvironment: Task[S3BlockStore] =
+  def scopedFromEnvironment: ZIO[Scope, BackendInitError, S3BlockStore] =
     for
       bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
       prefix <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks"))
       base   <- ZIO
                   .fromEither(S3Config.fromEnvironment(bucket = bucket, prefix = prefix))
-                  .mapError(msg => new IllegalArgumentException(msg))
-      client <- S3ClientLayer.make(base)
+                  .mapError(BackendInitError.InvalidConfiguration(StoreBackend.S3, _))
+      client <- S3ClientLayer.scoped(base)
     yield new S3BlockStore(client, S3BlockStoreConfig(blocks = base))
 
-  val layerFromEnv: ZLayer[Any, Throwable, BlockStore] =
-    ZLayer.fromZIO(fromEnvironment.map(store => store: BlockStore))
+  def fromEnvironmentTyped: IO[BackendInitError, S3BlockStore] =
+    for
+      bucket <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_BUCKET").filter(_.nonEmpty).getOrElse("graviton-blocks"))
+      prefix <- ZIO.succeed(sys.env.get("GRAVITON_S3_BLOCK_PREFIX").filter(_.nonEmpty).getOrElse("cas/blocks"))
+      base   <- ZIO
+                  .fromEither(S3Config.fromEnvironment(bucket = bucket, prefix = prefix))
+                  .mapError(BackendInitError.InvalidConfiguration(StoreBackend.S3, _))
+      client <- S3ClientLayer.makeTyped(base)
+    yield new S3BlockStore(client, S3BlockStoreConfig(blocks = base))
+
+  val layerFromEnvTyped: ZLayer[Any, BackendInitError, BlockStore] =
+    ZLayer.scoped(scopedFromEnvironment.map(store => store: BlockStore))
+
+  @deprecated("Use scopedFromEnvironment so the underlying S3 client is closed with its Scope", "0.9.0")
+  def fromEnvironment: Task[S3BlockStore] = fromEnvironmentTyped
+
+  @deprecated("Use layerFromEnvTyped to preserve the backend initialization error ADT", "0.9.0")
+  val layerFromEnv: ZLayer[Any, Throwable, BlockStore] = layerFromEnvTyped
 
 private final case class Acc(
   entries: ChunkBuilder[BlockManifestEntry],

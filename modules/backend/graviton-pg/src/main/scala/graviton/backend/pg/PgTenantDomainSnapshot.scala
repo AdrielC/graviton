@@ -1,6 +1,6 @@
 package graviton.backend.pg
 
-import graviton.runtime.stores.{BlobManifestRepo, ManifestReferenceSource, StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{BlobManifestRepo, ManifestReferenceSource, StoreError, StoreOperation}
 import graviton.runtime.tenant.*
 import graviton.runtime.upload.TenantId
 import zio.*
@@ -345,7 +345,7 @@ final class PgTenantDomainSnapshot(dataSource: DataSource):
     }.orDie
 
   private def blocking[A](effect: => A): IO[StoreError, A] =
-    ZIO.attemptBlocking(effect).mapError(StoreError.fromThrowable(StoreOperation.Repair, StoreBackend.PostgreSql, retryUnknown = true))
+    ZIO.attemptBlocking(effect).mapError(PgStoreError.fromThrowable(StoreOperation.Repair, retryUnknown = true))
 
 object PgTenantDomainSnapshot:
   private val BatchSize = 256

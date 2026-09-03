@@ -224,9 +224,10 @@ final class PgTenantBlobManifestRepo private (
                          if !rows.next() then None
                          else
                            Some(
-                             BlobMetadataV1
-                               .decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                               .fold(message => throw new IllegalArgumentException(message), identity)
+                             PgStoreError.corruptValue(
+                               "blob metadata",
+                               BlobMetadataV1.decode(Chunk.fromArray(rows.getString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+                             )
                            )
                        finally rows.close()
                      finally statement.close()
@@ -288,7 +289,7 @@ final class PgTenantBlobManifestRepo private (
         |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?
         |ORDER BY ordinal ASC""".stripMargin
     cursorStream(StoreOperation.GetManifest, sql, blob, None)
-      .mapZIO(result => readBlockRef(result).mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql)))
+      .mapZIO(result => readBlockRef(result).mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest)))
 
   override def streamBlockRefsRange(
     blob: BinaryKey.Blob,
@@ -304,7 +305,7 @@ final class PgTenantBlobManifestRepo private (
         |  AND span && int8range(?, ?, '[)')
         |ORDER BY ordinal ASC""".stripMargin
     val raw          = cursorStream(StoreOperation.GetRange, sql, blob, Some(start.value -> endExclusive))
-      .mapZIO(result => readRangedBlockRef(result).mapError(StoreError.fromThrowable(StoreOperation.GetRange, StoreBackend.PostgreSql)))
+      .mapZIO(result => readRangedBlockRef(result).mapError(PgStoreError.fromThrowable(StoreOperation.GetRange)))
     integrity match
       case None          => raw
       case Some(service) => ZStream.unwrap(verifyManifest(blob, service).as(raw))
@@ -329,7 +330,7 @@ final class PgTenantBlobManifestRepo private (
         |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?
         |ORDER BY ordinal ASC""".stripMargin
     cursorStream(StoreOperation.GetManifest, sql, blob, None)
-      .mapZIO(result => readManifestEntry(result).mapError(StoreError.fromThrowable(StoreOperation.GetManifest, StoreBackend.PostgreSql)))
+      .mapZIO(result => readManifestEntry(result).mapError(PgStoreError.fromThrowable(StoreOperation.GetManifest)))
 
   private def readStoredAuthentication(
     blob: BinaryKey.Blob
@@ -352,16 +353,17 @@ final class PgTenantBlobManifestRepo private (
           try
             if !rows.next() || rows.getObject(3) == null then None
             else
-              val size     = FileSize.either(rows.getLong(1)).fold(message => throw new IllegalArgumentException(message), identity)
-              val chunker  =
-                ManifestChunkerId.either(rows.getString(4)).fold(message => throw new IllegalArgumentException(message), identity)
-              val keyId    = ManifestKeyId.either(rows.getString(5)).fold(message => throw new IllegalArgumentException(message), identity)
-              val proof    = ManifestProof
-                .make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7)))
-                .fold(message => throw new IllegalArgumentException(message), identity)
-              val metadata = BlobMetadataV1
-                .decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                .fold(message => throw new IllegalArgumentException(message), identity)
+              val size     = PgStoreError.corruptValue("manifest byte length", FileSize.either(rows.getLong(1)))
+              val chunker  = PgStoreError.corruptValue("manifest chunker", ManifestChunkerId.either(rows.getString(4)))
+              val keyId    = PgStoreError.corruptValue("manifest key id", ManifestKeyId.either(rows.getString(5)))
+              val proof    = PgStoreError.corruptValue(
+                "manifest proof",
+                ManifestProof.make(rows.getInt(3), keyId, Chunk.fromArray(rows.getBytes(6)), Chunk.fromArray(rows.getBytes(7))),
+              )
+              val metadata = PgStoreError.corruptValue(
+                "blob metadata",
+                BlobMetadataV1.decode(Chunk.fromArray(rows.getString(8).getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+              )
               Some((ManifestIdentity(blob, size, rows.getInt(2), chunker), metadata, proof))
           finally rows.close()
         finally statement.close()
@@ -679,7 +681,7 @@ final class PgTenantBlobManifestRepo private (
           ZIO.attemptBlocking(value.result.next()).map(hasNext => Option.when(hasNext)(value.result -> value))
         )
       )
-      .mapError(StoreError.fromThrowable(operation, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(operation))
 
   private def openCursor(sql: String, blob: BinaryKey.Blob, range: Option[(Long, Long)]): Task[Cursor] =
     ZIO.fromEither(toDbAlgorithm(blob.bits.algo)).mapError(new IllegalArgumentException(_)).flatMap { algorithm =>
@@ -725,16 +727,16 @@ final class PgTenantBlobManifestRepo private (
   private def readBlockRef(result: ResultSet): Task[BlobStreamer.BlockRef] =
     for
       index     <- ZIO.attempt(result.getInt(1).toLong)
-      algorithm <- ZIO.fromEither(parseDbAlgorithm(result.getString(2))).mapError(new IllegalArgumentException(_))
-      digest    <- ZIO.fromEither(Digest.fromBytes(result.getBytes(3))).mapError(new IllegalArgumentException(_))
-      bits      <- ZIO.fromEither(KeyBits.create(algorithm, digest, result.getLong(4))).mapError(new IllegalArgumentException(_))
-      key       <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
+      algorithm <- ZIO.fromEither(parseDbAlgorithm(result.getString(2))).mapError(PgStoreError.CorruptStoredData(_))
+      digest    <- ZIO.fromEither(Digest.fromBytes(result.getBytes(3))).mapError(PgStoreError.CorruptStoredData(_))
+      bits      <- ZIO.fromEither(KeyBits.create(algorithm, digest, result.getLong(4))).mapError(PgStoreError.CorruptStoredData(_))
+      key       <- ZIO.fromEither(BinaryKey.block(bits)).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.BlockRef(index, key)
 
   private def readRangedBlockRef(result: ResultSet): Task[BlobStreamer.RangedBlockRef] =
     for
       ref    <- readBlockRef(result)
-      offset <- ZIO.fromEither(BlobOffset.either(result.getLong(5))).mapError(new IllegalArgumentException(_))
+      offset <- ZIO.fromEither(BlobOffset.either(result.getLong(5))).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.RangedBlockRef(ref.idx, ref.key, offset)
 
   private def readManifestEntry(result: ResultSet): Task[ManifestEntry] =
@@ -742,21 +744,21 @@ final class PgTenantBlobManifestRepo private (
       ref       <- readBlockRef(result)
       rawOffset <- ZIO.attempt(result.getLong(5))
       rawLength <- ZIO.attempt(result.getLong(6))
-      start     <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(new IllegalArgumentException(_))
+      start     <- ZIO.fromEither(BlobOffset.either(rawOffset)).mapError(PgStoreError.CorruptStoredData(_))
       end       <- ZIO
                      .fromEither(BlobOffset.either(java.lang.Math.addExact(rawOffset, rawLength) - 1L))
-                     .mapError(new IllegalArgumentException(_))
-      span      <- ZIO.fromEither(Span.make(start, end)).mapError(new IllegalArgumentException(_))
+                     .mapError(PgStoreError.CorruptStoredData(_))
+      span      <- ZIO.fromEither(Span.make(start, end)).mapError(PgStoreError.CorruptStoredData(_))
     yield ManifestEntry(ref.key, span, Map.empty)
 
   private def readSummary(result: ResultSet): (BinaryKey.Blob, StoredManifestSummary) =
-    val algorithm = parseDbAlgorithm(result.getString(1)).fold(reason => throw new IllegalArgumentException(reason), identity)
-    val digest    = Digest.fromBytes(result.getBytes(2)).fold(reason => throw new IllegalArgumentException(reason), identity)
-    val size      = FileSize.either(result.getLong(3)).fold(reason => throw new IllegalArgumentException(reason), identity)
-    val bits      = KeyBits.create(algorithm, digest, size.value).fold(reason => throw new IllegalArgumentException(reason), identity)
-    val blob      = BinaryKey.blob(bits).fold(reason => throw new IllegalArgumentException(reason), identity)
+    val algorithm = PgStoreError.corruptValue("blob hash algorithm", parseDbAlgorithm(result.getString(1)))
+    val digest    = PgStoreError.corruptValue("blob digest", Digest.fromBytes(result.getBytes(2)))
+    val size      = PgStoreError.corruptValue("blob byte length", FileSize.either(result.getLong(3)))
+    val bits      = PgStoreError.corruptValue("blob key bits", KeyBits.create(algorithm, digest, size.value))
+    val blob      = PgStoreError.corruptValue("blob key", BinaryKey.blob(bits))
     val count     = result.getInt(4)
-    if count < 1 || count > BlobManifestRepo.MaxEntries then throw new IllegalArgumentException(s"invalid manifest block count $count")
+    if count < 1 || count > BlobManifestRepo.MaxEntries then throw PgStoreError.CorruptStoredData(s"invalid manifest block count $count")
     blob -> StoredManifestSummary(size, count, Option(result.getTimestamp(5)).fold(Instant.EPOCH)(_.toInstant))
 
   private def bindScope(statement: PreparedStatement, start: Int): Unit =
@@ -783,7 +785,7 @@ final class PgTenantBlobManifestRepo private (
               throw error
         finally connection.close()
       }
-      .mapError(StoreError.fromThrowable(operation, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(operation))
 
   private def transaction[A](operation: StoreOperation)(use: Connection => Task[A]): IO[StoreError, A] =
     ZIO
@@ -801,7 +803,7 @@ final class PgTenantBlobManifestRepo private (
               )
           }
       }
-      .mapError(StoreError.fromThrowable(operation, StoreBackend.PostgreSql))
+      .mapError(PgStoreError.fromThrowable(operation))
 
   private def setTenantContext(connection: Connection): Unit =
     val statement = connection.prepareStatement("SELECT set_config('app.org_id', ?, true)")

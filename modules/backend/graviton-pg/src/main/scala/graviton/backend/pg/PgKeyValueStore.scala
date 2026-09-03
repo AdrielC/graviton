@@ -1,7 +1,7 @@
 package graviton.backend.pg
 
 import graviton.runtime.kv.{KeyValueStore, KvKey, KvValue}
-import graviton.runtime.stores.{StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{StoreError, StoreOperation}
 import zio.{IO, ZIO, ZLayer}
 
 import javax.sql.DataSource
@@ -27,7 +27,7 @@ final class PgKeyValueStore(private val dataSource: DataSource) extends KeyValue
           finally statement.close()
         finally connection.close()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.PutKeyValue, StoreBackend.PostgreSql, retryUnknown = true))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.PutKeyValue, retryUnknown = true))
 
   override def get(key: KvKey): IO[StoreError, Option[KvValue]] =
     ZIO
@@ -43,7 +43,7 @@ final class PgKeyValueStore(private val dataSource: DataSource) extends KeyValue
           finally statement.close()
         finally connection.close()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.GetKeyValue, StoreBackend.PostgreSql, retryUnknown = true))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.GetKeyValue, retryUnknown = true))
       .flatMap {
         case None        => ZIO.succeed(None)
         case Some(value) =>
@@ -71,7 +71,7 @@ final class PgKeyValueStore(private val dataSource: DataSource) extends KeyValue
           finally statement.close()
         finally connection.close()
       }
-      .mapError(StoreError.fromThrowable(StoreOperation.DeleteKeyValue, StoreBackend.PostgreSql, retryUnknown = true))
+      .mapError(PgStoreError.fromThrowable(StoreOperation.DeleteKeyValue, retryUnknown = true))
 
 object PgKeyValueStore:
   val layer: ZLayer[DataSource, Nothing, KeyValueStore] =

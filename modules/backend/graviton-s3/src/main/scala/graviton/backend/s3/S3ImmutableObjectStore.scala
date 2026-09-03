@@ -1,7 +1,7 @@
 package graviton.backend.s3
 
 import graviton.core.locator.BlobLocator
-import graviton.runtime.stores.{ImmutableObjectStore, StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{ImmutableObjectStore, StoreError, StoreOperation}
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
 import zio.stream.ZStream
@@ -78,7 +78,7 @@ class S3ImmutableObjectStore protected[s3] (
     else ZIO.succeed(S3ObjectTarget(locator.bucket.value, prefixed(locator.path.value)))
 
   protected final def storeError(operation: StoreOperation)(error: Throwable): StoreError =
-    StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(error)
+    S3StoreError.fromThrowable(operation)(error)
 
   private def prefixed(path: String): String =
     val root     = config.storage.prefix.trim.stripPrefix("/").stripSuffix("/")

@@ -3,7 +3,7 @@ package graviton.backend.s3
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
 import graviton.runtime.model.{BlockStoredStatus, ErasureFragment, ErasureFragmentBytes}
-import graviton.runtime.stores.{ErasureFragmentStore, StoreBackend, StoreError, StoreOperation}
+import graviton.runtime.stores.{ErasureFragmentStore, StoreError, StoreOperation}
 import software.amazon.awssdk.core.sync.RequestBody
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -23,10 +23,10 @@ final class S3ErasureFragmentStore(
   import S3ErasureFragmentStore.*
 
   override def put(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, BlockStoredStatus] =
-    write(key, fragment, replace = false).mapError(storeError(StoreOperation.PutBlock))
+    write(key, fragment, replace = false).mapError(storeError(StoreOperation.PutBlock, Some(key)))
 
   override def repair(key: BinaryKey.Block, fragment: ErasureFragment): IO[StoreError, Unit] =
-    write(key, fragment, replace = true).unit.mapError(storeError(StoreOperation.Repair))
+    write(key, fragment, replace = true).unit.mapError(storeError(StoreOperation.Repair, Some(key)))
 
   override def get(key: BinaryKey.Block, index: Int, expectedLength: Int): IO[StoreError, ErasureFragment] =
     (if expectedLength <= 0 || expectedLength > ErasureFragmentBytes.maxBytes then
@@ -48,7 +48,7 @@ final class S3ErasureFragmentStore(
            refined  <- ZIO.fromEither(ErasureFragmentBytes.fromChunk(Chunk.fromArray(bytes))).mapError(new IllegalStateException(_))
          yield ErasureFragment(index, refined)
        }
-    ) .mapError(storeError(StoreOperation.GetBlock))
+    ) .mapError(storeError(StoreOperation.GetBlock, Some(key)))
 
   override def healthCheck: IO[StoreError, Unit] =
     ZIO
@@ -58,8 +58,8 @@ final class S3ErasureFragmentStore(
       }
       .mapError(storeError(StoreOperation.HealthCheck))
 
-  private def storeError(operation: StoreOperation)(error: Throwable): StoreError =
-    StoreError.fromThrowable(operation, StoreBackend.S3, retryUnknown = true)(error)
+  private def storeError(operation: StoreOperation, key: Option[BinaryKey] = None)(error: Throwable): StoreError =
+    S3StoreError.fromThrowable(operation, key)(error)
 
   private def write(key: BinaryKey.Block, fragment: ErasureFragment, replace: Boolean): Task[BlockStoredStatus] =
     val payload = fragment.chunk.toArray

@@ -1,6 +1,7 @@
 package graviton.backend.s3
 
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
+import graviton.runtime.stores.{BackendInitError, StoreBackend}
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, DefaultCredentialsProvider, StaticCredentialsProvider}
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration
 import software.amazon.awssdk.core.checksums.{RequestChecksumCalculation, ResponseChecksumValidation}
@@ -9,64 +10,81 @@ import software.amazon.awssdk.core.retry.RetryMode
 import software.amazon.awssdk.http.apache.ApacheHttpClient
 import software.amazon.awssdk.metrics.{MetricCollection, MetricPublisher}
 import software.amazon.awssdk.services.s3.{S3Configuration, S3Client}
-import zio.{Runtime, Task, Unsafe, ZIO, ZLayer}
+import zio.{IO, Runtime, Scope, Task, Unsafe, ZIO, ZLayer}
 
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
 object S3ClientLayer:
 
-  def make(config: S3Config): Task[S3Client] =
-    make(config, MetricsRegistry.noop)
+  def makeTyped(config: S3Config): IO[BackendInitError, S3Client] =
+    makeTyped(config, MetricsRegistry.noop)
 
-  def make(config: S3Config, metrics: MetricsRegistry): Task[S3Client] =
-    ZIO.attempt {
-      val builder =
-        S3Client
-          .builder()
-          .region(config.region)
-          .httpClientBuilder(
-            ApacheHttpClient
-              .builder()
-              .connectionTimeout(java.time.Duration.ofSeconds(5))
-              .socketTimeout(java.time.Duration.ofSeconds(30))
-          )
-          .overrideConfiguration(
-            ClientOverrideConfiguration
-              .builder()
-              .apiCallAttemptTimeout(java.time.Duration.ofSeconds(15))
-              .apiCallTimeout(java.time.Duration.ofSeconds(45))
-              .retryStrategy(RetryMode.STANDARD)
-              .addMetricPublisher(new S3MetricPublisher(metrics))
-              .build()
-          )
-          .requestChecksumCalculation(RequestChecksumCalculation.WHEN_SUPPORTED)
-          .responseChecksumValidation(ResponseChecksumValidation.WHEN_SUPPORTED)
-          .serviceConfiguration(
-            S3Configuration
-              .builder()
-              .pathStyleAccessEnabled(config.forcePathStyle)
-              .build()
-          )
+  def makeTyped(config: S3Config, metrics: MetricsRegistry): IO[BackendInitError, S3Client] =
+    ZIO
+      .attempt {
+        val builder =
+          S3Client
+            .builder()
+            .region(config.region)
+            .httpClientBuilder(
+              ApacheHttpClient
+                .builder()
+                .connectionTimeout(java.time.Duration.ofSeconds(5))
+                .socketTimeout(java.time.Duration.ofSeconds(30))
+            )
+            .overrideConfiguration(
+              ClientOverrideConfiguration
+                .builder()
+                .apiCallAttemptTimeout(java.time.Duration.ofSeconds(15))
+                .apiCallTimeout(java.time.Duration.ofSeconds(45))
+                .retryStrategy(RetryMode.STANDARD)
+                .addMetricPublisher(new S3MetricPublisher(metrics))
+                .build()
+            )
+            .requestChecksumCalculation(RequestChecksumCalculation.WHEN_SUPPORTED)
+            .responseChecksumValidation(ResponseChecksumValidation.WHEN_SUPPORTED)
+            .serviceConfiguration(
+              S3Configuration
+                .builder()
+                .pathStyleAccessEnabled(config.forcePathStyle)
+                .build()
+            )
 
-      val withCredentials = (config.accessKeyId, config.secretAccessKey) match
-        case (Some(accessKey), Some(secretKey)) =>
-          builder.credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
-        case (None, None)                       =>
-          builder.credentialsProvider(DefaultCredentialsProvider.builder().build())
-        case _                                  =>
-          throw new IllegalArgumentException("S3 access key and secret key must be configured together")
+        val withCredentials = (config.accessKeyId, config.secretAccessKey) match
+          case (Some(accessKey), Some(secretKey)) =>
+            builder.credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
+          case (None, None)                       =>
+            builder.credentialsProvider(DefaultCredentialsProvider.builder().build())
+          case _                                  =>
+            throw new IllegalArgumentException("S3 access key and secret key must be configured together")
 
-      val withEndpoint =
-        config.endpointOverride match
-          case Some(uri) => withCredentials.endpointOverride(uri)
-          case None      => withCredentials
+        val withEndpoint =
+          config.endpointOverride match
+            case Some(uri) => withCredentials.endpointOverride(uri)
+            case None      => withCredentials
 
-      withEndpoint.build()
-    }
+        withEndpoint.build()
+      }
+      .mapError(BackendInitError.fromThrowable(StoreBackend.S3))
 
-  def layer(config: S3Config): ZLayer[Any, Throwable, S3Client] =
-    ZLayer.fromZIO(make(config))
+  def scoped(config: S3Config): ZIO[Scope, BackendInitError, S3Client] =
+    ZIO.acquireRelease(makeTyped(config))(client => ZIO.attempt(client.close()).orDie)
+
+  def scoped(config: S3Config, metrics: MetricsRegistry): ZIO[Scope, BackendInitError, S3Client] =
+    ZIO.acquireRelease(makeTyped(config, metrics))(client => ZIO.attempt(client.close()).orDie)
+
+  def typedLayer(config: S3Config): ZLayer[Any, BackendInitError, S3Client] =
+    ZLayer.scoped(scoped(config))
+
+  @deprecated("Use makeTyped to preserve the backend initialization error ADT", "0.9.0")
+  def make(config: S3Config): Task[S3Client] = makeTyped(config)
+
+  @deprecated("Use scoped with MetricsRegistry so the publisher and client share a Scope", "0.9.0")
+  def make(config: S3Config, metrics: MetricsRegistry): Task[S3Client] = makeTyped(config, metrics)
+
+  @deprecated("Use typedLayer to preserve the backend initialization error ADT", "0.9.0")
+  def layer(config: S3Config): ZLayer[Any, Throwable, S3Client] = typedLayer(config)
 
   private[s3] final class S3MetricPublisher(metrics: MetricsRegistry) extends MetricPublisher:
     override def publish(collection: MetricCollection): Unit =
