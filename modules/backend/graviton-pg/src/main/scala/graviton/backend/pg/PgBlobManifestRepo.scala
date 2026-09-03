@@ -4,6 +4,7 @@ import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.{Manifest, ManifestEntry}
 import graviton.core.types.{BlobOffset, FileSize}
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.model.{InventoryCursor, InventoryNamespace, InventoryPage, InventoryPageSize}
 import graviton.runtime.streaming.BlobStreamer
 import graviton.runtime.stores.*
@@ -535,7 +536,7 @@ final class PgBlobManifestRepo private (
   private def withTransaction[A](f: Connection => Task[A]): Task[A] =
     ZIO.scoped {
       ZIO
-        .acquireRelease(ZIO.attemptBlocking(ds.getConnection()))(c => ZIO.attemptBlocking(c.close()).orDie)
+        .acquireRelease(ZIO.attemptBlocking(ds.getConnection()))(c => ResourceFinalizer.closeBlocking("PostgreSQL connection")(c.close()))
         .flatMap { conn =>
           ZIO.attemptBlocking(conn.setAutoCommit(false)) *>
             f(conn).tapBoth(
@@ -632,14 +633,14 @@ final class PgBlobManifestRepo private (
       }
 
   private def closeCursor(cursor: Cursor): UIO[Unit] =
-    ZIO.attemptBlocking {
+    ResourceFinalizer.closeBlocking("PostgreSQL manifest cursor") {
       try cursor.rs.close()
       finally
         try cursor.ps.close()
         finally
           try cursor.conn.rollback()
           finally cursor.conn.close()
-    }.orDie
+    }
 
   private def readBlockRef(rs: ResultSet): Task[BlobStreamer.BlockRef] =
     for
@@ -767,7 +768,7 @@ final class PgBlobManifestRepo private (
                             conn.prepareStatement(entrySql),
                           )
                         )
-                      )(current => ZIO.attemptBlocking(current.close()).orDie)
+                      )(current => ResourceFinalizer.closeBlocking("PostgreSQL manifest statements")(current.close()))
         state      <- entries
                         .rechunk(PgBlobManifestRepo.WriteBatchEntries)
                         .chunks

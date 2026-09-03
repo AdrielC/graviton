@@ -58,7 +58,9 @@ private[stores] final class ManifestSpool private (
 
   def entries: ZStream[Any, StoreError, ManifestEntry] =
     ZStream
-      .acquireReleaseWith(ZIO.attemptBlocking(ManifestSpool.Reader.open(path)))(reader => ZIO.attemptBlocking(reader.close()).orDie)
+      .acquireReleaseWith(ZIO.attemptBlocking(ManifestSpool.Reader.open(path)))(reader =>
+        graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("manifest spool reader")(reader.close())
+      )
       .flatMap(reader =>
         ZStream.unfoldChunkZIO(reader) { current =>
           ZIO.attemptBlocking(current.readBatch()).map(_.map(batch => batch -> current))
@@ -93,7 +95,7 @@ private[stores] object ManifestSpool:
         )
         new ManifestSpool(path, output)
       }
-    }(_.closeAndDelete.orDie)
+    }(spool => graviton.runtime.lifecycle.ResourceFinalizer.run("manifest spool")(spool.closeAndDelete))
 
   private final class Reader private (input: DataInputStream):
     private var index          = 0L

@@ -319,19 +319,25 @@ private[stores] object GarbageCollectionSpool:
 
   private def stream[A](path: Path, codec: RecordCodec[A]): ZStream[Any, Throwable, A] =
     ZStream
-      .acquireReleaseWith(ZIO.attemptBlocking(Reader.open(path, codec)))(reader => ZIO.attemptBlocking(reader.close()).orDie)
+      .acquireReleaseWith(ZIO.attemptBlocking(Reader.open(path, codec)))(reader =>
+        graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("garbage-collection spool reader")(reader.close())
+      )
       .flatMap(reader => ZStream.unfoldZIO(reader)(current => ZIO.attemptBlocking(current.next().map(_ -> current))))
 
   private def streamInventory(path: Path): ZStream[Any, Throwable, InventoryRecord] =
     stream(path, InventoryCodec)
 
   private def withWriter[A, B](path: Path, codec: RecordCodec[A])(use: Writer[A] => Task[B]): Task[B] =
-    ZIO.acquireReleaseWith(ZIO.attemptBlocking(Writer.open(path, codec)))(writer => ZIO.attemptBlocking(writer.close()).orDie)(use)
+    ZIO.acquireReleaseWith(ZIO.attemptBlocking(Writer.open(path, codec)))(writer =>
+      graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("garbage-collection spool writer")(writer.close())
+    )(use)
 
   private def withPartitionWriters[A, B](paths: Vector[Path], codec: RecordCodec[A])(
     use: PartitionWriters[A] => Task[B]
   ): Task[B] =
-    ZIO.acquireReleaseWith(ZIO.attemptBlocking(PartitionWriters.open(paths, codec)))(writers => ZIO.attemptBlocking(writers.close()).orDie)(
+    ZIO.acquireReleaseWith(ZIO.attemptBlocking(PartitionWriters.open(paths, codec)))(writers =>
+      graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("garbage-collection partition writers")(writers.close())
+    )(
       use
     )
 

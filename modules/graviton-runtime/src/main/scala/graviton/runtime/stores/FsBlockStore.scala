@@ -64,7 +64,7 @@ final class FsBlockStore(
           val channel = Files.newByteChannel(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
           Channels.newInputStream(channel)
         }
-      )(is => ZIO.attemptBlocking(is.close()).orDie)
+      )(is => graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("filesystem block stream")(is.close()))
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
       .mapError {
         case _: java.nio.file.NoSuchFileException => StoreError.NotFound(StoreOperation.GetBlock, key)

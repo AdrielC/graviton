@@ -17,6 +17,7 @@ import graviton.runtime.model.{
   InventoryPageSize,
 }
 import graviton.runtime.config.TransferMemoryConfig
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.stores.{
   BackendInitError,
   BlobMetadataV1,
@@ -105,7 +106,7 @@ final class S3BlobStore(
     ZStream
       .acquireReleaseWith(
         ZIO.attemptBlocking(client.getObject(req))
-      )(is => ZIO.attemptBlocking(is.close()).orDie)
+      )(is => ResourceFinalizer.closeBlocking("S3 blob response stream")(is.close()))
       .flatMap(is => ZStream.fromInputStream(is, chunkSize = 64 * 1024))
       .mapError(storeError(StoreOperation.GetBlob, Some(key)))
 

@@ -2,6 +2,7 @@ package graviton.backend.pg
 
 import graviton.core.bytes.{Digest, HashAlgo}
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.stores.*
 import zio.*
 import zio.stream.ZStream
@@ -143,14 +144,14 @@ final class PgRepairJournal(
     }
 
   private def closeCursor(cursor: PgRepairJournal.Cursor): UIO[Unit] =
-    ZIO.attemptBlocking {
+    ResourceFinalizer.closeBlocking("PostgreSQL repair cursor") {
       try cursor.result.close()
       finally
         try cursor.statement.close()
         finally
           try cursor.connection.rollback()
           finally cursor.connection.close()
-    }.orDie
+    }
 
   private def readDeadLetter(result: java.sql.ResultSet): RepairDeadLetter =
     val algorithmText = result.getString(1)

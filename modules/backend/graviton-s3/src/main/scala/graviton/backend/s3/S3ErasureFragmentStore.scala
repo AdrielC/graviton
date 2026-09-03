@@ -2,6 +2,7 @@ package graviton.backend.s3
 
 import graviton.core.bytes.HashAlgo
 import graviton.core.keys.BinaryKey
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.model.{BlockStoredStatus, ErasureFragment, ErasureFragmentBytes}
 import graviton.runtime.stores.{ErasureFragmentStore, StoreError, StoreOperation}
 import software.amazon.awssdk.core.sync.RequestBody
@@ -36,7 +37,9 @@ final class S3ErasureFragmentStore(
        ZIO.scoped {
          for
            response <-
-             ZIO.acquireRelease(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
+             ZIO.acquireRelease(ZIO.attemptBlocking(client.getObject(request)))(stream =>
+               ResourceFinalizer.closeBlocking("S3 erasure response stream")(stream.close())
+             )
            bytes    <- ZIO.attemptBlocking(response.readNBytes(expectedLength + 1))
            _        <-
              ZIO

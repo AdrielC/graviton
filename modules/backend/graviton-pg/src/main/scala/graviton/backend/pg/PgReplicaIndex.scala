@@ -2,6 +2,7 @@ package graviton.backend.pg
 
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.indexes.ReplicaIndex
 import graviton.runtime.stores.{StoreError, StoreOperation}
 import zio.{IO, Task, ZIO, ZLayer}
@@ -62,7 +63,9 @@ final class PgReplicaIndex(private val dataSource: DataSource) extends ReplicaIn
   private def transaction(effect: Connection => Task[Unit]): Task[Unit] =
     ZIO.scoped {
       ZIO
-        .acquireRelease(ZIO.attemptBlocking(dataSource.getConnection()))(connection => ZIO.attemptBlocking(connection.close()).orDie)
+        .acquireRelease(ZIO.attemptBlocking(dataSource.getConnection()))(connection =>
+          ResourceFinalizer.closeBlocking("PostgreSQL replica-index connection")(connection.close())
+        )
         .flatMap { connection =>
           ZIO.attemptBlocking(connection.setAutoCommit(false)) *>
             effect(connection).tapBoth(

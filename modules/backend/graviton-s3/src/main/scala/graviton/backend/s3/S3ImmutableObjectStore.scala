@@ -1,6 +1,7 @@
 package graviton.backend.s3
 
 import graviton.core.locator.BlobLocator
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.stores.{ImmutableObjectStore, StoreError, StoreOperation}
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.model.*
@@ -65,7 +66,9 @@ class S3ImmutableObjectStore protected[s3] (
       .flatMap { objectTarget =>
         val request = GetObjectRequest.builder().bucket(objectTarget.bucket).key(objectTarget.key).build()
         ZStream
-          .acquireReleaseWith(ZIO.attemptBlocking(client.getObject(request)))(stream => ZIO.attemptBlocking(stream.close()).orDie)
+          .acquireReleaseWith(ZIO.attemptBlocking(client.getObject(request)))(stream =>
+            ResourceFinalizer.closeBlocking("S3 object response stream")(stream.close())
+          )
           .flatMap(stream => ZStream.fromInputStream(stream, chunkSize = 64 * 1024))
       }
       .mapError(storeError(StoreOperation.GetObject))

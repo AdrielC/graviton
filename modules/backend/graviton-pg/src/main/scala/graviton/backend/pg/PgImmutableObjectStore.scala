@@ -1,6 +1,7 @@
 package graviton.backend.pg
 
 import graviton.core.locator.BlobLocator
+import graviton.runtime.lifecycle.ResourceFinalizer
 import graviton.runtime.stores.{ImmutableObjectStore, StoreError, StoreOperation}
 import zio.stream.ZStream
 import zio.{Chunk, IO, Task, UIO, ZIO}
@@ -102,12 +103,12 @@ class PgImmutableObjectStore protected[pg] (protected val dataSource: DataSource
     }
 
   private def closeCursor(cursor: PgObjectCursor): UIO[Unit] =
-    ZIO.attemptBlocking {
+    ResourceFinalizer.closeBlocking("PostgreSQL object cursor") {
       try cursor.result.close()
       finally
         try cursor.statement.close()
         finally cursor.connection.close()
-    }.orDie
+    }
 
 private object PgImmutableObjectStore:
   val FetchSize: Int = 256

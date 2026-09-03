@@ -82,5 +82,6 @@ object MetricKeys:
   val S3ApiCallsTotal                      = "graviton_s3_api_calls_total"
   val S3ApiCallDuration                    = "graviton_s3_api_call_duration_seconds"
   val S3RetriesTotal                       = "graviton_s3_retries_total"
+  val S3MetricEventsDroppedTotal           = "graviton_s3_metric_events_dropped_total"
   val MaintenanceCyclesTotal               = "graviton_maintenance_cycles_total"
   val MaintenanceCycleDuration             = "graviton_maintenance_cycle_duration_seconds"

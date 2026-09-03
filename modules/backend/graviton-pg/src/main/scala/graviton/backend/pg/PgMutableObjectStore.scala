@@ -86,7 +86,10 @@ final class PgMutableObjectStore(dataSource: DataSource) extends PgImmutableObje
         connection.setAutoCommit(false)
         connection
       }
-    )(connection => ZIO.attemptBlocking(connection.rollback()).ignore *> ZIO.attemptBlocking(connection.close()).orDie)
+    )(connection =>
+      ZIO.attemptBlocking(connection.rollback()).ignore *>
+        graviton.runtime.lifecycle.ResourceFinalizer.closeBlocking("PostgreSQL mutable-object connection")(connection.close())
+    )
 
   private def deleteWithin(connection: Connection, locator: BlobLocator): Task[Unit] =
     ZIO.attemptBlocking {

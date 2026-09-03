@@ -143,7 +143,7 @@ final class ErasureBlockStore private (
 
     ZIO.scoped {
       for
-        queue <- Queue.unbounded[Either[(Target, Throwable), (Target, ErasureFragment)]]
+        queue <- Queue.bounded[Either[(Target, Throwable), (Target, ErasureFragment)]](TotalShards)
         _     <- ZIO.foreachDiscard(ordered) { target =>
                    target.store
                      .get(key, target.index, expectedLength)
