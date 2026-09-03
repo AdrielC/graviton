@@ -104,7 +104,7 @@ See the [Transducer Algebra](./core/transducers.md) page for the full API and im
 
 `graviton-core` contains purely functional data structures and codecs:
 
-- Hashing utilities (`HashAlgo`, `Digest`, `MultiHasher`).
+- Type-directed hashing (`Hashable`, `HashAlgo`, `Hash`, `HashBytes`, `MultiHasher`). `Digest` is the broad decoded representation; `HashBytes <: Digest` narrows executable CAS hash results to 20 through 32 bytes. Upload metadata may carry an MD5 checksum for streaming verification, but MD5 is not a `HashAlgo` and cannot identify a CAS object.
 - Binary identifiers (`BinaryKey`, `KeyBits`, `ViewTransform`).
 - Locator abstractions (`BlobLocator`, `LocatorStrategy`).
 - Range utilities (`Bound`, `Interval`, `Span`, `RangeSet`).

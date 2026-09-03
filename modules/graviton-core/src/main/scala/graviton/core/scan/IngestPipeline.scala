@@ -77,7 +77,7 @@ object IngestPipeline:
       def initHot: Hot                                                = (Hasher.hasher(algo, None), 0L)
       def step(h: Hot, chunk: Chunk[Byte]): (Hot, Chunk[Chunk[Byte]]) =
         h._1.foreach { hasher =>
-          val _ = hasher.update(chunk.toArray)
+          val _ = hasher.update(chunk)
         }
         ((h._1, h._2 + chunk.length.toLong), Chunk.single(chunk))
       def flush(h: Hot): (Hot, Chunk[Chunk[Byte]])                    = (h, Chunk.empty)
@@ -90,7 +90,7 @@ object IngestPipeline:
         while idx < chunks.length do
           val c = chunks(idx)
           h._1.foreach { hasher =>
-            val _ = hasher.update(c.toArray)
+            val _ = hasher.update(c)
           }
           total += c.length.toLong
           idx += 1

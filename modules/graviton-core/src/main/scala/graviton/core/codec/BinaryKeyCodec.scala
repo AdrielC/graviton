@@ -37,12 +37,12 @@ object BinaryKeyCodec:
           scodec.bits.ByteVector
             .fromHex(value)
             .toRight(s"Invalid hex digest '$value'")
-            .map(_.toArray)
-            .flatMap(Digest.fromBytes)
-        val keyBits      = digestEither.flatMap(d => KeyBits.create(algo, d, size.toLong))
+            .map(bytes => zio.Chunk.fromIterable(bytes.toIterable))
+            .flatMap(Digest.fromChunk)
+        val keyBits      = digestEither.flatMap(d => KeyBits.fromLong(algo, d, size.toLong))
         Attempt.fromEither(keyBits.left.map(Err(_)))
       },
-      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex.value), keyBits.size)),
+      keyBits => Attempt.successful(((keyBits.algo, keyBits.digest.hex.value), BigInt(keyBits.size))),
     )
 
   private val attributesCodec: Codec[ListMap[String, String]] =
@@ -216,7 +216,7 @@ object BinaryKeyCodec:
     else if bits.algo == null then Left(s"$field algorithm cannot be null")
     else if bits.digest == null then Left(s"$field digest cannot be null")
     else if bits.digest.length != bits.algo.hashBytes then Left(s"$field digest length does not match ${bits.algo.primaryName}")
-    else ensure(bits.size >= 0L, s"$field size cannot be negative")
+    else Right(())
 
   private def validateView(view: ViewTransform): Either[String, Unit] =
     measureView(view, Long.MaxValue).map(_ => ())

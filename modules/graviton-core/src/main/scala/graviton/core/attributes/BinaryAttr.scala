@@ -24,6 +24,22 @@ object BinaryAttr:
   type Plain   = Rec[Id]
   type Partial = Rec[Option]
 
+  // Kyo record keys include their Tag value. Build container tags dynamically
+  // from the nominal, companion-owned tags supplied by RefinedTypeExt and
+  // RefinedSubtypeExt, then retain the exact instances used by reads and writes.
+  private def optionTag[A](using Tag[A]): Tag[Option[A]]         = Tag.derive
+  private def mapTag[K, V](using Tag[K], Tag[V]): Tag[Map[K, V]] = Tag.derive
+
+  private val partialSizeTag: Tag[Option[FileSize]]                                         = optionTag[FileSize]
+  private val partialChunkCountTag: Tag[Option[ChunkCount]]                                 = optionTag[ChunkCount]
+  private val partialMimeTag: Tag[Option[Mime]]                                             = optionTag[Mime]
+  private val partialDigestsTag: Tag[Option[Map[Algo, HexLower]]]                           =
+    optionTag[Map[Algo, HexLower]](using mapTag[Algo, HexLower])
+  private val partialCustomTag: Tag[Option[Map[CustomAttributeName, CustomAttributeValue]]] =
+    optionTag[Map[CustomAttributeName, CustomAttributeValue]](
+      using mapTag[CustomAttributeName, CustomAttributeValue]
+    )
+
   import BinaryAttrSyntax.*
 
   def empty: Record[Any] =
@@ -58,11 +74,11 @@ object BinaryAttr:
     custom: Option[Map[CustomAttributeName, CustomAttributeValue]] = Some(Map.empty),
   ): Partial =
     build[Option](size, chunkCount, mime, digests, custom)(
-      using scala.compiletime.summonInline[Tag[Option[FileSize]]],
-      scala.compiletime.summonInline[Tag[Option[ChunkCount]]],
-      scala.compiletime.summonInline[Tag[Option[Mime]]],
-      scala.compiletime.summonInline[Tag[Option[Map[Algo, HexLower]]]],
-      scala.compiletime.summonInline[Tag[Option[Map[CustomAttributeName, CustomAttributeValue]]]],
+      using partialSizeTag,
+      partialChunkCountTag,
+      partialMimeTag,
+      partialDigestsTag,
+      partialCustomTag,
     )
 
   def plain(
@@ -81,20 +97,25 @@ object BinaryAttr:
     )
 
   object Access:
+    extension (rec: Partial)
+      def sizeValue: Option[FileSize] =
+        given Tag[Option[FileSize]] = partialSizeTag
+        rec.fileSize
 
-    extension [F[_]](rec: Rec[F])
-      inline def sizeValue: F[FileSize] = rec.fileSize
-
-      inline def chunkCountValue: F[ChunkCount] =
+      def chunkCountValue: Option[ChunkCount] =
+        given Tag[Option[ChunkCount]] = partialChunkCountTag
         rec.chunkCount
 
-      inline def mimeValue: F[Mime] =
+      def mimeValue: Option[Mime] =
+        given Tag[Option[Mime]] = partialMimeTag
         rec.mime
 
-      inline def digestsValue: F[Map[Algo, HexLower]] =
+      def digestsValue: Option[Map[Algo, HexLower]] =
+        given Tag[Option[Map[Algo, HexLower]]] = partialDigestsTag
         rec.digests
 
-      inline def customValue: F[Map[CustomAttributeName, CustomAttributeValue]] =
+      def customValue: Option[Map[CustomAttributeName, CustomAttributeValue]] =
+        given Tag[Option[Map[CustomAttributeName, CustomAttributeValue]]] = partialCustomTag
         rec.custom
 
   object PartialOps:
@@ -115,13 +136,3 @@ object BinaryAttr:
 
       def customOrEmpty: Map[CustomAttributeName, CustomAttributeValue] =
         rec.customValue.getOrElse(Map.empty)
-
-  given Tag[FileSize]                    =
-    scala.compiletime.summonInline[Tag[Long]].asInstanceOf[Tag[FileSize]]
-  given Tag[Mime]                        = Tag.derive
-  given Tag[HexLower]                    = Tag.derive
-  given Tag[Algo]                        = Tag.derive
-  given Tag[CustomAttributeName]         = Tag.derive
-  given Tag[CustomAttributeValue]        = Tag.derive
-  given [A: Tag]: Tag[Option[A]]         = Tag.derive
-  given [K: Tag, V: Tag]: Tag[Map[K, V]] = Tag.derive

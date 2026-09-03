@@ -1,10 +1,29 @@
 package graviton.core.bytes
 
+import zio.NonEmptyChunk
 import zio.prelude.{NonEmptySortedMap, Validation}
+import scala.annotation.targetName
 
 final case class MultiHasher private (hashers: MultiHasher.Hashers):
-  def update(chunk: Hasher.Digestable): MultiHasher =
-    copy(hashers = MultiHasher.Hashers(hashers.mapValues(hasher => hasher.update(chunk))))
+  @targetName("updateHashable")
+  def update[A: Hashable](value: A): MultiHasher =
+    copy(hashers = MultiHasher.Hashers.fromPairs(hashers.map((algo, hasher) => algo -> hasher.update(value))))
+
+  @targetName("update")
+  def updateLegacy(value: Hasher.Digestable): MultiHasher =
+    copy(hashers = MultiHasher.Hashers.fromPairs(hashers.map((algo, hasher) => algo -> hasher.updateLegacy(value))))
+
+  def hashes: Validation[HashError, MultiHasher.Hashes] =
+    Validation
+      .validateAll(hashers.map((_, hasher) => Validation.fromEither(hasher.hash)))
+      .flatMap(results =>
+        Validation.fromEither(
+          NonEmptyChunk
+            .fromIterableOption(results)
+            .toRight(HashError.InvariantViolation("MultiHasher cannot lose its final algorithm"))
+            .map(MultiHasher.Hashes(_))
+        )
+      )
 
   def results: Validation[String, MultiHasher.Results] =
     Validation
@@ -16,6 +35,11 @@ object MultiHasher:
   opaque type Hashers <: NonEmptySortedMap[HashAlgo, Hasher] = NonEmptySortedMap[HashAlgo, Hasher]
 
   opaque type Results <: NonEmptySortedMap[HashAlgo, Digest] = NonEmptySortedMap[HashAlgo, Digest]
+
+  opaque type Hashes <: NonEmptyChunk[Hash] = NonEmptyChunk[Hash]
+
+  object Hashes:
+    def apply(results: NonEmptyChunk[Hash]): Hashes = results
 
   object Results:
     def apply(iterable: Iterable[(HashAlgo, Digest)]): Either[String, Results] =
@@ -29,6 +53,12 @@ object MultiHasher:
   object Hashers:
 
     def apply(hashers: NonEmptySortedMap[HashAlgo, Hasher]): Hashers = hashers
+
+    private[bytes] def fromPairs(pairs: Iterable[(HashAlgo, Hasher)]): Hashers =
+      NonEmptySortedMap
+        .fromIterableOption(pairs)
+        .map(MultiHasher.Hashers(_))
+        .getOrElse(throw new IllegalStateException("MultiHasher cannot lose its final algorithm"))
 
     def apply(algo: (HashAlgo, Hasher), algos: (HashAlgo, Hasher)*): Hashers =
       NonEmptySortedMap(algo, algos*)
@@ -54,5 +84,11 @@ object MultiHasher:
   def make(algorithm: HashAlgo, algorithms: HashAlgo*): Either[String, MultiHasher] =
     val acc = algorithms.foldLeft(algorithm.hasher(None).map(hasher => Hashers(algorithm -> hasher))) { (acc, algo) =>
       acc.flatMap(results => algo.hasher(None).map(hasher => results.add(algo, hasher)))
+    }
+    acc.map(MultiHasher(_))
+
+  def makeTyped(algorithm: HashAlgo, algorithms: HashAlgo*): Either[HashError, MultiHasher] =
+    val acc = algorithms.foldLeft(Hasher.make(algorithm).map(hasher => Hashers(algorithm -> hasher))) { (acc, algo) =>
+      acc.flatMap(results => Hasher.make(algo).map(hasher => results.add(algo, hasher)))
     }
     acc.map(MultiHasher(_))

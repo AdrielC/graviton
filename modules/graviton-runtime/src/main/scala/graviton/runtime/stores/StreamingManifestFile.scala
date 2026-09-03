@@ -20,7 +20,7 @@ import java.nio.file.{Files, Path, StandardOpenOption}
  */
 private[stores] object StreamingManifestFile:
 
-  private val MagicV4: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '4'.toByte)
+  private val MagicV5: Array[Byte] = Array('G'.toByte, 'V'.toByte, 'M'.toByte, '5'.toByte)
   private val MaxKeyBytes          = 512
   private val MaxIdentityBytes     = 120
   private val ReadBatchEntries     = 256
@@ -148,7 +148,7 @@ private[stores] object StreamingManifestFile:
         )
       )
       try
-        output.write(MagicV4)
+        output.write(MagicV5)
         writeMetadata(output, metadata)
         output.writeBoolean(authentication.nonEmpty)
         authentication.foreach(writeAuthentication(output, _))
@@ -195,7 +195,7 @@ private[stores] object StreamingManifestFile:
       if keyBytes.length != keyLength then throw new EOFException("Unexpected end of manifest block key")
       val keyText   = new String(keyBytes, StandardCharsets.US_ASCII)
       val block     = KeyBits
-        .fromString(keyText)
+        .parse(keyText)
         .flatMap(BinaryKey.block)
         .fold(message => throw new IllegalArgumentException(message), identity)
       val offset    = input.readLong()
@@ -240,8 +240,8 @@ private[stores] object StreamingManifestFile:
     new DataInputStream(new BufferedInputStream(Files.newInputStream(path, StandardOpenOption.READ)))
 
   private def readHeaderFrom(input: DataInputStream): EnvelopeHeader =
-    val magic          = input.readNBytes(MagicV4.length)
-    if !java.util.Arrays.equals(magic, MagicV4) then throw new IllegalArgumentException("Not a Graviton GVM4 streaming manifest")
+    val magic          = input.readNBytes(MagicV5.length)
+    if !java.util.Arrays.equals(magic, MagicV5) then throw new IllegalArgumentException("Not a Graviton GVM5 streaming manifest")
     val metadata       = readMetadata(input)
     val authentication = Option.when(input.readBoolean())(readAuthentication(input))
     val totalSize      = FileSize
@@ -262,8 +262,8 @@ private[stores] object StreamingManifestFile:
     writeText(output, authentication.chunker.value)
     output.writeInt(authentication.proof.version)
     writeText(output, authentication.proof.keyId.value)
-    output.writeInt(authentication.proof.canonicalDigest.length)
-    output.write(authentication.proof.canonicalDigest.toArray)
+    output.writeInt(authentication.proof.merkleRoot.length)
+    output.write(authentication.proof.merkleRoot.toArray)
     output.writeInt(authentication.proof.signature.length)
     output.write(authentication.proof.signature.toArray)
 
@@ -294,7 +294,7 @@ private[stores] object StreamingManifestFile:
     val keyId     = ManifestKeyId
       .either(readText(input, "key id"))
       .fold(message => throw new IllegalArgumentException(message), identity)
-    val digest    = readFixedBytes(input, "canonical digest", ManifestProof.DigestBytes)
+    val digest    = readFixedBytes(input, "Merkle root", ManifestProof.RootBytes)
     val signature = readFixedBytes(input, "signature", ManifestProof.SignatureBytes)
     val proof     = ManifestProof
       .make(version, keyId, digest, signature)

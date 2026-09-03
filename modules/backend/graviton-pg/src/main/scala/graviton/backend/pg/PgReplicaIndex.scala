@@ -86,7 +86,7 @@ final class PgReplicaIndex(private val dataSource: DataSource) extends ReplicaIn
         case _: BinaryKey.View     => "view",
     )
     statement.setString(2, key.bits.algo.primaryName.toLowerCase.replace("-", ""))
-    statement.setBytes(3, key.bits.digest.bytes)
+    statement.setBytes(3, key.bits.digest.toInteropArray)
     statement.setLong(4, key.bits.size)
 
   private def parseLocator(raw: String): BlobLocator =

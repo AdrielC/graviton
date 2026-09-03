@@ -31,7 +31,7 @@ object Transducers:
   ): Transducer[Chunk[Byte], (Chunk[Byte], Either[String, Digest]), Unit] =
     Transducer.map[Chunk[Byte], (Chunk[Byte], Either[String, Digest])] { chunk =>
       val digest = Hasher.hasher(algo, None).flatMap { h =>
-        val _ = h.update(chunk.toArray)
+        val _ = h.update(chunk)
         h.digest
       }
       (chunk, digest)

@@ -86,10 +86,10 @@ final class InMemoryBlobStore private (
                           .when(bytes.isEmpty)
       hasher         <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
       algo            = hasher.algo
-      _               = hasher.update(bytes.toArray)
+      _               = hasher.update(bytes)
       digest         <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
       bits           <- ZIO
-                          .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                          .fromEither(KeyBits.fromLong(algo, digest, bytes.length.toLong))
                           .mapError(msg => new IllegalArgumentException(msg))
       key            <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
       size           <- ZIO

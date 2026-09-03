@@ -273,7 +273,7 @@ final class S3BlockStore(
 
   private def sha256Checksum(block: CanonicalBlock, payload: Array[Byte]): Task[String] =
     block.key.bits.algo match
-      case HashAlgo.Sha256 => ZIO.succeed(Base64.getEncoder.encodeToString(block.key.bits.digest.bytes))
+      case HashAlgo.Sha256 => ZIO.succeed(Base64.getEncoder.encodeToString(block.key.bits.digest.toInteropArray))
       case _               =>
         ZIO.attempt {
           val digest = java.security.MessageDigest.getInstance("SHA-256").digest(payload)
@@ -318,7 +318,7 @@ final class S3BlockStore(
             val digest = fileName.substring(0, separator)
             val size   = fileName.substring(separator + 1)
             for
-              bits <- KeyBits.fromString(s"$algoSegment:$digest:$size")
+              bits <- KeyBits.parse(s"$algoSegment:$digest:$size")
               key  <- BinaryKey.block(bits)
               _    <- Either.cond(objectKeyFor(key) == objectKey, (), "object key is not canonical")
             yield key

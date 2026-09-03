@@ -25,7 +25,7 @@ object ShardcakeIntegrationSpec extends ZIOSpecDefault:
   private val session = UploadSessionId.applyUnsafe("ab573594-abaa-44fa-867a-8c733bf87f6c")
   private val key     = UploadSessionKey(tenant, session)
   private val blobKey = KeyBits
-    .fromString(s"sha-256:${"00" * 32}:1")
+    .parse(s"sha-256:${"00" * 32}:1")
     .flatMap(BinaryKey.blob)
     .fold(message => throw new IllegalStateException(message), identity)
 

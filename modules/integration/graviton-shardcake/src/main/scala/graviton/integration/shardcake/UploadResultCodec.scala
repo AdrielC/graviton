@@ -58,7 +58,7 @@ private[shardcake] object UploadResultCodec:
     else
       codec.decode(bytes.toArray).left.map(error => Error.Invalid(error.getMessage)).flatMap { wire =>
         for
-          bits        <- KeyBits.fromString(wire.blobKey).left.map(Error.Invalid.apply)
+          bits        <- KeyBits.parse(wire.blobKey).left.map(Error.Invalid.apply)
           key         <- BinaryKey.blob(bits).left.map(Error.Invalid.apply)
           host        <- UploadNodeHost.either(wire.ownerHost).left.map(Error.Invalid.apply)
           controlPort <- UploadNodePort.either(wire.ownerControlPort).left.map(Error.Invalid.apply)

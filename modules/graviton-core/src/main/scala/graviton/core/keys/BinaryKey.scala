@@ -1,5 +1,6 @@
 package graviton.core.keys
 
+import graviton.core.types.{BlockSize, FileSize, MaxBlockBytes}
 import zio.schema.{DeriveSchema, Schema}
 
 sealed trait BinaryKey derives CanEqual:
@@ -7,10 +8,10 @@ sealed trait BinaryKey derives CanEqual:
 
 object BinaryKey:
 
-  final case class Blob(bits: KeyBits)     extends BinaryKey
-  final case class Block(bits: KeyBits)    extends BinaryKey
-  final case class Chunk(bits: KeyBits)    extends BinaryKey
-  final case class Manifest(bits: KeyBits) extends BinaryKey
+  final case class Blob private[graviton] (bits: KeyBits)     extends BinaryKey
+  final case class Block private[graviton] (bits: KeyBits)    extends BinaryKey
+  final case class Chunk private[graviton] (bits: KeyBits)    extends BinaryKey
+  final case class Manifest private[graviton] (bits: KeyBits) extends BinaryKey
 
   final case class View(
     bits: KeyBits,
@@ -27,16 +28,22 @@ object BinaryKey:
       yield view
 
   def blob(bits: KeyBits): Either[String, Blob] =
-    if bits.size <= 0 then Left("Blob size must be positive") else Right(Blob(bits))
+    FileSize.either(bits.size).map(_ => Blob(bits)).left.map(message => s"Invalid blob size: $message")
 
   def block(bits: KeyBits): Either[String, Block] =
-    if bits.size <= 0 then Left("Block size must be positive") else Right(Block(bits))
+    if bits.size > MaxBlockBytes.toLong then Left(s"Block size must not exceed $MaxBlockBytes bytes, received ${bits.size}")
+    else
+      BlockSize
+        .either(bits.size.toInt)
+        .map(_ => Block(bits))
+        .left
+        .map(message => s"Invalid block size: $message")
 
   def chunk(bits: KeyBits): Either[String, Chunk] =
-    if bits.size < 0 then Left("Chunk size cannot be negative") else Right(Chunk(bits))
+    Right(Chunk(bits))
 
   def manifest(bits: KeyBits): Either[String, Manifest] =
-    if bits.size < 0 then Left("Manifest size cannot be negative") else Right(Manifest(bits))
+    Right(Manifest(bits))
 
   /**
    * Deterministic view key derivation.

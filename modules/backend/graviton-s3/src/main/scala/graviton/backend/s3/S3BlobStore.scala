@@ -231,7 +231,7 @@ final class S3BlobStore(
         fileName.lastIndexOf('-') match
           case separator if separator > 0 && separator < fileName.length - 1 =>
             for
-              bits <- KeyBits.fromString(s"$algorithm:${fileName.substring(0, separator)}:${fileName.substring(separator + 1)}")
+              bits <- KeyBits.parse(s"$algorithm:${fileName.substring(0, separator)}:${fileName.substring(separator + 1)}")
               key  <- BinaryKey.blob(bits)
               _    <- Either.cond(objectKeyFor(key) == value, (), "object key is not canonical")
             yield key
@@ -555,10 +555,13 @@ private final case class PutState(
   def finish(client: S3Client, plan: BlobWritePlan): IO[Throwable, BlobWriteResult] =
     for
       _              <- ZIO.fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)")).when(totalBytes <= 0L)
-      digest         <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
-      bits           <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, totalBytes)).mapError(msg => new IllegalArgumentException(msg))
-      key            <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
       size           <- ZIO.fromEither(FileSize.either(totalBytes)).mapError(msg => new IllegalArgumentException(msg))
+      hashed         <- ZIO.fromEither(hasher.hashed).mapError(error => new IllegalArgumentException(error.message))
+      _              <- ZIO
+                          .fail(new IllegalStateException(s"Hasher observed ${hashed.size} bytes but upload counted $size"))
+                          .unless(hashed.size == size)
+      bits            = KeyBits.fromHashed(hashed)
+      key            <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
       count          <- ZIO.fromEither(ChunkCount.either(deriveChunkCount(totalBytes))).mapError(msg => new IllegalArgumentException(msg))
       attrs           = plan.attributes.confirmSize(size).confirmChunkCount(count)
       validatedAttrs <- ZIO

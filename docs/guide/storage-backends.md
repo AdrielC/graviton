@@ -47,7 +47,7 @@ Example:
 
 - `<root>/cas/manifests/<algo>/<hex>-<size>.manifest`
 
-Filesystem CAS writes one clean-store `GVM4` envelope. It records bounded schema-versioned blob metadata, canonical media type, chunker identity, optional key ID and proof, total size, block count, and every ordered block key and byte span. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, metadata-size, and total-size checks. Writes use a temporary file, force contents, and atomically replace the destination. Readers reject every older or unknown envelope and verify the complete metadata-bound proof before requesting the first block. Large manifests remain available to `stat` and `BlobStore.get`; inspection uses opaque bounded pages rather than materializing the complete manifest.
+Filesystem CAS writes one clean-store `GVM5` envelope. It records bounded schema-versioned blob metadata, canonical media type, chunker identity, optional key ID and signed Merkle root, total size, block count, and every ordered block key and byte span. Entries are written and read incrementally, with strict count, contiguity, key-size, trailing-byte, metadata-size, and total-size checks. The proof builder uses 64-entry leaves and 64-child branches, authenticates child index and byte ranges, and retains only a bounded frontier. Writes use a temporary file, force contents, and atomically replace the destination. Readers reject every older or unknown envelope and verify the complete metadata-bound Merkle root before requesting the first block. Large manifests remain available to `stat` and `BlobStore.get`; inspection uses opaque bounded pages rather than materializing the complete manifest.
 
 ## S3-compatible blocks (`GRAVITON_BLOB_BACKEND=s3|minio`)
 
@@ -104,7 +104,7 @@ Graviton already chunks and content-addresses bytes before writing block objects
 
 - **Block bytes** in the chosen block store
 - **Manifest references** in Postgres for the S3/MinIO server paths
-- **Streaming clean-store `GVM4` manifest files** for `Graviton.fs`, `graviton-cli`, and filesystem server mode
+- **Streaming clean-store `GVM5` manifest files** for `Graviton.fs`, `graviton-cli`, and filesystem server mode
 - **BlobId** returned from the HTTP API is derived from the blob hash + total byte length
 
 ### Deletion and metadata semantics

@@ -19,7 +19,7 @@ object FramedManifestSpec extends ZIOSpecDefault:
     ZIO.fromEither:
       for
         digest <- Digest.make(HashAlgo.Sha256)(zeroDigest)
-        bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+        bits   <- KeyBits.fromLong(HashAlgo.Sha256, digest, size)
       yield bits
 
   override def spec: Spec[TestEnvironment, Any] =

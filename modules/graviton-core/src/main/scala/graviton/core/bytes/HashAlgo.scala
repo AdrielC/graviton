@@ -8,8 +8,6 @@ import HashAlgo.AlgoName
 import zio.{Chunk, NonEmptyChunk}
 import scala.compiletime.ops.string.+
 import graviton.core.keys.KeyBits
-import scodec.bits.ByteVector
-import java.nio.charset.StandardCharsets
 
 enum HashAlgo(val hexLength: Int, jceNames: NonEmptyChunk[AlgoName]) derives CanEqual:
   case Sha256 extends HashAlgo(64, NonEmptyChunk("sha-256", "sha256"))
@@ -27,22 +25,10 @@ enum HashAlgo(val hexLength: Int, jceNames: NonEmptyChunk[AlgoName]) derives Can
 
   def apply(value: Hasher.Digestable): Either[String, KeyBits] =
     for
-      digest         <- Right(Digest.make(this))
-      (digest, size) <- value match
-                          case byteVector: ByteVector => digest(byteVector.toArray).map(digest => (digest, byteVector.length.toLong))
-                          case chunk: Chunk[Byte]     => digest(chunk).map(digest => (digest, chunk.length.toLong))
-                          case array: Array[Byte]     => digest(array).map(digest => (digest, array.length.toLong))
-                          case string: String         =>
-                            (for
-                              bytes  <- ByteVector.fromHex(string).toRight(s"Invalid hex string '$string'")
-                              digest <- Digest.fromBytes(bytes.toArray)
-                            yield (digest, bytes.length.toLong))
-                              .orElse(
-                                digest(string.getBytes(StandardCharsets.UTF_8))
-                                  .map(digest => (digest, string.length.toLong))
-                              )
-      keyBits        <- KeyBits.create(this, digest, size)
-    yield keyBits
+      hasher <- Hasher.hasher(this)
+      _       = hasher.updateLegacy(value)
+      bits   <- hasher.digestKeyBits
+    yield bits
 
 object HashAlgo:
 

@@ -272,7 +272,7 @@ final class FsBlockStore(
       digest <- Digest.fromString(fileName.substring(0, separator))
       size   <- fileName.substring(separator + 1).toLongOption.toRight(s"Invalid block size: $path")
       algo   <- HashAlgo.values.find(a => algoPathSegment(a) == algorithm).toRight(s"Invalid block algorithm directory: $algorithm")
-      bits   <- KeyBits.create(algo, digest, size)
+      bits   <- KeyBits.fromLong(algo, digest, size)
       key    <- BinaryKey.block(bits)
     yield key
 

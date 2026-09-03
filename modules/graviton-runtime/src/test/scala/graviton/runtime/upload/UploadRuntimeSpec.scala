@@ -24,7 +24,7 @@ object UploadRuntimeSpec extends ZIOSpecDefault:
     UploadNodePort.applyUnsafe(54332),
   )
   private val blobKey = KeyBits
-    .fromString(s"sha-256:${"00" * 32}:4")
+    .parse(s"sha-256:${"00" * 32}:4")
     .flatMap(BinaryKey.blob)
     .fold(message => throw new IllegalStateException(message), identity)
   private val result  = LocalizedUploadResult(blobKey, IngestStats(4L, 1, 1, 0, 0.01), local)

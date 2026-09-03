@@ -76,7 +76,7 @@ This port coordinates ordinary blob work with destructive repository maintenance
 
 ## `ManifestIntegrity` / `ManifestKeyService`
 
-`ManifestIntegrity` incrementally authenticates manifest semantics without collecting entries. Its proof binds blob identity, total size, chunker, count, and ordered block keys and spans. `ManifestKeyService` is the ZIO boundary for local HMAC, KMS, or HSM implementations. Built-in filesystem and PostgreSQL repositories can require proof verification before returning any block reference, so block storage is not touched when metadata authentication fails.
+`ManifestIntegrity` incrementally authenticates manifest semantics without collecting entries. Its version-3 proof binds blob identity, total size, chunker, count, metadata, and ordered block keys and spans into a version-1 Merkle B-tree root. Leaves and branches have a maximum fanout of 64, and child summaries authenticate their index and byte ranges. `ManifestKeyService` is the ZIO boundary for local HMAC, KMS, or HSM implementations. Built-in filesystem and PostgreSQL repositories can require root and signature verification before returning any block reference, so block storage is not touched when metadata authentication fails.
 
 ## `TenantStoreProvider` / `TenantContext`
 

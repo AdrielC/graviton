@@ -25,7 +25,7 @@ object IngestPipelineSpec extends ZIOSpecDefault:
   /** Independently hash a byte array for comparison. */
   private def referenceDigest(data: Array[Byte]): Either[String, Digest] =
     Hasher.hasher(algo, None).flatMap { h =>
-      val _ = h.update(data)
+      val _ = h.update(Chunk.fromArray(data))
       h.digest
     }
 

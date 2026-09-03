@@ -3,22 +3,27 @@ package graviton.core.attributes
 import graviton.core.types.*
 import kyo.Record
 import kyo.Record.`~`
+import kyo.Tag
 
 object BinaryAttrSyntax:
   extension [F[_], Fields](rec: Record[Fields])
-    inline def withSize(value: F[FileSize]): Record[Fields & ("fileSize" ~ F[FileSize])] =
+    inline def withSize(value: F[FileSize])(using Tag[F[FileSize]]): Record[Fields & ("fileSize" ~ F[FileSize])] =
       rec & ("fileSize" ~ value)
 
-    inline def withChunkCount(value: F[ChunkCount]): Record[Fields & ("chunkCount" ~ F[ChunkCount])] =
+    inline def withChunkCount(value: F[ChunkCount])(using Tag[F[ChunkCount]]): Record[Fields & ("chunkCount" ~ F[ChunkCount])] =
       rec & ("chunkCount" ~ value)
 
-    inline def withMime(value: F[Mime]): Record[Fields & ("mime" ~ F[Mime])] =
+    inline def withMime(value: F[Mime])(using Tag[F[Mime]]): Record[Fields & ("mime" ~ F[Mime])] =
       rec & ("mime" ~ value)
 
-    inline def withDigests(value: F[Map[Algo, HexLower]]): Record[Fields & ("digests" ~ F[Map[Algo, HexLower]])] =
+    inline def withDigests(value: F[Map[Algo, HexLower]])(
+      using Tag[F[Map[Algo, HexLower]]]
+    ): Record[Fields & ("digests" ~ F[Map[Algo, HexLower]])] =
       rec & ("digests" ~ value)
 
     inline def withCustom(
       value: F[Map[CustomAttributeName, CustomAttributeValue]]
+    )(
+      using Tag[F[Map[CustomAttributeName, CustomAttributeValue]]]
     ): Record[Fields & ("custom" ~ F[Map[CustomAttributeName, CustomAttributeValue]])] =
       rec & ("custom" ~ value)

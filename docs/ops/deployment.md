@@ -260,7 +260,7 @@ For filesystem mode, stop the prior writer before starting the new one. For S3 p
 ./scripts/qualify-node-replacement.sh graviton:candidate
 ```
 
-The harness proves manager replacement, independent node replacement, writes during replacement, and byte-exact cross-node reads on one clean `GVM4` store. This pre-1.0 line does not include legacy manifest readers or backfill machinery. A future compatibility promise requires a separately designed format policy and explicit evidence.
+The harness proves manager replacement, independent node replacement, writes during replacement, and byte-exact cross-node reads on one clean `GVM5` store. This pre-1.0 line does not include legacy manifest readers or backfill machinery. A future compatibility promise requires a separately designed format policy and explicit evidence.
 
 After the replacement gate, run a longer fault workload:
 

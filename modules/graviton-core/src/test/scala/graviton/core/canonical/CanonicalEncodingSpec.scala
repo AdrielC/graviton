@@ -10,7 +10,7 @@ object CanonicalEncodingSpec extends ZIOSpecDefault:
   private def makeBits(size: Long, hex: String): Either[String, KeyBits] =
     for
       digest <- Digest.fromString(hex)
-      bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+      bits   <- KeyBits.fromLong(HashAlgo.Sha256, digest, size)
     yield bits
 
   override def spec: Spec[TestEnvironment, Any] =

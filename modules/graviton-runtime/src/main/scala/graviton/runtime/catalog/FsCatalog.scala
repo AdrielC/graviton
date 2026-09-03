@@ -259,7 +259,7 @@ object FsCatalog:
                      folder    <-
                        value.folder.map(CatalogFolderId.parse).fold[Either[String, Option[CatalogFolderId]]](Right(None))(_.map(Some(_)))
                      name      <- CatalogName.parse(value.name)
-                     bits      <- KeyBits.fromString(value.blob)
+                     bits      <- KeyBits.parse(value.blob)
                      blob      <- BinaryKey.blob(bits)
                      mediaType <- MediaTypeText.parse(value.mediaType)
                      created   <-

@@ -58,7 +58,7 @@ object CasRoundTripSpec extends ZIOSpecDefault:
           yield assertTrue(
             statOpt.isDefined,
             statOpt.get.size.value == data.length.toLong,
-            statOpt.get.digest != Digest.empty,
+            statOpt.get.digest.length == HashAlgo.Sha256.hashBytes,
           )
         },
         test("duplicate data produces same blob key") {
@@ -226,7 +226,7 @@ object CasRoundTripSpec extends ZIOSpecDefault:
 
       // Compute expected hash for comparison
       hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(msg => new IllegalStateException(msg))
-      _       = hasher.update(data)
+      _       = hasher.update(Chunk.fromArray(data))
       digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
 
       // Manifest entries should cover the full blob

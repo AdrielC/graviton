@@ -18,6 +18,6 @@ object GrpcProtocol:
       else Chunk.fromArray(value.toByteArray).refineEither[MaxLength[1048576]]
 
   def parseBlobKey(value: String): Either[String, BinaryKey.Blob] =
-    KeyBits.fromString(value).flatMap(BinaryKey.blob)
+    KeyBits.parse(value).flatMap(BinaryKey.blob)
 
   def render(key: BinaryKey): String = key.bits.render

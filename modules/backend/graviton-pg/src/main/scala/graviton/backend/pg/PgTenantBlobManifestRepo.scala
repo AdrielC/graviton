@@ -186,7 +186,7 @@ final class PgTenantBlobManifestRepo private (
                      try
                        bindScope(statement, 1)
                        statement.setString(3, algorithm)
-                       statement.setBytes(4, blob.bits.digest.bytes)
+                       statement.setBytes(4, blob.bits.digest.toInteropArray)
                        statement.setLong(5, blob.bits.size)
                        val rows = statement.executeQuery()
                        try
@@ -218,7 +218,7 @@ final class PgTenantBlobManifestRepo private (
                      try
                        bindScope(statement, 1)
                        statement.setString(3, algorithm)
-                       statement.setBytes(4, blob.bits.digest.bytes)
+                       statement.setBytes(4, blob.bits.digest.toInteropArray)
                        statement.setLong(5, blob.bits.size)
                        val rows = statement.executeQuery()
                        try
@@ -244,7 +244,7 @@ final class PgTenantBlobManifestRepo private (
                   after.fold[Either[String, Option[BinaryKey.Blob]]](Right(None))(cursor =>
                     InventoryCursor
                       .decode(cursor, InventoryNamespace.PostgreSql)
-                      .flatMap(KeyBits.fromString)
+                      .flatMap(KeyBits.parse)
                       .flatMap(BinaryKey.blob)
                       .map(Some(_))
                   )
@@ -340,7 +340,7 @@ final class PgTenantBlobManifestRepo private (
       blocking(StoreOperation.GetManifest) { connection =>
         val statement = connection.prepareStatement(
           """SELECT byte_length, block_count, manifest_proof_version, manifest_chunker,
-            |       manifest_key_id, manifest_digest, manifest_signature, metadata::text
+            |       manifest_key_id, manifest_merkle_root, manifest_signature, metadata::text
             |FROM graviton.tenant_blob
             |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
             |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
@@ -348,7 +348,7 @@ final class PgTenantBlobManifestRepo private (
         try
           bindScope(statement, 1)
           statement.setString(3, algorithm)
-          statement.setBytes(4, blob.bits.digest.bytes)
+          statement.setBytes(4, blob.bits.digest.toInteropArray)
           statement.setLong(5, blob.bits.size)
           val rows = statement.executeQuery()
           try
@@ -382,7 +382,7 @@ final class PgTenantBlobManifestRepo private (
         val statement = connection.prepareStatement(
           """UPDATE graviton.tenant_blob SET
             |  manifest_proof_version = ?, manifest_chunker = ?, manifest_key_id = ?,
-            |  manifest_digest = ?, manifest_signature = ?
+            |  manifest_merkle_root = ?, manifest_signature = ?
             |WHERE tenant_id = ?::uuid AND storage_domain_id = ?
             |  AND alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
         )
@@ -393,11 +393,11 @@ final class PgTenantBlobManifestRepo private (
               statement.setInt(1, value.version)
               statement.setString(2, chunker.value)
               statement.setString(3, value.keyId.value)
-              statement.setBytes(4, value.canonicalDigest.toArray)
+              statement.setBytes(4, value.merkleRoot.toArray)
               statement.setBytes(5, value.signature.toArray)
           bindScope(statement, 6)
           statement.setString(8, algorithm)
-          statement.setBytes(9, blob.bits.digest.bytes)
+          statement.setBytes(9, blob.bits.digest.toInteropArray)
           statement.setLong(10, blob.bits.size)
           if statement.executeUpdate() != 1 then throw new IllegalStateException("tenant manifest proof row disappeared")
         finally statement.close()
@@ -463,7 +463,7 @@ final class PgTenantBlobManifestRepo private (
                      try
                        bindScope(statement, 1)
                        statement.setString(3, algorithm)
-                       statement.setBytes(4, blob.bits.digest.bytes)
+                       statement.setBytes(4, blob.bits.digest.toInteropArray)
                        statement.setLong(5, blob.bits.size)
                        statement.setInt(6, blockCount)
                        statement.setTimestamp(7, java.sql.Timestamp.from(ingestedAt))
@@ -567,7 +567,7 @@ final class PgTenantBlobManifestRepo private (
         try
           bindScope(statement, 1)
           statement.setString(3, algorithm)
-          statement.setBytes(4, blob.bits.digest.bytes)
+          statement.setBytes(4, blob.bits.digest.toInteropArray)
           statement.setLong(5, blob.bits.size)
           val rows = statement.executeQuery()
           try Option.when(rows.next())(rows.getLong(1))
@@ -620,17 +620,17 @@ final class PgTenantBlobManifestRepo private (
 
                                  statements.blocks.setString(1, storageDomainId.value)
                                  statements.blocks.setString(2, blockAlgorithm)
-                                 statements.blocks.setBytes(3, block.bits.digest.bytes)
+                                 statements.blocks.setBytes(3, block.bits.digest.toInteropArray)
                                  statements.blocks.setLong(4, block.bits.size)
                                  statements.blocks.addBatch()
 
                                  bindScope(statements.entries, 1)
                                  statements.entries.setString(3, blobAlgorithm)
-                                 statements.entries.setBytes(4, blob.bits.digest.bytes)
+                                 statements.entries.setBytes(4, blob.bits.digest.toInteropArray)
                                  statements.entries.setLong(5, blob.bits.size)
                                  statements.entries.setInt(6, next.count)
                                  statements.entries.setString(7, blockAlgorithm)
-                                 statements.entries.setBytes(8, block.bits.digest.bytes)
+                                 statements.entries.setBytes(8, block.bits.digest.toInteropArray)
                                  statements.entries.setLong(9, block.bits.size)
                                  statements.entries.setLong(10, start)
                                  statements.entries.setLong(11, length)
@@ -662,7 +662,7 @@ final class PgTenantBlobManifestRepo private (
         try
           bindScope(statement, 1)
           statement.setString(3, algorithm)
-          statement.setBytes(4, blob.bits.digest.bytes)
+          statement.setBytes(4, blob.bits.digest.toInteropArray)
           statement.setLong(5, blob.bits.size)
           statement.executeUpdate()
         finally statement.close()
@@ -697,7 +697,7 @@ final class PgTenantBlobManifestRepo private (
             statement.setFetchSize(256)
             bindScope(statement, 1)
             statement.setString(3, algorithm)
-            statement.setBytes(4, blob.bits.digest.bytes)
+            statement.setBytes(4, blob.bits.digest.toInteropArray)
             statement.setLong(5, blob.bits.size)
             range.foreach { case (start, endExclusive) =>
               statement.setLong(6, start)
@@ -729,8 +729,8 @@ final class PgTenantBlobManifestRepo private (
     for
       index     <- ZIO.attempt(result.getInt(1).toLong)
       algorithm <- ZIO.fromEither(parseDbAlgorithm(result.getString(2))).mapError(PgStoreError.CorruptStoredData(_))
-      digest    <- ZIO.fromEither(Digest.fromBytes(result.getBytes(3))).mapError(PgStoreError.CorruptStoredData(_))
-      bits      <- ZIO.fromEither(KeyBits.create(algorithm, digest, result.getLong(4))).mapError(PgStoreError.CorruptStoredData(_))
+      digest    <- ZIO.fromEither(Digest.fromArrayCopy(result.getBytes(3))).mapError(PgStoreError.CorruptStoredData(_))
+      bits      <- ZIO.fromEither(KeyBits.fromLong(algorithm, digest, result.getLong(4))).mapError(PgStoreError.CorruptStoredData(_))
       key       <- ZIO.fromEither(BinaryKey.block(bits)).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.BlockRef(index, key)
 
@@ -754,9 +754,12 @@ final class PgTenantBlobManifestRepo private (
 
   private def readSummary(result: ResultSet): (BinaryKey.Blob, StoredManifestSummary) =
     val algorithm = PgStoreError.corruptValue("blob hash algorithm", parseDbAlgorithm(result.getString(1)))
-    val digest    = PgStoreError.corruptValue("blob digest", Digest.fromBytes(result.getBytes(2)))
+    val digest    = PgStoreError.corruptValue("blob digest", Digest.fromArrayCopy(result.getBytes(2)))
     val size      = PgStoreError.corruptValue("blob byte length", FileSize.either(result.getLong(3)))
-    val bits      = PgStoreError.corruptValue("blob key bits", KeyBits.create(algorithm, digest, size.value))
+    val bits      = PgStoreError.corruptValue(
+      "blob key bits",
+      KeyBits.fromClaimed(algorithm, digest, graviton.core.types.ContentLength.fromFileSize(size)),
+    )
     val blob      = PgStoreError.corruptValue("blob key", BinaryKey.blob(bits))
     val count     = result.getInt(4)
     if count < 1 || count > BlobManifestRepo.MaxEntries then throw PgStoreError.CorruptStoredData(s"invalid manifest block count $count")

@@ -2,6 +2,7 @@ package graviton.core
 package keys
 
 import zio.schema.{DeriveSchema, Schema}
+import zio.Chunk
 
 import graviton.core.canonical.CanonicalEncoding
 import graviton.core.types.{ViewArgKey, ViewArgValue, ViewName, ViewScope}
@@ -33,7 +34,7 @@ final case class ViewTransform(
     args.toList.sortBy(_._1.value)
 
   /** Byte-level canonical encoding for hashing. */
-  def canonicalBytes: Array[Byte] =
+  def canonicalBytes: Chunk[Byte] =
     CanonicalEncoding.ViewTransformV1.encode(this)
 
 object ViewTransform:

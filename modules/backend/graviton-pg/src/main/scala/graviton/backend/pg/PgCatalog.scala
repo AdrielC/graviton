@@ -92,7 +92,7 @@ final class PgCatalog(private val dataSource: DataSource) extends Catalog:
                   folder.fold(statement.setNull(2, java.sql.Types.OTHER))(value => statement.setObject(2, value.value))
                   statement.setString(3, name.value)
                   statement.setString(4, dbAlgorithm(blob.bits.algo))
-                  statement.setBytes(5, blob.bits.digest.bytes)
+                  statement.setBytes(5, blob.bits.digest.toInteropArray)
                   statement.setLong(6, blob.bits.size)
                   statement.setString(7, MediaTypeText.render(mediaType))
                   statement.setInt(8, stats.blockCount)
@@ -227,8 +227,8 @@ final class PgCatalog(private val dataSource: DataSource) extends Catalog:
 
   private def file(result: ResultSet): CatalogFile =
     val algorithm = parseDbAlgorithm(result.getString(4))
-    val digest    = Digest.fromBytes(result.getBytes(5)).fold(message => throw new IllegalStateException(message), identity)
-    val bits      = KeyBits.create(algorithm, digest, result.getLong(6)).fold(message => throw new IllegalStateException(message), identity)
+    val digest    = Digest.fromArrayCopy(result.getBytes(5)).fold(message => throw new IllegalStateException(message), identity)
+    val bits      = KeyBits.fromLong(algorithm, digest, result.getLong(6)).fold(message => throw new IllegalStateException(message), identity)
     val blob      = BinaryKey.blob(bits).fold(message => throw new IllegalStateException(message), identity)
     CatalogFile(
       CatalogFileId.parse(result.getObject(1, classOf[UUID]).toString).fold(message => throw new IllegalStateException(message), identity),

@@ -11,9 +11,9 @@ object BlockVerifySpec extends ZIOSpecDefault:
   private def keyForBlock(block: Chunk[Byte]): BinaryKey.Block =
     val result = for
       hasher <- Hasher.hasher(HashAlgo.runtimeDefault, None)
-      _       = hasher.update(block.toArray)
+      _       = hasher.update(block)
       digest <- hasher.digest
-      bits   <- KeyBits.create(hasher.algo, digest, block.length.toLong)
+      bits   <- KeyBits.fromLong(hasher.algo, digest, block.length.toLong)
       key    <- BinaryKey.block(bits)
     yield key
     result.toOption.get

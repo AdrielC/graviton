@@ -21,7 +21,7 @@ object ResumableUploadServiceSpec extends ZIOSpecDefault:
   private val firstPart  = UploadPartId.applyUnsafe("11111111-1111-4111-8111-111111111111")
   private val secondPart = UploadPartId.applyUnsafe("22222222-2222-4222-8222-222222222222")
   private val blobKey    = KeyBits
-    .fromString(s"sha-256:${"00" * 32}:6")
+    .parse(s"sha-256:${"00" * 32}:6")
     .flatMap(BinaryKey.blob)
     .fold(message => throw new IllegalStateException(message), identity)
   private val target     = UploadStagingTarget.from("memory", "tests").toOption.get

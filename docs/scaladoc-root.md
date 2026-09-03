@@ -4,6 +4,7 @@ Welcome to the Graviton API documentation. This documentation is automatically g
 
 ## Modules
 
+- **graviton-bytes**: Canonical immutable hash inputs for JVM, Scala.js, and Scala Native
 - **graviton-core**: Pure domain types, hashing utilities, ranges, and manifests
 - **graviton-streams**: ZIO Stream combinators and chunking pipelines
 - **graviton-runtime**: Service ports, policies, and runtime abstractions

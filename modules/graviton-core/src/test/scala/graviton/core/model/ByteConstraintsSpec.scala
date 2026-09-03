@@ -1,6 +1,6 @@
 package graviton.core.model
 
-import graviton.core.types.{BlockSize, ChunkCount, FileSize, SizeLongSubtype, SizeSubtype}
+import graviton.core.types.{BlockCount, BlockSize, ChunkCount, FileSize, MaxManifestBlocks, Offset, SizeLongSubtype, SizeSubtype}
 import zio.test.*
 
 object ByteConstraintsSpec extends ZIOSpecDefault:
@@ -19,6 +19,10 @@ object ByteConstraintsSpec extends ZIOSpecDefault:
         val result = BlockSize.either(ByteConstraints.MaxBlockBytes + 1)
         assertTrue(result.isLeft)
       },
+      test("BlockSize widens to a refined Offset through the checked boundary") {
+        val result = BlockSize.either(ByteConstraints.MaxBlockBytes).flatMap(Offset.fromBlockSize)
+        assertTrue(result.exists(_ == ByteConstraints.MaxBlockBytes.toLong))
+      },
       test("FileSize enforces positivity and backend limits") {
         val within       = FileSize.either(128L)
         val below        = FileSize.either(ByteConstraints.MinFileBytes - 1)
@@ -30,6 +34,12 @@ object ByteConstraintsSpec extends ZIOSpecDefault:
         val valid   = ChunkCount.either(1L)
         val invalid = ChunkCount.either(0L)
         assertTrue(valid.isRight && invalid.isLeft)
+      },
+      test("BlockCount represents an empty accumulator but cannot exceed one manifest") {
+        val empty    = BlockCount.either(0)
+        val maximum  = BlockCount.either(MaxManifestBlocks)
+        val overflow = BlockCount.either(MaxManifestBlocks + 1)
+        assertTrue(empty.isRight, maximum.isRight, overflow.isLeft)
       },
       test("legacy SizeSubtype.Trait source extensions remain supported") {
         val valid       = LegacyBlockSize.either(1024)

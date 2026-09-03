@@ -16,7 +16,7 @@ Storage operations fail with `StoreError`. Backend construction fails separately
 `Graviton.fs(root)` composes:
 
 - `FsBlockStore`, which writes blocks below `cas/blocks/<algorithm>/...`
-- `FsBlobManifestRepo`, which writes and reads bounded streaming `GVM4` manifests below `cas/manifests/<algorithm>/...`
+- `FsBlobManifestRepo`, which writes and reads bounded streaming `GVM5` manifests with versioned Merkle B-tree roots below `cas/manifests/<algorithm>/...`
 - `CasBlobStore`, which streams ingestion, retrieval, metadata, verification, and manifest deletion
 - `FileMaintenanceCoordinator`, which holds shared or exclusive locks at `cas/.maintenance.lock`
 

@@ -8,7 +8,7 @@ Graviton treats every upload as a binary stream that becomes an ordered graph of
 | --- | --- | --- |
 | **Block** | Canonical chunk of bytes with refined size bounds and a `BinaryKey.Block` derived from its content. Blocks are deduplicated globally. | `graviton.runtime.model.CanonicalBlock`, `BlockStore` |
 | **Blob** | Logical object addressable via `BinaryKey`. Its manifest survives block deduplication. Current `main` persists bounded `BlobMetadataV1` fields such as canonical media type and chunker identity; it does not persist the complete `BinaryAttributes` map. | `graviton.runtime.stores.BlobStore` |
-| **Manifest** | Bounded versioned metadata plus ordered block references (`index`, `offset`, `key`, `size`) and total length. Filesystem storage uses clean-store `GVM4`; PostgreSQL uses relational rows with the same metadata and a transactionally stored proof when enabled. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
+| **Manifest** | Bounded versioned metadata plus ordered block references (`index`, `offset`, `key`, `size`) and total length. Filesystem storage uses clean-store `GVM5`; PostgreSQL uses relational rows with the same metadata and a transactionally stored signed Merkle B-tree root when enabled. The separate frame codec is not the manifest repository format. | `BlobManifestRepo`, [`manifests-and-frames`](../manifests-and-frames.md) |
 | **Attributes** | Tracked metadata split between advertised (client supplied) and confirmed (server verified) values such as size, MIME, and digests. | `graviton.core.attributes.BinaryAttributes` |
 | **Chunker** | A `ZPipeline[Any, Chunker.Err, Byte, Block]` that turns byte streams into canonical blocks. Chooses boundaries, normalization, and rechunking rules. | [`ingest/chunking`](../ingest/chunking.md) |
 
@@ -45,7 +45,7 @@ sequenceDiagram
 <!-- snippet:binary-streaming-ingest:start -->
 ```scala
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.Hasher
+import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.Block
 import graviton.core.model.Block.*
@@ -56,35 +56,31 @@ import graviton.streams.Chunker
 import zio._
 import zio.stream._
 
-extension [E, A](either: Either[E, A])
-  def toTask(using E <:< String): Task[A] = ZIO.fromEither(either.left.map(msg => new IllegalArgumentException(msg)))
-
 final case class Ingest(blockStore: BlockStore):
 
-  private def canonicalBlock(block: Block, attrs: BinaryAttributes): Either[String, CanonicalBlock] =
+  private def canonicalBlock(block: Block, attrs: BinaryAttributes): ZIO[Hasher.Provider, String, CanonicalBlock] =
     for
-      hasher     <- Hasher.systemDefault
-      algo        = hasher.algo
+      hasher     <- Hasher.Provider.make(HashAlgo.runtimeDefault).mapError(_.message)
       _           = hasher.update(block.bytes)
-      digest     <- hasher.digest
-      bits       <- KeyBits.create(algo, digest, block.length.toLong)
-      key        <- BinaryKey.block(bits)
-      chunkCount <- ChunkCount.either(1L)
-      size       <- FileSize.either(block.length.toLong)
+      hashed     <- ZIO.fromEither(hasher.hashed.left.map(_.message))
+      bits        = KeyBits.fromHashed(hashed)
+      key        <- ZIO.fromEither(BinaryKey.block(bits))
+      chunkCount <- ZIO.fromEither(ChunkCount.either(1L))
+      size       <- ZIO.fromEither(FileSize.either(block.length.toLong))
       confirmed   = attrs
                       .confirmSize(size)
                       .confirmChunkCount(chunkCount)
-      canonical  <- CanonicalBlock.make(key, block.bytes, confirmed)
+      canonical  <- ZIO.fromEither(CanonicalBlock.make(key, block.bytes, confirmed))
     yield canonical
 
-  def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
+  def run(bytes: ZStream[Any, Throwable, Byte]): ZIO[Hasher.Provider, Throwable, BlockBatchResult] =
     val attrs     = BinaryAttributes.empty
     val sink      = blockStore.putBlocks()
     val chunkSize = UploadChunkSize(1 * 1024 * 1024) // compile-time refined
 
     for result <- bytes
                     .via(Chunker.fixed(chunkSize).pipeline.mapError(Chunker.toThrowable))
-                    .mapZIO(block => canonicalBlock(block, attrs).toTask)
+                    .mapZIO(block => canonicalBlock(block, attrs).mapError(new IllegalArgumentException(_)))
                     .run(sink)
     yield result
 ```
@@ -95,7 +91,7 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 - **Blob size bound**: `FileSize` is an Iron-refined positive `Long` capped at 1 TiB. Backends may enforce a lower operational quota with `ByteConstraints.enforceFileLimit(bytes, config.maxBlobBytes)`.
 - **Chunkers emit typed blocks**: Every chunker returns a `Block` that already satisfies `MaxBlockBytes` and related refined constraints.
 - **Incremental chunking core**: `graviton.streams.Chunker` is backed by a small, bounded incremental cutter and can also be used as a plain state machine via `graviton.streams.ChunkerCore` (useful for tests/benchmarks or lifting into non-ZIO runtimes).
-- **Hashing before storage** keeps keys stable regardless of backend. `HashAlgo.default` is currently SHA-256. SHA-1 remains a legacy key option; BLAKE3 execution requires an installed provider and is never substituted silently.
+- **Hashing before storage** keeps keys stable regardless of backend. `Hasher.update[A: Hashable]` accepts immutable, type-directed byte representations; raw arrays are confined to private cryptographic interop. A single operation returns a self-describing `Hash(algo, bytes)`, while multi-algorithm hashing returns a strict `NonEmptyChunk[Hash]`. `HashBytes <: Digest` is Iron-refined to the 20-to-32-byte superset emitted by CAS algorithms, and `Hash.make` checks the exact length for its algorithm. `HashAlgo.default` is currently SHA-256. SHA-1 remains a legacy key option; BLAKE3 execution requires an installed provider and is never substituted silently. Caller-provided metadata such as `Algo("md5")` is verified incrementally as a transfer checksum and cannot become a CAS key.
 - **`BlockWritePlan` controls ingest metadata and program selection**: the operational CAS path supports optional ingest pipelines/scans, attributes, and a locator hint. The separate `BlockFramer` supports only plain block-per-frame synthesis in this release.
 
 ## Runtime memory contract
@@ -108,7 +104,7 @@ _Snippet source: `docs/snippets/src/main/scala/graviton/docs/guide/BinaryStreami
 
 That is 2.25 MiB with a 1 MiB fixed chunker. Add the selected chunker's documented working set, one upstream chunk owned by the caller, and backend-local I/O buffers when sizing a deployment. Queue capacity never depends on how a transport happened to group bytes.
 
-The manifest does not grow in heap with the upload. Filesystem ingest stages entries in a scoped temporary file, then writes `GVM4` incrementally. PostgreSQL writes 512 entries per JDBC batch inside one transaction. Both backends support up to 1,048,576 entries, which covers the 1 TiB `FileSize` ceiling at 1 MiB blocks. The published law kit exercises that logical boundary without allocating it. This remains a structural bound, not a claim that CI physically transfers 1 TiB.
+The manifest does not grow in heap with the upload. Filesystem ingest stages entries in a scoped temporary file, then writes `GVM5` incrementally. The Merkle B-tree proof retains only one bounded partial node per level. PostgreSQL writes 512 entries per JDBC batch inside one transaction. Both backends support up to 1,048,576 entries, which covers the 1 TiB `FileSize` ceiling at 1 MiB blocks. The published law kit exercises that logical boundary without allocating it. This remains a structural bound, not a claim that CI physically transfers 1 TiB.
 
 ## Attribute lifecycle
 

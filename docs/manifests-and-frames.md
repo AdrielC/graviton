@@ -1,6 +1,6 @@
 # Manifests & Frames
 
-Manifests describe how every blob is assembled inside Graviton. They list ordered block keys and byte ranges so the runtime can rehydrate a stream without re-reading the original upload. Frames are a separate bounded model for block transport and future transforms. The operational filesystem CAS uses the clean-store streaming `GVM4` envelope, while PostgreSQL stores the same versioned metadata and optional proof with relational manifest rows in one transaction.
+Manifests describe how every blob is assembled inside Graviton. They list ordered block keys and byte ranges so the runtime can rehydrate a stream without re-reading the original upload. Frames are a separate bounded model for block transport and future transforms. The operational filesystem CAS uses the clean-store streaming `GVM5` envelope, while PostgreSQL stores the same versioned metadata and optional signed Merkle B-tree root with relational manifest rows in one transaction.
 
 ## Manifest schema
 
@@ -23,11 +23,11 @@ The runtime keeps these entries in a scoped disk spool until the full blob key i
 - `size` is validated via `CanonicalBlock.refineBlockSize`, guaranteeing it never exceeds `MaxBlockBytes`.
 - The streaming spool and durable writers enforce consecutive indices, contiguous offsets, exact block-key sizes, the declared entry count, and the declared total size.
 
-Writers append entries in increasing offset order and never reorder blocks. Filesystem readers repeat the structural validation while streaming `GVM4`; PostgreSQL writes validate each 512-entry batch inside a transaction. With manifest integrity enabled, both repositories verify the complete metadata-bound ordered proof before the first block fetch. Inspection uses opaque bounded cursor pages, while reconstruction streams up to the 1,048,576-entry logical ceiling.
+Writers append entries in increasing offset order and never reorder blocks. Filesystem readers repeat the structural validation while streaming `GVM5`; PostgreSQL writes validate each 512-entry batch inside a transaction. With manifest integrity enabled, both repositories build 64-entry leaves and 64-child branches, bind every child index and byte range into the versioned root, and verify that complete metadata-bound root before the first block fetch. Inspection uses opaque bounded cursor pages, while reconstruction streams up to the 1,048,576-entry logical ceiling.
 
 ## Operational persistence formats
 
-- Filesystem: `GVM4` carries bounded schema-versioned blob metadata, total size, block count, chunker identity, optional keyed proof metadata, and length-delimited key, offset, and length records. Publication uses a forced temporary file and atomic rename. Readers reject every older or unknown envelope, a missing key, a bad proof, metadata drift, structural drift, and trailing bytes before fetching block payloads.
+- Filesystem: `GVM5` carries bounded schema-versioned blob metadata, total size, block count, chunker identity, optional keyed Merkle-root metadata, and length-delimited key, offset, and length records. Publication uses a forced temporary file and atomic rename. Readers reject every older or unknown envelope, a missing key, a bad root or signature, metadata drift, structural drift, and trailing bytes before fetching block payloads.
 - PostgreSQL: one `graviton.blob` summary and ordered `graviton.blob_block` rows. Writes are transactional and batched; reads use a forward cursor with auto-commit disabled so JDBC fetch size is effective.
 - In-memory: a bounded compatibility implementation intended for tests and short-lived applications.
 

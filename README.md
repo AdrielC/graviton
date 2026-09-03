@@ -21,7 +21,7 @@ The latest published release is [`v0.8.0`](https://github.com/AdrielC/graviton/r
 | RocksDB | Released in `v0.8.0` as typed KV | Not a block store or complete CAS backend |
 | Multi-tenant storage and tenant laws | Released in `v0.8.0`, optional | Authenticated isolation, RLS, retained quotas, and shared trust domains |
 | Redis or Valkey distributed admission | Released in `v0.8.0`, optional | Atomic transfer limits plus authenticated HTTP and gRPC request and delivered-egress quotas |
-| GVM4 metadata, manifest proof, tenant snapshots, cold-block scrub | Released in `v0.8.0` | Clean-store only; no legacy reader or backfill path |
+| GVM5 metadata, versioned Merkle B-tree proof, tenant snapshots, cold-block scrub | Current `main` | Clean-store only; no legacy reader or backfill path |
 | Operator control plane and Production Telemetry v1 | Released in `v0.8.0`, optional | Typed snapshots, 15-panel dashboard, 15 recording rules, 16 alerts, and 16 qualification gates; five gates remain target-required |
 
 ## Prove it locally
@@ -136,7 +136,7 @@ BlobStore
             └── PgBlobManifestRepo
         ├── TransferFootprint       named live-byte ownership algebra
         ├── TransferBudget          process, tenant, and backend admission
-        ├── ManifestIntegrity       streaming versioned manifest proofs
+        ├── ManifestIntegrity       streaming versioned Merkle B-tree roots
         └── RepairJournal           durable cursor and dead-letter state
 
 Optional multi-node ingress
@@ -146,7 +146,7 @@ Optional multi-node ingress
     └── owner-local PDF-aware or generic CAS ingest
 ```
 
-The build keeps pure content types in `graviton-core`, stream transformations in `graviton-streams`, effectful ports in `graviton-runtime`, protocol adapters under `modules/protocol`, and deployment wiring in `graviton-server`.
+The build keeps canonical immutable hash inputs in the JVM, Scala.js, and Scala Native `graviton-bytes` artifacts; JVM content types in `graviton-core`; stream transformations in `graviton-streams`; effectful ports in `graviton-runtime`; protocol adapters under `modules/protocol`; and deployment wiring in `graviton-server`.
 
 ## Build and verify
 

@@ -7,7 +7,7 @@ import zio.stream.{ZPipeline, ZSink}
 object HashingZ:
 
   def sink(hasher: Hasher): ZSink[Any, IllegalArgumentException, Byte, Nothing, Hasher] =
-    ZSink.foldLeftChunks(hasher)((h, chunk) => h.update(chunk.toArray))
+    ZSink.foldLeftChunks(hasher)((h, chunk) => h.update(chunk))
 
   def sink(hashAlgo: HashAlgo): ZSink[Provider, IllegalArgumentException, Byte, Nothing, Hasher] =
     ZSink.unwrap:
@@ -21,5 +21,5 @@ object HashingZ:
 
   def pipeline(multi: MultiHasher): ZPipeline[Any, Nothing, Byte, Byte] =
     ZPipeline.mapChunksZIO { chunk =>
-      ZIO.attempt(multi.update(chunk.toArray)).orDie.as(chunk)
+      ZIO.attempt(multi.update(chunk)).orDie.as(chunk)
     }

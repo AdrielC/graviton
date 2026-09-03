@@ -2,6 +2,7 @@ package graviton.core.keys
 
 import graviton.core.canonical.CanonicalEncoding
 import graviton.core.bytes.{Digest, HashAlgo}
+import zio.Chunk
 
 import java.nio.charset.StandardCharsets
 
@@ -20,7 +21,7 @@ import java.nio.charset.StandardCharsets
  */
 object ViewKeyDerivation:
 
-  private val Prefix = "graviton:view:v1".getBytes(StandardCharsets.UTF_8)
+  private val Prefix = Chunk.fromArray("graviton:view:v1".getBytes(StandardCharsets.UTF_8))
 
   def derive(base: BinaryKey, transform: ViewTransform): Either[String, KeyBits] =
     val baseBits  = base.bits
@@ -33,5 +34,5 @@ object ViewKeyDerivation:
       // v1: always SHA-256 for view keys (stable and ubiquitous).
       viewDigest <- Digest.make(HashAlgo.Sha256)(payload)
       // We do not know the materialized view size at this point; keep it explicit.
-      bits       <- KeyBits.create(HashAlgo.Sha256, viewDigest, 0L)
+      bits       <- KeyBits.fromClaimed(HashAlgo.Sha256, viewDigest, graviton.core.types.ContentLength.Zero)
     yield bits

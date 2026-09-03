@@ -136,6 +136,13 @@ final case class BinaryAttributes private (
   def digest(algo: Algo): Option[HexLower] =
     confirmed.digestsValue.flatMap(_.get(algo)).orElse(advertised.digestsValue.flatMap(_.get(algo)))
 
+  /**
+   * Checksums supplied by the uploader. These are verification inputs, not
+   * content-addressing algorithm selections.
+   */
+  def advertisedDigests: Map[Algo, HexLower] =
+    advertised.digestsOrEmpty
+
   def advertisedEntries: ListMap[BinaryAttributeKey[?], Any] =
     entriesOf(advertised)
 

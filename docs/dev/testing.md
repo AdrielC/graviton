@@ -19,7 +19,17 @@ TESTCONTAINERS=0 ./sbt 'core/test' 'streams/test' 'runtime/test'
 ./scripts/check-byte-streaming-hygiene.sh
 ```
 
-The root project aggregates JVM modules and both `graviton-shared` platforms. A root `test` therefore includes the Scala.js contract suite.
+The root project aggregates JVM modules, both `graviton-shared` platforms, and the JVM, Scala.js, and Scala Native `graviton-bytes` artifacts. A root `test` therefore includes both browser and native contract suites.
+
+## Portable hash input contract
+
+Run the canonical byte-encoding contract on every supported runtime when changing `Hashable` or one of its built-in instances:
+
+```bash
+./sbt 'bytesJVM/test' 'bytesJS/test' 'bytesNative/test'
+```
+
+The suite proves identical UTF-8 bytes, immutable chunk behavior, and multi-chunk framing. It does not treat ZIO Prelude's 32-bit collection `Hash` as a cryptographic digest.
 
 ## Shared and browser Scala.js contracts
 

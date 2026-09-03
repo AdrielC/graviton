@@ -187,6 +187,9 @@ object ContentAddressingError:
 object ContentKeyText:
   final val MaxWireLength = 128
 
+  /** The three syntactic fields before semantic validation. */
+  final case class Fields(algorithm: String, digestHex: String, sizeText: String)
+
   final case class Parts(algorithm: String, digestHex: String, size: Long)
 
   private val algorithmDetails: Map[String, (String, Int)] = Map(
@@ -200,32 +203,40 @@ object ContentKeyText:
   def render(algorithm: String, digestHex: String, size: Long): String =
     s"$algorithm:$digestHex:$size"
 
-  def parse(value: String): Either[String, Parts] =
+  def fields(value: String): Either[String, Fields] =
     if value == null then Left("Content key must not be null")
     else if value.length > MaxWireLength then Left(s"Content key exceeds $MaxWireLength characters")
     else
       value.split(":", -1).toList match
-        case algorithm :: digestHex :: sizeText :: Nil =>
-          for
-            details                           <- algorithmDetails
-                                                   .get(asciiLower(algorithm))
-                                                   .toRight(s"Unsupported content key algorithm '$algorithm'")
-            (canonicalAlgorithm, digestLength) = details
-            _                                 <- Either.cond(
-                                                   digestHex.matches("[0-9a-f]+"),
-                                                   (),
-                                                   "Content key digest must contain lowercase hexadecimal characters only",
-                                                 )
-            _                                 <- Either.cond(
-                                                   digestHex.length == digestLength,
-                                                   (),
-                                                   s"Content key algorithm '$algorithm' requires $digestLength hexadecimal characters",
-                                                 )
-            _                                 <- Either.cond(sizeText.matches("[0-9]+"), (), s"Invalid byte length '$sizeText'")
-            size                              <- scala.util.Try(sizeText.toLong).toEither.left.map(_ => s"Invalid byte length '$sizeText'")
-            _                                 <- Either.cond(size >= 0, (), "Content key byte length must be non-negative")
-          yield Parts(canonicalAlgorithm, digestHex, size)
+        case algorithm :: digestHex :: sizeText :: Nil => Right(Fields(algorithm, digestHex, sizeText))
         case _                                         => Left("Expected a content key in the form <algorithm>:<hex-digest>:<byte-length>")
+
+  def parse(value: String): Either[String, Parts] =
+    fields(value).flatMap { fields =>
+      for
+        details                           <- algorithmDetails
+                                               .get(asciiLower(fields.algorithm))
+                                               .toRight(s"Unsupported content key algorithm '${fields.algorithm}'")
+        (canonicalAlgorithm, digestLength) = details
+        _                                 <- Either.cond(
+                                               fields.digestHex.matches("[0-9a-f]+"),
+                                               (),
+                                               "Content key digest must contain lowercase hexadecimal characters only",
+                                             )
+        _                                 <- Either.cond(
+                                               fields.digestHex.length == digestLength,
+                                               (),
+                                               s"Content key algorithm '${fields.algorithm}' requires $digestLength hexadecimal characters",
+                                             )
+        _                                 <- Either.cond(
+                                               fields.sizeText.matches("[0-9]+"),
+                                               (),
+                                               s"Invalid byte length '${fields.sizeText}'",
+                                             )
+        size                              <- scala.util.Try(fields.sizeText.toLong).toEither.left.map(_ => s"Invalid byte length '${fields.sizeText}'")
+        _                                 <- Either.cond(size >= 0, (), "Content key byte length must be non-negative")
+      yield Parts(canonicalAlgorithm, fields.digestHex, size)
+    }
 
   private def asciiLower(value: String): String =
     val builder = new StringBuilder(value.length)

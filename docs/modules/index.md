@@ -5,6 +5,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 ## High-level Layout
 
 - **Core** (documented separately): pure data types, codecs, algebraic structures, and the [Transducer algebra](../core/transducers.md) for composable pipeline stages.
+- **Portable bytes**: canonical immutable `Hashable` encodings compiled and contract-tested on JVM, Scala.js, and Scala Native.
 - **Runtime**: storage ports, policies, and operational concerns that wire pure logic to effectful infrastructure.
 - **Streams**: ZIO Stream utilities that implement chunking, hashing, and signal processing primitives — designed to compose with Transducers.
 - **PDF**: typed, bounded-memory PDF ingest backed by zio-pdf's incremental structural scanner.
@@ -17,6 +18,7 @@ Graviton is split into focused SBT sub-projects. Each module owns a specific sli
 ## Quick Links
 
 - [Backend adapters](./backend.md)
+- [Portable byte encodings](./bytes.md)
 - [Runtime module](./runtime.md)
 - [Streams utilities](./streams.md)
 - [PDF-aware ingest](./pdf.md)

@@ -4,6 +4,7 @@ import graviton.core.keys.{KeyBits, ViewTransform}
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import zio.Chunk
 
 /**
  * Canonical bytes for any hashed identity.
@@ -17,7 +18,7 @@ object CanonicalEncoding:
     val Version: Byte = 1
 
     /** Canonical bytes for hashing view identity. */
-    def encode(transform: ViewTransform): Array[Byte] =
+    def encode(transform: ViewTransform): Chunk[Byte] =
       // Format:
       //   u8 version = 1
       //   name: u32 len + bytes
@@ -44,22 +45,24 @@ object CanonicalEncoding:
       val argsCount = ByteBuffer.allocate(4).putInt(args0.length).array()
       val argsBytes = args0.flatMap { case (k, v) => sized(utf8(k.value)) ++ sized(utf8(v.value)) }.toArray
 
-      Array(Version) ++ nameBytes ++ scopeBytes ++ argsCount ++ argsBytes
+      Chunk.fromArray(Array(Version) ++ nameBytes ++ scopeBytes ++ argsCount ++ argsBytes)
 
   object KeyBitsV1:
     val Version: Byte = 1
 
-    def encode(bits: KeyBits): Array[Byte] =
+    def encode(bits: KeyBits): Chunk[Byte] =
       // Format:
       //   u8 version = 1
       //   algoName: u32 len + utf8 bytes
       //   digestBytes: u32 len + bytes
       //   size: i64 big-endian
       val algoBytes   = bits.algo.primaryName.getBytes(StandardCharsets.UTF_8)
-      val digestBytes = bits.digest.bytes
+      val digestBytes = bits.digest.toInteropArray
       val sizeBytes   = ByteBuffer.allocate(8).putLong(bits.size).array()
 
-      Array(Version) ++
-        ByteBuffer.allocate(4).putInt(algoBytes.length).array() ++ algoBytes ++
-        ByteBuffer.allocate(4).putInt(digestBytes.length).array() ++ digestBytes ++
-        sizeBytes
+      Chunk.fromArray(
+        Array(Version) ++
+          ByteBuffer.allocate(4).putInt(algoBytes.length).array() ++ algoBytes ++
+          ByteBuffer.allocate(4).putInt(digestBytes.length).array() ++ digestBytes ++
+          sizeBytes
+      )

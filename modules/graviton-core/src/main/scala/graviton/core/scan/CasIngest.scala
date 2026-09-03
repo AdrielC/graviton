@@ -2,6 +2,7 @@ package graviton.core.scan
 
 import graviton.core.bytes.*
 import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.types.BlockSize
 import kyo.Record
 import kyo.Record.`~`
 import zio.Chunk
@@ -69,9 +70,10 @@ object CasIngest:
         else
           val result = for
             hasher <- Hasher.hasher(algo, None)
-            _       = hasher.update(block.toArray)
-            digest <- hasher.digest
-            bits   <- KeyBits.create(algo, digest, block.length.toLong)
+            _       = hasher.update(block)
+            hashed <- hasher.hashed.left.map(_.message)
+            _      <- BlockSize.either(block.length)
+            bits    = KeyBits.fromHashed(hashed)
             key    <- BinaryKey.block(bits)
           yield KeyedBlock(key, block)
           result match

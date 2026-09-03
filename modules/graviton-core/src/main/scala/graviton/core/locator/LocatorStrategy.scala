@@ -12,7 +12,7 @@ final case class PrefixLocatorStrategy(prefix: LocatorPath, bucket: LocatorBucke
     LocatorScheme.applyUnsafe("cas")
 
   def locate(key: BinaryKey): BlobLocator =
-    val digest = key.bits.digest.value
+    val digest = key.bits.digest.hex.value
     val shard  = digest.grouped(2).take(2).mkString("/")
     // SAFETY: prefix and digest are pre-validated; composed path is non-empty, no whitespace
     val path   = LocatorPath.applyUnsafe(s"${prefix.value}/$shard/$digest")
