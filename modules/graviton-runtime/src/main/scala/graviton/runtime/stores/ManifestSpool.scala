@@ -3,9 +3,9 @@ package graviton.runtime.stores
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.manifest.ManifestEntry
 import graviton.core.ranges.Span
-import graviton.core.types.BlobOffset
+import graviton.core.types.{BlobOffset, BlockCount, ContentLength}
 import graviton.runtime.model.BlockManifestEntry
-import zio.{Chunk, ChunkBuilder, Scope, Task, ZIO}
+import zio.{Chunk, ChunkBuilder, IO, Scope, Task, ZIO}
 import zio.stream.ZStream
 
 import java.io.{BufferedInputStream, BufferedOutputStream, DataInputStream, DataOutputStream, EOFException}
@@ -50,11 +50,18 @@ private[stores] final class ManifestSpool private (
       nextOffset = java.lang.Math.addExact(nextOffset, entry.size.value.toLong)
     }
 
-  def finish(): Task[ManifestSpool.Summary] =
-    ZIO.attemptBlocking {
-      closeOutput()
-      ManifestSpool.Summary(nextIndex.toInt, nextOffset)
-    }
+  def finish(): IO[StoreError, ManifestSpool.Summary] =
+    ZIO
+      .attemptBlocking {
+        closeOutput()
+        nextIndex -> nextOffset
+      }
+      .mapError(StoreError.fromThrowable(StoreOperation.PutManifest, StoreBackend.Filesystem))
+      .flatMap { case (blockCount, totalSize) =>
+        ZIO
+          .fromEither(ManifestSpool.Summary.make(blockCount, totalSize))
+          .mapError(StoreError.CorruptData(StoreOperation.PutManifest, _))
+      }
 
   def entries: ZStream[Any, StoreError, ManifestEntry] =
     ZStream
@@ -82,7 +89,16 @@ private[stores] object ManifestSpool:
   private val MaxKeyBytes      = 512
   private val ReadBatchEntries = 256
 
-  final case class Summary(blockCount: Int, totalSize: Long)
+  final case class Summary private (blockCount: BlockCount, totalSize: ContentLength)
+
+  object Summary:
+    def make(blockCount: Long, totalSize: Long): Either[String, Summary] =
+      for
+        count <-
+          if blockCount > Int.MaxValue.toLong then Left(s"Manifest block count exceeds Int range: $blockCount")
+          else BlockCount.either(blockCount.toInt)
+        size  <- ContentLength.either(totalSize)
+      yield Summary(count, size)
 
   def scoped: ZIO[Scope, Throwable, ManifestSpool] =
     ZIO.acquireRelease {
@@ -130,7 +146,7 @@ private[stores] object ManifestSpool:
       val keyBytes = input.readNBytes(keyLength)
       if keyBytes.length != keyLength then throw new EOFException("Unexpected end of manifest spool block key")
       val key      = KeyBits
-        .fromString(new String(keyBytes, StandardCharsets.US_ASCII))
+        .parse(new String(keyBytes, StandardCharsets.US_ASCII))
         .flatMap(BinaryKey.block)
         .fold(message => throw new IllegalArgumentException(message), identity)
       val offset   = input.readLong()

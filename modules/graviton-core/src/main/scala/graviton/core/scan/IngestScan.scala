@@ -56,9 +56,9 @@ object IngestScan:
   private def computeBlockDigest(algo: HashAlgo, bytes: Chunk[Byte]): Either[String, Chunk[Byte]] =
     Hasher
       .hasher(algo, None)
-      .map(_.update(bytes))
+      .map(_.updateLegacy(bytes))
       .flatMap(_.digest)
-      .map(_.value)
+      .map(digest => digest: Chunk[Byte])
 
   /**
    * FastCDC ingest scan.
@@ -224,7 +224,7 @@ object IngestScan:
           streamDigest = None,
         )
 
-      val streamDigest = state.streamHasher.flatMap(_.digest).map(_.value)
+      val streamDigest = state.streamHasher.flatMap(_.digest).map(digest => digest: Chunk[Byte])
       out += event(
         kind = "final",
         blockIndex = state.blockIndex,

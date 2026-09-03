@@ -1,14 +1,13 @@
 package graviton.runtime.stores
 
 import graviton.core.RefinedTypeExt
+import graviton.core.bytes.{HashAlgo, HashBytes, HashInput, Hasher}
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.ManifestEntry
-import graviton.core.types.FileSize
+import graviton.core.types.{BlockCount, BlockIndex, BlockSize, BlobOffset, FileSize}
 import io.github.iltotore.iron.constraint.collection.{MaxLength, MinLength}
 import zio.{Chunk, IO, UIO, ZIO}
 
-import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
 import java.security.{MessageDigest, SecureRandom}
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -27,30 +26,31 @@ final case class ManifestIdentity(
   chunker: ManifestChunkerId,
 )
 
-/** Versioned proof persisted atomically with a manifest. */
+/** Versioned signed Merkle B-tree root persisted atomically with a manifest. */
 final case class ManifestProof private (
   version: Int,
   keyId: ManifestKeyId,
-  canonicalDigest: Chunk[Byte],
+  merkleRoot: HashBytes,
   signature: Chunk[Byte],
 )
 
 object ManifestProof:
-  val CurrentVersion = 2
-  val DigestBytes    = 32
+  val CurrentVersion = 3
+  val RootBytes      = HashAlgo.Sha256.hashBytes
   val SignatureBytes = 32
 
   def make(
     version: Int,
     keyId: ManifestKeyId,
-    canonicalDigest: Chunk[Byte],
+    merkleRoot: Chunk[Byte],
     signature: Chunk[Byte],
   ): Either[String, ManifestProof] =
     for
-      _ <- Either.cond(version == CurrentVersion, (), s"unsupported manifest proof version $version")
-      _ <- Either.cond(canonicalDigest.length == DigestBytes, (), s"manifest canonical digest must be $DigestBytes bytes")
-      _ <- Either.cond(signature.length == SignatureBytes, (), s"manifest signature must be $SignatureBytes bytes")
-    yield ManifestProof(version, keyId, canonicalDigest, signature)
+      _    <- Either.cond(version == CurrentVersion, (), s"unsupported manifest proof version $version")
+      root <- HashBytes.fromChunk(merkleRoot).left.map(_.message)
+      _    <- Either.cond(root.length == RootBytes, (), s"manifest Merkle root must be $RootBytes bytes")
+      _    <- Either.cond(signature.length == SignatureBytes, (), s"manifest signature must be $SignatureBytes bytes")
+    yield ManifestProof(version, keyId, root, signature)
 
 final case class ManifestEnvelope(identity: ManifestIdentity, proof: ManifestProof)
 final case class StoredManifestAuthentication(chunker: ManifestChunkerId, proof: ManifestProof)
@@ -58,8 +58,8 @@ final case class StoredManifestAuthentication(chunker: ManifestChunkerId, proof:
 /** Signing boundary suitable for local HMAC, KMS, or HSM implementations. */
 trait ManifestKeyService:
   def activeKeyId: UIO[ManifestKeyId]
-  def sign(canonicalDigest: Chunk[Byte]): IO[ManifestKeyService.Error, Chunk[Byte]]
-  def verify(keyId: ManifestKeyId, canonicalDigest: Chunk[Byte], signature: Chunk[Byte]): IO[ManifestKeyService.Error, Unit]
+  def sign(merkleRoot: Chunk[Byte]): IO[ManifestKeyService.Error, Chunk[Byte]]
+  def verify(keyId: ManifestKeyId, merkleRoot: Chunk[Byte], signature: Chunk[Byte]): IO[ManifestKeyService.Error, Unit]
 
 object ManifestKeyService:
   sealed abstract class Error(message: String, cause: Throwable | Null = null) extends Exception(message, cause)
@@ -86,18 +86,18 @@ object ManifestKeyService:
       new ManifestKeyService:
         override val activeKeyId: UIO[ManifestKeyId] = ZIO.succeed(active)
 
-        override def sign(canonicalDigest: Chunk[Byte]): IO[Error, Chunk[Byte]] =
-          compute(keys(active), canonicalDigest).mapError(Error.SigningFailure.apply)
+        override def sign(merkleRoot: Chunk[Byte]): IO[Error, Chunk[Byte]] =
+          compute(keys(active), merkleRoot).mapError(Error.SigningFailure.apply)
 
         override def verify(
           keyId: ManifestKeyId,
-          canonicalDigest: Chunk[Byte],
+          merkleRoot: Chunk[Byte],
           signature: Chunk[Byte],
         ): IO[Error, Unit] =
           ZIO
             .fromOption(keys.get(keyId))
             .orElseFail(Error.UnknownKey(keyId))
-            .flatMap(compute(_, canonicalDigest).mapError(Error.SigningFailure.apply))
+            .flatMap(compute(_, merkleRoot).mapError(Error.SigningFailure.apply))
             .flatMap(expected =>
               ZIO
                 .fail(Error.InvalidSignature(keyId))
@@ -113,8 +113,8 @@ object ManifestKeyService:
       Chunk.fromArray(mac.doFinal(digest.toArray))
     }
 
-/** Streaming canonicalization and proof verification. */
-final class ManifestIntegrity private (keys: ManifestKeyService):
+/** Streaming Merkle B-tree construction and root verification. */
+final class ManifestIntegrity private (keys: ManifestKeyService, hashers: Hasher.Provider):
   def accumulator(identity: ManifestIdentity): IO[StoreError, ManifestIntegrity.Accumulator] =
     accumulator(identity, BlobMetadataV1.default(identity.chunker))
 
@@ -122,9 +122,7 @@ final class ManifestIntegrity private (keys: ManifestKeyService):
     identity: ManifestIdentity,
     metadata: BlobMetadataV1,
   ): IO[StoreError, ManifestIntegrity.Accumulator] =
-    ZIO
-      .attempt(new ManifestIntegrity.Accumulator(identity, metadata, keys, verification = false))
-      .mapError(StoreError.fromThrowable(StoreOperation.PutManifest))
+    makeAccumulator(identity, metadata, verification = false)
 
   def verificationAccumulator(identity: ManifestIdentity): IO[StoreError, ManifestIntegrity.Accumulator] =
     verificationAccumulator(identity, BlobMetadataV1.default(identity.chunker))
@@ -133,109 +131,123 @@ final class ManifestIntegrity private (keys: ManifestKeyService):
     identity: ManifestIdentity,
     metadata: BlobMetadataV1,
   ): IO[StoreError, ManifestIntegrity.Accumulator] =
-    ZIO
-      .attempt(new ManifestIntegrity.Accumulator(identity, metadata, keys, verification = true))
-      .mapError(error => StoreError.CorruptData(StoreOperation.GetManifest, error.getMessage, error))
+    makeAccumulator(identity, metadata, verification = true)
+
+  private def makeAccumulator(
+    identity: ManifestIdentity,
+    metadata: BlobMetadataV1,
+    verification: Boolean,
+  ): IO[StoreError, ManifestIntegrity.Accumulator] =
+    val operation = if verification then StoreOperation.GetManifest else StoreOperation.PutManifest
+    for
+      hasher <-
+        hashers
+          .make(HashAlgo.Sha256)
+          .mapError(error => StoreError.BackendFailure(operation, StoreBackend.Runtime, new IllegalStateException(error.message), false))
+      count  <- ZIO
+                  .fromEither(BlockCount.either(identity.blockCount))
+                  .mapError(message => StoreError.CorruptData(operation, s"Invalid manifest block count: $message"))
+      tree   <- ManifestMerkleTree.Builder
+                  .make(hasher)
+                  .mapError(error => StoreError.CorruptData(operation, error.message))
+    yield new ManifestIntegrity.Accumulator(identity, metadata, keys, tree, count, verification)
 
 object ManifestIntegrity:
-  private val Domain = "graviton-manifest-proof-v2".getBytes(StandardCharsets.US_ASCII)
-
-  def apply(keys: ManifestKeyService): ManifestIntegrity = new ManifestIntegrity(keys)
+  def apply(keys: ManifestKeyService, hashers: Hasher.Provider = Hasher.Provider.default()): ManifestIntegrity =
+    new ManifestIntegrity(keys, hashers)
 
   final class Accumulator private[stores] (
     identity: ManifestIdentity,
     metadata: BlobMetadataV1,
     keys: ManifestKeyService,
+    tree: ManifestMerkleTree.Builder,
+    expectedBlockCount: BlockCount,
     verification: Boolean,
   ):
-    private val digest = MessageDigest.getInstance("SHA-256")
-    private var index  = 0
-    private var offset = 0L
-    private var done   = false
-
-    initialize()
-
     def update(entry: ManifestEntry): IO[StoreError, Unit] =
-      ZIO
-        .attempt {
-          ensureOpen()
-          if index >= identity.blockCount then throw new IllegalArgumentException("manifest contains more entries than declared")
-          val block  = entry.key match
-            case value: BinaryKey.Block => value
-            case other                  => throw new IllegalArgumentException(s"manifest entry $index is not a block key: $other")
-          val start  = entry.span.startInclusive.value
-          val end    = entry.span.endInclusive.value
-          val length = java.lang.Math.addExact(java.lang.Math.subtractExact(end, start), 1L)
-          if start != offset then throw new IllegalArgumentException(s"manifest entry $index starts at $start, expected $offset")
-          if length != block.bits.size then
-            throw new IllegalArgumentException(s"manifest entry $index length $length does not match block ${block.bits.size}")
-
-          putLong(index.toLong)
-          putText(block.bits.render)
-          putLong(start)
-          putLong(end)
-          index = java.lang.Math.addExact(index, 1)
-          offset = java.lang.Math.addExact(offset, length)
-        }
-        .mapError(validationError)
+      for
+        observed <- tree.entryCount
+        _        <- ZIO
+                      .fail(validationMessage("Manifest contains more entries than declared"))
+                      .when(observed >= expectedBlockCount)
+        block    <- ZIO
+                      .fromEither(
+                        entry.key match
+                          case value: BinaryKey.Block => Right(value)
+                          case other                  => Left(s"Manifest entry $observed is not a block key: $other")
+                      )
+                      .mapError(validationMessage)
+        size     <- ZIO.fromEither(blockSize(block)).mapError(validationMessage)
+        end      <- ZIO.fromEither(endOffset(entry.span.startInclusive, size)).mapError(validationMessage)
+        _        <- ZIO
+                      .fail(
+                        validationMessage(
+                          s"Manifest entry $observed ends at ${entry.span.endInclusive}, expected $end from block size $size"
+                        )
+                      )
+                      .unless(entry.span.endInclusive == end)
+        index    <- ZIO.fromEither(BlockIndex.either(observed.toLong)).mapError(validationMessage)
+        _        <- tree.add(index, block, entry.span.startInclusive).mapError(error => validationMessage(error.message))
+      yield ()
 
     def prove: IO[StoreError, ManifestProof] =
-      finishDigest.flatMap { canonical =>
+      finishRoot.flatMap { root =>
         for
           keyId     <- keys.activeKeyId
           signature <- keys
-                         .sign(canonical)
+                         .sign(root)
                          .mapError(error => StoreError.BackendFailure(StoreOperation.PutManifest, StoreBackend.Runtime, error, false))
           proof     <- ZIO
-                         .fromEither(ManifestProof.make(ManifestProof.CurrentVersion, keyId, canonical, signature))
+                         .fromEither(ManifestProof.make(ManifestProof.CurrentVersion, keyId, root, signature))
                          .mapError(StoreError.CorruptData(StoreOperation.PutManifest, _))
         yield proof
       }
 
     def verify(proof: ManifestProof): IO[StoreError, Unit] =
-      finishDigest.flatMap { canonical =>
+      finishRoot.flatMap { root =>
         ZIO
-          .fail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest canonical digest does not match its stored proof"))
-          .unless(MessageDigest.isEqual(canonical.toArray, proof.canonicalDigest.toArray)) *>
+          .fail(StoreError.CorruptData(StoreOperation.GetManifest, "manifest Merkle root does not match its stored proof"))
+          .unless(MessageDigest.isEqual(root.toArray, proof.merkleRoot.toArray)) *>
           keys
-            .verify(proof.keyId, canonical, proof.signature)
+            .verify(proof.keyId, root, proof.signature)
             .mapError(error => StoreError.CorruptData(StoreOperation.GetManifest, error.getMessage, error))
       }
 
-    private def finishDigest: IO[StoreError, Chunk[Byte]] =
-      ZIO
-        .attempt {
-          ensureOpen()
-          if index != identity.blockCount then
-            throw new IllegalArgumentException(s"manifest entry count mismatch: expected ${identity.blockCount}, observed $index")
-          if offset != identity.totalSize.value then
-            throw new IllegalArgumentException(s"manifest size mismatch: expected ${identity.totalSize.value}, observed $offset")
-          done = true
-          Chunk.fromArray(digest.digest())
-        }
-        .mapError(validationError)
+    private def finishRoot: IO[StoreError, Chunk[Byte]] =
+      for
+        encodedMetadata <- ZIO
+                             .fromEither(BlobMetadataV1.encode(metadata))
+                             .mapError(validationMessage)
+        root            <- tree
+                             .finish(
+                               HashInput.concat(
+                                 Chunk(
+                                   ManifestMerkleTree.text(identity.blob.bits.render),
+                                   ManifestMerkleTree.int64(identity.totalSize),
+                                   ManifestMerkleTree.int32(expectedBlockCount),
+                                   ManifestMerkleTree.text(identity.chunker.value),
+                                   ManifestMerkleTree.int32(encodedMetadata.length),
+                                   HashInput.bytes(encodedMetadata),
+                                 )
+                               ),
+                               expectedBlockCount,
+                               identity.totalSize,
+                             )
+                             .mapError(error => validationMessage(error.message))
+      yield root
+
+    private def blockSize(block: BinaryKey.Block): Either[String, BlockSize] =
+      Either
+        .cond(block.bits.size <= Int.MaxValue.toLong, block.bits.size.toInt, s"Block size ${block.bits.size} exceeds Int capacity")
+        .flatMap(BlockSize.either)
+
+    private def endOffset(start: BlobOffset, size: BlockSize): Either[String, BlobOffset] =
+      try BlobOffset.either(java.lang.Math.addExact(start, size.toLong - 1L))
+      catch case _: ArithmeticException => Left(s"Manifest entry at offset $start exceeds the supported offset range")
 
     private def validationError(error: Throwable): StoreError =
       if verification then StoreError.CorruptData(StoreOperation.GetManifest, error.getMessage, error)
       else StoreError.fromThrowable(StoreOperation.PutManifest)(error)
 
-    private def initialize(): Unit =
-      digest.update(Domain)
-      putText(identity.blob.bits.render)
-      putLong(identity.totalSize.value)
-      putInt(identity.blockCount)
-      putText(identity.chunker.value)
-      val encodedMetadata = BlobMetadataV1
-        .encode(metadata)
-        .fold(message => throw new IllegalArgumentException(message), value => value)
-      putInt(encodedMetadata.length)
-      digest.update(encodedMetadata.toArray)
-
-    private def putText(value: String): Unit =
-      val bytes = value.getBytes(StandardCharsets.UTF_8)
-      putInt(bytes.length)
-      digest.update(bytes)
-
-    private def putInt(value: Int): Unit   = digest.update(ByteBuffer.allocate(4).putInt(value).array())
-    private def putLong(value: Long): Unit = digest.update(ByteBuffer.allocate(8).putLong(value).array())
-    private def ensureOpen(): Unit         = if done then throw new IllegalStateException("manifest proof accumulator is already complete")
+    private def validationMessage(message: String): StoreError =
+      validationError(new IllegalArgumentException(message))

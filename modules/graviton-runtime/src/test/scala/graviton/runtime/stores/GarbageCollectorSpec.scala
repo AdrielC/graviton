@@ -393,9 +393,9 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))
     for
       hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes.toArray))
+      _      <- ZIO.attempt(hasher.update(bytes))
       digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
-      bits   <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
+      bits   <- ZIO.fromEither(KeyBits.fromLong(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
       block  <- ZIO.fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty)).mapError(new IllegalArgumentException(_))
     yield block
@@ -403,14 +403,14 @@ object GarbageCollectorSpec extends ZIOSpecDefault:
   private def blockKey(index: Int): BinaryKey.Block =
     val digest = Digest.fromString(f"$index%064x").fold(message => throw new IllegalArgumentException(message), identity)
     val bits   = KeyBits
-      .create(HashAlgo.Sha256, digest, 1L)
+      .fromLong(HashAlgo.Sha256, digest, 1L)
       .fold(message => throw new IllegalArgumentException(message), identity)
     BinaryKey.block(bits).fold(message => throw new IllegalArgumentException(message), identity)
 
   private def blobKey(index: Int): BinaryKey.Blob =
     val digest = Digest.fromString(f"${index + 1000000}%064x").fold(message => throw new IllegalArgumentException(message), identity)
     val bits   = KeyBits
-      .create(HashAlgo.Sha256, digest, math.max(1, index).toLong)
+      .fromLong(HashAlgo.Sha256, digest, math.max(1, index).toLong)
       .fold(message => throw new IllegalArgumentException(message), identity)
     BinaryKey.blob(bits).fold(message => throw new IllegalArgumentException(message), identity)
 

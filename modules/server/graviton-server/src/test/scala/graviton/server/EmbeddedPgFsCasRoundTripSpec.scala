@@ -871,9 +871,9 @@ object EmbeddedPgFsCasRoundTripSpec extends ZIOSpecDefault:
             |""".stripMargin
         )
         try
-          statement.setBytes(1, blob.bits.digest.bytes)
+          statement.setBytes(1, blob.bits.digest.toInteropArray)
           statement.setLong(2, blob.bits.size)
-          statement.setBytes(3, blob.bits.digest.bytes)
+          statement.setBytes(3, blob.bits.digest.toInteropArray)
           statement.setLong(4, blob.bits.size)
           val updated = statement.executeUpdate()
           if updated != 1 then throw new IllegalStateException(s"expected one manifest proof row, updated $updated")

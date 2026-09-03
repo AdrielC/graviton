@@ -22,7 +22,7 @@ import graviton.runtime.upload.{
 import graviton.security.{CallerContext, Capability, ResourceRef, SecurityError}
 import graviton.shared.{ApiJson, MediaTypeText}
 import graviton.shared.ApiModels.*
-import graviton.core.keys.{BinaryKey, KeyBits}
+import graviton.core.keys.BinaryKey
 import graviton.core.types.{BlobOffset, FileSize}
 import zio.*
 import zio.http.*
@@ -77,12 +77,7 @@ final case class HttpApi(
     )
 
   private def blobKeyFromId(rawId: String): Either[String, BinaryKey.Blob] =
-    for
-      decoded <- scala.util.Try(URLDecoder.decode(rawId, StandardCharsets.UTF_8)).toEither.left.map(_ => "Invalid blob ID encoding")
-      id      <- BlobId.either(decoded)
-      bits    <- KeyBits.fromString(id.value)
-      blob    <- BinaryKey.blob(bits)
-    yield blob
+    BlobKeyIdParser.parse(rawId)
 
   private def uploadMediaType(request: Request): Either[IllegalArgumentException, BlocksMediaType] =
     request.headers.get("Content-Type") match
@@ -878,7 +873,7 @@ final case class HttpApi(
                   .mapError(message => new IllegalStateException(message))
       bytes  <- blobStore
                   .get(key)
-                  .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
+                  .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk)).as(chunk))
                   .runCount
       digest <- ZIO.fromEither(hasher.digest).mapError(message => new IllegalArgumentException(message))
     yield digest.hex.value == key.bits.digest.hex.value && bytes == key.bits.size

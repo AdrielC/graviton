@@ -112,7 +112,7 @@ final class Graviton private (
                   .get(key)
                   .mapChunksZIO(chunk =>
                     ZIO
-                      .attempt(hasher.update(chunk.toArray))
+                      .attempt(hasher.update(chunk))
                       .mapError(StoreError.fromThrowable(StoreOperation.GetBlob))
                       .as(chunk)
                   )

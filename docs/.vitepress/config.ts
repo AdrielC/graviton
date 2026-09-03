@@ -210,6 +210,7 @@ export default withMermaid(defineConfig({
         collapsed: true,
         items: [
           { text: 'Overview', link: '/modules/' },
+          { text: 'Portable Bytes', link: '/modules/bytes' },
           { text: 'Backend Adapters', link: '/modules/backend' },
           { text: 'Runtime', link: '/modules/runtime' },
           { text: 'Stream Utilities', link: '/modules/streams' },

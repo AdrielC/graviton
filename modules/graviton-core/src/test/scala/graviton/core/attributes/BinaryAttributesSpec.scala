@@ -1,6 +1,7 @@
 package graviton.core.attributes
 
-import graviton.core.types.Mime
+import graviton.core.types.{Algo, Mime}
+import graviton.core.macros.Interpolators.hex
 import zio.blocks.mediatype.MediaType
 import zio.test.*
 
@@ -43,6 +44,19 @@ object BinaryAttributesSpec extends ZIOSpecDefault:
         assertTrue(
           BinaryAttributes.empty.advertiseMediaType(control).isLeft,
           BinaryAttributes.empty.advertiseMediaType(tooLong).isLeft,
+        )
+      },
+      test("retains advertised and confirmed transfer checksums") {
+        val md5      = Algo("md5")
+        val expected = hex"900150983cd24fb0d6963f7d28e17f72"
+        val result   = BinaryAttributes.empty
+          .advertiseDigest(md5, expected)
+          .confirmDigest(md5, expected)
+
+        assertTrue(
+          result.advertisedDigests.get(md5).contains(expected),
+          result.digest(md5).contains(expected),
+          result.validate.isRight,
         )
       },
     )

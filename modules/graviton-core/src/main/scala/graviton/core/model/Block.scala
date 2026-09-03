@@ -1,6 +1,6 @@
 package graviton.core.model
 
-import graviton.core.types.{BlockSize, FileSize}
+import graviton.core.types.{BlockSize, FileSize, MaxBlockBytes}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
 import zio.{Chunk, NonEmptyChunk}
@@ -8,7 +8,7 @@ import zio.{Chunk, NonEmptyChunk}
 type UploadChunk = Chunk[Byte] :| UploadChunk.Constraint
 
 object UploadChunk:
-  type Constraint = MinLength[1] & MaxLength[16777216]
+  type Constraint = MinLength[1] & MaxLength[MaxBlockBytes]
 
   inline def maxBytes: Int = ByteConstraints.MaxUploadChunkBytes
 
@@ -32,7 +32,7 @@ object UploadChunk:
 type InMemoryBytes = Chunk[Byte] :| InMemoryBytes.Constraint
 
 object InMemoryBytes:
-  type Constraint = MaxLength[16777216]
+  type Constraint = MaxLength[MaxBlockBytes]
 
   inline def maxBytes: Int = ByteConstraints.MaxBlockBytes
 
@@ -46,7 +46,7 @@ object InMemoryBytes:
 type Block = Chunk[Byte] :| Block.Constraint
 
 object Block:
-  type Constraint = MinLength[1] & MaxLength[16777216]
+  type Constraint = MinLength[1] & MaxLength[MaxBlockBytes]
 
   inline def maxBytes: Int = ByteConstraints.MaxBlockBytes
 

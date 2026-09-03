@@ -7,7 +7,7 @@ Design pages explain implemented internals or clearly labeled proposals. They ar
 | Area | Current implementation | Detail |
 | --- | --- | --- |
 | Byte and product boundary | Graviton owns streamed bytes, content identity, integrity, and storage, not document semantics | [Scope and product boundary](../scope.md) |
-| Content identity and schemas | Refined content keys, bounded wire records, GVM4 metadata on current `main`, and explicit codec limits | [Schema and types](../core/schema.md), [Manifests and frames](../manifests-and-frames.md) |
+| Content identity and schemas | Refined content keys, bounded wire records, GVM5 metadata with versioned Merkle B-tree roots on current `main`, and explicit codec limits | [Schema and types](../core/schema.md), [Manifests and frames](../manifests-and-frames.md) |
 | Stream processing | ZIO Stream production path plus the separate pure Scan and Transducer libraries | [Scans and events](../core/scans.md), [Transducer algebra](../core/transducers.md) |
 | Chunking | Fixed, delimiter, FastCDC, BuzHash, Rabin, and PDF-aware structural chunkers with hard block ceilings | [Chunking strategies](../ingest/chunking.md) |
 | Storage | Filesystem CAS, S3-compatible blocks, PostgreSQL manifests and object primitives, plus RocksDB typed KV | [Runtime backends](../runtime/backends.md) |

@@ -58,9 +58,9 @@ object FsRepairJournalSpec extends ZIOSpecDefault:
     val bytes = Chunk.fromArray(value.getBytes(StandardCharsets.UTF_8))
     for
       hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes.toArray))
+      _      <- ZIO.attempt(hasher.update(bytes))
       digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
-      bits   <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
+      bits   <- ZIO.fromEither(KeyBits.fromLong(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
       _      <- ZIO.fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty)).mapError(new IllegalArgumentException(_))
     yield key

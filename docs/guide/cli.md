@@ -46,7 +46,7 @@ $GRAVITON_DATA_DIR/
     └── manifests/<algorithm>/<digest>-<size>.manifest
 ```
 
-Manifest files use the streaming clean-store `GVM4` contract and atomic replacement.
+Manifest files use the streaming clean-store `GVM5` contract, versioned Merkle B-tree authentication, and atomic replacement.
 
 ## HTTP server
 

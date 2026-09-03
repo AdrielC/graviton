@@ -96,7 +96,7 @@ object RefinedTypeBoundarySpec extends ZIOSpecDefault:
       test("accepts sha-256")(assertTrue(Algo.either("sha-256").isRight)),
       test("accepts blake3")(assertTrue(Algo.either("blake3").isRight)),
       test("accepts sha-1")(assertTrue(Algo.either("sha-1").isRight)),
-      test("accepts md5")(assertTrue(Algo.either("md5").isRight)),
+      test("accepts md5 metadata checksum")(assertTrue(Algo.either("md5").isRight)),
       test("rejects unknown")(assertTrue(Algo.either("sha-512").isLeft)),
       test("rejects empty")(assertTrue(Algo.either("").isLeft)),
     ),

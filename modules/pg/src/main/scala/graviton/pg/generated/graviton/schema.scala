@@ -516,7 +516,7 @@ object TenantStorageUsage                           {
   @SqlName("manifest_proof_version") manifestProofVersion: Option[Short],
   @SqlName("manifest_chunker") manifestChunker: Option[String],
   @SqlName("manifest_key_id") manifestKeyId: Option[String],
-  @SqlName("manifest_digest") manifestDigest: Option[Chunk[Byte]],
+  @SqlName("manifest_merkle_root") manifestMerkleRoot: Option[Chunk[Byte]],
   @SqlName("manifest_signature") manifestSignature: Option[Chunk[Byte]],
 ) derives DbCodec,
       Schema
@@ -535,7 +535,7 @@ object TenantBlob                                   {
       "manifestProofVersion" -> "manifest_proof_version",
       "manifestChunker"      -> "manifest_chunker",
       "manifestKeyId"        -> "manifest_key_id",
-      "manifestDigest"       -> "manifest_digest",
+      "manifestMerkleRoot"   -> "manifest_merkle_root",
       "manifestSignature"    -> "manifest_signature",
     )
   }
@@ -578,7 +578,7 @@ object TenantBlob                                   {
     manifestProofVersion: Option[Short] = None,
     manifestChunker: Option[String] = None,
     manifestKeyId: Option[String] = None,
-    manifestDigest: Option[Chunk[Byte]] = None,
+    manifestMerkleRoot: Option[Chunk[Byte]] = None,
     manifestSignature: Option[Chunk[Byte]] = None,
   ) derives DbCodec,
         Schema
@@ -1399,7 +1399,7 @@ object BlobStore                                    {
   @SqlName("manifest_proof_version") manifestProofVersion: Option[Short],
   @SqlName("manifest_chunker") manifestChunker: Option[String],
   @SqlName("manifest_key_id") manifestKeyId: Option[String],
-  @SqlName("manifest_digest") manifestDigest: Option[Chunk[Byte]],
+  @SqlName("manifest_merkle_root") manifestMerkleRoot: Option[Chunk[Byte]],
   @SqlName("manifest_signature") manifestSignature: Option[Chunk[Byte]],
 ) derives DbCodec,
       Schema
@@ -1418,7 +1418,7 @@ object Blob                                         {
       "manifestProofVersion" -> "manifest_proof_version",
       "manifestChunker"      -> "manifest_chunker",
       "manifestKeyId"        -> "manifest_key_id",
-      "manifestDigest"       -> "manifest_digest",
+      "manifestMerkleRoot"   -> "manifest_merkle_root",
       "manifestSignature"    -> "manifest_signature",
     )
   }
@@ -1444,7 +1444,7 @@ object Blob                                         {
     manifestProofVersion: Option[Short] = None,
     manifestChunker: Option[String] = None,
     manifestKeyId: Option[String] = None,
-    manifestDigest: Option[Chunk[Byte]] = None,
+    manifestMerkleRoot: Option[Chunk[Byte]] = None,
     manifestSignature: Option[Chunk[Byte]] = None,
   ) derives DbCodec,
         Schema

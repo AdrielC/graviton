@@ -4,7 +4,7 @@ The protocol modules expose Graviton through shared JSON response models plus op
 
 | Module | Implemented surface | Status |
 | --- | --- | --- |
-| `protocol/graviton-shared` | Cross-platform HTTP response models plus bounded content-addressing utilities | Same contract and tests on JVM and Scala.js; native JCA/Web Crypto SHA-256 for the bounded utility |
+| `protocol/graviton-shared` | Cross-platform HTTP response models plus bounded content-addressing utilities | Same contract and tests on JVM and Scala.js; JCA on JVM and Web Crypto in Scala.js for the bounded utility |
 | `protocol/graviton-http` | Operational blob lifecycle, typed streaming Scala SDK, metrics, and JWT middleware | Contract and socket tested |
 | `protocol/graviton-proto` | Protobuf definitions and generated types | Generated during the build |
 | `protocol/graviton-grpc` | Generated services and typed streaming client | Served by the default process on port 9090 |

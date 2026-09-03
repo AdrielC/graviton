@@ -4,6 +4,7 @@ import graviton.core.attributes.BinaryAttributes
 import graviton.core.bytes.Hasher
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.Block.*
+import graviton.core.types.MaxBlockBytes
 import graviton.runtime.model.*
 import graviton.streams.BoundedByteStream
 import zio.*
@@ -66,9 +67,11 @@ object ErasureBlockStoreSpec extends ZIOSpecDefault:
         c      <- MemoryFragmentStore.make("c", "zone-c")
         seed   <- canonical("oversized-key-seed")
         bits   <- ZIO
-                    .fromEither(KeyBits.create(seed.key.bits.algo, seed.key.bits.digest, 16777217L))
+                    .fromEither(KeyBits.fromLong(seed.key.bits.algo, seed.key.bits.digest, MaxBlockBytes.toLong + 1L))
                     .mapError(new IllegalArgumentException(_))
-        key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
+        // Deliberately bypass the public smart constructor to verify the store's
+        // defense-in-depth check against malformed internally decoded state.
+        key     = BinaryKey.Block(bits)
         store   = ErasureBlockStore.make(Chunk(a, b, c)).toOption.get
         exit   <- store.get(key).runDrain.exit
         aReads <- a.readCount
@@ -161,9 +164,9 @@ object ErasureBlockStoreSpec extends ZIOSpecDefault:
   private def canonical(bytes: Chunk[Byte]): Task[CanonicalBlock] =
     for
       hasher <- ZIO.fromEither(Hasher.systemDefault).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes.toArray))
+      _      <- ZIO.attempt(hasher.update(bytes))
       digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
-      bits   <- ZIO.fromEither(KeyBits.create(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
+      bits   <- ZIO.fromEither(KeyBits.fromLong(hasher.algo, digest, bytes.length.toLong)).mapError(new IllegalArgumentException(_))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(new IllegalArgumentException(_))
       block  <- ZIO.fromEither(CanonicalBlock.make(key, bytes, BinaryAttributes.empty)).mapError(new IllegalArgumentException(_))
     yield block

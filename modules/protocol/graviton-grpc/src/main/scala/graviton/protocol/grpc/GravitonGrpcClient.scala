@@ -101,7 +101,7 @@ final class GravitonGrpcClient private (stub: BlobServiceClient, admin: AdminSer
     stub.inspectBlob(InspectBlobRequest(key = Some(BlobKey(GrpcProtocol.render(key))))).mapZIO { block =>
       for
         bits     <- ZIO
-                      .fromEither(graviton.core.keys.KeyBits.fromString(block.key))
+                      .fromEither(graviton.core.keys.KeyBits.parse(block.key))
                       .mapError(message => Status.DATA_LOSS.withDescription(message).asException())
         blockKey <- ZIO
                       .fromEither(BinaryKey.block(bits))

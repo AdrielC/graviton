@@ -200,7 +200,7 @@ object MaintenanceCoordinatorSpec extends ZIOSpecDefault:
 
   private val testBlobKey: BinaryKey.Blob =
     KeyBits
-      .fromString(s"sha-256:${"00" * 32}:1")
+      .parse(s"sha-256:${"00" * 32}:1")
       .flatMap(BinaryKey.blob)
       .fold(message => throw new IllegalStateException(message), identity)
 

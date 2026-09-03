@@ -359,7 +359,7 @@ object FsResumableUploadRepository:
         parsedPhase   <- ResumableUploadPhase.values.find(_.toString == phase).toRight(s"invalid upload phase '$phase'")
         blob          <- committedBlob match
                            case None        => Right(None)
-                           case Some(value) => KeyBits.fromString(value).flatMap(BinaryKey.blob).map(Some(_))
+                           case Some(value) => KeyBits.parse(value).flatMap(BinaryKey.blob).map(Some(_))
         parsedParts   <- traverse(parts)(_.toDomain)
         parsedLeases  <- traverse(reservations)(_.toDomain(key))
         lease         <- commitLease match

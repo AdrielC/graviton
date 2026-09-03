@@ -5,6 +5,7 @@ import _root_.mdoc.MdocPlugin
 import org.scalajs.linker.interface.ModuleSplitStyle
 import org.portablescala.sbtplatformdeps.PlatformDepsPlugin.autoImport._
 import sbtcrossproject.CrossPlugin.autoImport._
+import scalanativecrossproject.ScalaNativeCrossPlugin.autoImport._
 import sbtprotoc.ProtocPlugin.autoImport._
 import scalapb.compiler.Version
 import sbtassembly.AssemblyPlugin
@@ -146,6 +147,7 @@ copyGeneratedDocs := {
   log.info("Collecting generated Scaladoc for JVM modules...")
 
   val moduleDocs = List(
+    "graviton-bytes"   -> (bytes.jvm / Compile / doc).value,
     // Core runtime surface
     "core"            -> (LocalProject("core") / Compile / doc).value,
     "streams"         -> (LocalProject("streams") / Compile / doc).value,
@@ -199,6 +201,7 @@ copyGeneratedDocs := {
       |    <h1>Graviton Scaladoc</h1>
       |    <p>Choose a module:</p>
       |    <ul>
+      |      <li><a href="./graviton-bytes/index.html">graviton-bytes</a></li>
       |      <li><a href="./core/index.html">core</a></li>
       |      <li><a href="./streams/index.html">streams</a></li>
       |      <li><a href="./runtime/index.html">runtime</a></li>
@@ -223,6 +226,7 @@ copyGeneratedDocs := {
 }
 
 generateDocs := Def.sequential(
+  bytes.jvm / Compile / doc,
   LocalProject("core") / Compile / doc,
   LocalProject("streams") / Compile / doc,
   LocalProject("runtime") / Compile / doc,
@@ -355,6 +359,9 @@ lazy val cli = (project in file("modules/graviton-cli"))
   )
 
 lazy val root = (project in file(".")).aggregate(
+  bytes.jvm,
+  bytes.js,
+  bytes.native,
   core,
   streams,
   runtime,
@@ -469,7 +476,7 @@ lazy val root = (project in file(".")).aggregate(
 )
 
 lazy val core = (project in file("modules/graviton-core"))
-  .dependsOn(sharedProtocol.jvm)
+  .dependsOn(bytes.jvm, sharedProtocol.jvm)
   .settings(baseSettings,
     name := "graviton-core",
     // v0.4.0 exposed these implementation traits with singleton-selected
@@ -642,6 +649,8 @@ lazy val http = (project in file("modules/protocol/graviton-http"))
       "dev.zio" %% "zio-schema" % V.zioSchema,
       "dev.zio" %% "zio-schema-json" % V.zioSchema,
       "dev.zio" %% "zio-blocks-mediatype" % V.zioBlocks,
+      "dev.zio" %% "zio-prelude" % V.zioPrelude,
+      "io.github.iltotore" %% "iron-zio" % V.iron,
       "dev.zio" %% "zio-test"          % V.zio % Test,
       "dev.zio" %% "zio-test-sbt"      % V.zio % Test,
       "dev.zio" %% "zio-test-magnolia" % V.zio % Test
@@ -804,6 +813,34 @@ lazy val server = (project in file("modules/server/graviton-server"))
         .exclude("dev.zio", "zio-blocks-http-model_3"),
       "io.zonky.test" % "embedded-postgres" % V.embeddedPg % Test,
     ),
+  )
+
+// Canonical immutable byte encodings shared by the JVM storage engine,
+// browser clients, and native clients. This module intentionally contains no
+// platform crypto provider or storage implementation.
+lazy val bytes = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Full)
+  .in(file("modules/graviton-bytes"))
+  .settings(
+    baseSettings,
+    name := "graviton-bytes",
+    // This cross-platform artifact begins its compatibility baseline with its
+    // first release.
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "dev.zio"    %%% "zio"         % V.zio,
+      "org.scodec" %%% "scodec-bits" % "1.2.4",
+      "dev.zio"    %%% "zio-test"     % V.zio % Test,
+      "dev.zio"    %%% "zio-test-sbt" % V.zio % Test,
+    ),
+  )
+  .jsSettings(
+    Test / fork := false,
+    scalaJSLinkerConfig ~= (_.withModuleKind(ModuleKind.ESModule)),
+  )
+  .nativeSettings(
+    Test / fork := false,
+    scalacOptions += "-P:scalanative:genStaticForwardersForNonTopLevelObjects",
   )
 
 // Shared protocol models for JVM and JS

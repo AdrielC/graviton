@@ -19,7 +19,7 @@ import scala.jdk.CollectionConverters.*
 /**
  * Durable, filesystem-backed manifest repository.
  *
- * Manifests use incremental `GVM4` envelopes with bounded versioned metadata
+ * Manifests use incremental `GVM5` envelopes with bounded versioned metadata
  * and optional authentication. They are written via a temporary file plus atomic rename. The
  * file's modification time records the ingestion timestamp returned by
  * [[BlobStore.stat]].
@@ -354,7 +354,7 @@ final class FsBlobManifestRepo(
       algo   <- HashAlgo.values
                   .find(_.primaryName.toLowerCase.replace("-", "") == algorithmDirectory.toLowerCase)
                   .toRight(s"Unsupported manifest algorithm directory: $algorithmDirectory")
-      bits   <- KeyBits.create(algo, digest, size)
+      bits   <- KeyBits.fromLong(algo, digest, size)
       blob   <- BinaryKey.blob(bits)
     yield blob
 
@@ -371,7 +371,7 @@ final class FsBlobManifestRepo(
     }
 
 object FsBlobManifestRepo:
-  /** Historical public safety bound; the active GVM4 reader is streaming. */
+  /** Historical public safety bound; the active GVM5 reader is streaming. */
   val MaxManifestBytes: Int       = 64 * 1024 * 1024
   val MaxMaterializedEntries: Int = BlobManifestRepo.MaxMaterializedEntries
   private val WriteBatchEntries   = 512

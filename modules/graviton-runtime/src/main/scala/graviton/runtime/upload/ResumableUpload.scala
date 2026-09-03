@@ -3,7 +3,7 @@ package graviton.runtime.upload
 import graviton.core.RefinedTypeExt
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
-import graviton.core.types.FileSize
+import graviton.core.types.{FileSize, MaxContentBytes}
 import graviton.runtime.metrics.{MetricKeys, MetricsRegistry}
 import graviton.runtime.stores.{
   MutableObjectStore,
@@ -34,7 +34,7 @@ type UploadPartNumber = UploadPartNumber.T
 object UploadPartNumber extends RefinedTypeExt[Int, numeric.GreaterEqual[0] & numeric.LessEqual[65535]]
 
 type UploadOffset = UploadOffset.T
-object UploadOffset extends RefinedTypeExt[Long, numeric.GreaterEqual[0L] & numeric.LessEqual[1099511627776L]]
+object UploadOffset extends RefinedTypeExt[Long, numeric.GreaterEqual[0L] & numeric.LessEqual[MaxContentBytes]]
 
 enum ResumableUploadPhase derives CanEqual:
   case Open

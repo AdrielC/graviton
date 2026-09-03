@@ -221,9 +221,9 @@ object ErasureBlockStore:
 private[stores] object Xor21Codec:
   def fragmentLength(originalLength: Long): Either[String, Int] =
     Either.cond(
-      originalLength >= 1L && originalLength <= 16777216L,
+      originalLength >= 1L && originalLength <= graviton.core.types.MaxBlockBytes.toLong,
       ((originalLength + 1L) / 2L).toInt,
-      s"2+1 erasure coding requires a canonical block length within 1..16777216, received $originalLength",
+      s"2+1 erasure coding requires a canonical block length within 1..${graviton.core.types.MaxBlockBytes}, received $originalLength",
     )
 
   def encode(block: CanonicalBlock): Task[Chunk[ErasureFragment]] =
@@ -292,7 +292,7 @@ private[stores] object Xor21Codec:
                   .fail(new IllegalStateException(s"Reconstructed length mismatch for ${key.bits.render}"))
                   .unless(bytes.length.toLong == key.bits.size)
       hasher <- ZIO.fromEither(Hasher.hasher(key.bits.algo)).mapError(new IllegalArgumentException(_))
-      _      <- ZIO.attempt(hasher.update(bytes))
+      _      <- ZIO.attempt(hasher.update(Chunk.fromArray(bytes)))
       digest <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
       _      <- ZIO.fail(new IllegalStateException(s"Reconstructed digest mismatch for ${key.bits.render}")).unless(digest == key.bits.digest)
     yield ()

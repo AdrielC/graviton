@@ -16,7 +16,7 @@ object FramedManifestBoundsSpec extends ZIOSpecDefault:
   private def makeBits(size: Long): Either[String, KeyBits] =
     for
       digest <- Digest.fromString(zeroDigest)
-      bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+      bits   <- KeyBits.fromLong(HashAlgo.Sha256, digest, size)
     yield bits
 
   override def spec: Spec[TestEnvironment, Any] =

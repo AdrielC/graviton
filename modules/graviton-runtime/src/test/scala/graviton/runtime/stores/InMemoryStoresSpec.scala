@@ -40,7 +40,7 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
           statAfter  <- store.stat(result.key)
         yield assertTrue(
           fetched == data,
-          statBefore.exists(_.digest != Digest.empty),
+          statBefore.exists(_.digest.length == HashAlgo.Sha256.hashBytes),
           statAfter.isEmpty,
           result.locator.bucket.value == "test-bucket",
         )
@@ -72,10 +72,10 @@ object InMemoryStoresSpec extends ZIOSpecDefault:
                   .fromEither(graviton.core.bytes.Hasher.systemDefault)
                   .mapError(err => new IllegalStateException(err))
       algo    = hasher.algo
-      _       = hasher.update(bytes.toArray)
+      _       = hasher.update(bytes)
       digest <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
       bits   <- ZIO
-                  .fromEither(KeyBits.create(algo, digest, bytes.length.toLong))
+                  .fromEither(KeyBits.fromLong(algo, digest, bytes.length.toLong))
                   .mapError(msg => new IllegalArgumentException(msg))
       key    <- ZIO.fromEither(BinaryKey.block(bits)).mapError(msg => new IllegalArgumentException(msg))
       block  <- ZIO

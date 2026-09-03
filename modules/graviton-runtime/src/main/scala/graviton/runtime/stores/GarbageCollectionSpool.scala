@@ -342,7 +342,7 @@ private[stores] object GarbageCollectionSpool:
     )
 
   private def bucketFor(key: BinaryKey.Block, depth: Int): Int =
-    val digest = key.bits.digest.bytes
+    val digest = key.bits.digest.toInteropArray
     val byte   = depth / 2
     if byte >= digest.length then 0
     else
@@ -402,7 +402,7 @@ private[stores] object GarbageCollectionSpool:
       input.readFully(bytes)
       val text  = new String(bytes, StandardCharsets.US_ASCII)
       KeyBits
-        .fromString(text)
+        .parse(text)
         .flatMap(BinaryKey.block)
         .fold(message => throw new IllegalArgumentException(s"Invalid spilled block key: $message"), identity)
     }

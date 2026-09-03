@@ -72,7 +72,7 @@ final class PgRepairJournal(
                        try
                          statement.setString(1, namespace)
                          statement.setString(2, algorithm)
-                         statement.setBytes(3, key.bits.digest.bytes)
+                         statement.setBytes(3, key.bits.digest.toInteropArray)
                          statement.setLong(4, key.bits.size)
                          statement.setString(5, RepairJournal.detail(error))
                          statement.setTimestamp(6, java.sql.Timestamp.from(failedAt))
@@ -96,7 +96,7 @@ final class PgRepairJournal(
                        try
                          statement.setString(1, namespace)
                          statement.setString(2, algorithm)
-                         statement.setBytes(3, key.bits.digest.bytes)
+                         statement.setBytes(3, key.bits.digest.toInteropArray)
                          statement.setLong(4, key.bits.size)
                          statement.executeUpdate()
                          ()
@@ -158,8 +158,8 @@ final class PgRepairJournal(
     val algorithm     = parseDbAlgorithm(algorithmText).getOrElse(
       throw new IllegalStateException(s"unsupported repair hash algorithm '$algorithmText'")
     )
-    val digest        = Digest.fromBytes(result.getBytes(2)).fold(message => throw new IllegalStateException(message), identity)
-    val bits          = KeyBits.create(algorithm, digest, result.getLong(3)).fold(message => throw new IllegalStateException(message), identity)
+    val digest        = Digest.fromArrayCopy(result.getBytes(2)).fold(message => throw new IllegalStateException(message), identity)
+    val bits          = KeyBits.fromLong(algorithm, digest, result.getLong(3)).fold(message => throw new IllegalStateException(message), identity)
     val key           = BinaryKey.block(bits).fold(message => throw new IllegalStateException(message), identity)
     RepairDeadLetter(key, result.getLong(4), result.getString(5), result.getTimestamp(6).toInstant)
 

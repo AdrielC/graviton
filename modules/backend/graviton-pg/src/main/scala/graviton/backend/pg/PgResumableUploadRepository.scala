@@ -461,7 +461,7 @@ final class PgResumableUploadRepository(dataSource: DataSource) extends Resumabl
       throw new IllegalStateException(s"invalid upload phase '${result.getString(7)}'")
     }
     val blob      = Option(result.getString(8)).map(value =>
-      KeyBits.fromString(value).flatMap(BinaryKey.blob).fold(message => throw new IllegalArgumentException(message), identity)
+      KeyBits.parse(value).flatMap(BinaryKey.blob).fold(message => throw new IllegalArgumentException(message), identity)
     )
     val lease     = Option(result.getString(9)).map(id =>
       ResumableUploadLedger.CommitLease(

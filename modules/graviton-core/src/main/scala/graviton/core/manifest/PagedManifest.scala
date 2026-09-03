@@ -4,6 +4,7 @@ import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.BinaryKey
 import graviton.core.ranges.Span
 import graviton.core.types.BlobOffset
+import zio.Chunk
 
 /**
  * A paginated manifest representation: the logical manifest is split into multiple page-manifests,
@@ -164,7 +165,7 @@ object PagedManifest:
     for
       frame  <- FramedManifest.encode(page)
       hasher <- Hasher.hasher(algo, None)
-      _       = hasher.update(frame.bytes)
+      _       = hasher.update(Chunk.fromArray(frame.bytes.clone()))
       bits   <- hasher.digestKeyBits
       key    <- BinaryKey.manifest(bits)
     yield key

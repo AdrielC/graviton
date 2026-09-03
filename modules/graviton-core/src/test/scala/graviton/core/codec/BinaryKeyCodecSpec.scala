@@ -65,7 +65,7 @@ object BinaryKeyCodecSpec extends ZIOSpecDefault:
   private def keyBits(hexDigit: String, size: Long): Either[String, KeyBits] =
     for
       digest <- Digest.fromString(hexDigit * HashAlgo.Sha256.hexLength)
-      bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+      bits   <- KeyBits.fromLong(HashAlgo.Sha256, digest, size)
     yield bits
 
 end BinaryKeyCodecSpec

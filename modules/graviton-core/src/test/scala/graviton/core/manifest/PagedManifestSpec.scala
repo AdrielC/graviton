@@ -15,7 +15,7 @@ object PagedManifestSpec extends ZIOSpecDefault:
     val bits =
       (for
         digest <- Digest.fromString(zeroDigest)
-        bits   <- KeyBits.create(HashAlgo.Sha256, digest, size)
+        bits   <- KeyBits.fromLong(HashAlgo.Sha256, digest, size)
         key    <- BinaryKey.blob(bits)
       yield key).toOption.get
     bits

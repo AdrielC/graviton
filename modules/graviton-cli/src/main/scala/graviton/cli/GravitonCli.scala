@@ -113,7 +113,7 @@ object GravitonCli extends ZIOAppDefault:
       hasher  <- ZIO.fromEither(Hasher.hasher(blobKey.bits.algo)).mapError(msg => new IllegalStateException(msg))
       bytes   <- store
                    .get(blobKey)
-                   .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk.toArray)).as(chunk))
+                   .mapChunksZIO(chunk => ZIO.attempt(hasher.update(chunk)).as(chunk))
                    .runCount
       digest  <- ZIO.fromEither(hasher.digest).mapError(msg => new IllegalArgumentException(msg))
       ok       = digest.hex.value == blobKey.bits.digest.hex.value && bytes == blobKey.bits.size
@@ -197,7 +197,7 @@ object GravitonCli extends ZIOAppDefault:
 
   private def parseBlobKey(value: String): ZIO[Any, Any, BinaryKey.Blob] =
     for
-      bits <- ZIO.fromEither(KeyBits.fromString(value)).mapError(msg => new IllegalArgumentException(msg))
+      bits <- ZIO.fromEither(KeyBits.parse(value)).mapError(msg => new IllegalArgumentException(msg))
       key  <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
     yield key
 

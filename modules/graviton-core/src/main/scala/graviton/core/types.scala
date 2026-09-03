@@ -1,10 +1,12 @@
 package graviton.core
 
+import graviton.core.macros.RefinedKyoTag
 import graviton.core.ranges.DiscreteDomain
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.IronType
 import io.github.iltotore.iron.constraint.all.*
 import io.github.iltotore.iron.constraint.numeric
+import kyo.Tag
 import zio.schema.Schema
 
 import scala.collection.immutable.ListMap
@@ -17,12 +19,20 @@ import scala.compiletime
 case class RefinedTypeExtMessage(message: String)
 
 trait RefinedSubtypeExt[A, C] extends RefinedSubtype[A, C]:
+  inline given kyoTag: Tag[T] =
+    val companionTag: Tag[this.type] = Tag.derive[this.type]
+    RefinedKyoTag.fromCompanion[T, this.type](companionTag)
+
   given schema(using underlying: Schema[A]): Schema[T] =
     underlying
-      .transformOrFail(either(_), r => Right(r.value))
+      .transformOrFail(either(_), r => Right(r))
       .annotate(RefinedTypeExtMessage(rtc.message))
 
 trait RefinedTypeExt[A, C] extends RefinedType[A, C]:
+  inline given kyoTag: Tag[T] =
+    val companionTag: Tag[this.type] = Tag.derive[this.type]
+    RefinedKyoTag.fromCompanion[T, this.type](companionTag)
+
   given schema(using underlying: Schema[A]): Schema[T] =
     underlying
       .transformOrFail(either(_), r => Right(r.value))
@@ -134,14 +144,19 @@ object types:
 
   object SizeTrait:
 
+    type Bounds[Tpe <: Int | Long, Mn <: Tpe, Mx <: Tpe] =
+      numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]
+
     trait Trait[Tpe <: Int | Long, Mn <: Tpe, Mx <: Tpe, Z <: Tpe, O <: Tpe](
       using mnV: ValueOf[Mn],
       mxV: ValueOf[Mx],
       zV: ValueOf[Z],
       oV: ValueOf[O],
       private val sizeNumeric: SizeNumeric[Tpe],
-    ) extends RefinedTypeExt[Tpe, numeric.GreaterEqual[Mn] & numeric.LessEqual[Mx]]:
+    ) extends RefinedSubtypeExt[Tpe, Bounds[Tpe, Mn, Mx]]:
       self =>
+
+      type ConstraintType = Bounds[Tpe, Mn, Mx]
 
       protected final given integral: Integral[Tpe] = sizeNumeric.integral
 
@@ -175,10 +190,10 @@ object types:
 
       given DiscreteDomain[self.T] with
         def next(v: self.T): self.T =
-          sizeNumeric.addExact(v.value, integral.one).flatMap(option).getOrElse(v)
+          sizeNumeric.addExact(v, integral.one).flatMap(option).getOrElse(v)
 
         def previous(v: self.T): self.T =
-          sizeNumeric.subtractExact(v.value, integral.one).flatMap(option).getOrElse(v)
+          sizeNumeric.subtractExact(v, integral.one).flatMap(option).getOrElse(v)
 
       given Integral[self.T] with
         def fromInt(n: Int): self.T =
@@ -187,60 +202,90 @@ object types:
         def parseString(str: String): Option[self.T] =
           integral.parseString(str).flatMap(option)
 
-        def toInt(n: self.T): Int       = integral.toInt(n.value)
-        def toLong(n: self.T): Long     = integral.toLong(n.value)
-        def toFloat(n: self.T): Float   = integral.toFloat(n.value)
-        def toDouble(n: self.T): Double = integral.toDouble(n.value)
+        def toInt(n: self.T): Int       = integral.toInt(n)
+        def toLong(n: self.T): Long     = integral.toLong(n)
+        def toFloat(n: self.T): Float   = integral.toFloat(n)
+        def toDouble(n: self.T): Double = integral.toDouble(n)
 
         def compare(x: self.T, y: self.T): Int =
-          integral.compare(x.value, y.value)
+          integral.compare(x, y)
 
         def plus(x: self.T, y: self.T): self.T =
-          sizeNumeric.addExact(x.value, y.value).flatMap(option).getOrElse(x)
+          sizeNumeric.addExact(x, y).flatMap(option).getOrElse(x)
 
         def minus(x: self.T, y: self.T): self.T =
-          sizeNumeric.subtractExact(x.value, y.value).flatMap(option).getOrElse(x)
+          sizeNumeric.subtractExact(x, y).flatMap(option).getOrElse(x)
 
         def times(x: self.T, y: self.T): self.T =
-          sizeNumeric.multiplyExact(x.value, y.value).flatMap(option).getOrElse(x)
+          sizeNumeric.multiplyExact(x, y).flatMap(option).getOrElse(x)
 
         def negate(x: self.T): self.T =
-          sizeNumeric.negateExact(x.value).flatMap(option).getOrElse(Zero)
+          sizeNumeric.negateExact(x).flatMap(option).getOrElse(Zero)
 
         def quot(x: self.T, y: self.T): self.T =
-          sizeNumeric.quotient(x.value, y.value).flatMap(option).getOrElse(Zero)
+          sizeNumeric.quotient(x, y).flatMap(option).getOrElse(Zero)
 
         def rem(x: self.T, y: self.T): self.T =
-          sizeNumeric.remainder(x.value, y.value).flatMap(option).getOrElse(Zero)
+          sizeNumeric.remainder(x, y).flatMap(option).getOrElse(Zero)
 
       extension (value: self.T)
 
+        /** Widen a size when Iron can prove that its bounds imply the target constraint. */
+        inline def implied[C](using ConstraintType ==> C): Tpe :| C = value
+
         // increment means add, not multiply
         inline def increment(n: Int :| numeric.GreaterEqual[0]): Either[String, self.T] =
-          refineExact("addition", sizeNumeric.addExact(value.value, integral.fromInt(n)))
+          refineExact("addition", sizeNumeric.addExact(value, integral.fromInt(n)))
 
-        infix def >==(other: self.T): Boolean = integral.gteq(value.value, other.value)
-        infix def <==(other: self.T): Boolean = integral.lteq(value.value, other.value)
-        infix def gt(other: self.T): Boolean  = integral.gt(value.value, other.value)
-        infix def lt(other: self.T): Boolean  = integral.lt(value.value, other.value)
+        infix def >==(other: self.T): Boolean = integral.gteq(value, other)
+        infix def <==(other: self.T): Boolean = integral.lteq(value, other)
+        infix def gt(other: self.T): Boolean  = integral.gt(value, other)
+        infix def lt(other: self.T): Boolean  = integral.lt(value, other)
 
         def next: Option[self.T] =
-          sizeNumeric.addExact(value.value, integral.one).flatMap(option)
+          sizeNumeric.addExact(value, integral.one).flatMap(option)
 
         def previous: Option[self.T] =
-          sizeNumeric.subtractExact(value.value, integral.one).flatMap(option)
+          sizeNumeric.subtractExact(value, integral.one).flatMap(option)
 
         // explicit checked ops (no saturation)
         def checkedAdd(other: self.T): Either[String, self.T] =
-          refineExact("addition", sizeNumeric.addExact(value.value, other.value))
+          refineExact("addition", sizeNumeric.addExact(value, other))
 
         def checkedSub(other: self.T): Either[String, self.T] =
-          refineExact("subtraction", sizeNumeric.subtractExact(value.value, other.value))
+          refineExact("subtraction", sizeNumeric.subtractExact(value, other))
 
         def checkedMul(other: self.T): Either[String, self.T] =
-          refineExact("multiplication", sizeNumeric.multiplyExact(value.value, other.value))
+          refineExact("multiplication", sizeNumeric.multiplyExact(value, other))
 
   end SizeTrait
+
+  /**
+   * Iron proves each numeric bound independently. Lift those proofs across the
+   * conjunction used by every bounded size, so narrower intervals widen
+   * without a runtime check or unchecked cast at call sites.
+   */
+  given boundedIntSizeImplication[
+    SourceMin <: Int,
+    SourceMax <: Int,
+    TargetMin <: Int,
+    TargetMax <: Int,
+  ](
+    using scala.compiletime.ops.int.>=[SourceMin, TargetMin] =:= true,
+    scala.compiletime.ops.int.<=[SourceMax, TargetMax] =:= true,
+  ): (SizeTrait.Bounds[Int, SourceMin, SourceMax] ==> SizeTrait.Bounds[Int, TargetMin, TargetMax]) =
+    Implication()
+
+  given boundedLongSizeImplication[
+    SourceMin <: Long,
+    SourceMax <: Long,
+    TargetMin <: Long,
+    TargetMax <: Long,
+  ](
+    using scala.compiletime.ops.long.>=[SourceMin, TargetMin] =:= true,
+    scala.compiletime.ops.long.<=[SourceMax, TargetMax] =:= true,
+  ): (SizeTrait.Bounds[Long, SourceMin, SourceMax] ==> SizeTrait.Bounds[Long, TargetMin, TargetMax]) =
+    Implication()
 
   trait IntSizeTrait[N <: Int: {Integral, DiscreteDomain}] extends SizeTrait[N]:
     protected given integral: Integral[N]       = summon[Integral[N]]
@@ -277,23 +322,66 @@ object types:
   object SizeSubtype     extends IntSizeTrait[Int]
   object SizeLongSubtype extends LongSizeTrait[Long]
 
-  // Keep this value available for runtime checks.
-  val MaxBlockBytes: Int = 16 * 1024 * 1024 // 16 MiB
+  type ZeroInt = 0
+  final val ZeroInt: ZeroInt = compiletime.constValue[ZeroInt]
+
+  type MinPositiveInt = 1
+  final val MinPositiveInt: MinPositiveInt = compiletime.constValue[MinPositiveInt]
+
+  type ZeroLong = 0L
+  final val ZeroLong: ZeroLong = compiletime.constValue[ZeroLong]
+
+  type MinPositiveLong = 1L
+  final val MinPositiveLong: MinPositiveLong = compiletime.constValue[MinPositiveLong]
+
+  /** Maximum payload represented by one CAS block: 16 MiB. */
+  type MaxBlockBytes = 16777216
+  final val MaxBlockBytes: MaxBlockBytes = compiletime.constValue[MaxBlockBytes]
+
+  /** Maximum content length accepted by the public runtime: 1 TiB. */
+  type MaxContentBytes = 1099511627776L
+  final val MaxContentBytes: MaxContentBytes = compiletime.constValue[MaxContentBytes]
+
+  /** Maximum number of bounded block writes an ingest may execute concurrently. */
+  type MaxBlockWriteParallelism = 64
+  final val MaxBlockWriteParallelism: MaxBlockWriteParallelism = compiletime.constValue[MaxBlockWriteParallelism]
+
+  /** Maximum number of blocks represented by one persisted manifest. */
+  type MaxManifestBlocks = 1048576
+  final val MaxManifestBlocks: MaxManifestBlocks = compiletime.constValue[MaxManifestBlocks]
 
   // Upload chunk size is the upstream chunk boundary used by streaming ingest. It must be positive
   // and must not exceed the maximum block size.
   type UploadChunkSize = UploadChunkSize.T
-  object UploadChunkSize extends SizeTrait.Trait[Int, 1, 16777216, 0, 1] // 16 MiB
+  object UploadChunkSize extends SizeTrait.Trait[Int, MinPositiveInt, MaxBlockBytes, ZeroInt, MinPositiveInt]
 
   type BlockSize = BlockSize.T
-  object BlockSize extends SizeTrait.Trait[Int, 1, 16777216, 0, 1] // 16 MiB
+  object BlockSize extends SizeTrait.Trait[Int, MinPositiveInt, MaxBlockBytes, ZeroInt, MinPositiveInt]
 
-  /** Maximum number of bounded block writes an ingest may execute concurrently. */
   type BlockWriteParallelism = BlockWriteParallelism.T
-  object BlockWriteParallelism extends SizeTrait.Trait[Int, 1, 64, 0, 1]
+  object BlockWriteParallelism extends SizeTrait.Trait[Int, MinPositiveInt, MaxBlockWriteParallelism, ZeroInt, MinPositiveInt]
+
+  /** Zero-capable count used while building a bounded manifest. */
+  type BlockCount = BlockCount.T
+  object BlockCount extends SizeTrait.Trait[Int, ZeroInt, MaxManifestBlocks, ZeroInt, MinPositiveInt]
 
   type FileSize = FileSize.T
-  object FileSize extends SizeTrait.Trait[Long, 1L, 1099511627776L, 0L, 1L] // 1 TiB
+  object FileSize extends SizeTrait.Trait[Long, MinPositiveLong, MaxContentBytes, ZeroLong, MinPositiveLong]
+
+  /**
+   * Byte length encoded into a content key.
+   *
+   * Unlike [[FileSize]], zero is valid for empty chunks, manifest nodes, and
+   * view commitments. Kind-specific constructors still enforce stricter
+   * bounds such as [[BlockSize]] for block keys and [[FileSize]] for blobs.
+   */
+  type ContentLength = ContentLength.T
+  object ContentLength extends SizeTrait.Trait[Long, ZeroLong, MaxContentBytes, ZeroLong, MinPositiveLong]:
+    def fromFileSize(value: FileSize): ContentLength =
+      apply(value.implied[ConstraintType])
+
+    def fromBlockSize(value: BlockSize): Either[String, ContentLength] =
+      either(value.toLong)
 
   type Algo = Algo.T
   object Algo extends RefinedTypeExt[String, AlgoConstraint]
@@ -315,7 +403,10 @@ object types:
 
   // Offsets are 0-based byte positions within a logical blob/manifest.
   type Offset = Offset.T
-  object Offset extends SizeTrait.Trait[Long, 0L, Long.MaxValue.type, 0L, 1L] with IndexLong0
+  object Offset extends SizeTrait.Trait[Long, 0L, Long.MaxValue.type, 0L, 1L] with IndexLong0:
+    /** Checked numeric widening that retains the offset refinement. */
+    def fromBlockSize(value: BlockSize): Either[String, Offset] =
+      either(value.toLong)
 
   /**
    * Blob-wide byte offset (0-based).
@@ -458,7 +549,6 @@ object types:
       case "md5"     =>
         Either.cond(hex.length == Md5HexLength, (), s"md5 requires $Md5HexLength hex chars, got ${hex.length}")
       case "blake3"  =>
-        // decide a policy; safest default is 64 unless you explicitly support variable-length
-        Either.cond(hex.length == Sha256HexLength, (), s"blake3 requires $Sha256HexLength hex chars (policy), got ${hex.length}")
+        Either.cond(hex.length == Sha256HexLength, (), s"blake3 requires $Sha256HexLength hex chars, got ${hex.length}")
       case other     =>
         Left(s"Unknown digest algorithm: $other")

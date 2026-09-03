@@ -112,6 +112,6 @@ final class FsRepairJournal(root: Path) extends RepairJournal:
       digest <- Digest.fromString(fileName.substring(0, separator))
       size   <- fileName.substring(separator + 1).toLongOption.toRight(s"invalid repair record size: $path")
       algo   <- HashAlgo.values.find(_.primaryName.toLowerCase.replace("-", "") == algorithm).toRight(s"invalid repair algorithm: $path")
-      bits   <- KeyBits.create(algo, digest, size)
+      bits   <- KeyBits.fromLong(algo, digest, size)
       block  <- BinaryKey.block(bits)
     yield block

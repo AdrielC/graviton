@@ -121,7 +121,7 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
             failure <- repo.get(result.key).exit
           yield assertTrue(
             failure.isFailure,
-            failure.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("Not a Graviton GVM4 streaming manifest")),
+            failure.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("Not a Graviton GVM5 streaming manifest")),
           )
         }
       },
@@ -147,14 +147,14 @@ object FsBlobManifestRepoSpec extends ZIOSpecDefault:
 
           for
             hasher    <- ZIO.fromEither(Hasher.systemDefault).mapError(new IllegalStateException(_))
-            _          = hasher.update(Array(1.toByte))
+            _          = hasher.update(Chunk.single(1.toByte))
             digest    <- ZIO.fromEither(hasher.digest).mapError(new IllegalArgumentException(_))
             blockBits <- ZIO
-                           .fromEither(KeyBits.create(hasher.algo, digest, 1L))
+                           .fromEither(KeyBits.fromLong(hasher.algo, digest, 1L))
                            .mapError(new IllegalArgumentException(_))
             block     <- ZIO.fromEither(BinaryKey.block(blockBits)).mapError(new IllegalArgumentException(_))
             blobBits  <- ZIO
-                           .fromEither(KeyBits.create(hasher.algo, digest, entryCount.toLong))
+                           .fromEither(KeyBits.fromLong(hasher.algo, digest, entryCount.toLong))
                            .mapError(new IllegalArgumentException(_))
             blob      <- ZIO.fromEither(BinaryKey.blob(blobBits)).mapError(new IllegalArgumentException(_))
             now       <- Clock.instant

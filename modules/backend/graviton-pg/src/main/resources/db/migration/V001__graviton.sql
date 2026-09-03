@@ -357,7 +357,7 @@ CREATE TABLE graviton.tenant_blob (
   manifest_proof_version smallint NULL,
   manifest_chunker varchar(120) NULL,
   manifest_key_id varchar(120) NULL,
-  manifest_digest bytea NULL,
+  manifest_merkle_root bytea NULL,
   manifest_signature bytea NULL,
   PRIMARY KEY (tenant_id, storage_domain_id, alg, hash_bytes, byte_length),
   CONSTRAINT tenant_blob_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
@@ -369,10 +369,10 @@ CREATE TABLE graviton.tenant_blob (
   CONSTRAINT tenant_blob_policy_fk FOREIGN KEY (tenant_id) REFERENCES graviton.tenant_storage_policy(tenant_id),
   CONSTRAINT tenant_blob_manifest_proof_complete CHECK (
     (manifest_proof_version IS NULL AND manifest_chunker IS NULL AND manifest_key_id IS NULL
-      AND manifest_digest IS NULL AND manifest_signature IS NULL)
+      AND manifest_merkle_root IS NULL AND manifest_signature IS NULL)
     OR
-    (manifest_proof_version = 2 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
-      AND octet_length(manifest_digest) = 32 AND octet_length(manifest_signature) = 32)
+    (manifest_proof_version = 3 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
+      AND octet_length(manifest_merkle_root) = 32 AND octet_length(manifest_signature) = 32)
   )
 );
 CREATE INDEX tenant_blob_inventory_idx
@@ -461,7 +461,7 @@ CREATE TABLE graviton.blob (
   manifest_proof_version smallint NULL,
   manifest_chunker varchar(120) NULL,
   manifest_key_id varchar(120) NULL,
-  manifest_digest bytea NULL,
+  manifest_merkle_root bytea NULL,
   manifest_signature bytea NULL,
   PRIMARY KEY (alg, hash_bytes, byte_length),
   CONSTRAINT blob_key_valid CHECK (graviton.is_valid_cas_key(alg, hash_bytes, byte_length)),
@@ -475,10 +475,10 @@ CREATE TABLE graviton.blob (
   ),
   CONSTRAINT blob_manifest_proof_complete CHECK (
     (manifest_proof_version IS NULL AND manifest_chunker IS NULL AND manifest_key_id IS NULL
-      AND manifest_digest IS NULL AND manifest_signature IS NULL)
+      AND manifest_merkle_root IS NULL AND manifest_signature IS NULL)
     OR
-    (manifest_proof_version = 2 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
-      AND octet_length(manifest_digest) = 32 AND octet_length(manifest_signature) = 32)
+    (manifest_proof_version = 3 AND manifest_chunker IS NOT NULL AND manifest_key_id IS NOT NULL
+      AND octet_length(manifest_merkle_root) = 32 AND octet_length(manifest_signature) = 32)
   )
 );
 CREATE INDEX blob_created_idx ON graviton.blob (created_at DESC);

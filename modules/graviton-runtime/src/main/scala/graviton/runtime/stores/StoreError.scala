@@ -3,6 +3,7 @@ package graviton.runtime.stores
 import graviton.core.RefinedTypeExt
 import graviton.core.keys.BinaryKey
 import graviton.core.locator.BlobLocator
+import graviton.core.types.{BlockCount, ContentLength}
 import graviton.runtime.upload.TenantId
 import io.github.iltotore.iron.constraint.collection.{MaxLength, MinLength}
 import zio.Duration
@@ -187,6 +188,17 @@ object StoreError:
     reason: String,
     underlying: Throwable | Null = null,
   ) extends StoreError(operation, reason, underlying):
+    override val retryable: Boolean = false
+
+  final case class ManifestSpoolMismatch(
+    persistedBlockCount: BlockCount,
+    persistedBytes: ContentLength,
+    stagedBlockCount: BlockCount,
+    stagedBytes: ContentLength,
+  ) extends StoreError(
+        StoreOperation.PutManifest,
+        s"Manifest spool mismatch: persisted $persistedBlockCount/$persistedBytes, staged $stagedBlockCount/$stagedBytes",
+      ):
     override val retryable: Boolean = false
 
   final case class CapacityExceeded(

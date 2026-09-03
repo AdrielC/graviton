@@ -40,6 +40,27 @@ record_unexpected \
   'Body\.from(Array|Chunk)'
 
 record_unexpected \
+  "Hashing call sites must pass immutable values instead of materialized arrays" \
+  '(hasher|multi)\.update\([^\n]*\.toArray'
+
+record_unexpected \
+  "Digest must not expose mutable byte arrays" \
+  'def (bytes|byteVector): Array\[Byte\]|type Digestable[^\n]*Array\[Byte\]'
+
+record_unexpected \
+  "Digest array interop must use the named bounded adapter" \
+  'Digest\.fromBytes|\.digest\.(bytes|toArray)' \
+  'modules/graviton-core/src/main/scala/graviton/core/bytes/Digest\.scala'
+
+record_unexpected \
+  "Digest hexadecimal encoding must not materialize an intermediate array" \
+  'ByteVector\([^\n]*toArray[^\n]*\)\.toHex'
+
+record_unexpected \
+  "Production maps must not retain lazy mapValues views" \
+  '\.mapValues\b'
+
+record_unexpected \
   "Shardcake raw arrays are confined to the upstream Serialization ABI adapter" \
   'Array\[Byte\]|new Array\[Byte\]' \
   'modules/integration/graviton-shardcake/src/main/scala/graviton/integration/shardcake/ZioBlocksShardcakeSerialization\.scala' \

@@ -1,9 +1,11 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
+import graviton.core.bytes.{HashAlgo, HashError, Hasher}
+import graviton.core.macros.Interpolators.*
 import graviton.core.types.*
 import graviton.runtime.config.{BlockPersistenceConfig, TransferMemoryConfig, TransferMemoryLimit}
-import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys}
+import graviton.runtime.metrics.{InMemoryMetricsRegistry, MetricKey, MetricKeys, MetricsRegistry}
 import graviton.runtime.model.{BlobWritePlan, BlockWritePlan, CanonicalBlock, IngestProgram, StoredBlock}
 import graviton.runtime.streaming.BlobStreamer
 import graviton.streams.Chunker
@@ -218,6 +220,88 @@ object CasBlobStoreSpec extends ZIOSpecDefault:
               cause.failureOption.exists(_.getMessage.contains("Invalid binary attributes in BlobWritePlan"))
             case Exit.Success(_)     => false
         )
+      },
+      test("verifies an advertised MD5 without using it as the CAS identity") {
+        val data     = Chunk.fromArray("abc".getBytes(StandardCharsets.UTF_8))
+        val md5      = Algo("md5")
+        val expected = hex"900150983cd24fb0d6963f7d28e17f72"
+        val attrs    = BinaryAttributes.empty.advertiseDigest(md5, expected)
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+          result     <- ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = attrs)))
+        yield assertTrue(
+          result.attributes.digest(md5).contains(expected),
+          result.key.bits.algo == graviton.core.bytes.HashAlgo.Sha256,
+        )
+      },
+      test("rejects an advertised MD5 mismatch before publishing a manifest") {
+        val data     = Chunk.fromArray("abc".getBytes(StandardCharsets.UTF_8))
+        val md5      = Algo("md5")
+        val expected = hex"00000000000000000000000000000000"
+        val attrs    = BinaryAttributes.empty.advertiseDigest(md5, expected)
+
+        for
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo)
+          exit       <- ZStream.fromChunk(data).run(blobStore.put(BlobWritePlan(attributes = attrs))).exit
+          manifests  <- repo.keys
+        yield assertTrue(
+          exit.causeOption.flatMap(_.failureOption).exists(_.getMessage.contains("md5 checksum mismatch")),
+          manifests.isEmpty,
+        )
+      },
+      test("records completed-ingest metrics as one concurrent batch") {
+        val expectedMetricWrites = 10
+
+        for
+          started    <- Ref.make(0)
+          allStarted <- Promise.make[Nothing, Unit]
+          release    <- Promise.make[Nothing, Unit]
+          observe     = started.updateAndGet(_ + 1).flatMap { count =>
+                          ZIO.when(count == expectedMetricWrites)(allStarted.succeed(()).ignore) *> release.await
+                        }
+          registry    = new MetricsRegistry:
+                          override def counterBy(name: String, delta: Long, tags: Map[String, String]): UIO[Unit]   = observe
+                          override def gauge(name: String, value: Double, tags: Map[String, String]): UIO[Unit]     = observe
+                          override def histogram(name: String, value: Double, tags: Map[String, String]): UIO[Unit] = observe
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo, metrics = registry)
+          fiber      <- ZStream.fromChunk(Chunk.fill(1024)(1.toByte)).run(blobStore.put()).fork
+          _          <- Live.live(
+                          allStarted.await.timeoutFail(new IllegalStateException("metric writes were not started concurrently"))(5.seconds)
+                        )
+          count      <- started.get
+          _          <- release.succeed(())
+          result     <- fiber.join
+        yield assertTrue(
+          count == expectedMetricWrites,
+          result.stats.totalBytes == 1024L,
+        )
+      },
+      test("refines manifest spool counts and cumulative bytes at the staging boundary") {
+        val validCount    = ManifestSpool.Summary.make(MaxManifestBlocks.toLong, MaxContentBytes)
+        val invalidCount  = ManifestSpool.Summary.make(MaxManifestBlocks.toLong + 1L, 1L)
+        val invalidLength = ManifestSpool.Summary.make(1L, MaxContentBytes + 1L)
+
+        assertTrue(validCount.isRight, invalidCount.isLeft, invalidLength.isLeft)
+      },
+      test("obtains a fresh blob hasher from the injected provider") {
+        for
+          requested  <- Ref.make(Chunk.empty[HashAlgo])
+          provider    = new Hasher.Provider:
+                          override def make(hashAlgo: HashAlgo): IO[HashError, Hasher] =
+                            requested.update(_ :+ hashAlgo) *> ZIO.fromEither(Hasher.make(hashAlgo))
+          blockStore <- InMemoryBlockStore.make
+          repo       <- InMemoryBlobManifestRepo.make
+          blobStore   = new CasBlobStore(blockStore, repo, hasherProvider = provider)
+          _          <- ZStream.fromChunk(Chunk.fill(1024)(1.toByte)).run(blobStore.put())
+          algorithms <- requested.get
+        yield assertTrue(algorithms == Chunk.single(HashAlgo.runtimeDefault))
       },
       test("normalizes a caller-owned large chunk before hashing and chunking") {
         val data    = Chunk.fromArray(Array.tabulate(2 * 1024 * 1024)(index => (index % 251).toByte))

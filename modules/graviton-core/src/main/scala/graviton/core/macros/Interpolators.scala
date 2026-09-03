@@ -16,6 +16,17 @@ import scala.quoted.*
 
 object Interpolators:
 
+  /** Quoted lifting is an implementation detail of the `bin` interpolator. */
+  private given ToExpr[KeyBits] with
+    def apply(value: KeyBits)(using Quotes): Expr[KeyBits] =
+      val canonical = Expr(value.render: String)
+      '{
+        KeyBits.parse($canonical) match
+          case Right(value) => value
+          case Left(error)  =>
+            throw new AssertionError(s"Compiler-emitted content key no longer parses: $error")
+      }
+
   extension (inline sc: StringContext)
     inline def bytes(inline args: Any*): Block =
       ${ bytesBlockImpl('sc, 'args) }
@@ -64,7 +75,7 @@ object Interpolators:
         .asExprOf[List[Hasher.Digestable]]
         .value
         .toSeq
-        .flatMap(i => i.flatMap(i => Hasher.systemDefault.toSeq.map(h => h.update(i).digest))),
+        .flatMap(i => i.flatMap(i => Hasher.systemDefault.toSeq.map(h => h.updateLegacy(i).digest))),
       scExpr.value.toList.flatMap(_.parts),
     ) match
       case Right(bytes) => '{ Block.unsafe(zio.Chunk.fromArray(${ Expr(bytes.getBytes("US-ASCII")) })) }

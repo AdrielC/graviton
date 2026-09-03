@@ -88,7 +88,7 @@ object RegisterIngestPipeline:
         r
       def step(h: Registers, chunk: Chunk[Byte]): (Registers, Chunk[Chunk[Byte]])                       =
         val hasherE = HashLayout.hasher.get(h, RegisterOffset.Zero)
-        hasherE.foreach(_.update(chunk.toArray))
+        hasherE.foreach(_.update(chunk))
         val cur     = HashLayout.hashBytes.get(h, RegisterOffset.Zero)
         HashLayout.hashBytes.set(h, RegisterOffset.Zero, cur + chunk.length.toLong)
         (h, Chunk.single(chunk))
@@ -101,7 +101,7 @@ object RegisterIngestPipeline:
         var idx     = 0
         while idx < chunks.length do
           val c = chunks(idx)
-          hasherE.foreach(_.update(c.toArray))
+          hasherE.foreach(_.update(c))
           total += c.length.toLong
           idx += 1
         HashLayout.hashBytes.set(h, RegisterOffset.Zero, total)

@@ -1,7 +1,7 @@
 package graviton.runtime.stores
 
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.Hasher
+import graviton.core.bytes.{ChecksumVerifier, HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.Block as GBlock
 import graviton.core.scan.FS.toPipeline
@@ -42,11 +42,16 @@ final class CasBlobStore(
   ingestConfig: CasBlobStore.IngestConfig = CasBlobStore.IngestConfig(),
   persistenceConfig: BlockPersistenceConfig = BlockPersistenceConfig.sequential,
   transferBudget: TransferBudget = TransferBudget.unbounded,
+  hasherProvider: Hasher.Provider = Hasher.Provider.default(),
 ) extends BlobStore:
+
+  private val orderedDownloadPrefetch = TransferComponent("ordered-download-prefetch")
+  private val casLocatorScheme        = LocatorScheme("cas")
+  private val manifestLocatorBucket   = LocatorBucket("manifest")
 
   private val downloadPrefetchFootprint =
     TransferFootprint.single(
-      TransferComponent.applyUnsafe("ordered-download-prefetch"),
+      orderedDownloadPrefetch,
       streamerConfig.maximumPrefetchedBytes,
     )
 
@@ -70,6 +75,7 @@ final class CasBlobStore(
     CasBlobStore.IngestConfig(),
     BlockPersistenceConfig.sequential,
     TransferBudget.unbounded,
+    Hasher.Provider.default(),
   )
 
   /** Source-compatible constructor for the bounded-ingest configuration added after 0.4.0. */
@@ -79,7 +85,16 @@ final class CasBlobStore(
     streamerConfig: BlobStreamer.Config,
     metrics: MetricsRegistry,
     ingestConfig: CasBlobStore.IngestConfig,
-  ) = this(blockStore, manifests, streamerConfig, metrics, ingestConfig, BlockPersistenceConfig.sequential, TransferBudget.unbounded)
+  ) = this(
+    blockStore,
+    manifests,
+    streamerConfig,
+    metrics,
+    ingestConfig,
+    BlockPersistenceConfig.sequential,
+    TransferBudget.unbounded,
+    Hasher.Provider.default(),
+  )
 
   /**
    * Pipeline that converts post-chunker Blocks into CanonicalBlocks.
@@ -130,8 +145,12 @@ final class CasBlobStore(
           ZIO
             .fromEither(plan.attributes.validate)
             .mapError(msg => new IllegalArgumentException(s"Invalid binary attributes in BlobWritePlan: $msg"))
-        blobHasher   <- ZIO.fromEither(Hasher.systemDefault).mapError(err => new IllegalStateException(err))
-        totalBytes   <- Ref.make(0L)
+        checksums    <- ZIO
+                          .fromEither(ChecksumVerifier.make(plan.attributes.advertisedDigests))
+                          .mapError(error => new IllegalArgumentException(error.message))
+        blobHasher   <- hasherProvider
+                          .make(HashAlgo.runtimeDefault)
+                          .mapError(error => new IllegalStateException(error.message))
 
         scanDone <- Promise.make[Nothing, Long]
         spool    <- ManifestSpool.scoped
@@ -170,10 +189,11 @@ final class CasBlobStore(
             .fromQueue(blocksQ)
             .flattenTake
             .mapAccumZIO(CasBlobStore.PersistCursor.empty) { (cursor, block) =>
+              val entry = BlockManifestEntry(cursor.index, cursor.offset, block.key, block.size)
               ZIO
-                .fromEither(BlockManifestEntry.make(cursor.index, cursor.offset, block.key, block.size.value))
-                .mapError(message => new IllegalArgumentException(message))
-                .map(entry => cursor.advance(block.size.value) -> CasBlobStore.PreparedBlock(block, entry))
+                .fromEither(cursor.advance(block.size))
+                .mapError(message => StoreError.CorruptData(StoreOperation.PutBlob, message))
+                .map(next => next -> CasBlobStore.PreparedBlock(block, entry))
             }
             .mapZIOPar(
               persistenceConfig.parallelism.value,
@@ -181,10 +201,13 @@ final class CasBlobStore(
             ) { prepared =>
               blockStore
                 .putBlock(prepared.block)
-                .map(stored => CasBlobStore.PersistedBlock(prepared.entry, prepared.block.size.value, stored.status))
+                .map(stored => CasBlobStore.PersistedBlock(prepared.entry, prepared.block.size, stored.status))
             }
             .runFoldZIO(CasBlobStore.PersistAcc.empty) { (acc, persisted) =>
-              spool.append(persisted.entry).as(acc.record(persisted.size, persisted.status))
+              ZIO
+                .fromEither(acc.record(persisted.size, persisted.status))
+                .mapError(message => StoreError.CorruptData(StoreOperation.PutBlob, message))
+                .flatMap(next => spool.append(persisted.entry).as(next))
             }
             .flatMap(acc => ZIO.succeed(acc.summary))
             .sandbox
@@ -207,14 +230,11 @@ final class CasBlobStore(
               bytes
                 .mapChunksZIO { (chunk: Chunk[Byte]) =>
                   for
-                    size <- totalBytes.modify { current =>
-                              val next = java.lang.Math.addExact(current, chunk.length.toLong)
-                              next -> next
-                            }
-                    _    <- ZIO
-                              .fromEither(FileSize.either(size))
-                              .mapError(message => new IllegalArgumentException(s"Blob size limit exceeded: $message"))
-                    _    <- ZIO.attempt(blobHasher.update(chunk))
+                    nextSize <- ZIO.attempt(java.lang.Math.addExact(blobHasher.inputSize, chunk.length.toLong))
+                    _        <- ZIO
+                                  .fromEither(FileSize.either(nextSize))
+                                  .mapError(message => new IllegalArgumentException(s"Blob size limit exceeded: $message"))
+                    _        <- ZIO.attempt(blobHasher.update(chunk))
                   yield chunk
                 }
                 // BlobStore APIs are `Throwable`-typed, so bridge ChunkerCore.Err at the boundary.
@@ -270,37 +290,43 @@ final class CasBlobStore(
           }.forkScoped
       yield ZSink
         .foldLeftChunksZIO[Any, Throwable, Byte, Unit](()) { (_, in) =>
-          CasBlobStore.offerBoundedInput(inputQ, in, ingestConfig.ioChunkBytes.value, failure)
+          ZIO
+            .fromEither(checksums.update(in))
+            .mapError(error => new IllegalStateException(error.message)) *>
+            CasBlobStore.offerBoundedInput(inputQ, in, ingestConfig.ioChunkBytes.value, failure)
         }
         .mapZIO { _ =>
           for
             _ <- CasBlobStore.offerOrFail(inputQ, Take.end, failure)
 
+            // The transfer checksum first becomes knowable at EOF. Validate it
+            // before waiting for queued CAS writes so a mismatch interrupts the
+            // scoped ingest immediately and can never publish a manifest.
+            verifiedChecksums <- ZIO
+                                   .fromEither(checksums.verify)
+                                   .mapError(error => new IllegalArgumentException(error.message))
+
             persisted <- persistDone.await
             staged    <- spool.finish()
             _         <-
               ZIO
-                .fail(
-                  new IllegalStateException(
-                    s"Manifest spool mismatch: persisted ${persisted.blockCount}/${persisted.totalBytes}, staged ${staged.blockCount}/${staged.totalSize}"
-                  )
-                )
+                .fail(StoreError.ManifestSpoolMismatch(persisted.blockCount, persisted.totalBytes, staged.blockCount, staged.totalSize))
                 .unless(
                   persisted.blockCount == staged.blockCount && persisted.totalBytes == staged.totalSize
                 )
 
-            size <- totalBytes.get
-            _    <-
-              ZIO
-                .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
-                .when(size <= 0L)
-
-            digest     <- ZIO.fromEither(blobHasher.digest).mapError(msg => new IllegalArgumentException(msg))
-            bits       <- ZIO
-                            .fromEither(KeyBits.create(blobHasher.algo, digest, size))
+            hashed     <- ZIO.fromEither(blobHasher.hashed).mapError(error => new IllegalArgumentException(error.message))
+            _          <- ZIO
+                            .fail(new IllegalArgumentException("Empty blobs are not supported (size must be > 0)"))
+                            .when(hashed.size.value <= 0L)
+            fileSize   <- ZIO
+                            .fromEither(FileSize.either(hashed.size.value))
                             .mapError(msg => new IllegalArgumentException(msg))
+            bits        = KeyBits.fromHashed(hashed)
             blob       <- ZIO.fromEither(BinaryKey.blob(bits)).mapError(msg => new IllegalArgumentException(msg))
-            fileSize   <- ZIO.fromEither(FileSize.either(size)).mapError(msg => new IllegalArgumentException(msg))
+            algoName   <- ZIO
+                            .fromEither(Algo.either(blobHasher.algo.primaryName))
+                            .mapError(message => new IllegalStateException(s"Invalid runtime hash algorithm: $message"))
             ingestedAt <- Clock.instant
 
             chunkerId <- ZIO
@@ -315,12 +341,15 @@ final class CasBlobStore(
             locator <- plan.locatorHint match
                          case Some(value) => ZIO.succeed(value)
                          case None        =>
-                           // SAFETY: compile-time constants matching their respective constraints
-                           val scheme = LocatorScheme.applyUnsafe("cas")
-                           val bucket = LocatorBucket.applyUnsafe("manifest")
-                           // SAFETY: hex digest is always non-empty, no whitespace
-                           val path   = LocatorPath.applyUnsafe(blob.bits.digest.hex.value)
-                           ZIO.succeed(graviton.core.locator.BlobLocator(scheme, bucket, path))
+                           ZIO
+                             .fromEither(LocatorPath.either(blob.bits.digest.hex.value))
+                             .mapError(message =>
+                               StoreError.CorruptData(
+                                 StoreOperation.PutBlob,
+                                 s"CAS digest could not form a locator path: $message",
+                               )
+                             )
+                             .map(path => graviton.core.locator.BlobLocator(casLocatorScheme, manifestLocatorBucket, path))
 
             scanOutputs    <- scanDone.await
             finishedNanos  <- Clock.nanoTime
@@ -329,31 +358,35 @@ final class CasBlobStore(
             freshBlocks     = persisted.freshBlocks
             dupBlocks       = persisted.duplicateBlocks
 
-            _ <- metrics.gauge(MetricKeys.BytesIngested, size.toDouble, tags)
-            _ <- metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags)
-            _ <- metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags)
-            _ <- metrics.histogram(MetricKeys.UploadDuration, durationSeconds, tags)
-            _ <- metrics.counter(MetricKeys.BlobIngestsTotal, tags)
-            _ <- metrics.counterBy(MetricKeys.BytesIngestedTotal, size, tags)
-            _ <- metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags)
-            _ <- metrics.counterBy(MetricKeys.DuplicateBlocksTotal, dupBlocks.toLong, tags)
-            _ <- metrics.counterBy(MetricKeys.FreshBlockBytesTotal, persisted.freshBlockBytes, tags)
-            _ <- metrics.counterBy(MetricKeys.DuplicateBlockBytesTotal, persisted.duplicateBlockBytes, tags)
+            _ <- ZIO.collectAllParDiscard(
+                   Chunk(
+                     metrics.gauge(MetricKeys.BytesIngested, fileSize.value.toDouble, tags),
+                     metrics.gauge(MetricKeys.BlocksIngested, blockCount.toDouble, tags),
+                     metrics.gauge(MetricKeys.ScanOutputs, scanOutputs.toDouble, tags),
+                     metrics.histogram(MetricKeys.UploadDuration, durationSeconds, tags),
+                     metrics.counter(MetricKeys.BlobIngestsTotal, tags),
+                     metrics.counterBy(MetricKeys.BytesIngestedTotal, fileSize.value, tags),
+                     metrics.counterBy(MetricKeys.FreshBlocksTotal, freshBlocks.toLong, tags),
+                     metrics.counterBy(MetricKeys.DuplicateBlocksTotal, dupBlocks.toLong, tags),
+                     metrics.counterBy(MetricKeys.FreshBlockBytesTotal, persisted.freshBlockBytes, tags),
+                     metrics.counterBy(MetricKeys.DuplicateBlockBytesTotal, persisted.duplicateBlockBytes, tags),
+                   )
+                 )
 
             // Build confirmed attributes from the ingest summary (Phase B.3).
             confirmedAttrs  = {
-              val algoName  = Algo.applyUnsafe(blobHasher.algo.primaryName)
-              val hexDigest = HexLower.applyUnsafe(digest.hex.value)
-              plan.attributes
-                .confirmSize(fileSize)
-                .confirmDigest(algoName, hexDigest)
+              verifiedChecksums
+                .foldLeft(plan.attributes.confirmSize(fileSize)) { case (attributes, (checksumAlgo, checksum)) =>
+                  attributes.confirmDigest(checksumAlgo, checksum)
+                }
+                .confirmDigest(algoName, hashed.hash.bytes.hex)
             }
             validatedAttrs <- ZIO
                                 .fromEither(confirmedAttrs.validate)
                                 .mapError(msg => new IllegalStateException(s"Generated invalid confirmed attributes: $msg"))
 
             ingestStats = graviton.core.attributes.IngestStats(
-                            totalBytes = size,
+                            totalBytes = fileSize.value,
                             blockCount = blockCount,
                             freshBlocks = freshBlocks,
                             duplicateBlocks = dupBlocks,
@@ -545,38 +578,42 @@ object CasBlobStore:
       val maximumBlock = chunker.maximumBlockBytes.toLong
       for
         inputQueue <- TransferFootprint.single(
-                        TransferComponent.applyUnsafe("ingest-input-queue"),
+                        TransferComponent("ingest-input-queue"),
                         inputBufferChunks.toLong * ioChunkBytes.value.toLong,
                       )
         blockQueue <- TransferFootprint.single(
-                        TransferComponent.applyUnsafe("canonical-block-queue"),
+                        TransferComponent("canonical-block-queue"),
                         blockBufferBlocks.toLong * maximumBlock,
                       )
-        chunkerSet <- TransferFootprint.single(TransferComponent.applyUnsafe("chunker-working-set"), maximumBlock)
+        chunkerSet <- TransferFootprint.single(TransferComponent("chunker-working-set"), maximumBlock)
         inFlight   <- TransferFootprint.single(
-                        TransferComponent.applyUnsafe("persistence-in-flight-blocks"),
+                        TransferComponent("persistence-in-flight-blocks"),
                         persistence.parallelism.value.toLong * maximumBlock,
                       )
         backendOne <- BlockTransferFootprint.writeOf(blockStore, chunker.maximumBlockBytes)
         backend    <- backendOne.scaled(
                         persistence.parallelism.value,
-                        TransferComponent.applyUnsafe("parallel-backend-write-buffers"),
+                        TransferComponent("parallel-backend-write-buffers"),
                       )
         scanQueues <- program match
                         case graviton.runtime.model.IngestProgram.UseScan(_, _) =>
                           TransferFootprint
                             .multiply(ioChunkBytes.value.toLong, 2L * math.max(1, scanWindowRefs).toLong)
-                            .flatMap(TransferFootprint.single(TransferComponent.applyUnsafe("scan-broadcast-queues"), _))
+                            .flatMap(TransferFootprint.single(TransferComponent("scan-broadcast-queues"), _))
                         case _                                                  => Right(TransferFootprint.empty)
         total      <- TransferFootprint.combine(Chunk(inputQueue, blockQueue, chunkerSet, inFlight, backend, scanQueues))
       yield total
 
-  private final case class PersistCursor(index: Long, offset: Long):
-    def advance(size: Int): PersistCursor =
-      PersistCursor(index + 1L, java.lang.Math.addExact(offset, size.toLong))
+  private final case class PersistCursor(index: BlockIndex, offset: Offset):
+    def advance(size: BlockSize): Either[String, PersistCursor] =
+      for
+        nextIndex  <- index.next.toRight("Manifest block index overflow")
+        blockBytes <- Offset.fromBlockSize(size)
+        nextOffset <- offset.checkedAdd(blockBytes)
+      yield PersistCursor(nextIndex, nextOffset)
 
   private object PersistCursor:
-    val empty: PersistCursor = PersistCursor(0L, 0L)
+    val empty: PersistCursor = PersistCursor(BlockIndex.Min, Offset.Min)
 
   private final case class PreparedBlock(
     block: CanonicalBlock,
@@ -585,47 +622,58 @@ object CasBlobStore:
 
   private final case class PersistedBlock(
     entry: BlockManifestEntry,
-    size: Int,
+    size: BlockSize,
     status: BlockStoredStatus,
   )
 
   private final case class PersistAcc(
-    index: Long,
-    offset: Long,
-    freshBlocks: Int,
-    duplicateBlocks: Int,
-    freshBlockBytes: Long,
-    duplicateBlockBytes: Long,
+    blockCount: BlockCount,
+    totalBytes: ContentLength,
+    freshBlocks: BlockCount,
+    duplicateBlocks: BlockCount,
+    freshBlockBytes: ContentLength,
+    duplicateBlockBytes: ContentLength,
   ):
-    def record(size: Int, status: BlockStoredStatus): PersistAcc =
-      copy(
-        index = index + 1L,
-        offset = java.lang.Math.addExact(offset, size.toLong),
-        freshBlocks = freshBlocks + (if status == BlockStoredStatus.Fresh then 1 else 0),
-        duplicateBlocks = duplicateBlocks + (if status == BlockStoredStatus.Duplicate then 1 else 0),
-        freshBlockBytes = java.lang.Math.addExact(
-          freshBlockBytes,
-          if status == BlockStoredStatus.Fresh then size.toLong else 0L,
-        ),
-        duplicateBlockBytes = java.lang.Math.addExact(
-          duplicateBlockBytes,
-          if status == BlockStoredStatus.Duplicate then size.toLong else 0L,
-        ),
+    def record(size: BlockSize, status: BlockStoredStatus): Either[String, PersistAcc] =
+      for
+        blockBytes          <- ContentLength.fromBlockSize(size)
+        nextBlockCount      <- blockCount.next.toRight("Manifest block count exceeded its supported maximum")
+        nextTotalBytes      <- totalBytes.checkedAdd(blockBytes)
+        nextFreshBlocks     <-
+          if status == BlockStoredStatus.Fresh then freshBlocks.next.toRight("Fresh block count overflow")
+          else Right(freshBlocks)
+        nextDuplicateBlocks <-
+          if status == BlockStoredStatus.Duplicate then duplicateBlocks.next.toRight("Duplicate block count overflow")
+          else Right(duplicateBlocks)
+        nextFreshBytes      <-
+          if status == BlockStoredStatus.Fresh then freshBlockBytes.checkedAdd(blockBytes)
+          else Right(freshBlockBytes)
+        nextDuplicateBytes  <-
+          if status == BlockStoredStatus.Duplicate then duplicateBlockBytes.checkedAdd(blockBytes)
+          else Right(duplicateBlockBytes)
+      yield PersistAcc(
+        nextBlockCount,
+        nextTotalBytes,
+        nextFreshBlocks,
+        nextDuplicateBlocks,
+        nextFreshBytes,
+        nextDuplicateBytes,
       )
 
     def summary: PersistSummary =
-      PersistSummary(index.toInt, offset, freshBlocks, duplicateBlocks, freshBlockBytes, duplicateBlockBytes)
+      PersistSummary(blockCount, totalBytes, freshBlocks, duplicateBlocks, freshBlockBytes, duplicateBlockBytes)
 
   private object PersistAcc:
-    val empty: PersistAcc = PersistAcc(0L, 0L, 0, 0, 0L, 0L)
+    val empty: PersistAcc =
+      PersistAcc(BlockCount.Min, ContentLength.Min, BlockCount.Min, BlockCount.Min, ContentLength.Min, ContentLength.Min)
 
   private final case class PersistSummary(
-    blockCount: Int,
-    totalBytes: Long,
-    freshBlocks: Int,
-    duplicateBlocks: Int,
-    freshBlockBytes: Long,
-    duplicateBlockBytes: Long,
+    blockCount: BlockCount,
+    totalBytes: ContentLength,
+    freshBlocks: BlockCount,
+    duplicateBlocks: BlockCount,
+    freshBlockBytes: ContentLength,
+    duplicateBlockBytes: ContentLength,
   )
 
   private def offerOrFail[A](

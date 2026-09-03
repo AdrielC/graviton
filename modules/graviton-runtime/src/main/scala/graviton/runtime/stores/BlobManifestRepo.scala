@@ -2,7 +2,7 @@ package graviton.runtime.stores
 
 import graviton.core.keys.BinaryKey
 import graviton.core.manifest.{Manifest, ManifestEntry}
-import graviton.core.types.{BlobOffset, FileSize}
+import graviton.core.types.{BlobOffset, FileSize, MaxManifestBlocks}
 import graviton.runtime.model.{InventoryCursor, InventoryPage, InventoryPageSize}
 import graviton.runtime.streaming.BlobStreamer
 import zio.*
@@ -189,7 +189,7 @@ object BlobManifestRepo:
    * At 1 MiB minimum blocks this covers the public 1 TiB blob limit while
    * keeping all counters and on-disk formats within `Int` indexing.
    */
-  val MaxEntries: Int             = 1024 * 1024
+  val MaxEntries: Int             = MaxManifestBlocks
   val MaxMaterializedEntries: Int = 16384
 
   def validateStreamArguments(

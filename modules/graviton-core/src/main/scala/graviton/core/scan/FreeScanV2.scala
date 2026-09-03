@@ -137,7 +137,7 @@ object FS:
     fold[Chunk[Byte], Either[String, Digest], Either[String, Hasher]](
       Hasher.hasher(algo, None)
     ) { (hasher, chunk) =>
-      hasher.foreach(_.update(chunk.toArray))
+      hasher.foreach(_.update(chunk))
       (hasher, Chunk.empty)
     }(hasher => Chunk(hasher.flatMap(h => h.digest)))
 

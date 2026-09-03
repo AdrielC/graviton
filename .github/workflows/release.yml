@@ -165,6 +165,9 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           artifacts=(
+            graviton-bytes_3
+            graviton-bytes_sjs1_3
+            graviton-bytes_native0.5_3
             graviton-core_3
             graviton-streams_3
             graviton-shared_3

@@ -132,7 +132,7 @@ final class PgBlobManifestRepo private (
               val ingestedAtOpt =
                 try
                   blobPs.setString(1, blobAlg)
-                  blobPs.setBytes(2, blob.bits.digest.bytes)
+                  blobPs.setBytes(2, blob.bits.digest.toInteropArray)
                   blobPs.setLong(3, blob.bits.size)
                   val blobRs = blobPs.executeQuery()
                   try
@@ -166,7 +166,7 @@ final class PgBlobManifestRepo private (
                   )
                   try
                     blockPs.setString(1, blobAlg)
-                    blockPs.setBytes(2, blob.bits.digest.bytes)
+                    blockPs.setBytes(2, blob.bits.digest.toInteropArray)
                     blockPs.setLong(3, blob.bits.size)
                     val blockRs = blockPs.executeQuery()
                     try
@@ -183,8 +183,8 @@ final class PgBlobManifestRepo private (
                         val length      = blockRs.getLong(5)
 
                         val blockAlg = PgStoreError.corruptOption("block hash algorithm", parseDbAlg(blockAlgStr))
-                        val digest   = PgStoreError.corruptValue("block digest", Digest.fromBytes(blockHash))
-                        val bits     = PgStoreError.corruptValue("block key bits", KeyBits.create(blockAlg, digest, blockLen))
+                        val digest   = PgStoreError.corruptValue("block digest", Digest.fromArrayCopy(blockHash))
+                        val bits     = PgStoreError.corruptValue("block key bits", KeyBits.fromLong(blockAlg, digest, blockLen))
                         val key      = PgStoreError.corruptValue("block key", BinaryKey.block(bits))
 
                         val start = BlobOffset.unsafe(offset)
@@ -226,7 +226,7 @@ final class PgBlobManifestRepo private (
             )
             try
               ps.setString(1, blobAlg)
-              ps.setBytes(2, blob.bits.digest.bytes)
+              ps.setBytes(2, blob.bits.digest.toInteropArray)
               ps.setLong(3, blob.bits.size)
               val rs = ps.executeQuery()
               try
@@ -261,7 +261,7 @@ final class PgBlobManifestRepo private (
             )
             try
               statement.setString(1, algorithm)
-              statement.setBytes(2, blob.bits.digest.bytes)
+              statement.setBytes(2, blob.bits.digest.toInteropArray)
               statement.setLong(3, blob.bits.size)
               val rows = statement.executeQuery()
               try
@@ -289,7 +289,7 @@ final class PgBlobManifestRepo private (
                   after.fold[Either[String, Option[BinaryKey.Blob]]](Right(None))(cursor =>
                     InventoryCursor
                       .decode(cursor, InventoryNamespace.PostgreSql)
-                      .flatMap(KeyBits.fromString)
+                      .flatMap(KeyBits.parse)
                       .flatMap(BinaryKey.blob)
                       .map(Some(_))
                   )
@@ -432,13 +432,13 @@ final class PgBlobManifestRepo private (
           try
             val statement = connection.prepareStatement(
               """SELECT byte_length, block_count, manifest_proof_version, manifest_chunker,
-                |       manifest_key_id, manifest_digest, manifest_signature, metadata::text
+                |       manifest_key_id, manifest_merkle_root, manifest_signature, metadata::text
                 |FROM graviton.blob
                 |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
             )
             try
               statement.setString(1, algorithm)
-              statement.setBytes(2, blob.bits.digest.bytes)
+              statement.setBytes(2, blob.bits.digest.toInteropArray)
               statement.setLong(3, blob.bits.size)
               val rows = statement.executeQuery()
               try
@@ -475,7 +475,7 @@ final class PgBlobManifestRepo private (
         val statement = connection.prepareStatement(
           """UPDATE graviton.blob SET
             |  manifest_proof_version = ?, manifest_chunker = ?, manifest_key_id = ?,
-            |  manifest_digest = ?, manifest_signature = ?
+            |  manifest_merkle_root = ?, manifest_signature = ?
             |WHERE alg = ?::core.hash_alg AND hash_bytes = ? AND byte_length = ?""".stripMargin
         )
         try
@@ -486,10 +486,10 @@ final class PgBlobManifestRepo private (
               statement.setInt(1, value.version)
               statement.setString(2, chunker.value)
               statement.setString(3, value.keyId.value)
-              statement.setBytes(4, value.canonicalDigest.toArray)
+              statement.setBytes(4, value.merkleRoot.toArray)
               statement.setBytes(5, value.signature.toArray)
           statement.setString(6, algorithm)
-          statement.setBytes(7, blob.bits.digest.bytes)
+          statement.setBytes(7, blob.bits.digest.toInteropArray)
           statement.setLong(8, blob.bits.size)
           if statement.executeUpdate() != 1 then throw new IllegalStateException("manifest proof row disappeared")
         finally statement.close()
@@ -561,7 +561,7 @@ final class PgBlobManifestRepo private (
       )
       try
         statement.setString(1, blobAlg)
-        statement.setBytes(2, blob.bits.digest.bytes)
+        statement.setBytes(2, blob.bits.digest.toInteropArray)
         statement.setLong(3, blob.bits.size)
         statement.executeUpdate()
       finally statement.close()
@@ -581,7 +581,7 @@ final class PgBlobManifestRepo private (
             try
               ps.setFetchSize(256)
               ps.setString(1, blobAlg)
-              ps.setBytes(2, blob.bits.digest.bytes)
+              ps.setBytes(2, blob.bits.digest.toInteropArray)
               ps.setLong(3, blob.bits.size)
               val rs = ps.executeQuery()
               Cursor(conn, ps, rs)
@@ -615,7 +615,7 @@ final class PgBlobManifestRepo private (
             try
               ps.setFetchSize(256)
               ps.setString(1, blobAlg)
-              ps.setBytes(2, blob.bits.digest.bytes)
+              ps.setBytes(2, blob.bits.digest.toInteropArray)
               ps.setLong(3, blob.bits.size)
               ps.setLong(4, start.value)
               ps.setLong(5, endExclusive)
@@ -651,8 +651,8 @@ final class PgBlobManifestRepo private (
       blockAlg    <- ZIO
                        .fromOption(parseDbAlg(blockAlgStr))
                        .mapError(_ => PgStoreError.CorruptStoredData(s"unsupported stored block hash algorithm '$blockAlgStr'"))
-      digest      <- ZIO.fromEither(Digest.fromBytes(blockHash)).mapError(PgStoreError.CorruptStoredData(_))
-      bits        <- ZIO.fromEither(KeyBits.create(blockAlg, digest, blockLen)).mapError(PgStoreError.CorruptStoredData(_))
+      digest      <- ZIO.fromEither(Digest.fromArrayCopy(blockHash)).mapError(PgStoreError.CorruptStoredData(_))
+      bits        <- ZIO.fromEither(KeyBits.fromLong(blockAlg, digest, blockLen)).mapError(PgStoreError.CorruptStoredData(_))
       key         <- ZIO.fromEither(BinaryKey.block(bits)).mapError(PgStoreError.CorruptStoredData(_))
     yield BlobStreamer.BlockRef(ordinal, key)
 
@@ -682,9 +682,12 @@ final class PgBlobManifestRepo private (
     val blockCount    = rs.getInt(4)
     val createdAt     = Option(rs.getTimestamp(5)).map(_.toInstant).getOrElse(Instant.EPOCH)
     val algorithm     = PgStoreError.corruptOption("blob hash algorithm", parseDbAlg(algorithmText))
-    val digest        = PgStoreError.corruptValue("blob digest", Digest.fromBytes(digestBytes))
+    val digest        = PgStoreError.corruptValue("blob digest", Digest.fromArrayCopy(digestBytes))
     val size          = PgStoreError.corruptValue("blob byte length", FileSize.either(byteLength))
-    val bits          = PgStoreError.corruptValue("blob key bits", KeyBits.create(algorithm, digest, size.value))
+    val bits          = PgStoreError.corruptValue(
+      "blob key bits",
+      KeyBits.fromClaimed(algorithm, digest, graviton.core.types.ContentLength.fromFileSize(size)),
+    )
     val blob          = PgStoreError.corruptValue("blob key", BinaryKey.blob(bits))
     if blockCount < 1 || blockCount > BlobManifestRepo.MaxEntries then
       throw PgStoreError.CorruptStoredData(s"manifest block count $blockCount is outside 1..${BlobManifestRepo.MaxEntries}")
@@ -719,7 +722,7 @@ final class PgBlobManifestRepo private (
                    val ps = conn.prepareStatement(sql)
                    try
                      ps.setString(1, blobAlg)
-                     ps.setBytes(2, blob.bits.digest.bytes)
+                     ps.setBytes(2, blob.bits.digest.toInteropArray)
                      ps.setLong(3, blob.bits.size)
                      ps.setInt(4, blockCount)
                      ps.setTimestamp(5, java.sql.Timestamp.from(ingestedAt))
@@ -799,16 +802,16 @@ final class PgBlobManifestRepo private (
                               val blockAlg = toDbAlg(block.bits.algo)
                                 .fold(message => throw new IllegalArgumentException(message), identity)
                               statements.blocks.setString(1, blockAlg)
-                              statements.blocks.setBytes(2, block.bits.digest.bytes)
+                              statements.blocks.setBytes(2, block.bits.digest.toInteropArray)
                               statements.blocks.setLong(3, block.bits.size)
                               statements.blocks.addBatch()
 
                               statements.entries.setString(1, blobAlg)
-                              statements.entries.setBytes(2, blob.bits.digest.bytes)
+                              statements.entries.setBytes(2, blob.bits.digest.toInteropArray)
                               statements.entries.setLong(3, blob.bits.size)
                               statements.entries.setInt(4, state.count)
                               statements.entries.setString(5, blockAlg)
-                              statements.entries.setBytes(6, block.bits.digest.bytes)
+                              statements.entries.setBytes(6, block.bits.digest.toInteropArray)
                               statements.entries.setLong(7, block.bits.size)
                               statements.entries.setLong(8, start)
                               statements.entries.setLong(9, length)

@@ -108,8 +108,8 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         ZIO.fromEither:
           for
             digest   <- Digest.make(runtimeHashAlgo)(digest)
-            keyBits1 <- KeyBits.create(runtimeHashAlgo, digest, 10L)
-            keyBits2 <- KeyBits.create(runtimeHashAlgo, digest, 5L)
+            keyBits1 <- KeyBits.fromLong(runtimeHashAlgo, digest, 10L)
+            keyBits2 <- KeyBits.fromLong(runtimeHashAlgo, digest, 5L)
             blobKey1 <- BinaryKey.blob(keyBits1)
             blobKey2 <- BinaryKey.blob(keyBits2)
             entry1    = ManifestEntry(
@@ -141,7 +141,7 @@ object FreeScanV2Spec extends ZIOSpecDefault:
         val expected =
           for
             hasher <- Hasher.hasher(runtimeHashAlgo, None)
-            _       = hasher.update("hi".getBytes(StandardCharsets.UTF_8))
+            _       = hasher.update("hi")
             digest <- hasher.digest
           yield digest
 

@@ -30,7 +30,7 @@ object S3BlockStoreSpec extends ZIOSpecDefault:
           block   <- canonical("one-request-fresh-block")
           stored  <- store.putBlock(block)
           request  = calls.request.get()
-          expected = Base64.getEncoder.encodeToString(block.key.bits.digest.bytes)
+          expected = Base64.getEncoder.encodeToString(block.key.bits.digest.toInteropArray)
         yield assertTrue(
           stored.status == BlockStoredStatus.Fresh,
           calls.put.get() == 1,

@@ -1,22 +1,42 @@
 package graviton.core.bytes
 
 import java.security.{MessageDigest, Provider => JProvider}
-import zio.{Chunk, ZIO, ZLayer}
+import zio.{Chunk, IO, ZIO, ZLayer}
 import zio.stream.{ZPipeline, ZSink}
-import java.nio.charset.StandardCharsets
 import scala.util.Try
 import scodec.bits.ByteVector
 import graviton.core.keys.KeyBits
 import java.util.concurrent.atomic.AtomicLong
+import scala.annotation.targetName
 
 trait Hasher:
   def algo: HashAlgo
   def inputSize: Long
-  def update(chunk: Hasher.Digestable): Hasher
+  @targetName("updateHashable")
+  final def update[A: Hashable](value: A): Hasher =
+    Hashable[A].input(value).foreachSegment { segment =>
+      val _ = updateChunk(segment.bytes)
+    }
+    this
+
+  private[bytes] def updateChunk(chunk: Chunk[Byte]): Hasher =
+    updateLegacy(chunk)
+
+  @targetName("update")
+  def updateLegacy(value: Hasher.Digestable): Hasher
+
+  def hash: Either[HashError, Hash]            =
+    digest.left
+      .map(detail => HashError.AlgorithmUnavailable(algo, detail))
+      .flatMap(HashBytes.fromDigest)
+      .flatMap(Hash.make(algo, _))
+  def hashed: Either[HashError, HashedContent] =
+    val observedSize = inputSize
+    hash.flatMap(HashedContent.fromObserved(_, observedSize))
   def digest: Either[String, Digest]
-  def digestKeyBits: Either[String, KeyBits] =
-    digest.flatMap(d => KeyBits.create(algo, d, inputSize))
-  def result: Either[String, Digest]         = digest
+  def digestKeyBits: Either[String, KeyBits]   =
+    hashed.map(KeyBits.fromHashed).left.map(_.message)
+  def result: Either[String, Digest]           = digest
   def reset: Unit
 
 private[graviton] final class HasherImpl(
@@ -26,67 +46,82 @@ private[graviton] final class HasherImpl(
 ) extends Hasher:
   self: HasherImpl =>
 
-  override def inputSize: Long                          = _inputSize.get()
-  override def reset: Unit                              =
+  override def inputSize: Long = _inputSize.get()
+  override def reset: Unit     = self.synchronized {
     md.reset()
     _inputSize.set(0L)
-  override def update(chunk: Hasher.Digestable): Hasher =
-    chunk match
-      case chunk: Chunk[Byte] =>
-        val arr = chunk.toArray
-        _inputSize.addAndGet(arr.length.toLong)
-        md.update(arr)
-        self
-      case chunk: Array[Byte] =>
-        val arr = chunk
-        _inputSize.addAndGet(arr.length.toLong)
-        md.update(arr)
-      case chunk: ByteVector  =>
-        val arr = chunk.toArray
-        _inputSize.addAndGet(arr.length.toLong)
-        md.update(arr)
-      case s: String          =>
-        val arr = s.getBytes(StandardCharsets.UTF_8)
-        _inputSize.addAndGet(arr.length.toLong)
-        md.update(arr)
+  }
+
+  @targetName("update")
+  override def updateLegacy(value: Hasher.Digestable): Hasher =
+    value match
+      case chunk: Chunk[Byte] => update(chunk)
+      case bytes: ByteVector  => update(bytes)
+      case string: String     => update(string)
+
+  override private[bytes] def updateChunk(chunk: Chunk[Byte]): Hasher = self.synchronized {
+    _inputSize.addAndGet(chunk.length.toLong)
+    // MessageDigest is the private JDK interop boundary. Arrays never escape it.
+    md.update(chunk.toArray)
     self
+  }
+
+  override def hash: Either[HashError, Hash] =
+    hashed.map(_.hash)
+
+  override def hashed: Either[HashError, HashedContent] = self.synchronized {
+    val observedSize = _inputSize.getAndSet(0L)
+    Hash
+      .fromJdkBytes(algo, md.digest())
+      .flatMap(HashedContent.fromObserved(_, observedSize))
+  }
 
   override def digest: Either[String, Digest] =
-    Digest.fromBytes(md.digest)
+    hash.map(_.bytes).left.map(_.message)
 
 object Hasher:
 
-  type Digestable = ByteVector | Chunk[Byte] | Array[Byte] | String
+  type Digestable = ByteVector | Chunk[Byte] | String
 
   import scala.quoted.*
 
   given ToExpr[Digestable]   = new ToExpr[Digestable] {
     def apply(value: Digestable)(using Quotes): Expr[Digestable] = value match
-      case chunk: Chunk[Byte]     => '{ zio.Chunk.fromArray(${ Expr(chunk.toArray) }) }
-      case array: Array[Byte]     => '{ zio.Chunk.fromArray(${ Expr(array) }) }
-      case byteVector: ByteVector => '{ zio.Chunk.fromArray(${ Expr(byteVector.toArray) }) }
-      case string: String         => '{ zio.Chunk.fromArray(${ Expr(string.getBytes(StandardCharsets.UTF_8)) }) }
+      case chunk: Chunk[Byte]     =>
+        val bytes = Expr.ofSeq(chunk.map(Expr(_)))
+        '{ zio.Chunk.fromIterable($bytes) }
+      case byteVector: ByteVector =>
+        val bytes = Expr.ofSeq(byteVector.toIterable.map(Expr(_)).toSeq)
+        '{ zio.Chunk.fromIterable($bytes) }
+      case string: String         => Expr(string)
   }
   given FromExpr[Digestable] = new FromExpr[Digestable] {
     def unapply(value: Expr[Digestable])(using Quotes): Option[Digestable] = value match
       case '{ ${ Expr(chunk: Chunk[Byte]) } }     => Some(chunk)
-      case '{ ${ Expr(array: Array[Byte]) } }     => Some(array)
       case '{ ${ Expr(byteVector: ByteVector) } } => Some(byteVector)
       case '{ ${ Expr(string: String) } }         => Some(string)
       case _                                      => None
   }
 
   trait Provider:
-    def getInstance(hashAlgo: HashAlgo): Either[String, Hasher]
+    def make(hashAlgo: HashAlgo): IO[HashError, Hasher]
 
   object Provider:
 
+    def make(hashAlgo: HashAlgo): ZIO[Provider, HashError, Hasher] =
+      ZIO.serviceWithZIO[Provider](_.make(hashAlgo))
+
     def default(provider: Option[JProvider] = None): Provider = new Provider {
-      override def getInstance(hashAlgo: HashAlgo): Either[String, Hasher] =
-        instantiate(hashAlgo.primaryName, provider)
+      override def make(hashAlgo: HashAlgo): IO[HashError, Hasher] =
+        ZIO
+          .fromEither(instantiate(hashAlgo.primaryName, provider))
           .map(new HasherImpl(hashAlgo, _, new AtomicLong(0L)))
-          .left
-          .map(err => Option(err).map(_.getMessage).getOrElse("Unknown error"))
+          .mapError(error =>
+            HashError.AlgorithmUnavailable(
+              hashAlgo,
+              Option(error.getMessage).getOrElse(error.getClass.getName),
+            )
+          )
     }
 
     val layer: ZLayer[Any, Nothing, Provider] =
@@ -104,11 +139,13 @@ object Hasher:
     Hasher.hasher(HashAlgo.runtimeDefault, None)
 
   def hasher(algo: HashAlgo, provider: Option[JProvider] = None): Either[String, Hasher] =
-    Provider
-      .default(provider)
-      .getInstance(algo)
+    instantiate(algo.primaryName, provider)
+      .map(new HasherImpl(algo, _, new AtomicLong(0L)))
       .left
-      .map(err => Option(err).map(_.toString).getOrElse("Unknown error"))
+      .map(error => Option(error.getMessage).getOrElse(error.getClass.getName))
+
+  def make(algo: HashAlgo, provider: Option[JProvider] = None): Either[HashError, Hasher] =
+    hasher(algo, provider).left.map(HashError.AlgorithmUnavailable(algo, _))
 
   def unsafeMessageDigest(algo: HashAlgo, provider: Option[JProvider] = None): MessageDigest =
     instantiate(algo.primaryName, provider)
@@ -118,15 +155,14 @@ object Hasher:
     hasher match
       case Some(h) =>
         ZSink
-          .foldLeft((h, 0L)) { (acc, byte: Byte) =>
-            val (h, size) = acc
-            val _         = h.update(Array(byte))
-            (h, size + 1)
+          .foldLeftChunks(h) { (hasher: Hasher, bytes: Chunk[Byte]) =>
+            hasher.update(bytes)
           }
-          .mapZIO(acc =>
+          .mapZIO(hasher =>
             ZIO.fromEither(
-              acc._1.digest
-                .flatMap(d => KeyBits.create(acc._1.algo, d, acc._2))
+              hasher.hashed.left
+                .map(_.message)
+                .map(KeyBits.fromHashed)
                 .left
                 .map(err => IllegalArgumentException(Option(err).getOrElse("Unknown error")))
             )

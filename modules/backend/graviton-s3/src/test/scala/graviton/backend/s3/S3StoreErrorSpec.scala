@@ -42,6 +42,6 @@ object S3StoreErrorSpec extends ZIOSpecDefault:
     S3StoreError.fromThrowable(StoreOperation.PutBlock)(S3Exception.builder().statusCode(status).build())
 
   private def testKey: BinaryKey.Block =
-    val digest = Digest.fromBytes(Array.fill[Byte](32)(1)).toOption.get
-    val bits   = KeyBits.create(HashAlgo.Sha256, digest, 1L).toOption.get
+    val digest = Digest.fromChunk(zio.Chunk.fill(32)(1.toByte)).toOption.get
+    val bits   = KeyBits.fromLong(HashAlgo.Sha256, digest, 1L).toOption.get
     BinaryKey.block(bits).toOption.get
