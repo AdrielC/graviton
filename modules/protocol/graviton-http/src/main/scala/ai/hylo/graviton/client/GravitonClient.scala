@@ -6,10 +6,10 @@ import graviton.streams.BoundedByteStream
 import graviton.runtime.upload.{UploadHttpHeaders, UploadSessionKey}
 import io.github.iltotore.iron.*
 import io.github.iltotore.iron.constraint.all.*
-import zio.*
-import zio.blocks.mediatype.MediaType as BlocksMediaType
-import zio.http.*
-import zio.stream.ZStream
+import _root_.zio.*
+import _root_.zio.blocks.mediatype.MediaType as BlocksMediaType
+import _root_.zio.http.*
+import _root_.zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets
 
