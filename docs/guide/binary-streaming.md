@@ -45,7 +45,7 @@ sequenceDiagram
 <!-- snippet:binary-streaming-ingest:start -->
 ```scala
 import graviton.core.attributes.BinaryAttributes
-import graviton.core.bytes.Hasher
+import graviton.core.bytes.{HashAlgo, Hasher}
 import graviton.core.keys.{BinaryKey, KeyBits}
 import graviton.core.model.Block
 import graviton.core.model.Block.*
@@ -56,34 +56,31 @@ import graviton.streams.Chunker
 import zio._
 import zio.stream._
 
-extension [E, A](either: Either[E, A])
-  def toTask(using E <:< String): Task[A] = ZIO.fromEither(either.left.map(msg => new IllegalArgumentException(msg)))
-
 final case class Ingest(blockStore: BlockStore):
 
-  private def canonicalBlock(block: Block, attrs: BinaryAttributes): Either[String, CanonicalBlock] =
+  private def canonicalBlock(block: Block, attrs: BinaryAttributes): ZIO[Hasher.Provider, String, CanonicalBlock] =
     for
-      hasher     <- Hasher.systemDefault
+      hasher     <- Hasher.Provider.make(HashAlgo.runtimeDefault).mapError(_.message)
       _           = hasher.update(block.bytes)
-      hashed     <- hasher.hashed.left.map(_.message)
+      hashed     <- ZIO.fromEither(hasher.hashed.left.map(_.message))
       bits        = KeyBits.fromHashed(hashed)
-      key        <- BinaryKey.block(bits)
-      chunkCount <- ChunkCount.either(1L)
-      size       <- FileSize.either(block.length.toLong)
+      key        <- ZIO.fromEither(BinaryKey.block(bits))
+      chunkCount <- ZIO.fromEither(ChunkCount.either(1L))
+      size       <- ZIO.fromEither(FileSize.either(block.length.toLong))
       confirmed   = attrs
                       .confirmSize(size)
                       .confirmChunkCount(chunkCount)
-      canonical  <- CanonicalBlock.make(key, block.bytes, confirmed)
+      canonical  <- ZIO.fromEither(CanonicalBlock.make(key, block.bytes, confirmed))
     yield canonical
 
-  def run(bytes: ZStream[Any, Throwable, Byte]): Task[BlockBatchResult] =
+  def run(bytes: ZStream[Any, Throwable, Byte]): ZIO[Hasher.Provider, Throwable, BlockBatchResult] =
     val attrs     = BinaryAttributes.empty
     val sink      = blockStore.putBlocks()
     val chunkSize = UploadChunkSize(1 * 1024 * 1024) // compile-time refined
 
     for result <- bytes
                     .via(Chunker.fixed(chunkSize).pipeline.mapError(Chunker.toThrowable))
-                    .mapZIO(block => canonicalBlock(block, attrs).toTask)
+                    .mapZIO(block => canonicalBlock(block, attrs).mapError(new IllegalArgumentException(_)))
                     .run(sink)
     yield result
 ```
